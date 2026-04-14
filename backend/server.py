@@ -419,37 +419,54 @@ IMPORTANT RULES:
             raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
     
     # Image-based PDF — get page count reliably using pdf2image/poppler
-    logger.info("CAS PDF is image-based, processing in page batches")
+    logger.info(f"CAS PDF is image-based, processing in page batches (password={'yes' if password else 'no'})")
     try:
         from pdf2image import pdfinfo_from_bytes
         from PyPDF2 import PdfReader as PdfReader2, PdfWriter
         
-        # Use poppler (pdfinfo) for reliable page count — never fails on valid PDFs
+        # Use poppler (pdfinfo) for reliable page count — pass password if available
         try:
-            info = pdfinfo_from_bytes(content)
+            pdfinfo_kwargs = {}
+            if password:
+                pdfinfo_kwargs["userpw"] = password
+            info = pdfinfo_from_bytes(content, **pdfinfo_kwargs)
             total_pages = info.get("Pages", 0)
             logger.info(f"pdf2image detected {total_pages} pages")
-        except Exception:
+        except Exception as e:
+            logger.warning(f"pdfinfo failed: {e}")
             total_pages = 0
         
-        # Fallback: try PyPDF2 again with strict=False
+        # Fallback: try PyPDF2 with strict=False and decrypt
         if total_pages == 0:
             try:
                 fallback_reader = PdfReader2(io.BytesIO(content), strict=False)
+                if fallback_reader.is_encrypted and password:
+                    fallback_reader.decrypt(password)
                 total_pages = len(fallback_reader.pages)
                 logger.info(f"PyPDF2 strict=False detected {total_pages} pages")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"PyPDF2 fallback failed: {e}")
         
         if total_pages == 0:
-            raise HTTPException(status_code=400, detail="Could not read PDF. The file may be corrupt or password-protected.")
+            detail = "Could not read PDF."
+            if password:
+                detail += " The password may be incorrect."
+            else:
+                detail += " The file may be password-protected — please provide the password."
+            raise HTTPException(status_code=400, detail=detail)
         
         all_holdings = []
         
-        # Re-read with strict=False for page extraction
+        # Re-read with strict=False and decrypt for page extraction
+        pdf_reader = None
         try:
             pdf_reader = PdfReader2(io.BytesIO(content), strict=False)
-        except Exception:
+            if pdf_reader.is_encrypted and password:
+                pdf_reader.decrypt(password)
+            # Test if we can actually access pages after decryption
+            _ = len(pdf_reader.pages)
+        except Exception as e:
+            logger.warning(f"PyPDF2 reader init failed: {e}")
             pdf_reader = None
         
         # Process in batches of 3 pages
@@ -475,7 +492,10 @@ IMPORTANT RULES:
                     from pdf2image import convert_from_bytes
                     from PIL import Image
                     
-                    images = convert_from_bytes(content, first_page=start_idx+1, last_page=end_idx, dpi=150)
+                    convert_kwargs = {"first_page": start_idx+1, "last_page": end_idx, "dpi": 150}
+                    if password:
+                        convert_kwargs["userpw"] = password
+                    images = convert_from_bytes(content, **convert_kwargs)
                     if images:
                         # Convert images back to a PDF
                         img_buf = io.BytesIO()
@@ -618,6 +638,7 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
 async def _process_cas_background(content: bytes, user_id: str, task_id: str, portfolio_id: str = "", password: str = ""):
     """Background task for CAS PDF processing."""
     try:
+        logger.info(f"Background CAS task {task_id}: password={'provided' if password else 'none'}, size={len(content)}")
         await db.upload_tasks.update_one(
             {"task_id": task_id},
             {"$set": {"status": "processing", "message": "Parsing CAS PDF with AI..."}}
@@ -716,7 +737,7 @@ async def upload_portfolio_raw(request: Request):
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
     
-    logger.info(f"Raw upload received: {len(content)} bytes, filename: {filename}")
+    logger.info(f"Raw upload received: {len(content)} bytes, filename: {filename}, password={'yes' if pdf_password else 'no'}, portfolio: {portfolio_id}")
     
     if filename.endswith(".pdf"):
         task_id = f"task_{uuid.uuid4().hex[:12]}"
