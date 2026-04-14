@@ -1086,11 +1086,20 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
     return (
       <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
         <CardContent className="p-12 text-center">
-          <RefreshCw className="w-8 h-8 text-emerald-600 mx-auto mb-4 animate-spin" />
+          <div className="relative w-16 h-16 mx-auto mb-4">
+            <div className="w-16 h-16 border-3 border-emerald-100 dark:border-emerald-900/30 rounded-full" />
+            <div className="absolute inset-0 w-16 h-16 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          </div>
           <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
             Fetching Benchmark Data...
           </h3>
-          <p className="text-sm text-slate-500">Loading 1-year historical NAVs from AMFI for each mutual fund. This may take 15-30 seconds.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Fetching 1-year historical NAVs from AMFI for each mutual fund.</p>
+          <div className="max-w-xs mx-auto">
+            <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-500 animate-pulse" style={{ width: "60%", transition: "width 2s ease" }} />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2">Processing up to 30 funds — typically takes 10-20 seconds</p>
+          </div>
         </CardContent>
       </Card>
     );

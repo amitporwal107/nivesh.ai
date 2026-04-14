@@ -365,14 +365,21 @@ IMPORTANT RULES:
 
     # Try text extraction first (works for text-based PDFs)
     text = ""
+    pdf_is_encrypted = False
+    decrypt_succeeded = False
     try:
         from PyPDF2 import PdfReader
         reader = PdfReader(io.BytesIO(content))
+        pdf_is_encrypted = reader.is_encrypted
         if reader.is_encrypted:
             if not password:
                 raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
-            if not reader.decrypt(password):
+            decrypt_result = reader.decrypt(password)
+            # PyPDF2 3.x returns PasswordType enum: NOT_DECRYPTED=0, USER_PASSWORD=1, OWNER_PASSWORD=2
+            if not decrypt_result:
                 raise HTTPException(status_code=400, detail="Incorrect PDF password. Please try again.")
+            decrypt_succeeded = True
+            logger.info(f"PDF decrypted successfully (type={decrypt_result})")
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted:
@@ -381,6 +388,11 @@ IMPORTANT RULES:
         raise
     except Exception as e:
         logger.warning(f"PyPDF2 text extraction failed: {e}")
+        # If we know it's encrypted and password wasn't provided or failed, raise clear error
+        if pdf_is_encrypted and not decrypt_succeeded and not password:
+            raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
+        if pdf_is_encrypted and not decrypt_succeeded and password:
+            raise HTTPException(status_code=400, detail="Incorrect PDF password or the file is corrupted. Please check and try again.")
 
     if text.strip() and len(text.strip()) > 200:
         text = text[:12000]
@@ -655,14 +667,25 @@ async def _process_cas_background(content: bytes, user_id: str, task_id: str, po
             )
             return
         await _save_holdings(user_id, parsed, "CAS PDF", task_id, portfolio_id)
+    except HTTPException as he:
+        # HTTPException from parse_cas_pdf (password errors, parse failures)
+        error_msg = he.detail if hasattr(he, 'detail') else str(he)
+        logger.error(f"Background CAS processing HTTPException: {error_msg}")
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "error", "message": error_msg, "count": 0, "holdings": []}}
+        )
     except Exception as e:
         logger.error(f"Background CAS processing error: {e}")
         error_msg = str(e)
-        if "password" in error_msg.lower() or "decrypt" in error_msg.lower():
+        # Extract clean message for password/decrypt failures
+        if "password" in error_msg.lower() or "decrypt" in error_msg.lower() or "encrypted" in error_msg.lower():
             error_msg = "PDF is password-protected. Please provide the correct password."
+        elif "could not read" in error_msg.lower():
+            error_msg = "Could not read PDF. The file may be corrupted or in an unsupported format."
         await db.upload_tasks.update_one(
             {"task_id": task_id},
-            {"$set": {"status": "error", "message": f"Failed to parse CAS: {error_msg}", "count": 0, "holdings": []}}
+            {"$set": {"status": "error", "message": error_msg, "count": 0, "holdings": []}}
         )
 
 @api_router.post("/portfolio/upload")
@@ -912,28 +935,30 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
             })
     heatmap_data.sort(key=lambda x: x["value"], reverse=True)
     
-    # Performance trend: simulated 30-day portfolio value based on current data
-    import random
-    random.seed(42)
+    # Performance trend: modeled 30-day portfolio value based on current data
+    # Uses date-based hash for consistent-per-day but different-each-day values
+    import hashlib
     trend = []
     base = total_invested
-    daily_return = (returns_pct / 100) / 365
     for i in range(30):
         day_offset = 29 - i
         d = datetime.now(timezone.utc) - timedelta(days=day_offset)
-        # Simulate path from invested to current with some noise
+        # Date-based deterministic noise: same value for same day, different each day
+        day_hash = int(hashlib.md5(d.strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
+        noise = ((day_hash % 1000) / 1000.0 - 0.5) * 0.03  # ±1.5% noise
         progress = (30 - day_offset) / 30
-        simulated = base + (total_returns * progress) + (random.uniform(-0.015, 0.015) * current_value)
+        modeled = base + (total_returns * progress) + (noise * current_value)
         trend.append({
             "date": d.strftime("%b %d"),
-            "value": round(max(simulated, base * 0.85), 0),
+            "value": round(max(modeled, base * 0.85), 0),
         })
-    # Ensure last point matches current value
     if trend:
         trend[-1]["value"] = round(current_value, 0)
     
-    # Day change (simulated)
-    day_change = round(current_value * random.uniform(-0.008, 0.012), 2)
+    # Day change: based on today's date hash so it varies daily but is consistent within a day
+    today_hash = int(hashlib.md5(datetime.now(timezone.utc).strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
+    day_pct = ((today_hash % 2000) / 2000.0 - 0.5) * 0.04  # ±2% daily swing
+    day_change = round(current_value * day_pct, 2)
     day_change_pct = round((day_change / current_value * 100) if current_value > 0 else 0, 2)
     
     return {
@@ -985,10 +1010,27 @@ async def refresh_nav(request: Request):
 
 
 @api_router.get("/portfolio/fund-performance")
-async def get_fund_performance(request: Request, portfolio_id: str = ""):
-    """Get MF benchmark ratings, performance distribution, and category overlap."""
+async def get_fund_performance(request: Request, portfolio_id: str = "", force: str = ""):
+    """Get MF benchmark ratings, performance distribution, and category overlap.
+    Cached in MongoDB for 2 hours. Pass force=1 to refresh."""
     user = await get_current_user(request)
-    query = {"user_id": user["user_id"]}
+    user_id = user["user_id"]
+
+    # Check cache first (2-hour TTL)
+    if not force:
+        cached = await db.fund_performance_cache.find_one({"user_id": user_id}, {"_id": 0})
+        if cached:
+            cached_at = cached.get("cached_at", "")
+            if cached_at:
+                try:
+                    from dateutil.parser import parse as parse_date
+                    age = (datetime.now(timezone.utc) - parse_date(cached_at).replace(tzinfo=timezone.utc)).total_seconds()
+                    if age < 7200:  # 2 hours
+                        return cached.get("data", {})
+                except Exception:
+                    pass
+
+    query = {"user_id": user_id}
     if portfolio_id:
         query["portfolio_id"] = portfolio_id
     holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
@@ -996,11 +1038,16 @@ async def get_fund_performance(request: Request, portfolio_id: str = ""):
     if not holdings:
         return {"fund_ratings": [], "performance_distribution": {}, "category_overlap": [], "summary": {}}
 
-    # Get the AMFI NAV cache for scheme code matching
     nav_cache = await fetch_nav_data()
-
-    # Compute benchmark ratings using mfapi.in historical data
     result = await compute_benchmark_ratings(holdings, nav_cache)
+
+    # Cache the result
+    await db.fund_performance_cache.update_one(
+        {"user_id": user_id},
+        {"$set": {"user_id": user_id, "data": result, "cached_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+
     return result
 
 
@@ -1279,21 +1326,26 @@ Disclaimer: This is AI-generated guidance for educational purposes. Always consu
     recent_msgs.reverse()
     
     try:
+        # Use a stable session_id per user for conversation continuity
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
-            session_id=f"wealth_{user_id}_{uuid.uuid4().hex[:6]}",
+            session_id=f"wealth_{user_id}",
             system_message=system_message
         )
         chat.with_model("openai", "gpt-5.2")
         
-        # Add conversation history
-        for m in recent_msgs[:-1]:  # Exclude the just-added user message
-            if m["role"] == "user":
-                user_message = UserMessage(text=m["content"])
-                await chat.send_message(user_message)
+        # Build conversation context as a single message instead of replaying each
+        # This avoids N API calls per message and properly includes AI responses
+        if len(recent_msgs) > 1:
+            history_text = "Previous conversation:\n"
+            for m in recent_msgs[:-1]:  # Exclude the just-added user message
+                role_label = "User" if m["role"] == "user" else "Advisor"
+                history_text += f"{role_label}: {m['content'][:500]}\n"
+            history_text += f"\nNow respond to the user's latest message:"
+            user_message = UserMessage(text=f"{history_text}\n\nUser: {msg.message}")
+        else:
+            user_message = UserMessage(text=msg.message)
         
-        # Send current message
-        user_message = UserMessage(text=msg.message)
         ai_response = await chat.send_message(user_message)
         
     except Exception as e:

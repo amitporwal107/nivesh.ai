@@ -172,7 +172,10 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
         const task = statusRes.data;
         if (task.status === "completed") {
           clearInterval(pollInterval); setUploadResult(task); setUploading(false);
-          toast.success(task.message || `${task.count} holdings imported`); onRefresh();
+          toast.success(task.message || `${task.count} holdings imported`);
+          onRefresh();
+          // Auto-close dialog after 2 seconds
+          setTimeout(() => { setShowUploadDialog(false); setUploadResult(null); setUploadPassword(""); }, 2000);
         } else if (task.status === "error") {
           clearInterval(pollInterval); setUploadResult({ message: task.message, status: "error" }); setUploading(false);
           toast.error(task.message);
@@ -200,7 +203,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
         res = await axios.post(`${API}/portfolio/upload`, form, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 30000 });
       }
       if (res.data.task_id && res.data.status === "processing") { startPolling(res.data.task_id); }
-      else { setUploadResult(res.data); toast.success(res.data.message); setUploading(false); onRefresh(); }
+      else { setUploadResult(res.data); toast.success(res.data.message); setUploading(false); onRefresh(); setTimeout(() => { setShowUploadDialog(false); setUploadResult(null); setUploadPassword(""); }, 2000); }
     } catch (err) {
       if (isPdf && (!err.response || err.code === "ECONNABORTED")) {
         toast.info("Checking processing status...");

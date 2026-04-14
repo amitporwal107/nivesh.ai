@@ -74,16 +74,16 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-10 bg-white rounded-xl w-64 animate-pulse" />
+        <div className="h-10 bg-white dark:bg-slate-800 rounded-xl w-64 animate-pulse" />
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-slate-100 p-5 h-28 animate-pulse">
-              <div className="h-3 bg-slate-100 rounded w-20 mb-3" />
-              <div className="h-7 bg-slate-100 rounded w-28" />
+            <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-5 h-28 animate-pulse">
+              <div className="h-3 bg-slate-100 dark:bg-slate-700 rounded w-20 mb-3" />
+              <div className="h-7 bg-slate-100 dark:bg-slate-700 rounded w-28" />
             </div>
           ))}
         </div>
-        <div className="bg-white rounded-2xl border border-slate-100 h-72 animate-pulse" />
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 h-72 animate-pulse" />
       </div>
     );
   }
@@ -95,16 +95,16 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       <div data-testid="empty-dashboard">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>Welcome to nivesh.ai</h1>
-            <p className="text-sm text-slate-500 mt-1">Start by adding your holdings to get AI-powered insights.</p>
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>Welcome to nivesh.ai</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Start by adding your holdings to get AI-powered insights.</p>
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
-          <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-12 text-center">
+          <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Wallet className="w-8 h-8 text-emerald-600" strokeWidth={1.5} />
           </div>
-          <h2 className="text-xl font-medium text-slate-900 mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings yet</h2>
-          <p className="text-sm text-slate-500 mb-6">Add your stocks, mutual funds, and other investments to get started.</p>
+          <h2 className="text-xl font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings yet</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Add your stocks, mutual funds, and other investments to get started.</p>
         </div>
       </div>
     );
@@ -119,7 +119,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       {/* ─── HEADER ─── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
             Portfolio Overview
           </h1>
           <div className="flex items-center gap-2 mt-1">
@@ -154,12 +154,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           { label: "Risk Score", value: analytics.risk_label, sub: `${analytics.risk_score}/100`, icon: AlertTriangle, color: analytics.risk_score < 30 ? "text-emerald-600" : analytics.risk_score < 60 ? "text-amber-500" : "text-red-500", testid: "risk-score", bar: analytics.risk_score },
         ].map((kpi, i) => (
           <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-            <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300 h-full">
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 dark:hover:border-slate-600 transition-all duration-300 h-full">
               <CardContent className="p-5">
                 <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{kpi.label}</p>
                 <div className="flex items-center gap-1.5">
                   {kpi.icon && <kpi.icon className={`w-4 h-4 ${kpi.color}`} strokeWidth={1.5} />}
-                  <p className={`text-xl font-semibold ${kpi.color || "text-slate-900"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={kpi.testid}>
+                  <p className={`text-xl font-semibold ${kpi.color || "text-slate-900 dark:text-white"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={kpi.testid}>
                     {kpi.value}
                   </p>
                 </div>
@@ -268,10 +268,10 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       {/* ─── PERFORMANCE TREND (FULL WIDTH LINE CHART) ─── */}
       {analytics.performance_trend?.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="performance-trend-chart">
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="performance-trend-chart">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-medium text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   Portfolio Performance
                 </h3>
                 <span className="text-xs text-slate-400 font-medium">Last 30 days</span>
@@ -304,7 +304,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       {/* ─── ASSET ALLOCATION (DONUT) | SECTOR EXPOSURE (BAR) ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
             <CardContent className="p-6 md:p-8">
               <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Asset Allocation</h3>
               <p className="text-[10px] text-slate-400 mb-5">Click a segment to view details</p>
@@ -351,7 +351,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
             <CardContent className="p-6 md:p-8">
               <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
               <p className="text-[10px] text-slate-400 mb-5">Click a bar to view holdings</p>
@@ -387,7 +387,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       {/* ─── STOCK HEATMAP (FULL WIDTH TREEMAP) ─── */}
       {analytics.heatmap_data?.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="stock-heatmap">
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="stock-heatmap">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -453,10 +453,10 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
 
       {/* ─── AI INSIGHTS + RECOMMENDATIONS ─── */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.44 }}>
-        <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="insights-preview">
+        <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="insights-preview">
           <CardContent className="p-6 md:p-8">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 <Sparkles className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
                 AI Insights & Recommendations
               </h3>
@@ -507,9 +507,9 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {analytics.top_gainers?.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-              <Card className="bg-white border-slate-100 rounded-2xl shadow-none">
+              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
                 <CardContent className="p-6">
-                  <h3 className="text-base font-medium text-slate-900 mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     <TrendingUp className="w-4 h-4 text-emerald-600" /> Top Gainers
                   </h3>
                   <div className="space-y-2.5">
@@ -533,9 +533,9 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           )}
           {analytics.top_losers?.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.54 }}>
-              <Card className="bg-white border-slate-100 rounded-2xl shadow-none">
+              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
                 <CardContent className="p-6">
-                  <h3 className="text-base font-medium text-slate-900 mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     <TrendingDown className="w-4 h-4 text-red-500" /> Top Losers
                   </h3>
                   <div className="space-y-2.5">

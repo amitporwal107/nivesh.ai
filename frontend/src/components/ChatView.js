@@ -83,17 +83,17 @@ const ChatView = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
             AI Financial Advisor
           </h1>
-          <p className="text-sm text-slate-500 mt-1">Ask anything about your investments</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Ask anything about your investments</p>
         </div>
         {messages.length > 0 && (
           <Button
             data-testid="clear-chat-button"
             variant="outline"
             onClick={handleClear}
-            className="rounded-xl border-slate-200 text-slate-500 hover:text-red-500 hover:border-red-200"
+            className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:border-red-200"
           >
             <Trash2 className="w-4 h-4 mr-2" strokeWidth={1.5} />
             Clear
@@ -102,7 +102,7 @@ const ChatView = () => {
       </div>
 
       {/* Messages */}
-      <Card className="flex-1 bg-white border-slate-100 rounded-2xl shadow-none overflow-hidden flex flex-col">
+      <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
         <ScrollArea className="flex-1 p-6">
           {loadingMessages ? (
             <div className="flex items-center justify-center h-full">
@@ -110,13 +110,13 @@ const ChatView = () => {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center py-16">
-              <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6">
+              <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-6">
                 <Bot className="w-7 h-7 text-emerald-600" strokeWidth={1.5} />
               </div>
-              <h3 className="text-lg font-medium text-slate-900 mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 Your AI Financial Advisor
               </h3>
-              <p className="text-sm text-slate-500 mb-8 max-w-md">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 max-w-md">
                 I can analyze your portfolio, suggest investment strategies, help with tax planning, and answer any financial question.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
@@ -125,7 +125,7 @@ const ChatView = () => {
                     key={q}
                     data-testid={`suggested-question-${q.slice(0, 10).replace(/\s/g, '-').toLowerCase()}`}
                     onClick={() => { setInput(q); inputRef.current?.focus(); }}
-                    className="text-left text-sm text-slate-600 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 p-3 rounded-xl border border-slate-100 hover:border-emerald-200 transition-all duration-200"
+                    className="text-left text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-700 dark:hover:text-emerald-400 p-3 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all duration-200"
                   >
                     {q}
                   </button>
@@ -144,7 +144,7 @@ const ChatView = () => {
                     className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     {msg.role === "assistant" && (
-                      <div className="w-8 h-8 bg-emerald-50 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
+                      <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
                         <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
                       </div>
                     )}
@@ -167,7 +167,7 @@ const ChatView = () => {
               </AnimatePresence>
               {sending && (
                 <div className="flex gap-3 justify-start">
-                  <div className="w-8 h-8 bg-emerald-50 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
+                  <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
                     <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
                   </div>
                   <div className="chat-ai-bubble px-4 py-3 flex items-center gap-1">
@@ -183,7 +183,7 @@ const ChatView = () => {
         </ScrollArea>
 
         {/* Input */}
-        <CardContent className="p-4 border-t border-slate-100">
+        <CardContent className="p-4 border-t border-slate-100 dark:border-slate-800">
           <form onSubmit={handleSend} className="flex items-center gap-3">
             <input
               ref={inputRef}
@@ -192,7 +192,7 @@ const ChatView = () => {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask about your investments..."
               disabled={sending}
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+              className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
             />
             <Button
               data-testid="send-message-button"
@@ -203,7 +203,7 @@ const ChatView = () => {
               <Send className="w-4 h-4" strokeWidth={2} />
             </Button>
           </form>
-          <p className="text-[10px] text-slate-400 mt-2 text-center">
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
             AI-generated guidance for educational purposes. Consult a SEBI-registered advisor for investment decisions.
           </p>
         </CardContent>
