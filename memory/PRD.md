@@ -1,117 +1,56 @@
 # nivesh.ai — Product Requirements Document
 
 ## Problem Statement
-Build an AI-powered autonomous financial advisor (Agentic Wealth System) for Indian retail investors. Focus on Indian market (NSE/BSE, MFs), portfolio upload/parsing, unified dashboard, actionable insights, and AI chat interface. Clean Kuvera-inspired theme (white, emerald green, generous spacing).
-
-## User Persona
-Indian retail investors managing multiple investments across stocks, mutual funds, ETFs, bonds, gold, and FDs. Families managing portfolios for multiple members.
-
-## Core Requirements
-- Google OAuth authentication
-- Multi-format portfolio upload (CAS PDF, CSV, Excel) with password protection
-- Family portfolio management
-- Interactive dashboard with drill-down charts
-- AI-powered insights and recommendations
-- Live market data integration (AMFI NAV + mfapi.in)
-- Chat interface with portfolio-aware AI
+Build an AI-powered autonomous financial advisor for Indian retail investors. Focus on Indian market (NSE/BSE, MFs), portfolio upload/parsing, unified dashboard, actionable insights, and AI chat interface.
 
 ## Tech Stack
-- **Frontend:** React, Tailwind CSS, Recharts, Shadcn UI, Framer Motion
+- **Frontend:** React 18, Tailwind CSS, Recharts, Shadcn UI, Framer Motion
 - **Backend:** FastAPI, Motor/MongoDB, PyPDF2, pdf2image/poppler
 - **AI:** GPT-5.2 via emergentintegrations (Emergent LLM Key)
 - **Auth:** Emergent Managed Google OAuth
-- **Market Data:** AMFI India NAV API (portal.amfiindia.com), mfapi.in (historical NAV)
-
-## Architecture
-```
-/app/backend/
-├── server.py (Thin route layer)
-├── models.py (Pydantic models, enums)
-├── repository.py (MongoDB operations)
-├── middleware.py (Rate limiting, CORS)
-├── instruments_data.py (Static instrument DB)
-└── services/
-    ├── __init__.py (Health score, risk analysis, recommendations)
-    ├── ai_engine.py (GPT-5.2 integration)
-    ├── amfi_nav.py (AMFI NAV scraper - 31K+ schemes)
-    └── fund_performance.py (Benchmark ratings via mfapi.in)
-
-/app/frontend/src/
-├── components/
-│   ├── DashboardOverview.js, PortfolioView.js, FamilyView.js
-│   ├── InsightsView.js (5-tab: AI Overview, Benchmark, Overexposure, Fund Overlap, Performance)
-│   ├── ChatView.js, Sidebar.js, DrilldownModal.js
-│   └── ui/ (Shadcn components)
-├── context/ (Auth, Theme, NumberFormat)
-└── pages/ (Landing, Dashboard, AuthCallback)
-```
+- **Market Data:** AMFI India NAV (portal.amfiindia.com), mfapi.in (historical NAV)
 
 ## What's Been Implemented
 
-### Phase 1 — Core (DONE)
-- [x] Google OAuth via Emergent Auth
-- [x] CAS PDF parsing (text + image-based) with password support
-- [x] CSV and Excel portfolio upload
-- [x] Raw binary upload endpoint (bypasses K8s 30s timeout)
-- [x] Family portfolio management
-- [x] Asset categorization (equity, MF, ETF, bond, gold, FD)
-- [x] Instrument autocomplete search
-- [x] Dark/Light mode toggle
-
-### Phase 2 — Dashboard & Analytics (DONE)
-- [x] KPI cards (invested, current, returns, day change, risk)
-- [x] Interactive Treemap heatmap with drill-down
-- [x] Asset allocation donut chart with click-through
-- [x] Sector exposure horizontal bar chart
-- [x] Performance trend area chart (30-day)
-- [x] Top gainers/losers lists
-- [x] Lakh/Crore number format toggle
-
-### Phase 3 — Product Intelligence (DONE)
-- [x] Composite Health Score (diversification, risk, cost, performance)
-- [x] Risk Analysis with warnings
-- [x] Smart recommendations (Regular→Direct, dead positions, allocation)
-- [x] AI-generated insights with Priority Matrix
-- [x] Action Funnel, Before/After impact, Problem distribution, Risk gauge
+### Phase 1-3 — Core, Dashboard, Intelligence (DONE)
+- Google OAuth, CAS PDF/CSV/Excel upload, family portfolios, dark/light mode
+- KPI cards, Treemap heatmap, asset allocation, sector exposure, performance trend
+- Health Score (A+ to F), Risk Analysis, Smart Recommendations, AI Insights
 
 ### Phase 4 — Live Data & Visual Insights (DONE - Feb 2026)
-- [x] AMFI Live NAV integration (31K+ schemes, auto-updates MF prices)
-- [x] Fund House / AMC Overexposure visualization
-- [x] Sector Concentration visualization
-- [x] Fund Overlap Matrix (programmatic overlap)
-- [x] Performance Cards (sortable table with P&L, weight, CAGR, LIVE NAV badges)
-- [x] 5-tab InsightsView
+- AMFI Live NAV (31K+ schemes), Overexposure, Fund Overlap, Performance Cards
+- 5-tab InsightsView (AI Overview, Benchmark, Overexposure, Fund Overlap, Performance)
 
 ### Phase 5 — MF Benchmark Analysis (DONE - Feb 2026)
-- [x] **MF Benchmark Rating** — Each MF rated as Overperforming / Meeting / Underperforming using 1Y historical NAV from mfapi.in vs category-average benchmark
-- [x] **MF Performance Pie Chart** — Donut showing distribution of outperforming/meeting/underperforming funds
-- [x] **Best & Worst Performers** — Top 3 and bottom 3 funds by 1Y return
-- [x] **Category Overlap Bar Graph** — Fund count per sector with amber (overlapping) vs green (unique) color coding
-- [x] **Fund-by-Fund Benchmark Comparison** — Rating badges, 1Y return vs benchmark, alpha value, visual comparison bars
+- MF Benchmark Rating (Outperforming/Meeting/Underperforming) via mfapi.in 1Y data
+- Performance Pie Chart, Best/Worst Performers, Category Overlap Bar Graph
+- Fund-by-Fund Benchmark Comparison with alpha values
+
+### Bug Fix Sprint — 10 Issues Fixed (DONE - Feb 2026)
+1. CAS Password Unlock — HTTPException now caught separately in background task, clear error messages
+2. AI Chat Multi-Turn — Stable session_id per user, builds context as single message (not N API calls)
+3. ChatView Dark Mode — Full dark: class coverage (13 classes), dark chat bubble styling
+4. DashboardOverview Dark Mode — All cards/headings/skeletons (54 dark: classes)
+5. Day Change & Performance Trend — Date-hash-based variation (not fixed seed), changes daily
+6. Landing Page Dark Mode — Complete rewrite (20 dark: classes)
+7. Benchmark Tab Loading — Progress bar, time estimate, animated spinner
+8. Fund Performance Caching — MongoDB cache with 2-hour TTL, force=1 to refresh
+9. Chat Token Optimization — Conversation context as single message, not replayed individually
+10. Upload Dialog Auto-Close — Closes 2 seconds after successful upload
 
 ### AI Chat (DONE)
-- [x] Portfolio-aware AI chat with GPT-5.2
-- [x] Conversation history
-- [x] Clear chat functionality
+- Portfolio-aware GPT-5.2 chat with proper multi-turn context
 
 ## Key API Endpoints
-- `POST /api/auth/session` — Exchange Google OAuth session
-- `POST /api/portfolio/upload-raw` — Binary upload (CAS PDF bypass)
-- `GET /api/portfolio/analytics` — Full analytics with AMFI NAV updates
-- `GET /api/portfolio/deep-analytics` — Overexposure, overlap, performance cards
-- `GET /api/portfolio/fund-performance` — MF benchmark ratings via mfapi.in
-- `POST /api/nav/refresh` — Manual AMFI NAV refresh
-- `POST /api/insights/generate` — AI-powered portfolio analysis
+- `POST /api/portfolio/upload-raw` — Binary CAS PDF upload (bypasses K8s timeout)
+- `GET /api/portfolio/analytics` — Full analytics with live AMFI NAV
+- `GET /api/portfolio/deep-analytics` — Overexposure, overlap, performance
+- `GET /api/portfolio/fund-performance` — MF benchmark ratings (cached 2hrs)
+- `POST /api/insights/generate` — AI-powered analysis
 - `POST /api/chat/send` — AI chat with portfolio context
 
 ## Remaining Backlog
-
-### P1 — Next Up
-- [ ] Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs
-- [ ] Free Indian market API for historical stock prices (for equity holdings)
-
-### P2 — Future
-- [ ] Agentic AI execution and scenario simulation
-- [ ] Tax loss harvesting suggestions
-- [ ] SIP tracking and recommendations
-- [ ] Portfolio disclosure integration for real company-level overlap (AMFI data)
+- P1: Goal-based planning module (Retirement, Child Education)
+- P1: Historical stock price API for equity holdings
+- P2: Agentic AI execution and scenario simulation
+- P2: Portfolio disclosure integration for real company-level overlap
