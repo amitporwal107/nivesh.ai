@@ -215,36 +215,204 @@ async def delete_holding(request: Request, holding_id: str):
         raise HTTPException(status_code=404, detail="Holding not found")
     return {"message": "Holding deleted"}
 
-@api_router.post("/portfolio/upload-csv")
-async def upload_csv(request: Request, file: UploadFile = File(...)):
-    user = await get_current_user(request)
-    content = await file.read()
-    text = content.decode("utf-8")
+async def parse_csv_holdings(content: bytes) -> list:
+    """Parse CSV/Excel files into holding rows."""
+    holdings = []
+    # Try UTF-8, then latin-1
+    for encoding in ["utf-8", "latin-1", "cp1252"]:
+        try:
+            text = content.decode(encoding)
+            break
+        except (UnicodeDecodeError, Exception):
+            continue
+    else:
+        raise HTTPException(status_code=400, detail="Could not decode file. Please use UTF-8 encoding.")
     
     reader = csv.DictReader(io.StringIO(text))
-    holdings_added = []
-    
     for row in reader:
-        name = row.get("name") or row.get("Name") or row.get("STOCK") or row.get("stock") or ""
+        name = row.get("name") or row.get("Name") or row.get("STOCK") or row.get("stock") or row.get("Scheme Name") or row.get("scheme_name") or row.get("Fund") or ""
+        if not name.strip():
+            continue
+        holdings.append({
+            "name": name.strip(),
+            "ticker": (row.get("ticker") or row.get("Ticker") or row.get("SYMBOL") or row.get("symbol") or row.get("ISIN") or "").strip(),
+            "asset_type": (row.get("asset_type") or row.get("Type") or row.get("type") or row.get("Asset Type") or "equity").strip().lower(),
+            "quantity": float(row.get("quantity") or row.get("Quantity") or row.get("QTY") or row.get("qty") or row.get("Units") or row.get("units") or row.get("Balance Units") or 0),
+            "buy_price": float(row.get("buy_price") or row.get("Buy Price") or row.get("avg_price") or row.get("cost") or row.get("Avg. Cost") or row.get("NAV") or 0),
+            "current_price": float(row.get("current_price") or row.get("Current Price") or row.get("ltp") or row.get("cmp") or row.get("Current NAV") or row.get("Market Value") or 0),
+            "sector": (row.get("sector") or row.get("Sector") or "Other").strip(),
+            "buy_date": (row.get("buy_date") or row.get("Buy Date") or row.get("date") or row.get("Date") or "").strip(),
+        })
+    return holdings
+
+async def parse_excel_holdings(content: bytes) -> list:
+    """Parse Excel (.xlsx) files into holding rows."""
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    
+    headers = [str(h).strip().lower() if h else "" for h in rows[0]]
+    holdings = []
+    
+    def col(names):
+        for n in names:
+            if n.lower() in headers:
+                return headers.index(n.lower())
+        return None
+    
+    name_i = col(["name", "scheme name", "fund", "stock", "scheme"])
+    qty_i = col(["quantity", "qty", "units", "balance units"])
+    buy_i = col(["buy price", "buy_price", "avg price", "avg. cost", "nav", "cost"])
+    cur_i = col(["current price", "current_price", "ltp", "cmp", "current nav", "market value"])
+    type_i = col(["asset_type", "type", "asset type"])
+    sector_i = col(["sector"])
+    ticker_i = col(["ticker", "symbol", "isin"])
+    date_i = col(["buy_date", "buy date", "date"])
+    
+    for row in rows[1:]:
+        if not row or name_i is None or name_i >= len(row) or not row[name_i]:
+            continue
+        name = str(row[name_i]).strip()
         if not name:
             continue
+        holdings.append({
+            "name": name,
+            "ticker": str(row[ticker_i]).strip() if ticker_i is not None and ticker_i < len(row) and row[ticker_i] else "",
+            "asset_type": str(row[type_i]).strip().lower() if type_i is not None and type_i < len(row) and row[type_i] else "equity",
+            "quantity": float(row[qty_i]) if qty_i is not None and qty_i < len(row) and row[qty_i] else 0,
+            "buy_price": float(row[buy_i]) if buy_i is not None and buy_i < len(row) and row[buy_i] else 0,
+            "current_price": float(row[cur_i]) if cur_i is not None and cur_i < len(row) and row[cur_i] else 0,
+            "sector": str(row[sector_i]).strip() if sector_i is not None and sector_i < len(row) and row[sector_i] else "Other",
+            "buy_date": str(row[date_i]).strip() if date_i is not None and date_i < len(row) and row[date_i] else "",
+        })
+    wb.close()
+    return holdings
+
+async def parse_cas_pdf(content: bytes) -> list:
+    """Parse CAS (Consolidated Account Statement) PDF using AI."""
+    from PyPDF2 import PdfReader
+    
+    reader = PdfReader(io.BytesIO(content))
+    text = ""
+    for page in reader.pages:
+        extracted = page.extract_text()
+        if extracted:
+            text += extracted + "\n"
+    
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from PDF. The file may be scanned/image-based.")
+    
+    # Truncate to fit token limits
+    text = text[:8000]
+    
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"cas_parse_{uuid.uuid4().hex[:8]}",
+            system_message="""You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
+Extract all investment holdings from the CAS text provided.
+
+Return ONLY a valid JSON array. Each object must have:
+- "name": scheme/fund name (string)
+- "ticker": ISIN or AMC code if found (string, empty if not found)
+- "asset_type": one of "mutual_fund", "equity", "etf", "bond", "gold", "fd", "other"
+- "quantity": number of units (float)
+- "buy_price": average cost per unit or NAV at purchase (float, 0 if unknown)
+- "current_price": current NAV or market price (float, 0 if unknown)
+- "sector": investment category like "Large Cap", "Mid Cap", "Debt", "ELSS", "Liquid", "Gold", "Other" (string)
+
+Parse folio numbers, scheme names, units, NAV values. If a fund appears multiple times (different folios), combine the units.
+If buy_price or current_price is not available, use 0.
+Return empty array [] if no holdings found.
+Do NOT include any explanation, only the JSON array."""
+        )
+        chat.with_model("openai", "gpt-5.2")
+        
+        user_message = UserMessage(text=f"Parse this CAS statement and extract holdings:\n\n{text}")
+        response = await chat.send_message(user_message)
+        
+        clean = response.strip()
+        if clean.startswith("```"):
+            clean = clean.split("```")[1]
+            if clean.startswith("json"):
+                clean = clean[4:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        
+        holdings = json.loads(clean.strip())
+        return holdings if isinstance(holdings, list) else []
+    except Exception as e:
+        logger.error(f"CAS AI parsing error: {e}")
+        raise HTTPException(status_code=422, detail=f"Could not parse CAS file with AI. Error: {str(e)}")
+
+@api_router.post("/portfolio/upload")
+async def upload_portfolio(request: Request, file: UploadFile = File(...)):
+    """Upload portfolio file - supports CSV, Excel (.xlsx), and CAS PDF."""
+    user = await get_current_user(request)
+    content = await file.read()
+    filename = (file.filename or "").lower()
+    
+    # Detect file type and parse
+    if filename.endswith(".pdf"):
+        parsed = await parse_cas_pdf(content)
+    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        parsed = await parse_excel_holdings(content)
+    elif filename.endswith(".csv"):
+        parsed = await parse_csv_holdings(content)
+    else:
+        # Try CSV first, then PDF
+        try:
+            parsed = await parse_csv_holdings(content)
+        except Exception:
+            try:
+                parsed = await parse_cas_pdf(content)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, Excel (.xlsx), or CAS PDF.")
+    
+    if not parsed:
+        return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": []}
+    
+    holdings_added = []
+    for h in parsed:
+        asset_type = h.get("asset_type", "equity")
+        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
+            asset_type = "mutual_fund" if "fund" in h.get("name", "").lower() else "equity"
+        
         holding_doc = {
             "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
             "user_id": user["user_id"],
-            "name": name.strip(),
-            "ticker": (row.get("ticker") or row.get("Ticker") or row.get("SYMBOL") or row.get("symbol") or "").strip(),
-            "asset_type": (row.get("asset_type") or row.get("Type") or row.get("type") or "equity").strip().lower(),
-            "quantity": float(row.get("quantity") or row.get("Quantity") or row.get("QTY") or row.get("qty") or 0),
-            "buy_price": float(row.get("buy_price") or row.get("Buy Price") or row.get("avg_price") or row.get("cost") or 0),
-            "current_price": float(row.get("current_price") or row.get("Current Price") or row.get("ltp") or row.get("cmp") or 0),
-            "sector": (row.get("sector") or row.get("Sector") or "Other").strip(),
-            "buy_date": (row.get("buy_date") or row.get("Buy Date") or row.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")).strip(),
+            "name": h.get("name", "Unknown"),
+            "ticker": h.get("ticker", ""),
+            "asset_type": asset_type,
+            "quantity": float(h.get("quantity", 0)),
+            "buy_price": float(h.get("buy_price", 0)),
+            "current_price": float(h.get("current_price", 0)),
+            "sector": h.get("sector", "Other"),
+            "buy_date": h.get("buy_date", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.holdings.insert_one(holding_doc)
-        holdings_added.append(holding_doc["holding_id"])
+        holdings_added.append({
+            "holding_id": holding_doc["holding_id"],
+            "name": holding_doc["name"],
+            "asset_type": holding_doc["asset_type"],
+            "quantity": holding_doc["quantity"],
+        })
     
-    return {"message": f"{len(holdings_added)} holdings imported", "count": len(holdings_added)}
+    file_type = "CAS PDF" if filename.endswith(".pdf") else "Excel" if filename.endswith((".xlsx", ".xls")) else "CSV"
+    return {
+        "message": f"{len(holdings_added)} holdings imported from {file_type}",
+        "count": len(holdings_added),
+        "holdings": holdings_added
+    }
+
+# Keep old endpoint for backward compatibility
+@api_router.post("/portfolio/upload-csv")
+async def upload_csv_legacy(request: Request, file: UploadFile = File(...)):
+    return await upload_portfolio(request, file)
 
 @api_router.get("/portfolio/analytics")
 async def get_analytics(request: Request):

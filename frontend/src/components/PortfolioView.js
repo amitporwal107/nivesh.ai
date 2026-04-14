@@ -1,11 +1,11 @@
 import React, { useState, useRef } from "react";
 import axios from "axios";
-import { Plus, Upload, Trash2, Pencil, X } from "lucide-react";
+import { Plus, Upload, Trash2, Pencil, FileText, FileSpreadsheet, File } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 
@@ -39,11 +39,13 @@ const ASSET_LABELS = {
 
 const PortfolioView = ({ holdings, onRefresh }) => {
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [editingHolding, setEditingHolding] = useState(null);
   const [formData, setFormData] = useState({
     name: "", ticker: "", asset_type: "equity", quantity: "", buy_price: "", current_price: "", sector: "Other", buy_date: "",
   });
   const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState(null);
   const fileRef = useRef(null);
 
   const resetForm = () => {
@@ -95,21 +97,24 @@ const PortfolioView = ({ holdings, onRefresh }) => {
     }
   };
 
-  const handleCSVUpload = async (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadResult(null);
     const formPayload = new FormData();
     formPayload.append("file", file);
     try {
-      const res = await axios.post(`${API}/portfolio/upload-csv`, formPayload, {
+      const res = await axios.post(`${API}/portfolio/upload`, formPayload, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success(`${res.data.count} holdings imported`);
+      setUploadResult(res.data);
+      toast.success(res.data.message || `${res.data.count} holdings imported`);
       onRefresh();
-    } catch {
-      toast.error("CSV upload failed");
+    } catch (err) {
+      const detail = err.response?.data?.detail || "Upload failed. Please check your file format.";
+      toast.error(detail);
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -127,16 +132,16 @@ const PortfolioView = ({ holdings, onRefresh }) => {
           <p className="text-sm text-slate-500 mt-1">{holdings.length} holdings</p>
         </div>
         <div className="flex items-center gap-3">
-          <input type="file" ref={fileRef} accept=".csv" onChange={handleCSVUpload} className="hidden" />
+          <input type="file" ref={fileRef} accept=".csv,.xlsx,.xls,.pdf" onChange={handleFileUpload} className="hidden" />
           <Button
-            data-testid="upload-csv-button"
+            data-testid="upload-portfolio-button"
             variant="outline"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => setShowUploadDialog(true)}
             disabled={uploading}
             className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
           >
             <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />
-            {uploading ? "Uploading..." : "Import CSV"}
+            {uploading ? "Processing..." : "Import Portfolio"}
           </Button>
           <Button
             data-testid="add-holding-button"
@@ -347,6 +352,89 @@ const PortfolioView = ({ holdings, onRefresh }) => {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Dialog */}
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-medium text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              Import Portfolio
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Upload your CAS statement, CSV, or Excel file to import holdings.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {/* File type options */}
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                data-testid="upload-type-cas"
+                onClick={() => { fileRef.current.accept = ".pdf"; fileRef.current.click(); }}
+                disabled={uploading}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all duration-200"
+              >
+                <FileText className="w-8 h-8 text-red-500" strokeWidth={1.5} />
+                <span className="text-xs font-medium text-slate-700">CAS PDF</span>
+                <span className="text-[10px] text-slate-400">CAMS / Karvy</span>
+              </button>
+              <button
+                data-testid="upload-type-csv"
+                onClick={() => { fileRef.current.accept = ".csv"; fileRef.current.click(); }}
+                disabled={uploading}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all duration-200"
+              >
+                <File className="w-8 h-8 text-emerald-600" strokeWidth={1.5} />
+                <span className="text-xs font-medium text-slate-700">CSV</span>
+                <span className="text-[10px] text-slate-400">Broker export</span>
+              </button>
+              <button
+                data-testid="upload-type-excel"
+                onClick={() => { fileRef.current.accept = ".xlsx,.xls"; fileRef.current.click(); }}
+                disabled={uploading}
+                className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all duration-200"
+              >
+                <FileSpreadsheet className="w-8 h-8 text-green-600" strokeWidth={1.5} />
+                <span className="text-xs font-medium text-slate-700">Excel</span>
+                <span className="text-[10px] text-slate-400">.xlsx / .xls</span>
+              </button>
+            </div>
+
+            {uploading && (
+              <div className="flex items-center justify-center gap-3 py-4">
+                <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-slate-500">Processing file... CAS PDFs may take a moment.</span>
+              </div>
+            )}
+
+            {uploadResult && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                <p className="text-sm font-medium text-emerald-800">{uploadResult.message}</p>
+                {uploadResult.holdings?.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {uploadResult.holdings.slice(0, 5).map((h) => (
+                      <li key={h.holding_id} className="text-xs text-emerald-600">
+                        {h.name} ({h.asset_type}) - {h.quantity} units
+                      </li>
+                    ))}
+                    {uploadResult.holdings.length > 5 && (
+                      <li className="text-xs text-emerald-500">... and {uploadResult.holdings.length - 5} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="bg-slate-50 rounded-xl p-4">
+              <p className="text-xs font-medium text-slate-700 mb-2">Supported formats:</p>
+              <ul className="text-xs text-slate-500 space-y-1">
+                <li><span className="font-medium">CAS PDF</span> — Consolidated Account Statement from CAMS/Karvy (AI-parsed)</li>
+                <li><span className="font-medium">CSV</span> — Broker exports from Zerodha, ICICI Direct, Angel One etc.</li>
+                <li><span className="font-medium">Excel</span> — Custom spreadsheets with Name, Quantity, Buy Price columns</li>
+              </ul>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
