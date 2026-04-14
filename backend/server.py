@@ -12,13 +12,22 @@ import io
 import csv
 import asyncio
 from pathlib import Path
-from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
+# Local modules
+from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInput, AssetType
+from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
+from services import compute_health_score, compute_risk_analysis, generate_recommendations
+from services.ai_engine import AIEngine
+from middleware import RateLimitMiddleware, validate_env
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Validate env on startup
+validate_env()
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -28,50 +37,19 @@ db = client[os.environ['DB_NAME']]
 # LLM Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
-app = FastAPI()
+# Initialize layers
+user_repo = UserRepository(db)
+session_repo = SessionRepository(db)
+portfolio_repo = PortfolioRepository(db)
+holding_repo = HoldingRepository(db)
+ai_engine = AIEngine(EMERGENT_LLM_KEY)
+
+app = FastAPI(title="nivesh.ai API", version="2.0")
 api_router = APIRouter(prefix="/api")
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# ==================== MODELS ====================
-
-class UserProfile(BaseModel):
-    user_id: str
-    email: str
-    name: str
-    picture: Optional[str] = ""
-    created_at: str
-
-class PortfolioCreate(BaseModel):
-    name: str
-    member_name: str
-    relationship: str  # self, spouse, child, parent, other
-
-class HoldingCreate(BaseModel):
-    name: str
-    ticker: Optional[str] = ""
-    asset_type: str  # equity, mutual_fund, etf, bond, gold, fd, other
-    quantity: float
-    buy_price: float
-    current_price: float
-    sector: Optional[str] = "Other"
-    buy_date: Optional[str] = ""
-    portfolio_id: Optional[str] = ""
-
-class HoldingUpdate(BaseModel):
-    name: Optional[str] = None
-    ticker: Optional[str] = None
-    asset_type: Optional[str] = None
-    quantity: Optional[float] = None
-    buy_price: Optional[float] = None
-    current_price: Optional[float] = None
-    sector: Optional[str] = None
-    buy_date: Optional[str] = None
-
-class ChatMessage(BaseModel):
-    message: str
 
 # ==================== AUTH HELPERS ====================
 
@@ -962,6 +940,10 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "top_losers": top_losers,
         "heatmap_data": heatmap_data[:40],
         "performance_trend": trend,
+        # ── Product Intelligence ──
+        "health_score": compute_health_score(holdings, total_invested, current_value),
+        "risk_analysis": compute_risk_analysis(holdings, current_value),
+        "recommendations": generate_recommendations(holdings, current_value, total_invested),
     }
 
 # ==================== AI CHAT ROUTES ====================
@@ -975,7 +957,7 @@ async def get_chat_messages(request: Request):
     return messages
 
 @api_router.post("/chat/send")
-async def send_chat(request: Request, msg: ChatMessage):
+async def send_chat(request: Request, msg: ChatMessageInput):
     user = await get_current_user(request)
     user_id = user["user_id"]
     
@@ -1227,8 +1209,10 @@ async def get_analysis(request: Request):
 async def root():
     return {"message": "nivesh.ai API"}
 
-# Include router and CORS
+# Include router and middleware
 app.include_router(api_router)
+
+app.add_middleware(RateLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

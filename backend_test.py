@@ -1,212 +1,267 @@
 #!/usr/bin/env python3
-
+"""
+Backend API Testing for nivesh.ai - Architecture Refactor Testing
+Tests new service layer, repository layer, AI engine, and middleware features
+"""
 import requests
-import sys
 import json
+import time
+import sys
 from datetime import datetime
 
-class NiveshAITester:
+class NiveshAPITester:
     def __init__(self, base_url="https://ai-advisor-30.preview.emergentagent.com"):
         self.base_url = base_url
-        self.api_url = f"{base_url}/api"
         self.session_token = "test_session_wealth001"
+        self.user_id = "test-user-wealth001"
         self.tests_run = 0
         self.tests_passed = 0
         self.headers = {
             'Content-Type': 'application/json',
-            'Cookie': f'session_token={self.session_token}'
+            'Authorization': f'Bearer {self.session_token}'
         }
 
-    def run_test(self, name, method, endpoint, expected_status, data=None, timeout=30):
-        """Run a single API test"""
-        url = f"{self.api_url}/{endpoint}"
+    def log_test(self, name, success, details=""):
+        """Log test result"""
         self.tests_run += 1
-        print(f"\n🔍 Testing {name}...")
-        print(f"   URL: {url}")
-        
+        if success:
+            self.tests_passed += 1
+            print(f"✅ {name}")
+        else:
+            print(f"❌ {name} - {details}")
+        return success
+
+    def make_request(self, method, endpoint, data=None, expected_status=200):
+        """Make API request with error handling"""
+        url = f"{self.base_url}/api/{endpoint}"
         try:
             if method == 'GET':
-                response = requests.get(url, headers=self.headers, timeout=timeout)
+                response = requests.get(url, headers=self.headers, timeout=30)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=self.headers, timeout=timeout)
+                response = requests.post(url, json=data, headers=self.headers, timeout=30)
             elif method == 'PUT':
-                response = requests.put(url, json=data, headers=self.headers, timeout=timeout)
+                response = requests.put(url, json=data, headers=self.headers, timeout=30)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=self.headers, timeout=timeout)
-
+                response = requests.delete(url, headers=self.headers, timeout=30)
+            
             success = response.status_code == expected_status
-            if success:
-                self.tests_passed += 1
-                print(f"✅ Passed - Status: {response.status_code}")
-                try:
-                    response_data = response.json()
-                    if isinstance(response_data, dict) and len(str(response_data)) < 500:
-                        print(f"   Response: {response_data}")
-                    elif isinstance(response_data, list):
-                        print(f"   Response: List with {len(response_data)} items")
-                    else:
-                        print(f"   Response: Large data object")
-                except:
-                    print(f"   Response: Non-JSON or large response")
-            else:
-                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
-                try:
-                    error_data = response.json()
-                    print(f"   Error: {error_data}")
-                except:
-                    print(f"   Error: {response.text[:200]}")
-
-            return success, response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
-
-        except requests.exceptions.Timeout:
-            print(f"❌ Failed - Request timeout after {timeout}s")
-            return False, {}
+            return success, response.json() if success else {}, response.status_code
         except Exception as e:
-            print(f"❌ Failed - Error: {str(e)}")
-            return False, {}
+            return False, {}, f"Error: {str(e)}"
 
-    def test_auth_me(self):
-        """Test authentication with test session"""
-        success, response = self.run_test(
-            "Authentication Check",
-            "GET",
-            "auth/me",
-            200
-        )
-        if success and isinstance(response, dict):
-            print(f"   User: {response.get('name', 'Unknown')} ({response.get('user_id', 'No ID')})")
-            return response.get('user_id')
-        return None
-
-    def test_portfolio_analytics(self):
-        """Test portfolio analytics endpoint"""
-        success, response = self.run_test(
-            "Portfolio Analytics",
-            "GET",
-            "portfolio/analytics",
-            200
-        )
-        if success and isinstance(response, dict):
-            print(f"   Holdings: {response.get('holdings_count', 0)}")
-            print(f"   Current Value: ₹{response.get('current_value', 0):,.2f}")
-            print(f"   Returns: {response.get('returns_pct', 0):.1f}%")
-            return response
-        return None
-
-    def test_holdings_list(self):
-        """Test holdings list endpoint"""
-        success, response = self.run_test(
-            "Holdings List",
-            "GET",
-            "portfolio/holdings",
-            200
-        )
-        if success and isinstance(response, list):
-            print(f"   Found {len(response)} holdings")
-            if len(response) > 0:
-                sample = response[0]
-                print(f"   Sample: {sample.get('name', 'Unknown')} - {sample.get('asset_type', 'Unknown type')}")
-            return response
-        return []
-
-    def test_insights_analysis(self):
-        """Test insights analysis endpoint (should return existing data)"""
-        success, response = self.run_test(
-            "Insights Analysis (Existing)",
-            "GET",
-            "insights/analysis",
-            200
-        )
-        if success and response:
-            print(f"   Analysis available: {bool(response)}")
-            if isinstance(response, dict):
-                insights = response.get('insights', [])
-                print(f"   Insights count: {len(insights)}")
-                if response.get('problem_distribution'):
-                    print(f"   Problem distribution: {len(response['problem_distribution'])} categories")
-                if response.get('risk_gauge'):
-                    gauge = response['risk_gauge']
-                    print(f"   Risk: {gauge.get('current', 0)}/100 → {gauge.get('target', 0)}/100")
-            return response
-        return None
-
-    def test_insights_generate(self):
-        """Test insights generation endpoint (AI analysis)"""
-        print(f"\n🔍 Testing Insights Generation (AI Analysis)...")
-        print(f"   URL: {self.api_url}/insights/generate")
-        print("   ⚠️  This may take 30-60 seconds for AI processing...")
+    def test_auth_endpoints(self):
+        """Test authentication endpoints"""
+        print("\n🔐 Testing Authentication...")
         
-        success, response = self.run_test(
-            "Insights Generation",
-            "POST",
-            "insights/generate",
-            200,
-            timeout=90  # Longer timeout for AI processing
-        )
-        if success and isinstance(response, dict):
-            insights = response.get('insights', [])
-            print(f"   Generated {len(insights)} insights")
+        # Test /auth/me with session token
+        success, data, status = self.make_request('GET', 'auth/me')
+        if success and data.get('user_id') == self.user_id:
+            self.log_test("Auth: Get current user", True)
+        else:
+            self.log_test("Auth: Get current user", False, f"Status: {status}, Data: {data}")
+
+    def test_portfolio_analytics_new_fields(self):
+        """Test new fields in /api/portfolio/analytics"""
+        print("\n📊 Testing Portfolio Analytics (New Architecture)...")
+        
+        success, data, status = self.make_request('GET', 'portfolio/analytics')
+        
+        if not success:
+            self.log_test("Analytics: API call", False, f"Status: {status}")
+            return False
+        
+        # Test health_score field
+        health_score = data.get('health_score')
+        if health_score and isinstance(health_score, dict):
+            required_fields = ['overall', 'grade', 'diversification', 'risk', 'cost_efficiency', 'performance']
+            has_all_fields = all(field in health_score for field in required_fields)
+            self.log_test("Analytics: health_score structure", has_all_fields, 
+                         f"Missing: {[f for f in required_fields if f not in health_score]}")
             
-            # Check key components
-            components = ['problem_distribution', 'before_after', 'action_funnel', 'overlap_pairs', 'cost_leakage', 'risk_gauge']
-            for comp in components:
-                if comp in response:
-                    print(f"   ✅ {comp}: Present")
-                else:
-                    print(f"   ❌ {comp}: Missing")
+            # Validate grade format
+            grade = health_score.get('grade')
+            valid_grades = ['A+', 'A', 'B+', 'B', 'C', 'D', 'F', 'N/A']
+            self.log_test("Analytics: health_score grade format", grade in valid_grades, f"Grade: {grade}")
+        else:
+            self.log_test("Analytics: health_score field", False, "Missing or invalid health_score")
+        
+        # Test risk_analysis field
+        risk_analysis = data.get('risk_analysis')
+        if risk_analysis and isinstance(risk_analysis, dict):
+            required_fields = ['score', 'label', 'warnings']
+            has_all_fields = all(field in risk_analysis for field in required_fields)
+            self.log_test("Analytics: risk_analysis structure", has_all_fields,
+                         f"Missing: {[f for f in required_fields if f not in risk_analysis]}")
             
-            return response
-        return None
+            # Validate warnings is array
+            warnings = risk_analysis.get('warnings', [])
+            self.log_test("Analytics: risk_analysis warnings array", isinstance(warnings, list))
+        else:
+            self.log_test("Analytics: risk_analysis field", False, "Missing or invalid risk_analysis")
+        
+        # Test recommendations field
+        recommendations = data.get('recommendations')
+        if recommendations and isinstance(recommendations, list):
+            self.log_test("Analytics: recommendations array", True)
+            
+            if recommendations:
+                rec = recommendations[0]
+                required_fields = ['action', 'title', 'priority', 'impact']
+                has_all_fields = all(field in rec for field in required_fields)
+                self.log_test("Analytics: recommendation structure", has_all_fields,
+                             f"Missing: {[f for f in required_fields if f not in rec]}")
+        else:
+            self.log_test("Analytics: recommendations field", False, "Missing or invalid recommendations")
+        
+        return True
 
-    def test_basic_insights(self):
-        """Test basic insights endpoint"""
-        success, response = self.run_test(
-            "Basic Insights List",
-            "GET",
-            "insights",
-            200
-        )
-        if success and isinstance(response, list):
-            print(f"   Found {len(response)} basic insights")
-            return response
-        return []
+    def test_rate_limiting(self):
+        """Test rate limiting middleware"""
+        print("\n🚦 Testing Rate Limiting...")
+        
+        # Make rapid requests to trigger rate limit
+        requests_made = 0
+        rate_limited = False
+        
+        for i in range(25):  # Try to exceed the limit
+            success, data, status = self.make_request('GET', 'portfolio/analytics')
+            requests_made += 1
+            
+            if status == 429:
+                rate_limited = True
+                break
+            
+            time.sleep(0.1)  # Small delay between requests
+        
+        self.log_test("Rate Limiting: 429 response triggered", rate_limited, 
+                     f"Made {requests_made} requests before rate limit")
 
-def main():
-    print("🚀 Starting nivesh.ai Backend API Tests")
-    print("=" * 50)
-    
-    tester = NiveshAITester()
-    
-    # Test authentication first
-    user_id = tester.test_auth_me()
-    if not user_id:
-        print("\n❌ Authentication failed - cannot proceed with other tests")
-        return 1
+    def test_holdings_crud(self):
+        """Test holdings CRUD operations"""
+        print("\n📝 Testing Holdings CRUD...")
+        
+        # Create a test holding
+        holding_data = {
+            "name": "Test Stock CRUD",
+            "ticker": "TEST",
+            "asset_type": "equity",
+            "quantity": 100,
+            "buy_price": 150.0,
+            "current_price": 160.0,
+            "sector": "Technology",
+            "portfolio_id": ""
+        }
+        
+        success, data, status = self.make_request('POST', 'portfolio/holdings', holding_data, 200)
+        if success and data.get('holding_id'):
+            holding_id = data['holding_id']
+            self.log_test("Holdings: Create", True)
+            
+            # Update the holding
+            update_data = {"current_price": 170.0}
+            success, data, status = self.make_request('PUT', f'portfolio/holdings/{holding_id}', update_data)
+            self.log_test("Holdings: Update", success and data.get('current_price') == 170.0)
+            
+            # Delete the holding
+            success, data, status = self.make_request('DELETE', f'portfolio/holdings/{holding_id}')
+            self.log_test("Holdings: Delete", success)
+        else:
+            self.log_test("Holdings: Create", False, f"Status: {status}, Data: {data}")
 
-    # Test core portfolio functionality
-    analytics = tester.test_portfolio_analytics()
-    holdings = tester.test_holdings_list()
-    
-    if not holdings:
-        print("\n⚠️  No holdings found - insights tests may not be meaningful")
-    
-    # Test insights functionality
-    basic_insights = tester.test_basic_insights()
-    existing_analysis = tester.test_insights_analysis()
-    
-    # Test AI insights generation (this is the main new feature)
-    generated_analysis = tester.test_insights_generate()
-    
-    # Print summary
-    print("\n" + "=" * 50)
-    print(f"📊 Test Results: {tester.tests_passed}/{tester.tests_run} passed")
-    
-    if tester.tests_passed == tester.tests_run:
-        print("🎉 All backend tests passed!")
-        return 0
-    else:
-        print(f"⚠️  {tester.tests_run - tester.tests_passed} tests failed")
-        return 1
+    def test_ai_chat_endpoints(self):
+        """Test AI chat functionality"""
+        print("\n🤖 Testing AI Chat...")
+        
+        # Test sending a chat message
+        chat_data = {"message": "What is my portfolio risk level?"}
+        success, data, status = self.make_request('POST', 'chat/send', chat_data)
+        
+        if success and data.get('ai_message'):
+            self.log_test("AI Chat: Send message", True)
+            
+            # Test getting chat messages
+            success, messages, status = self.make_request('GET', 'chat/messages')
+            self.log_test("AI Chat: Get messages", success and isinstance(messages, list))
+        else:
+            self.log_test("AI Chat: Send message", False, f"Status: {status}")
+
+    def test_insights_generation(self):
+        """Test AI insights generation"""
+        print("\n💡 Testing AI Insights...")
+        
+        success, data, status = self.make_request('POST', 'insights/generate')
+        
+        if success and data.get('insights'):
+            insights = data['insights']
+            self.log_test("Insights: Generate", isinstance(insights, list))
+            
+            if insights:
+                insight = insights[0]
+                required_fields = ['title', 'description', 'type', 'impact']
+                has_all_fields = all(field in insight for field in required_fields)
+                self.log_test("Insights: Structure", has_all_fields)
+        else:
+            self.log_test("Insights: Generate", False, f"Status: {status}")
+
+    def test_search_instruments(self):
+        """Test instrument search"""
+        print("\n🔍 Testing Instrument Search...")
+        
+        success, data, status = self.make_request('GET', 'search/instruments?q=RELIANCE')
+        self.log_test("Search: Instruments", success and isinstance(data, list))
+
+    def test_portfolios_management(self):
+        """Test portfolio management"""
+        print("\n📁 Testing Portfolio Management...")
+        
+        # Create portfolio
+        portfolio_data = {
+            "name": "Test Portfolio",
+            "member_name": "Test User",
+            "relationship": "Self"
+        }
+        
+        success, data, status = self.make_request('POST', 'portfolios', portfolio_data)
+        if success and data.get('portfolio_id'):
+            portfolio_id = data['portfolio_id']
+            self.log_test("Portfolios: Create", True)
+            
+            # List portfolios
+            success, portfolios, status = self.make_request('GET', 'portfolios')
+            self.log_test("Portfolios: List", success and isinstance(portfolios, list))
+            
+            # Delete portfolio
+            success, data, status = self.make_request('DELETE', f'portfolios/{portfolio_id}')
+            self.log_test("Portfolios: Delete", success)
+        else:
+            self.log_test("Portfolios: Create", False, f"Status: {status}")
+
+    def run_all_tests(self):
+        """Run all test suites"""
+        print("🚀 Starting nivesh.ai Backend API Tests")
+        print(f"📍 Testing against: {self.base_url}")
+        print(f"👤 User ID: {self.user_id}")
+        print(f"🔑 Session: {self.session_token}")
+        
+        # Run test suites
+        self.test_auth_endpoints()
+        self.test_portfolio_analytics_new_fields()
+        self.test_holdings_crud()
+        self.test_portfolios_management()
+        self.test_search_instruments()
+        self.test_ai_chat_endpoints()
+        self.test_insights_generation()
+        self.test_rate_limiting()
+        
+        # Print summary
+        print(f"\n📊 Test Summary:")
+        print(f"   Tests Run: {self.tests_run}")
+        print(f"   Tests Passed: {self.tests_passed}")
+        print(f"   Success Rate: {(self.tests_passed/self.tests_run*100):.1f}%")
+        
+        return self.tests_passed == self.tests_run
 
 if __name__ == "__main__":
-    sys.exit(main())
+    tester = NiveshAPITester()
+    success = tester.run_all_tests()
+    sys.exit(0 if success else 1)

@@ -175,6 +175,96 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         ))}
       </div>
 
+      {/* ─── HEALTH SCORE + RECOMMENDATIONS ─── */}
+      {analytics.health_score && analytics.health_score.overall > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Health Score */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="health-score-card">
+              <CardContent className="p-6">
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>Portfolio Health</h3>
+                <div className="flex items-center justify-center mb-4">
+                  <div className="relative w-28 h-28">
+                    <svg className="w-28 h-28 transform -rotate-90" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="#E2E8F0" strokeWidth="8" />
+                      <circle cx="50" cy="50" r="42" fill="none" stroke={analytics.health_score.overall >= 70 ? "#10B981" : analytics.health_score.overall >= 50 ? "#F59E0B" : "#EF4444"} strokeWidth="8" strokeLinecap="round"
+                        strokeDasharray={`${analytics.health_score.overall * 2.64} 264`} />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>{analytics.health_score.grade}</span>
+                      <span className="text-[10px] text-slate-400">{analytics.health_score.overall}/100</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { label: "Diversification", val: analytics.health_score.diversification, color: "#3B82F6" },
+                    { label: "Risk Management", val: analytics.health_score.risk, color: "#10B981" },
+                    { label: "Cost Efficiency", val: analytics.health_score.cost_efficiency, color: "#F59E0B" },
+                    { label: "Performance", val: analytics.health_score.performance, color: "#8B5CF6" },
+                  ].map(item => (
+                    <div key={item.label}>
+                      <div className="flex justify-between text-[10px] mb-0.5">
+                        <span className="text-slate-500 dark:text-slate-400">{item.label}</span>
+                        <span className="font-medium text-slate-700 dark:text-slate-300">{item.val}</span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${item.val}%`, backgroundColor: item.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Risk Warnings */}
+          {analytics.risk_analysis && analytics.risk_analysis.warnings?.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }}>
+              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full">
+                <CardContent className="p-6">
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    <AlertTriangle className="w-4 h-4 text-amber-500" /> Risk Warnings
+                  </h3>
+                  <div className="space-y-3">
+                    {analytics.risk_analysis.warnings.map((w, i) => (
+                      <div key={i} className="flex items-start gap-2.5 text-sm">
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
+                        <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">{w}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Smart Recommendations */}
+          {analytics.recommendations?.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
+              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full">
+                <CardContent className="p-6">
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    <Sparkles className="w-4 h-4 text-emerald-600" /> Recommendations
+                  </h3>
+                  <div className="space-y-3">
+                    {analytics.recommendations.map((r, i) => (
+                      <div key={i} className={`p-3 rounded-xl border ${r.priority === "high" ? "border-red-200 bg-red-50/50 dark:bg-red-900/10 dark:border-red-800" : "border-slate-200 bg-slate-50/50 dark:bg-slate-800/50 dark:border-slate-700"}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-slate-900 dark:text-white">{r.title}</span>
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">{r.impact}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">{r.description?.slice(0, 120)}{r.description?.length > 120 ? "..." : ""}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </div>
+      )}
+
       {/* ─── PERFORMANCE TREND (FULL WIDTH LINE CHART) ─── */}
       {analytics.performance_trend?.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
