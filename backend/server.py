@@ -44,6 +44,11 @@ class UserProfile(BaseModel):
     picture: Optional[str] = ""
     created_at: str
 
+class PortfolioCreate(BaseModel):
+    name: str
+    member_name: str
+    relationship: str  # self, spouse, child, parent, other
+
 class HoldingCreate(BaseModel):
     name: str
     ticker: Optional[str] = ""
@@ -53,6 +58,7 @@ class HoldingCreate(BaseModel):
     current_price: float
     sector: Optional[str] = "Other"
     buy_date: Optional[str] = ""
+    portfolio_id: Optional[str] = ""
 
 class HoldingUpdate(BaseModel):
     name: Optional[str] = None
@@ -165,12 +171,70 @@ async def logout(request: Request, response: Response):
     response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
     return {"message": "Logged out"}
 
-# ==================== PORTFOLIO ROUTES ====================
+# ==================== PORTFOLIO MANAGEMENT ROUTES ====================
+
+@api_router.get("/portfolios")
+async def list_portfolios(request: Request):
+    user = await get_current_user(request)
+    portfolios = await db.portfolios.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(50)
+    # Add holdings count per portfolio
+    for p in portfolios:
+        count = await db.holdings.count_documents({"user_id": user["user_id"], "portfolio_id": p["portfolio_id"]})
+        p["holdings_count"] = count
+    return portfolios
+
+@api_router.post("/portfolios")
+async def create_portfolio(request: Request, data: PortfolioCreate):
+    user = await get_current_user(request)
+    doc = {
+        "portfolio_id": f"pf_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": data.name,
+        "member_name": data.member_name,
+        "relationship": data.relationship,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.portfolios.insert_one(doc)
+    result = await db.portfolios.find_one({"portfolio_id": doc["portfolio_id"]}, {"_id": 0})
+    return result
+
+@api_router.delete("/portfolios/{portfolio_id}")
+async def delete_portfolio(request: Request, portfolio_id: str):
+    user = await get_current_user(request)
+    result = await db.portfolios.delete_one({"portfolio_id": portfolio_id, "user_id": user["user_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    # Cascade delete holdings
+    deleted = await db.holdings.delete_many({"user_id": user["user_id"], "portfolio_id": portfolio_id})
+    return {"message": f"Portfolio deleted with {deleted.deleted_count} holdings"}
+
+# ==================== INSTRUMENT SEARCH / AUTOCOMPLETE ====================
+
+@api_router.get("/search/instruments")
+async def search_instruments(q: str = ""):
+    from instruments_data import INDIAN_INSTRUMENTS
+    if not q or len(q) < 2:
+        return []
+    q_lower = q.lower()
+    results = []
+    for inst in INDIAN_INSTRUMENTS:
+        if q_lower in inst["name"].lower() or q_lower in inst["ticker"].lower():
+            results.append(inst)
+        if len(results) >= 15:
+            break
+    return results
+
+# ==================== HOLDINGS ROUTES ====================
 
 @api_router.get("/portfolio/holdings")
-async def get_holdings(request: Request):
+async def get_holdings(request: Request, portfolio_id: str = "", asset_type: str = ""):
     user = await get_current_user(request)
-    holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
+    query = {"user_id": user["user_id"]}
+    if portfolio_id:
+        query["portfolio_id"] = portfolio_id
+    if asset_type:
+        query["asset_type"] = asset_type
+    holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
     return holdings
 
 @api_router.post("/portfolio/holdings")
@@ -179,6 +243,7 @@ async def add_holding(request: Request, holding: HoldingCreate):
     holding_doc = {
         "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
         "user_id": user["user_id"],
+        "portfolio_id": holding.portfolio_id or "",
         "name": holding.name,
         "ticker": holding.ticker,
         "asset_type": holding.asset_type,
@@ -292,7 +357,7 @@ async def parse_excel_holdings(content: bytes) -> list:
     wb.close()
     return holdings
 
-async def parse_cas_pdf(content: bytes) -> list:
+async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     """Parse CAS (Consolidated Account Statement) PDF using AI with direct PDF upload."""
     from emergentintegrations.llm.chat import FileContent
     import base64
@@ -323,10 +388,17 @@ IMPORTANT RULES:
     try:
         from PyPDF2 import PdfReader
         reader = PdfReader(io.BytesIO(content))
+        if reader.is_encrypted:
+            if not password:
+                raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
+            if not reader.decrypt(password):
+                raise HTTPException(status_code=400, detail="Incorrect PDF password. Please try again.")
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted:
                 text += extracted + "\n"
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"PyPDF2 text extraction failed: {e}")
 
@@ -499,7 +571,7 @@ def _parse_json_response(response: str) -> list:
                 pass
         return []
 
-async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None):
+async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None, portfolio_id: str = ""):
     """Save parsed holdings to DB and optionally update task status."""
     holdings_added = []
     for h in parsed:
@@ -510,6 +582,7 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
         holding_doc = {
             "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
+            "portfolio_id": portfolio_id,
             "name": h.get("name", "Unknown"),
             "ticker": h.get("ticker", ""),
             "asset_type": asset_type,
@@ -542,26 +615,29 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
     
     return holdings_added
 
-async def _process_cas_background(content: bytes, user_id: str, task_id: str):
+async def _process_cas_background(content: bytes, user_id: str, task_id: str, portfolio_id: str = "", password: str = ""):
     """Background task for CAS PDF processing."""
     try:
         await db.upload_tasks.update_one(
             {"task_id": task_id},
             {"$set": {"status": "processing", "message": "Parsing CAS PDF with AI..."}}
         )
-        parsed = await parse_cas_pdf(content)
+        parsed = await parse_cas_pdf(content, password=password)
         if not parsed:
             await db.upload_tasks.update_one(
                 {"task_id": task_id},
                 {"$set": {"status": "completed", "message": "No holdings found in CAS PDF", "count": 0, "holdings": []}}
             )
             return
-        await _save_holdings(user_id, parsed, "CAS PDF", task_id)
+        await _save_holdings(user_id, parsed, "CAS PDF", task_id, portfolio_id)
     except Exception as e:
         logger.error(f"Background CAS processing error: {e}")
+        error_msg = str(e)
+        if "password" in error_msg.lower() or "decrypt" in error_msg.lower():
+            error_msg = "PDF is password-protected. Please provide the correct password."
         await db.upload_tasks.update_one(
             {"task_id": task_id},
-            {"$set": {"status": "error", "message": f"Failed to parse CAS: {str(e)}", "count": 0, "holdings": []}}
+            {"$set": {"status": "error", "message": f"Failed to parse CAS: {error_msg}", "count": 0, "holdings": []}}
         )
 
 @api_router.post("/portfolio/upload")
@@ -624,9 +700,11 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
 @api_router.post("/portfolio/upload-raw")
 async def upload_portfolio_raw(request: Request):
     """Raw upload endpoint for large files - avoids multipart parsing overhead.
-    Send file as raw body with X-Filename header."""
+    Send file as raw body with X-Filename, X-Portfolio-Id, X-Password headers."""
     user = await get_current_user(request)
     filename = request.headers.get("X-Filename", "upload.pdf").lower()
+    portfolio_id = request.headers.get("X-Portfolio-Id", "")
+    pdf_password = request.headers.get("X-Password", "")
     user_id = user["user_id"]
     
     # Stream the body directly
@@ -651,7 +729,7 @@ async def upload_portfolio_raw(request: Request):
             "holdings": [],
             "created_at": datetime.now(timezone.utc).isoformat()
         })
-        asyncio.create_task(_process_cas_background(content, user_id, task_id))
+        asyncio.create_task(_process_cas_background(content, user_id, task_id, portfolio_id, pdf_password))
         return {
             "task_id": task_id,
             "status": "processing",
@@ -672,7 +750,7 @@ async def upload_portfolio_raw(request: Request):
     
     if not parsed:
         return {"message": "No holdings found", "count": 0, "holdings": []}
-    holdings_added = await _save_holdings(user_id, parsed, file_type)
+    holdings_added = await _save_holdings(user_id, parsed, file_type, portfolio_id=portfolio_id)
     return {"message": f"{len(holdings_added)} holdings imported from {file_type}", "count": len(holdings_added), "holdings": holdings_added}
 
 @api_router.get("/portfolio/upload-status/{task_id}")
@@ -705,9 +783,12 @@ async def upload_csv_legacy(request: Request, file: UploadFile = File(...)):
     return await upload_portfolio(request, file)
 
 @api_router.get("/portfolio/analytics")
-async def get_analytics(request: Request):
+async def get_analytics(request: Request, portfolio_id: str = ""):
     user = await get_current_user(request)
-    holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
+    query = {"user_id": user["user_id"]}
+    if portfolio_id:
+        query["portfolio_id"] = portfolio_id
+    holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
     
     if not holdings:
         return {
