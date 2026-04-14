@@ -1,27 +1,32 @@
-# nivesh.ai - AI Financial Advisor Platform
+# nivesh.ai — AI Financial Advisor Platform (v2.0)
 
-## Architecture
-- Backend: FastAPI + MongoDB + GPT-5.2 (emergentintegrations)
-- Frontend: React + Tailwind + Shadcn UI + Recharts + Framer Motion
-- Auth: Emergent Google OAuth
+## Architecture (Refactored)
+```
+backend/
+├── server.py          # Thin routing layer only
+├── models.py          # Pydantic models with strict enums & validation
+├── repository.py      # MongoDB abstraction (User, Session, Portfolio, Holding repos)
+├── middleware.py       # Rate limiting (60/min), env validation
+├── services/
+│   ├── __init__.py    # Portfolio intelligence: health score, risk analysis, recommendations
+│   └── ai_engine.py   # AI layer: prompt strategy, guardrails, structured outputs
+└── instruments_data.py # Indian stocks/MFs autocomplete database
+```
 
-## What's Been Implemented
-### Core: Portfolio mgmt, CAS/CSV/Excel upload, family portfolios, AI chat
-### Dashboard: 5 KPIs, performance trend, asset donut, sector bars, heatmap treemap
-### Interactive Charts: Click any chart segment → drill-down modal with sort/filter/search
-### Number Format: Lakhs/Crores toggle with uniform formatting
-### Insights Overhaul:
-- Priority Matrix (Impact vs Effort 2D grid)
-- Problem Distribution Donut
-- Risk Gauge (current → target)
-- Before/After Impact Bars
-- Annual Cost Leakage
-- Action Funnel (step flow)
-- Progress bar insight cards
-- Fund Overlap Analysis
+## Product Intelligence (NEW)
+- **Health Score**: Composite 0-100 (diversification 30% + risk 25% + cost 20% + performance 25%) with A+/A/B/C/D/F grades
+- **Risk Analysis**: Concentration HHI, sector exposure, equity overweight, dead positions
+- **Smart Recommendations**: Rule-based (Regular→Direct switch, dead positions, debt allocation, loss harvesting)
+- **AI Insights**: GPT-5.2 powered (Priority Matrix, Overlap Heatmap, Cost Leakage, Action Funnel)
+
+## Security
+- Rate limiting: 120 req/min (API), 20 req/min (AI endpoints)
+- Session refresh on each request
+- Env validation on startup
+- AI guardrails (no return guarantees)
 
 ## Backlog
-- [ ] Real-time market prices
-- [ ] Portfolio comparison (family member vs benchmark)
-- [ ] Tax optimization calculator
-- [ ] Mobile responsive polish
+- [ ] Real-time market prices (NSE API)
+- [ ] Token refresh mechanism
+- [ ] ML-based portfolio scoring
+- [ ] Automated weekly reports
