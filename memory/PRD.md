@@ -1,46 +1,41 @@
 # WealthPilot - AI Financial Advisor Platform
 
 ## Original Problem Statement
-Build an AI-powered autonomous financial advisor (Agentic Wealth System) for Indian retail investors. Phase 1 MVP.
+Build an AI-powered autonomous financial advisor for Indian retail investors. Phase 1 MVP.
 
 ## Architecture
-- Backend: FastAPI + MongoDB + GPT-5.2 (via emergentintegrations)
+- Backend: FastAPI + MongoDB + GPT-5.2 (emergentintegrations)
 - Frontend: React + Tailwind + Shadcn UI + Recharts
 - Auth: Emergent Google OAuth
-- Design: Kuvera.in inspired (clean white, emerald green)
 
 ## What's Been Implemented (Apr 14, 2026)
 - Google OAuth login via Emergent Auth
 - Portfolio CRUD (add/edit/delete holdings)
-- **CAS PDF upload** with AI-powered parsing (GPT-5.2 vision, async background processing)
+- CAS PDF upload with AI-powered parsing (GPT-5.2 vision, async background processing)
 - CSV and Excel (.xlsx) upload support
 - Portfolio analytics (asset allocation, sector exposure, risk scoring)
 - AI Chat interface (GPT-5.2 financial advisor)
 - AI Insights generation
-- Dashboard with charts (pie chart, sector bars, risk meter)
-- Responsive sidebar navigation
+- Dashboard with charts
 
-## Bug Fixes
-- CAS PDF upload: Fixed image-based PDF support (PyPDF2 returns empty text for NSDL CAS)
-- Added page-by-page AI vision processing for image-based PDFs
-- Made CAS upload async with polling to avoid HTTP timeout
-- Fixed Excel column index bug (name_i=0 evaluated as falsy)
-- Fixed CSV encoding for non-UTF-8 files
+## Bug Fixes Applied
+1. CAS PDF: Image-based PDF support (NSDL CAS PDFs are rendered as images)
+2. CAS PDF: Page count detection fallback (pdfinfo/poppler when PyPDF2 fails with startxref error)
+3. CAS PDF: Raw upload endpoint to avoid multipart form parsing timeout on large files
+4. CAS PDF: Async background processing with status polling
+5. CAS PDF: pdf2image fallback for page extraction when PyPDF2 page split fails
+6. CSV: Multi-encoding support (UTF-8, latin-1, cp1252)
+7. Excel: Column index bug fix (name_i=0 evaluated as falsy)
 
-## Prioritized Backlog
-### P0
-- [x] CAS PDF upload parsing (DONE)
+## Backlog
+### P0 - Done
+- [x] CAS PDF upload parsing
+### P1
 - [ ] Real-time market price fetching
-
-### P1  
-- [ ] Advanced portfolio scoring (ML-based)
-- [ ] Scenario simulation
+- [ ] Advanced portfolio scoring
 - [ ] Tax optimization suggestions
-- [ ] Goal-based planning (retirement, education)
-
 ### P2
-- [ ] Agentic AI layer (autonomous agents)
+- [ ] Agentic AI layer
 - [ ] Broker PDF parsing (Zerodha, ICICI, Angel One)
-- [ ] Performance vs benchmark comparison
+- [ ] Performance vs benchmark
 - [ ] Alerts & notifications
-- [ ] Auto execution (broker integration)

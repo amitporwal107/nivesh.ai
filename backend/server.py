@@ -294,17 +294,8 @@ async def parse_excel_holdings(content: bytes) -> list:
 
 async def parse_cas_pdf(content: bytes) -> list:
     """Parse CAS (Consolidated Account Statement) PDF using AI with direct PDF upload."""
-    from PyPDF2 import PdfReader
     from emergentintegrations.llm.chat import FileContent
     import base64
-    
-    # First try text extraction
-    reader = PdfReader(io.BytesIO(content))
-    text = ""
-    for page in reader.pages:
-        extracted = page.extract_text()
-        if extracted:
-            text += extracted + "\n"
     
     cas_system_message = """You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
 Extract ALL investment holdings from the CAS data provided.
@@ -327,8 +318,19 @@ IMPORTANT RULES:
 - Extract ALL holdings, don't skip any
 - Return ONLY the JSON array, no explanation"""
 
+    # Try text extraction first (works for text-based PDFs)
+    text = ""
+    try:
+        from PyPDF2 import PdfReader
+        reader = PdfReader(io.BytesIO(content))
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + "\n"
+    except Exception as e:
+        logger.warning(f"PyPDF2 text extraction failed: {e}")
+
     if text.strip() and len(text.strip()) > 200:
-        # Text-based PDF — use text directly
         text = text[:12000]
         try:
             chat = LlmChat(
@@ -344,29 +346,76 @@ IMPORTANT RULES:
             logger.error(f"CAS text parsing error: {e}")
             raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
     
-    # Image-based PDF — split into smaller chunks and send each to GPT-5.2
+    # Image-based PDF — get page count reliably using pdf2image/poppler
     logger.info("CAS PDF is image-based, processing in page batches")
     try:
-        from PyPDF2 import PdfWriter
-        import base64
+        from pdf2image import pdfinfo_from_bytes
+        from PyPDF2 import PdfReader as PdfReader2, PdfWriter
         
-        total_pages = len(reader.pages)
+        # Use poppler (pdfinfo) for reliable page count — never fails on valid PDFs
+        try:
+            info = pdfinfo_from_bytes(content)
+            total_pages = info.get("Pages", 0)
+            logger.info(f"pdf2image detected {total_pages} pages")
+        except Exception:
+            total_pages = 0
+        
+        # Fallback: try PyPDF2 again with strict=False
+        if total_pages == 0:
+            try:
+                fallback_reader = PdfReader2(io.BytesIO(content), strict=False)
+                total_pages = len(fallback_reader.pages)
+                logger.info(f"PyPDF2 strict=False detected {total_pages} pages")
+            except Exception:
+                pass
+        
+        if total_pages == 0:
+            raise HTTPException(status_code=400, detail="Could not read PDF. The file may be corrupt or password-protected.")
+        
         all_holdings = []
         
-        # Process in batches of 3 pages to keep under API size limits
+        # Re-read with strict=False for page extraction
+        try:
+            pdf_reader = PdfReader2(io.BytesIO(content), strict=False)
+        except Exception:
+            pdf_reader = None
+        
+        # Process in batches of 3 pages
         for start_idx in range(0, total_pages, 3):
             end_idx = min(start_idx + 3, total_pages)
             
-            writer = PdfWriter()
-            for i in range(start_idx, end_idx):
-                writer.add_page(reader.pages[i])
+            # Try to create chunk PDF from pages
+            chunk_bytes = None
+            if pdf_reader and len(pdf_reader.pages) >= end_idx:
+                try:
+                    writer = PdfWriter()
+                    for i in range(start_idx, end_idx):
+                        writer.add_page(pdf_reader.pages[i])
+                    buf = io.BytesIO()
+                    writer.write(buf)
+                    chunk_bytes = buf.getvalue()
+                except Exception as e:
+                    logger.warning(f"PyPDF2 page split failed for pages {start_idx+1}-{end_idx}: {e}")
             
-            buf = io.BytesIO()
-            writer.write(buf)
-            chunk_bytes = buf.getvalue()
+            # Fallback: use pdf2image to extract pages as a new PDF via poppler
+            if not chunk_bytes or len(chunk_bytes) < 1000:
+                try:
+                    from pdf2image import convert_from_bytes
+                    from PIL import Image
+                    
+                    images = convert_from_bytes(content, first_page=start_idx+1, last_page=end_idx, dpi=150)
+                    if images:
+                        # Convert images back to a PDF
+                        img_buf = io.BytesIO()
+                        rgb_images = [img.convert('RGB') for img in images]
+                        rgb_images[0].save(img_buf, format='PDF', save_all=True, append_images=rgb_images[1:])
+                        chunk_bytes = img_buf.getvalue()
+                        logger.info(f"Used pdf2image fallback for pages {start_idx+1}-{end_idx}")
+                except Exception as e:
+                    logger.warning(f"pdf2image fallback failed for pages {start_idx+1}-{end_idx}: {e}")
+                    continue
             
-            # Skip very small chunks (likely empty/intro pages)
-            if len(chunk_bytes) < 5000:
+            if not chunk_bytes or len(chunk_bytes) < 1000:
                 continue
             
             pdf_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
@@ -519,33 +568,36 @@ async def _process_cas_background(content: bytes, user_id: str, task_id: str):
 async def upload_portfolio(request: Request, file: UploadFile = File(...)):
     """Upload portfolio file - supports CSV, Excel (.xlsx), and CAS PDF."""
     user = await get_current_user(request)
-    content = await file.read()
     filename = (file.filename or "").lower()
     user_id = user["user_id"]
     
-    # For PDF files, process asynchronously (can take 1-3 minutes for image-based CAS)
+    # Read file synchronously via underlying SpooledTemporaryFile (faster than async read for large files)
+    content = file.file.read()
+    
+    # For PDF files, process asynchronously (can take 1-3 minutes)
     if filename.endswith(".pdf"):
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         await db.upload_tasks.insert_one({
             "task_id": task_id,
             "user_id": user_id,
-            "status": "queued",
-            "message": "CAS PDF upload received, starting AI parsing...",
+            "status": "processing",
+            "message": "CAS PDF received, AI parsing started...",
             "count": 0,
             "holdings": [],
             "created_at": datetime.now(timezone.utc).isoformat()
         })
-        # Start background processing
+        
+        logger.info(f"CAS PDF received: {len(content)} bytes, task {task_id}")
         asyncio.create_task(_process_cas_background(content, user_id, task_id))
         return {
             "task_id": task_id,
             "status": "processing",
-            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes. Poll /api/portfolio/upload-status/{task_id} for updates.",
+            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes.",
             "count": 0,
             "holdings": []
         }
     
-    # For CSV/Excel, process synchronously (fast)
+    # For CSV/Excel, process synchronously
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
         parsed = await parse_excel_holdings(content)
         file_type = "Excel"
@@ -569,6 +621,60 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
         "holdings": holdings_added
     }
 
+@api_router.post("/portfolio/upload-raw")
+async def upload_portfolio_raw(request: Request):
+    """Raw upload endpoint for large files - avoids multipart parsing overhead.
+    Send file as raw body with X-Filename header."""
+    user = await get_current_user(request)
+    filename = request.headers.get("X-Filename", "upload.pdf").lower()
+    user_id = user["user_id"]
+    
+    # Stream the body directly
+    body_chunks = []
+    async for chunk in request.stream():
+        body_chunks.append(chunk)
+    content = b"".join(body_chunks)
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    
+    logger.info(f"Raw upload received: {len(content)} bytes, filename: {filename}")
+    
+    if filename.endswith(".pdf"):
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
+        await db.upload_tasks.insert_one({
+            "task_id": task_id,
+            "user_id": user_id,
+            "status": "processing",
+            "message": "CAS PDF received, AI parsing started...",
+            "count": 0,
+            "holdings": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        asyncio.create_task(_process_cas_background(content, user_id, task_id))
+        return {
+            "task_id": task_id,
+            "status": "processing",
+            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes.",
+            "count": 0,
+            "holdings": []
+        }
+    
+    # CSV/Excel via raw
+    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        parsed = await parse_excel_holdings(content)
+        file_type = "Excel"
+    elif filename.endswith(".csv"):
+        parsed = await parse_csv_holdings(content)
+        file_type = "CSV"
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported format")
+    
+    if not parsed:
+        return {"message": "No holdings found", "count": 0, "holdings": []}
+    holdings_added = await _save_holdings(user_id, parsed, file_type)
+    return {"message": f"{len(holdings_added)} holdings imported from {file_type}", "count": len(holdings_added), "holdings": holdings_added}
+
 @api_router.get("/portfolio/upload-status/{task_id}")
 async def get_upload_status(request: Request, task_id: str):
     """Poll the status of a CAS PDF upload task."""
@@ -578,6 +684,19 @@ async def get_upload_status(request: Request, task_id: str):
     )
     if not task:
         raise HTTPException(status_code=404, detail="Upload task not found")
+    return task
+
+@api_router.get("/portfolio/upload-latest-task")
+async def get_latest_upload_task(request: Request):
+    """Get the most recent upload task for the user (for timeout recovery)."""
+    user = await get_current_user(request)
+    task = await db.upload_tasks.find_one(
+        {"user_id": user["user_id"]},
+        {"_id": 0},
+        sort=[("created_at", -1)]
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="No upload tasks found")
     return task
 
 # Keep old endpoint for backward compatibility

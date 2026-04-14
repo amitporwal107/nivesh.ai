@@ -97,67 +97,97 @@ const PortfolioView = ({ holdings, onRefresh }) => {
     }
   };
 
+  const startPolling = (taskId) => {
+    toast.info("CAS PDF is being processed by AI. This may take 1-2 minutes...");
+    setUploadResult({ message: "Processing CAS PDF with AI...", status: "processing" });
+    const pollInterval = setInterval(async () => {
+      try {
+        const statusRes = await axios.get(`${API}/portfolio/upload-status/${taskId}`, { withCredentials: true });
+        const task = statusRes.data;
+        if (task.status === "completed") {
+          clearInterval(pollInterval);
+          setUploadResult(task);
+          setUploading(false);
+          if (task.count > 0) {
+            toast.success(task.message || `${task.count} holdings imported`);
+          } else {
+            toast.info(task.message || "No holdings found");
+          }
+          onRefresh();
+        } else if (task.status === "error") {
+          clearInterval(pollInterval);
+          setUploadResult({ message: task.message, status: "error" });
+          setUploading(false);
+          toast.error(task.message || "CAS parsing failed");
+        } else {
+          setUploadResult({ message: task.message || "AI is analyzing your CAS...", status: "processing" });
+        }
+      } catch {
+        // Keep polling
+      }
+    }, 5000);
+    setTimeout(() => { clearInterval(pollInterval); setUploading(false); }, 300000);
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     setUploadResult(null);
+    const isPdf = file.name.toLowerCase().endsWith(".pdf");
     const formPayload = new FormData();
     formPayload.append("file", file);
     try {
-      const res = await axios.post(`${API}/portfolio/upload`, formPayload, {
-        withCredentials: true,
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      
-      // Check if it's an async task (CAS PDF)
-      if (res.data.task_id && res.data.status === "processing") {
-        toast.info("CAS PDF is being processed by AI. This may take 1-2 minutes...");
-        setUploadResult({ message: "Processing CAS PDF with AI...", status: "processing" });
-        // Poll for status
-        const taskId = res.data.task_id;
-        const pollInterval = setInterval(async () => {
-          try {
-            const statusRes = await axios.get(`${API}/portfolio/upload-status/${taskId}`, { withCredentials: true });
-            const task = statusRes.data;
-            if (task.status === "completed") {
-              clearInterval(pollInterval);
-              setUploadResult(task);
-              setUploading(false);
-              if (task.count > 0) {
-                toast.success(task.message || `${task.count} holdings imported`);
-              } else {
-                toast.info(task.message || "No holdings found");
-              }
-              onRefresh();
-            } else if (task.status === "error") {
-              clearInterval(pollInterval);
-              setUploadResult({ message: task.message, status: "error" });
-              setUploading(false);
-              toast.error(task.message || "CAS parsing failed");
-            } else {
-              setUploadResult({ message: task.message || "Processing...", status: "processing" });
-            }
-          } catch {
-            // Keep polling
-          }
-        }, 5000);
-        // Safety timeout after 5 minutes
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          setUploading(false);
-        }, 300000);
+      let res;
+      if (isPdf) {
+        // Use raw upload for PDFs (avoids multipart form parsing overhead for large files)
+        res = await axios.post(`${API}/portfolio/upload-raw`, file, {
+          withCredentials: true,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Filename": file.name,
+          },
+          timeout: 120000,
+        });
       } else {
-        // Synchronous result (CSV/Excel)
+        const formPayload = new FormData();
+        formPayload.append("file", file);
+        res = await axios.post(`${API}/portfolio/upload`, formPayload, {
+          withCredentials: true,
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 30000,
+        });
+      }
+      
+      if (res.data.task_id && res.data.status === "processing") {
+        startPolling(res.data.task_id);
+      } else {
         setUploadResult(res.data);
         toast.success(res.data.message || `${res.data.count} holdings imported`);
         setUploading(false);
         onRefresh();
       }
     } catch (err) {
-      const detail = err.response?.data?.detail || "Upload failed. Please check your file format.";
-      toast.error(detail);
-      setUploading(false);
+      if (isPdf && (!err.response || err.code === "ECONNABORTED" || err.message?.includes("timeout") || err.message?.includes("Network Error"))) {
+        toast.info("Upload is taking longer than expected. Checking processing status...");
+        setUploadResult({ message: "Checking if CAS is being processed...", status: "processing" });
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const tasksRes = await axios.get(`${API}/portfolio/upload-latest-task`, { withCredentials: true });
+          if (tasksRes.data?.task_id) {
+            startPolling(tasksRes.data.task_id);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+        setUploading(false);
+        toast.error("Upload timed out. Please try again — large CAS files may take a moment.");
+      } else {
+        const detail = err.response?.data?.detail || "Upload failed. Please check your file format.";
+        toast.error(detail);
+        setUploading(false);
+      }
     } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
