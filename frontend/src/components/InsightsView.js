@@ -27,7 +27,9 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
   const { fmt } = useNumberFormat();
   const [analysis, setAnalysis] = useState(null);
   const [deepAnalytics, setDeepAnalytics] = useState(null);
+  const [fundPerformance, setFundPerformance] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [loadingBenchmark, setLoadingBenchmark] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
   const [perfSort, setPerfSort] = useState("pct_return");
@@ -50,6 +52,14 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
       const res = await axios.get(`${API}/portfolio/deep-analytics`, { withCredentials: true });
       if (res.data) setDeepAnalytics(res.data);
     } catch {}
+  };
+
+  const fetchFundPerformance = async () => {
+    setLoadingBenchmark(true);
+    try {
+      const res = await axios.get(`${API}/portfolio/fund-performance`, { withCredentials: true });
+      if (res.data) setFundPerformance(res.data);
+    } catch {} finally { setLoadingBenchmark(false); }
   };
 
   const generate = async () => {
@@ -94,6 +104,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
 
   const tabs = [
     { id: "overview", label: "AI Overview" },
+    { id: "benchmark", label: "Benchmark" },
     { id: "overexposure", label: "Overexposure" },
     { id: "overlap", label: "Fund Overlap" },
     { id: "performance", label: "Performance" },
@@ -181,6 +192,16 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
               cost={cost}
               ins={ins}
               funnel={funnel}
+              fmt={fmt}
+            />
+          )}
+
+          {/* ══════════════ TAB: BENCHMARK ══════════════ */}
+          {activeTab === "benchmark" && (
+            <BenchmarkTab
+              data={fundPerformance}
+              loading={loadingBenchmark}
+              onLoad={fetchFundPerformance}
               fmt={fmt}
             />
           )}
@@ -1045,3 +1066,299 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
 };
 
 export default InsightsView;
+
+// ════════════════════════════════════════
+// BENCHMARK TAB - MF Benchmark Ratings, Performance Pie, Category Overlap Bar
+// ════════════════════════════════════════
+const RATING_CONFIG = {
+  overperforming: { label: "Outperforming", color: "#10B981", bg: "bg-emerald-50 dark:bg-emerald-900/15", border: "border-emerald-200 dark:border-emerald-800", icon: TrendingUp },
+  meeting: { label: "Meeting Benchmark", color: "#3B82F6", bg: "bg-blue-50 dark:bg-blue-900/15", border: "border-blue-200 dark:border-blue-800", icon: ArrowRight },
+  underperforming: { label: "Underperforming", color: "#EF4444", bg: "bg-red-50 dark:bg-red-900/15", border: "border-red-200 dark:border-red-800", icon: TrendingDown },
+  no_data: { label: "No Benchmark Data", color: "#94A3B8", bg: "bg-slate-50 dark:bg-slate-800/50", border: "border-slate-200 dark:border-slate-700", icon: BarChart3 },
+};
+
+const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
+  useEffect(() => {
+    if (!data && !loading) onLoad();
+  }, []);
+
+  if (loading) {
+    return (
+      <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+        <CardContent className="p-12 text-center">
+          <RefreshCw className="w-8 h-8 text-emerald-600 mx-auto mb-4 animate-spin" />
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            Fetching Benchmark Data...
+          </h3>
+          <p className="text-sm text-slate-500">Loading 1-year historical NAVs from AMFI for each mutual fund. This may take 15-30 seconds.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || !data.fund_ratings?.length) {
+    return (
+      <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+        <CardContent className="p-12 text-center">
+          <BarChart3 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            No mutual fund data
+          </h3>
+          <p className="text-sm text-slate-500 mb-4">Add mutual fund holdings to see benchmark analysis.</p>
+          <Button onClick={onLoad} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl" data-testid="load-benchmark-btn">
+            <RefreshCw className="w-4 h-4 mr-2" /> Load Benchmark Data
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const dist = data.performance_distribution || {};
+  const ratings = data.fund_ratings || [];
+  const topPerf = data.top_performers || [];
+  const bottomPerf = data.bottom_performers || [];
+  const catOverlap = data.category_overlap || [];
+  const summary = data.summary || {};
+
+  const pieData = [
+    { name: "Outperforming", value: dist.overperforming || 0, color: "#10B981" },
+    { name: "Meeting Benchmark", value: dist.meeting || 0, color: "#3B82F6" },
+    { name: "Underperforming", value: dist.underperforming || 0, color: "#EF4444" },
+    { name: "No Data", value: dist.no_data || 0, color: "#CBD5E1" },
+  ].filter(d => d.value > 0);
+
+  const overlapBarData = catOverlap
+    .filter(c => c.count > 0)
+    .slice(0, 12)
+    .map(c => ({
+      name: c.category.length > 18 ? c.category.slice(0, 18) + ".." : c.category,
+      fullName: c.category,
+      count: c.count,
+      overlapping: c.is_overlapping,
+    }));
+
+  return (
+    <div className="space-y-6">
+      {/* Summary + Distribution Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Performance Distribution Donut */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  MF Performance vs Benchmark
+                </h3>
+                <Button variant="ghost" size="sm" onClick={onLoad} className="h-7 text-xs text-slate-500" data-testid="refresh-benchmark">
+                  <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                </Button>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="w-40 h-40 flex-shrink-0" data-testid="benchmark-pie">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={2} dataKey="value">
+                        {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v, name) => [`${v} funds`, name]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-2.5">
+                  {pieData.map(d => (
+                    <div key={d.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
+                        <span className="text-xs text-slate-600 dark:text-slate-400">{d.name}</span>
+                      </div>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{d.value}</span>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <p className="text-[10px] text-slate-400">
+                      {summary.matched || 0} of {summary.total_mf || 0} funds matched with AMFI data
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Top & Bottom Performers */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
+            <CardContent className="p-6">
+              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                Best & Worst Performers (1Y Return)
+              </h3>
+              <div className="space-y-1">
+                {topPerf.slice(0, 3).map((p, i) => (
+                  <div key={`top-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+                        <TrendingUp className="w-3 h-3 text-emerald-600" />
+                      </div>
+                      <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{p.name}</span>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-600 ml-2" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                      +{p.return_1y?.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+
+                <div className="border-t border-slate-100 dark:border-slate-700 my-2" />
+
+                {bottomPerf.slice(0, 3).map((p, i) => (
+                  <div key={`bottom-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-900/10">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                        <TrendingDown className="w-3 h-3 text-red-500" />
+                      </div>
+                      <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{p.name}</span>
+                    </div>
+                    <span className="text-xs font-bold text-red-500 ml-2" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                      {p.return_1y?.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Category Overlap Bar Graph */}
+      {overlapBarData.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+            <CardContent className="p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
+                  <Layers className="w-5 h-5 text-amber-600" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    Category Overlap
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Number of funds per sector/category — multiple funds in the same category indicates overlap
+                  </p>
+                </div>
+              </div>
+              <div className="h-64" data-testid="category-overlap-chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={overlapBarData} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={140} />
+                    <Tooltip
+                      formatter={(v, name, { payload }) => [`${v} fund${v > 1 ? "s" : ""}${payload.overlapping ? " (overlapping)" : ""}`, "Funds"]}
+                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }}
+                    />
+                    <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={20}>
+                      {overlapBarData.map((d, i) => (
+                        <Cell key={i} fill={d.overlapping ? "#F59E0B" : "#10B981"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex items-center gap-4 mt-3 text-[10px] font-bold tracking-wider uppercase">
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-500" />Overlapping (2+ funds)</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500" />Unique</div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Fund-by-Fund Benchmark Ratings */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+          <CardContent className="p-6 md:p-8">
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              Fund-by-Fund Benchmark Comparison
+            </h3>
+            <div className="space-y-3" data-testid="fund-ratings-list">
+              {ratings.map((r, i) => {
+                const cfg = RATING_CONFIG[r.rating] || RATING_CONFIG.no_data;
+                const RIcon = cfg.icon;
+                return (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}
+                    data-testid={`fund-rating-${i}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <RIcon className="w-4 h-4 flex-shrink-0" style={{ color: cfg.color }} />
+                          <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{r.name}</p>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                          <span>{r.sector}</span>
+                          {r.scheme_category && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700">{r.scheme_category}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex-shrink-0 text-right">
+                        <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
+                          {cfg.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Return comparison bar */}
+                    <div className="mt-3 grid grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-[10px] text-slate-400 mb-0.5">1Y Return</p>
+                        <p className={`text-sm font-bold ${(r.return_1y || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {r.return_1y !== null ? `${r.return_1y >= 0 ? "+" : ""}${r.return_1y}%` : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 mb-0.5">Benchmark</p>
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {r.benchmark_return !== null ? `${r.benchmark_return >= 0 ? "+" : ""}${r.benchmark_return}%` : "—"}
+                        </p>
+                        {r.benchmark_name && <p className="text-[9px] text-slate-400">{r.benchmark_name}</p>}
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 mb-0.5">Alpha</p>
+                        <p className={`text-sm font-bold ${(r.alpha || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {r.alpha !== null ? `${r.alpha >= 0 ? "+" : ""}${r.alpha}%` : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Visual bar: fund return vs benchmark */}
+                    {r.return_1y !== null && r.benchmark_return !== null && (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden relative">
+                            <div className="h-full rounded-full absolute top-0 left-0" style={{ width: `${Math.min(Math.max(((r.return_1y + 20) / 60) * 100, 5), 95)}%`, backgroundColor: cfg.color, opacity: 0.7 }} />
+                          </div>
+                          <span className="text-[9px] text-slate-400 w-8 text-right">Fund</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden relative">
+                            <div className="h-full rounded-full absolute top-0 left-0 bg-slate-400" style={{ width: `${Math.min(Math.max(((r.benchmark_return + 20) / 60) * 100, 5), 95)}%` }} />
+                          </div>
+                          <span className="text-[9px] text-slate-400 w-8 text-right">Avg</span>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+};

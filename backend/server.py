@@ -22,6 +22,7 @@ from repository import UserRepository, SessionRepository, PortfolioRepository, H
 from services import compute_health_score, compute_risk_analysis, generate_recommendations
 from services.ai_engine import AIEngine
 from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
+from services.fund_performance import compute_benchmark_ratings
 from middleware import RateLimitMiddleware, validate_env
 
 ROOT_DIR = Path(__file__).parent
@@ -981,6 +982,26 @@ async def refresh_nav(request: Request):
             )
             updated_count += 1
     return {"updated": updated_count, "total_mf": len(holdings), "nav_entries": len(nav_map)}
+
+
+@api_router.get("/portfolio/fund-performance")
+async def get_fund_performance(request: Request, portfolio_id: str = ""):
+    """Get MF benchmark ratings, performance distribution, and category overlap."""
+    user = await get_current_user(request)
+    query = {"user_id": user["user_id"]}
+    if portfolio_id:
+        query["portfolio_id"] = portfolio_id
+    holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
+
+    if not holdings:
+        return {"fund_ratings": [], "performance_distribution": {}, "category_overlap": [], "summary": {}}
+
+    # Get the AMFI NAV cache for scheme code matching
+    nav_cache = await fetch_nav_data()
+
+    # Compute benchmark ratings using mfapi.in historical data
+    result = await compute_benchmark_ratings(holdings, nav_cache)
+    return result
 
 
 @api_router.get("/portfolio/deep-analytics")
