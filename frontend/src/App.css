@@ -1,34 +1,48 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Global Animations */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+@keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
+.animate-fade-in-up {
+    animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.animate-pulse-soft {
+    animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* Risk meter gradient */
+.risk-gradient {
+    background: linear-gradient(90deg, #10B981 0%, #F59E0B 50%, #EF4444 100%);
+}
+
+/* Chat bubble styling */
+.chat-user-bubble {
+    background-color: #059669;
     color: white;
+    border-radius: 20px 20px 4px 20px;
 }
 
-.App-link {
-    color: #61dafb;
+.chat-ai-bubble {
+    background-color: #F1F5F9;
+    color: #0F172A;
+    border-radius: 20px 20px 20px 4px;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Loading dots */
+@keyframes bounce-dot {
+    0%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-6px); }
 }
+
+.loading-dot {
+    animation: bounce-dot 1.4s ease-in-out infinite;
+}
+.loading-dot:nth-child(2) { animation-delay: 0.16s; }
+.loading-dot:nth-child(3) { animation-delay: 0.32s; }
