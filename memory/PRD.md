@@ -1,33 +1,27 @@
-# WealthPilot - AI Financial Advisor Platform
+# nivesh.ai - AI Financial Advisor Platform
 
 ## Architecture
 - Backend: FastAPI + MongoDB + GPT-5.2 (emergentintegrations)
 - Frontend: React + Tailwind + Shadcn UI + Recharts + Framer Motion
 - Auth: Emergent Google OAuth
-- Design: Kuvera-inspired (light/dark theme)
 
-## What's Been Implemented (Apr 14, 2026)
-### Core Features
-- Google OAuth, portfolio CRUD, CAS PDF/CSV/Excel upload with AI parsing
-- Dashboard: 5 KPI cards, performance trend, asset allocation donut, sector bar, heatmap treemap
-- AI Chat (GPT-5.2), AI Insights generation
-
-### New Features (This Session)
-- **Family Portfolios**: Create/delete portfolios per family member (Self, Spouse, Child, Parent)
-- **Multi-CAS Upload**: Upload CAS per portfolio member with password prompt
-- **Asset Type Tabs**: Equity, Mutual Funds, ETFs, Gold & SGB, Other with counts
-- **Sort & Filter**: Search by name/ticker/sector, sort by name/value/returns, filter by member
-- **Smart Autocomplete**: 100+ Indian stocks, MFs, ETFs, gold bonds searchable when adding holdings
-- **Dark Theme**: Full dark mode toggle with CSS variables
-- **Top Movers Charts**: Horizontal bar charts for gainers/losers
-- **Portfolio Member Column**: Holdings table shows which member owns each holding
+## What's Been Implemented
+### Core: Portfolio mgmt, CAS/CSV/Excel upload, family portfolios, AI chat
+### Dashboard: 5 KPIs, performance trend, asset donut, sector bars, heatmap treemap
+### Interactive Charts: Click any chart segment → drill-down modal with sort/filter/search
+### Number Format: Lakhs/Crores toggle with uniform formatting
+### Insights Overhaul:
+- Priority Matrix (Impact vs Effort 2D grid)
+- Problem Distribution Donut
+- Risk Gauge (current → target)
+- Before/After Impact Bars
+- Annual Cost Leakage
+- Action Funnel (step flow)
+- Progress bar insight cards
+- Fund Overlap Analysis
 
 ## Backlog
-### P1
-- [ ] Real-time market price fetching (NSE/BSE API)
-- [ ] Portfolio-specific analytics (per family member)
-- [ ] Performance vs benchmark
-### P2
-- [ ] Agentic AI layer, Tax optimization
-- [ ] Broker PDF parsing (Zerodha, ICICI, Angel One)
-- [ ] Alerts & notifications
+- [ ] Real-time market prices
+- [ ] Portfolio comparison (family member vs benchmark)
+- [ ] Tax optimization calculator
+- [ ] Mobile responsive polish
