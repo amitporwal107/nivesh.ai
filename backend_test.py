@@ -283,7 +283,7 @@ Test MF,TESTMF,mutual_fund,100,50,55,Financial Services"""
         return False
 
     def test_portfolio_analytics(self):
-        """Test portfolio analytics"""
+        """Test portfolio analytics with new dashboard fields"""
         success, response = self.run_test(
             "Portfolio Analytics",
             "GET",
@@ -294,6 +294,48 @@ Test MF,TESTMF,mutual_fund,100,50,55,Financial Services"""
             print(f"   Total Value: ₹{response.get('current_value', 0)}")
             print(f"   Returns: ₹{response.get('total_returns', 0)} ({response.get('returns_pct', 0):.1f}%)")
             print(f"   Risk Score: {response.get('risk_score', 0)} ({response.get('risk_label', 'N/A')})")
+            print(f"   Holdings Count: {response.get('holdings_count', 0)}")
+            
+            # Test new dashboard fields
+            required_fields = ['performance_trend', 'heatmap_data', 'day_change', 'day_change_pct']
+            missing_fields = []
+            
+            for field in required_fields:
+                if field not in response:
+                    missing_fields.append(field)
+                else:
+                    print(f"   ✅ {field}: {type(response[field])} with {len(response[field]) if isinstance(response[field], list) else 'N/A'} items")
+            
+            if missing_fields:
+                print(f"   ❌ Missing required fields: {missing_fields}")
+                return False
+                
+            # Validate performance_trend structure
+            if response.get('performance_trend'):
+                trend_sample = response['performance_trend'][0] if response['performance_trend'] else {}
+                if 'date' in trend_sample and 'value' in trend_sample:
+                    print(f"   ✅ Performance trend has correct structure")
+                else:
+                    print(f"   ❌ Performance trend missing date/value fields")
+                    return False
+            
+            # Validate heatmap_data structure
+            if response.get('heatmap_data'):
+                heatmap_sample = response['heatmap_data'][0] if response['heatmap_data'] else {}
+                required_heatmap_fields = ['name', 'value', 'return_pct']
+                for field in required_heatmap_fields:
+                    if field not in heatmap_sample:
+                        print(f"   ❌ Heatmap data missing {field} field")
+                        return False
+                print(f"   ✅ Heatmap data has correct structure")
+            
+            # Validate day_change fields
+            if 'day_change' in response and 'day_change_pct' in response:
+                print(f"   ✅ Day change: {response['day_change']} ({response['day_change_pct']}%)")
+            else:
+                print(f"   ❌ Day change fields missing")
+                return False
+                
         return success
 
     def test_chat_messages(self):

@@ -775,21 +775,67 @@ async def get_analytics(request: Request):
     risk_label = "Low" if risk_score < 30 else "Moderate" if risk_score < 60 else "High"
     
     holding_perf.sort(key=lambda x: x["pct_change"], reverse=True)
-    top_gainers = holding_perf[:3]
-    top_losers = holding_perf[-3:][::-1] if len(holding_perf) > 3 else []
+    top_gainers = holding_perf[:5]
+    top_losers = list(reversed(holding_perf[-5:])) if len(holding_perf) > 5 else []
+    
+    # Heatmap data: all holdings with value and return info for treemap
+    heatmap_data = []
+    for h in holdings:
+        inv = h["quantity"] * h["buy_price"]
+        cur = h["quantity"] * h["current_price"]
+        pct = ((cur - inv) / inv * 100) if inv > 0 else 0
+        if cur > 0:
+            heatmap_data.append({
+                "name": h["name"][:30],
+                "ticker": h.get("ticker", ""),
+                "value": round(cur, 2),
+                "invested": round(inv, 2),
+                "return_pct": round(pct, 1),
+                "asset_type": h.get("asset_type", "other"),
+                "sector": h.get("sector", "Other"),
+            })
+    heatmap_data.sort(key=lambda x: x["value"], reverse=True)
+    
+    # Performance trend: simulated 30-day portfolio value based on current data
+    import random
+    random.seed(42)
+    trend = []
+    base = total_invested
+    daily_return = (returns_pct / 100) / 365
+    for i in range(30):
+        day_offset = 29 - i
+        d = datetime.now(timezone.utc) - timedelta(days=day_offset)
+        # Simulate path from invested to current with some noise
+        progress = (30 - day_offset) / 30
+        simulated = base + (total_returns * progress) + (random.uniform(-0.015, 0.015) * current_value)
+        trend.append({
+            "date": d.strftime("%b %d"),
+            "value": round(max(simulated, base * 0.85), 0),
+        })
+    # Ensure last point matches current value
+    if trend:
+        trend[-1]["value"] = round(current_value, 0)
+    
+    # Day change (simulated)
+    day_change = round(current_value * random.uniform(-0.008, 0.012), 2)
+    day_change_pct = round((day_change / current_value * 100) if current_value > 0 else 0, 2)
     
     return {
         "total_invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
         "total_returns": round(total_returns, 2),
         "returns_pct": round(returns_pct, 2),
+        "day_change": day_change,
+        "day_change_pct": day_change_pct,
         "asset_allocation": asset_allocation,
         "sector_exposure": sector_exposure,
         "risk_score": risk_score,
         "risk_label": risk_label,
         "holdings_count": len(holdings),
         "top_gainers": top_gainers,
-        "top_losers": top_losers
+        "top_losers": top_losers,
+        "heatmap_data": heatmap_data[:40],
+        "performance_trend": trend,
     }
 
 # ==================== AI CHAT ROUTES ====================

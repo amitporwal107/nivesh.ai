@@ -1,41 +1,91 @@
-import React from "react";
-import { TrendingUp, TrendingDown, Wallet, BarChart3, AlertTriangle, RefreshCw } from "lucide-react";
+import React, { useMemo } from "react";
+import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar,
+  Treemap,
+} from "recharts";
 import { motion } from "framer-motion";
 
-const COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316"];
+const COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
 const ASSET_LABELS = {
-  equity: "Equity",
-  mutual_fund: "Mutual Funds",
-  etf: "ETF",
-  bond: "Bonds",
-  gold: "Gold",
-  fd: "Fixed Deposit",
-  other: "Other",
+  equity: "Equity", mutual_fund: "Mutual Funds", etf: "ETF",
+  bond: "Bonds", gold: "Gold", fd: "Fixed Deposit", other: "Other",
 };
 
-const formatCurrency = (val) => {
-  if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
-  if (val >= 100000) return `₹${(val / 100000).toFixed(2)} L`;
-  if (val >= 1000) return `₹${(val / 1000).toFixed(1)}K`;
+const fmt = (val) => {
+  if (Math.abs(val) >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
+  if (Math.abs(val) >= 100000) return `₹${(val / 100000).toFixed(2)} L`;
+  if (Math.abs(val) >= 1000) return `₹${(val / 1000).toFixed(1)}K`;
   return `₹${val.toFixed(0)}`;
 };
 
+const fmtShort = (val) => {
+  if (Math.abs(val) >= 10000000) return `${(val / 10000000).toFixed(1)}Cr`;
+  if (Math.abs(val) >= 100000) return `${(val / 100000).toFixed(1)}L`;
+  if (Math.abs(val) >= 1000) return `${(val / 1000).toFixed(0)}K`;
+  return `${val.toFixed(0)}`;
+};
+
+// Custom Treemap content for heatmap
+const HeatmapCell = ({ x, y, width, height, name, return_pct, value }) => {
+  if (width < 4 || height < 4) return null;
+  const isPositive = return_pct >= 0;
+  const intensity = Math.min(Math.abs(return_pct) / 50, 1);
+  const bg = isPositive
+    ? `rgba(16, 185, 129, ${0.15 + intensity * 0.55})`
+    : `rgba(239, 68, 68, ${0.15 + intensity * 0.55})`;
+  const textColor = intensity > 0.4 ? "#fff" : isPositive ? "#065F46" : "#991B1B";
+  const showName = width > 60 && height > 30;
+  const showPct = width > 40 && height > 20;
+
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} fill={bg} stroke="#F8FAFC" strokeWidth={2} rx={6} />
+      {showName && (
+        <text x={x + width / 2} y={y + height / 2 - (showPct ? 6 : 0)} textAnchor="middle" fill={textColor} fontSize={width > 100 ? 11 : 9} fontFamily="'Figtree', sans-serif" fontWeight={500}>
+          {name?.length > (width > 100 ? 20 : 12) ? name.slice(0, width > 100 ? 20 : 12) + "..." : name}
+        </text>
+      )}
+      {showPct && (
+        <text x={x + width / 2} y={y + height / 2 + 12} textAnchor="middle" fill={textColor} fontSize={10} fontFamily="'JetBrains Mono', monospace" fontWeight={600}>
+          {isPositive ? "+" : ""}{return_pct}%
+        </text>
+      )}
+    </g>
+  );
+};
+
 const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }) => {
+  const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  // Sector bar chart data
+  const sectorBarData = useMemo(() => {
+    if (!analytics?.sector_exposure) return [];
+    const total = analytics.current_value || 1;
+    return analytics.sector_exposure
+      .map(s => ({ name: s.name.length > 14 ? s.name.slice(0, 14) + ".." : s.name, value: s.value, pct: parseFloat(((s.value / total) * 100).toFixed(1)) }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 10);
+  }, [analytics]);
+
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-slate-100 p-6 h-32 animate-pulse">
-              <div className="h-3 bg-slate-100 rounded w-24 mb-4" />
-              <div className="h-6 bg-slate-100 rounded w-32" />
+        <div className="h-10 bg-white rounded-xl w-64 animate-pulse" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="bg-white rounded-2xl border border-slate-100 p-5 h-28 animate-pulse">
+              <div className="h-3 bg-slate-100 rounded w-20 mb-3" />
+              <div className="h-7 bg-slate-100 rounded w-28" />
             </div>
           ))}
         </div>
+        <div className="bg-white rounded-2xl border border-slate-100 h-72 animate-pulse" />
       </div>
     );
   }
@@ -47,9 +97,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       <div data-testid="empty-dashboard">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
-              Welcome to WealthPilot
-            </h1>
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>Welcome to WealthPilot</h1>
             <p className="text-sm text-slate-500 mt-1">Start by adding your holdings to get AI-powered insights.</p>
           </div>
         </div>
@@ -57,239 +105,271 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Wallet className="w-8 h-8 text-emerald-600" strokeWidth={1.5} />
           </div>
-          <h2 className="text-xl font-medium text-slate-900 mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-            No holdings yet
-          </h2>
+          <h2 className="text-xl font-medium text-slate-900 mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings yet</h2>
           <p className="text-sm text-slate-500 mb-6">Add your stocks, mutual funds, and other investments to get started.</p>
-          <p className="text-xs text-slate-400">Go to Portfolio tab to add your first holding</p>
         </div>
       </div>
     );
   }
 
-  const returnsPositive = analytics.total_returns >= 0;
-  const allocationData = analytics.asset_allocation.map(a => ({
-    ...a,
-    name: ASSET_LABELS[a.name] || a.name,
-  }));
-  const sectorData = analytics.sector_exposure.map(s => ({
-    ...s,
-    pct: analytics.current_value > 0 ? ((s.value / analytics.current_value) * 100).toFixed(1) : 0,
-  }));
+  const rPos = analytics.total_returns >= 0;
+  const dPos = (analytics.day_change || 0) >= 0;
+  const allocationData = analytics.asset_allocation.map(a => ({ ...a, label: ASSET_LABELS[a.name] || a.name }));
 
   return (
-    <div data-testid="dashboard-overview">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div data-testid="dashboard-overview" className="space-y-6">
+      {/* ─── HEADER ─── */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
             Portfolio Overview
           </h1>
-          <p className="text-sm text-slate-500 mt-1">{analytics.holdings_count} holdings tracked</p>
+          <div className="flex items-center gap-2 mt-1">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" strokeWidth={1.5} />
+            <p className="text-sm text-slate-400">{today}</p>
+            <span className="text-slate-300 mx-1">|</span>
+            <p className="text-sm text-slate-500 font-medium">{analytics.holdings_count} holdings</p>
+          </div>
         </div>
-        <Button
-          data-testid="refresh-button"
-          variant="outline"
-          onClick={onRefresh}
-          className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" strokeWidth={1.5} />
-          Refresh
-        </Button>
-      </div>
+        <div className="flex items-center gap-2">
+          <Button data-testid="refresh-button" variant="outline" onClick={onRefresh} className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 h-9 text-sm">
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" strokeWidth={1.5} />Refresh
+          </Button>
+        </div>
+      </motion.div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300">
-            <CardContent className="p-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-slate-400 mb-3">Total Invested</p>
-              <p className="text-2xl font-semibold text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="total-invested">
-                {formatCurrency(analytics.total_invested)}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300">
-            <CardContent className="p-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-slate-400 mb-3">Current Value</p>
-              <p className="text-2xl font-semibold text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="current-value">
-                {formatCurrency(analytics.current_value)}
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300">
-            <CardContent className="p-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-slate-400 mb-3">Total Returns</p>
-              <div className="flex items-center gap-2">
-                {returnsPositive ? (
-                  <TrendingUp className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
-                ) : (
-                  <TrendingDown className="w-5 h-5 text-red-500" strokeWidth={1.5} />
-                )}
-                <p
-                  className={`text-2xl font-semibold ${returnsPositive ? "text-emerald-600" : "text-red-500"}`}
-                  style={{ fontFamily: "'Outfit', sans-serif" }}
-                  data-testid="total-returns"
-                >
-                  {returnsPositive ? "+" : ""}{formatCurrency(Math.abs(analytics.total_returns))}
-                </p>
-              </div>
-              <p className={`text-sm mt-1 ${returnsPositive ? "text-emerald-500" : "text-red-400"}`}>
-                {returnsPositive ? "+" : ""}{analytics.returns_pct.toFixed(1)}%
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300">
-            <CardContent className="p-6">
-              <p className="text-xs font-bold tracking-[0.15em] uppercase text-slate-400 mb-3">Risk Score</p>
-              <div className="flex items-center gap-2">
-                <AlertTriangle className={`w-5 h-5 ${analytics.risk_score < 30 ? "text-emerald-600" : analytics.risk_score < 60 ? "text-amber-500" : "text-red-500"}`} strokeWidth={1.5} />
-                <p className="text-2xl font-semibold text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="risk-score">
-                  {analytics.risk_label}
-                </p>
-              </div>
-              {/* Risk bar */}
-              <div className="mt-3 w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${analytics.risk_score}%`,
-                    background: `linear-gradient(90deg, #10B981 0%, #F59E0B 50%, #EF4444 100%)`,
-                  }}
-                  data-testid="risk-bar"
-                />
-              </div>
-              <p className="text-xs text-slate-400 mt-1">{analytics.risk_score}/100</p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Asset Allocation */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="asset-allocation-chart">
-            <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                Asset Allocation
-              </h3>
-              <div className="flex items-center gap-8">
-                <div className="w-48 h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={allocationData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value">
-                        {allocationData.map((_, i) => (
-                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(val) => formatCurrency(val)} />
-                    </PieChart>
-                  </ResponsiveContainer>
+      {/* ─── KPI CARDS (5 across) ─── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {[
+          { label: "Total Invested", value: fmt(analytics.total_invested), testid: "total-invested" },
+          { label: "Current Value", value: fmt(analytics.current_value), testid: "current-value" },
+          { label: "Total Returns", value: `${rPos ? "+" : ""}${fmt(Math.abs(analytics.total_returns))}`, sub: `${rPos ? "+" : ""}${analytics.returns_pct.toFixed(1)}%`, color: rPos ? "text-emerald-600" : "text-red-500", icon: rPos ? TrendingUp : TrendingDown, testid: "total-returns" },
+          { label: "Day Change", value: `${dPos ? "+" : ""}${fmt(Math.abs(analytics.day_change || 0))}`, sub: `${dPos ? "+" : ""}${(analytics.day_change_pct || 0).toFixed(2)}%`, color: dPos ? "text-emerald-600" : "text-red-500", icon: dPos ? ArrowUpRight : ArrowDownRight, testid: "day-change" },
+          { label: "Risk Score", value: analytics.risk_label, sub: `${analytics.risk_score}/100`, icon: AlertTriangle, color: analytics.risk_score < 30 ? "text-emerald-600" : analytics.risk_score < 60 ? "text-amber-500" : "text-red-500", testid: "risk-score", bar: analytics.risk_score },
+        ].map((kpi, i) => (
+          <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+            <Card className="bg-white border-slate-100 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 transition-all duration-300 h-full">
+              <CardContent className="p-5">
+                <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{kpi.label}</p>
+                <div className="flex items-center gap-1.5">
+                  {kpi.icon && <kpi.icon className={`w-4 h-4 ${kpi.color}`} strokeWidth={1.5} />}
+                  <p className={`text-xl font-semibold ${kpi.color || "text-slate-900"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={kpi.testid}>
+                    {kpi.value}
+                  </p>
                 </div>
-                <div className="flex-1 space-y-3">
-                  {allocationData.map((a, i) => (
-                    <div key={a.name} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                        <span className="text-sm text-slate-600">{a.name}</span>
-                      </div>
-                      <span className="text-sm font-medium text-slate-900">{formatCurrency(a.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Sector Exposure */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="sector-exposure-chart">
-            <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                Sector Exposure
-              </h3>
-              <div className="space-y-4">
-                {sectorData.map((s, i) => (
-                  <div key={s.name}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-slate-600">{s.name}</span>
-                      <span className="text-sm font-medium text-slate-900">{s.pct}%</span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${s.pct}%`, backgroundColor: COLORS[i % COLORS.length] }}
-                      />
-                    </div>
+                {kpi.sub && <p className={`text-xs mt-0.5 ${kpi.color || "text-slate-500"}`}>{kpi.sub}</p>}
+                {kpi.bar !== undefined && (
+                  <div className="mt-2 w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${kpi.bar}%`, background: "linear-gradient(90deg, #10B981 0%, #F59E0B 50%, #EF4444 100%)" }} data-testid="risk-bar" />
                   </div>
-                ))}
-                {sectorData.length === 0 && (
-                  <p className="text-sm text-slate-400 text-center py-6">No sector data available</p>
                 )}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ))}
       </div>
 
-      {/* Insights Preview */}
-      {insights.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="insights-preview">
+      {/* ─── PERFORMANCE TREND (FULL WIDTH LINE CHART) ─── */}
+      {analytics.performance_trend?.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
+          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="performance-trend-chart">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-medium text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  <BarChart3 className="w-5 h-5 inline-block mr-2 text-emerald-600" strokeWidth={1.5} />
-                  AI Insights
+                  Portfolio Performance
                 </h3>
+                <span className="text-xs text-slate-400 font-medium">Last 30 days</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {insights.slice(0, 4).map((ins) => (
-                  <div
-                    key={ins.insight_id}
-                    className={`p-4 rounded-xl border ${
-                      ins.type === "warning" ? "border-amber-200 bg-amber-50" :
-                      ins.type === "opportunity" ? "border-emerald-200 bg-emerald-50" :
-                      ins.type === "action" ? "border-blue-200 bg-blue-50" :
-                      "border-slate-200 bg-slate-50"
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-slate-900 mb-1">{ins.title}</p>
-                    <p className="text-xs text-slate-500 leading-relaxed">{ins.description}</p>
-                  </div>
-                ))}
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics.performance_trend} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#059669" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} interval="preserveStartEnd" />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} tickFormatter={(v) => fmtShort(v)} width={55} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", fontFamily: "'Figtree', sans-serif", fontSize: 13 }}
+                      formatter={(v) => [fmt(v), "Value"]}
+                    />
+                    <Area type="monotone" dataKey="value" stroke="#059669" strokeWidth={2.5} fill="url(#trendGrad)" dot={false} activeDot={{ r: 5, fill: "#059669", strokeWidth: 0 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
         </motion.div>
       )}
 
-      {/* Top Gainers / Losers */}
+      {/* ─── ASSET ALLOCATION (DONUT) | SECTOR EXPOSURE (BAR) ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
+          <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
+            <CardContent className="p-6 md:p-8">
+              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Asset Allocation</h3>
+              <div className="flex items-center gap-6">
+                <div className="w-44 h-44 flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={allocationData} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value" nameKey="label">
+                        {allocationData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={(v) => fmt(v)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-2.5">
+                  {allocationData.map((a, i) => {
+                    const pct = analytics.current_value > 0 ? ((a.value / analytics.current_value) * 100).toFixed(1) : 0;
+                    return (
+                      <div key={a.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                          <span className="text-sm text-slate-600">{a.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-medium text-slate-900">{pct}%</span>
+                          <span className="text-xs text-slate-400 ml-2">{fmt(a.value)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
+          <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
+            <CardContent className="p-6 md:p-8">
+              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
+              {sectorBarData.length > 0 ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={sectorBarData} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v) => `${v}%`} />
+                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={100} />
+                      <Tooltip formatter={(v) => [`${v}%`, "Allocation"]} contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13 }} />
+                      <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={18}>
+                        {sectorBarData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 text-center py-10">No sector data</p>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* ─── STOCK HEATMAP (FULL WIDTH TREEMAP) ─── */}
+      {analytics.heatmap_data?.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
+          <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="stock-heatmap">
+            <CardContent className="p-6 md:p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-medium text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  Holdings Heatmap
+                </h3>
+                <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider uppercase">
+                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-400/60" />Loss</div>
+                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-400/40" />Low</div>
+                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500/80" />High</div>
+                </div>
+              </div>
+              <div className="h-80 rounded-xl overflow-hidden">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={analytics.heatmap_data}
+                    dataKey="value"
+                    nameKey="name"
+                    content={<HeatmapCell />}
+                    animationDuration={400}
+                  />
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* ─── AI INSIGHTS + RECOMMENDATIONS ─── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.44 }}>
+        <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="insights-preview">
+          <CardContent className="p-6 md:p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-medium text-slate-900 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <Sparkles className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
+                AI Insights & Recommendations
+              </h3>
+              {insights.length === 0 && (
+                <p className="text-xs text-slate-400">Go to Insights tab to generate</p>
+              )}
+            </div>
+            {insights.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {insights.slice(0, 4).map((ins) => (
+                  <div
+                    key={ins.insight_id}
+                    className={`p-4 rounded-xl border transition-all duration-200 hover:shadow-md ${
+                      ins.type === "warning" ? "border-amber-200 bg-amber-50/80" :
+                      ins.type === "opportunity" ? "border-emerald-200 bg-emerald-50/80" :
+                      ins.type === "action" ? "border-blue-200 bg-blue-50/80" :
+                      "border-slate-200 bg-slate-50/80"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                        ins.type === "warning" ? "bg-amber-100" : ins.type === "opportunity" ? "bg-emerald-100" : ins.type === "action" ? "bg-blue-100" : "bg-slate-100"
+                      }`}>
+                        {ins.type === "warning" ? <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> :
+                         ins.type === "opportunity" ? <TrendingUp className="w-3.5 h-3.5 text-emerald-600" /> :
+                         ins.type === "action" ? <BarChart3 className="w-3.5 h-3.5 text-blue-600" /> :
+                         <Sparkles className="w-3.5 h-3.5 text-slate-500" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900 mb-0.5">{ins.title}</p>
+                        <p className="text-xs text-slate-500 leading-relaxed">{ins.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-slate-400">Add holdings and generate AI insights from the Insights tab</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* ─── TOP MOVERS ─── */}
       {(analytics.top_gainers?.length > 0 || analytics.top_losers?.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {analytics.top_gainers?.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
               <Card className="bg-white border-slate-100 rounded-2xl shadow-none">
                 <CardContent className="p-6">
                   <h3 className="text-base font-medium text-slate-900 mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     <TrendingUp className="w-4 h-4 text-emerald-600" /> Top Gainers
                   </h3>
-                  <div className="space-y-3">
-                    {analytics.top_gainers.map(g => (
-                      <div key={g.name} className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600">{g.name}</span>
-                        <span className="text-sm font-medium text-emerald-600">+{g.pct_change}%</span>
+                  <div className="space-y-2.5">
+                    {analytics.top_gainers.map((g, i) => (
+                      <div key={i} className="flex items-center justify-between py-1">
+                        <span className="text-sm text-slate-600 truncate max-w-[200px]">{g.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{fmt(g.value)}</span>
+                          <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">+{g.pct_change}%</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -298,17 +378,20 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
             </motion.div>
           )}
           {analytics.top_losers?.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.54 }}>
               <Card className="bg-white border-slate-100 rounded-2xl shadow-none">
                 <CardContent className="p-6">
                   <h3 className="text-base font-medium text-slate-900 mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     <TrendingDown className="w-4 h-4 text-red-500" /> Top Losers
                   </h3>
-                  <div className="space-y-3">
-                    {analytics.top_losers.map(l => (
-                      <div key={l.name} className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600">{l.name}</span>
-                        <span className="text-sm font-medium text-red-500">{l.pct_change}%</span>
+                  <div className="space-y-2.5">
+                    {analytics.top_losers.map((l, i) => (
+                      <div key={i} className="flex items-center justify-between py-1">
+                        <span className="text-sm text-slate-600 truncate max-w-[200px]">{l.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{fmt(l.value)}</span>
+                          <span className="text-sm font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded-lg">{l.pct_change}%</span>
+                        </div>
                       </div>
                     ))}
                   </div>
