@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -9,26 +10,14 @@ import {
   Treemap,
 } from "recharts";
 import { motion } from "framer-motion";
+import { useNumberFormat } from "@/context/NumberFormatContext";
+import DrilldownModal from "@/components/DrilldownModal";
 
 const COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
 const ASSET_LABELS = {
   equity: "Equity", mutual_fund: "Mutual Funds", etf: "ETF",
   bond: "Bonds", gold: "Gold", fd: "Fixed Deposit", other: "Other",
-};
-
-const fmt = (val) => {
-  if (Math.abs(val) >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
-  if (Math.abs(val) >= 100000) return `₹${(val / 100000).toFixed(2)} L`;
-  if (Math.abs(val) >= 1000) return `₹${(val / 1000).toFixed(1)}K`;
-  return `₹${val.toFixed(0)}`;
-};
-
-const fmtShort = (val) => {
-  if (Math.abs(val) >= 10000000) return `${(val / 10000000).toFixed(1)}Cr`;
-  if (Math.abs(val) >= 100000) return `${(val / 100000).toFixed(1)}L`;
-  if (Math.abs(val) >= 1000) return `${(val / 1000).toFixed(0)}K`;
-  return `${val.toFixed(0)}`;
 };
 
 // Custom Treemap content for heatmap
@@ -61,6 +50,8 @@ const HeatmapCell = ({ x, y, width, height, name, return_pct, value }) => {
 };
 
 const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }) => {
+  const { fmt, fmtShort, displayMode, setDisplayMode } = useNumberFormat();
+  const [drilldown, setDrilldown] = useState(null);
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   // Sector bar chart data
@@ -97,7 +88,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       <div data-testid="empty-dashboard">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>Welcome to WealthPilot</h1>
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>Welcome to nivesh.ai</h1>
             <p className="text-sm text-slate-500 mt-1">Start by adding your holdings to get AI-powered insights.</p>
           </div>
         </div>
@@ -132,6 +123,14 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Select value={displayMode} onValueChange={setDisplayMode}>
+            <SelectTrigger data-testid="format-toggle" className="w-24 h-9 rounded-xl border-slate-200 dark:border-slate-700 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto</SelectItem>
+              <SelectItem value="l">Lakhs</SelectItem>
+              <SelectItem value="cr">Crores</SelectItem>
+            </SelectContent>
+          </Select>
           <Button data-testid="refresh-button" variant="outline" onClick={onRefresh} className="rounded-xl border-slate-200 text-slate-600 hover:bg-slate-50 h-9 text-sm">
             <RefreshCw className="w-3.5 h-3.5 mr-1.5" strokeWidth={1.5} />Refresh
           </Button>
@@ -210,13 +209,19 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
           <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Asset Allocation</h3>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Asset Allocation</h3>
+              <p className="text-[10px] text-slate-400 mb-5">Click a segment to view details</p>
               <div className="flex items-center gap-6">
-                <div className="w-44 h-44 flex-shrink-0">
+                <div className="w-44 h-44 flex-shrink-0 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={allocationData} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value" nameKey="label">
-                        {allocationData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      <Pie data={allocationData} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value" nameKey="label"
+                        onClick={(data) => {
+                          const assetKey = data?.name || data?.payload?.name;
+                          const filtered = holdings.filter(h => h.asset_type === assetKey || ASSET_LABELS[h.asset_type] === assetKey);
+                          if (filtered.length > 0) setDrilldown({ title: ASSET_LABELS[assetKey] || assetKey, holdings: filtered });
+                        }}>
+                        {allocationData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} className="cursor-pointer hover:opacity-80 transition-opacity" />)}
                       </Pie>
                       <Tooltip formatter={(v) => fmt(v)} />
                     </PieChart>
@@ -226,13 +231,17 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   {allocationData.map((a, i) => {
                     const pct = analytics.current_value > 0 ? ((a.value / analytics.current_value) * 100).toFixed(1) : 0;
                     return (
-                      <div key={a.name} className="flex items-center justify-between">
+                      <div key={a.name} className="flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                        onClick={() => {
+                          const filtered = holdings.filter(h => h.asset_type === a.name);
+                          if (filtered.length > 0) setDrilldown({ title: a.label, holdings: filtered });
+                        }}>
                         <div className="flex items-center gap-2">
                           <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className="text-sm text-slate-600">{a.label}</span>
+                          <span className="text-sm text-slate-600 dark:text-slate-400">{a.label}</span>
                         </div>
                         <div className="text-right">
-                          <span className="text-sm font-medium text-slate-900">{pct}%</span>
+                          <span className="text-sm font-medium text-slate-900 dark:text-white">{pct}%</span>
                           <span className="text-xs text-slate-400 ml-2">{fmt(a.value)}</span>
                         </div>
                       </div>
@@ -247,16 +256,24 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
           <Card className="bg-white border-slate-100 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
+              <p className="text-[10px] text-slate-400 mb-5">Click a bar to view holdings</p>
               {sectorBarData.length > 0 ? (
-                <div className="h-64">
+                <div className="h-64 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={sectorBarData} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+                    <BarChart data={sectorBarData} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}
+                      onClick={(data) => {
+                        if (data?.activePayload?.[0]) {
+                          const sectorName = data.activePayload[0].payload.name;
+                          const filtered = holdings.filter(h => (h.sector || "Other").startsWith(sectorName.replace("..","")));
+                          if (filtered.length > 0) setDrilldown({ title: `Sector: ${sectorName}`, holdings: filtered });
+                        }
+                      }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
                       <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v) => `${v}%`} />
                       <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={100} />
                       <Tooltip formatter={(v) => [`${v}%`, "Allocation"]} contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13 }} />
-                      <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={18}>
+                      <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={18} className="cursor-pointer">
                         {sectorBarData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Bar>
                     </BarChart>
@@ -401,6 +418,14 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           )}
         </div>
       )}
+
+      {/* Drilldown Modal */}
+      <DrilldownModal
+        open={!!drilldown}
+        onClose={() => setDrilldown(null)}
+        title={drilldown?.title || ""}
+        holdings={drilldown?.holdings || []}
+      />
     </div>
   );
 };

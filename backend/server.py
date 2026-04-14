@@ -566,7 +566,6 @@ def _parse_json_response(response: str) -> list:
     clean = response.strip()
     if clean.startswith("```"):
         lines = clean.split("\n")
-        # Remove first and last lines with ```
         start = 1
         end = len(lines) - 1
         if lines[0].startswith("```json"):
@@ -580,7 +579,6 @@ def _parse_json_response(response: str) -> list:
         result = json.loads(clean.strip())
         return result if isinstance(result, list) else []
     except json.JSONDecodeError:
-        # Try to find JSON array in the response
         import re
         match = re.search(r'\[[\s\S]*\]', clean)
         if match:
@@ -590,6 +588,32 @@ def _parse_json_response(response: str) -> list:
             except json.JSONDecodeError:
                 pass
         return []
+
+def _parse_json_response_obj(response: str) -> dict:
+    """Parse JSON object from LLM response."""
+    clean = response.strip()
+    if clean.startswith("```"):
+        lines = clean.split("\n")
+        start = 1
+        end = len(lines) - 1
+        for i in range(len(lines) - 1, 0, -1):
+            if lines[i].strip() == "```":
+                end = i
+                break
+        clean = "\n".join(lines[start:end])
+    try:
+        result = json.loads(clean.strip())
+        return result if isinstance(result, dict) else {}
+    except json.JSONDecodeError:
+        import re
+        match = re.search(r'\{[\s\S]*\}', clean)
+        if match:
+            try:
+                result = json.loads(match.group())
+                return result if isinstance(result, dict) else {}
+            except json.JSONDecodeError:
+                pass
+        return {}
 
 async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None, portfolio_id: str = ""):
     """Save parsed holdings to DB and optionally update task status."""
@@ -1064,74 +1088,144 @@ async def generate_insights(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     
-    holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+    holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(500)
     if not holdings:
         return {"insights": [], "message": "Add holdings to generate insights"}
     
     total_inv = sum(h["quantity"] * h["buy_price"] for h in holdings)
     total_cur = sum(h["quantity"] * h["current_price"] for h in holdings)
     
-    portfolio_text = f"Portfolio: ₹{total_inv:,.0f} invested, ₹{total_cur:,.0f} current value.\nHoldings:\n"
+    # Build portfolio summary for AI
+    asset_map = {}
+    sector_map = {}
+    mf_names = []
     for h in holdings:
+        cur = h["quantity"] * h["current_price"]
+        at = h.get("asset_type", "other")
+        asset_map[at] = asset_map.get(at, 0) + cur
+        sec = h.get("sector", "Other")
+        sector_map[sec] = sector_map.get(sec, 0) + cur
+        if at == "mutual_fund":
+            mf_names.append(h["name"])
+    
+    portfolio_text = f"Portfolio: ₹{total_inv:,.0f} invested, ₹{total_cur:,.0f} current ({((total_cur-total_inv)/total_inv*100) if total_inv > 0 else 0:.1f}% returns).\n"
+    portfolio_text += f"Asset split: {', '.join(f'{k}={v/total_cur*100:.1f}%' for k,v in asset_map.items() if total_cur > 0)}\n"
+    portfolio_text += f"Sectors: {', '.join(f'{k}={v/total_cur*100:.1f}%' for k,v in list(sector_map.items())[:10] if total_cur > 0)}\n"
+    portfolio_text += f"Holdings ({len(holdings)}):\n"
+    for h in holdings[:60]:
         ret_pct = ((h["current_price"] - h["buy_price"]) / h["buy_price"] * 100) if h["buy_price"] > 0 else 0
-        portfolio_text += f"- {h['name']} ({h['asset_type']}, {h.get('sector','N/A')}): {h['quantity']} units, ₹{h['buy_price']}→₹{h['current_price']} ({ret_pct:.1f}%)\n"
+        portfolio_text += f"- {h['name']} ({h['asset_type']}, {h.get('sector','N/A')}): qty={h['quantity']}, ₹{h['buy_price']}→₹{h['current_price']} ({ret_pct:.1f}%)\n"
     
     try:
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"insights_{user_id}_{uuid.uuid4().hex[:6]}",
-            system_message="""You are an expert Indian financial advisor. Analyze the user's portfolio and provide exactly 4 actionable insights.
-Return ONLY a valid JSON array with exactly 4 objects, each with these fields:
-- "title": short insight title (max 8 words)
-- "description": detailed explanation (2-3 sentences)
-- "type": one of "warning", "opportunity", "info", "action"
-- "priority": one of "high", "medium", "low"
+            system_message="""You are an expert Indian financial advisor. Analyze the portfolio and return a comprehensive JSON analysis.
 
-Example: [{"title":"High Sector Concentration","description":"Your portfolio is 70% in IT...","type":"warning","priority":"high"}]"""
+Return ONLY valid JSON with this exact structure:
+{
+  "insights": [
+    {"title":"...", "description":"2-3 sentences", "type":"warning|opportunity|info|action", "impact":"high|medium|low", "effort":"high|medium|low", "category":"risk|allocation|cost|redundancy|opportunity", "current_value":"e.g. 18%", "target_value":"e.g. 10%", "progress": 30}
+  ],
+  "problem_distribution": [
+    {"name":"High Risk", "value": 35, "color":"#EF4444"},
+    {"name":"Allocation Issues", "value": 25, "color":"#F59E0B"},
+    {"name":"Cost Inefficiency", "value": 20, "color":"#3B82F6"},
+    {"name":"Redundancy", "value": 20, "color":"#10B981"}
+  ],
+  "before_after": {
+    "before": {"return_pct": 6.5, "risk_label":"High", "risk_score": 75, "expense_ratio": 1.8},
+    "after": {"return_pct": 8.2, "risk_label":"Moderate", "risk_score": 45, "expense_ratio": 0.5}
+  },
+  "action_funnel": [
+    {"step":1, "title":"Remove High Risk Stocks", "status":"critical", "detail":"Sell Vodafone, penny stocks"},
+    {"step":2, "title":"Shift to Direct Plans", "status":"important", "detail":"Switch 5 regular plans to direct"},
+    {"step":3, "title":"Consolidate Overlapping Funds", "status":"moderate", "detail":"Merge 3 similar large-cap funds"},
+    {"step":4, "title":"Rebalance Asset Allocation", "status":"recommended", "detail":"Increase debt to 15%, reduce equity"}
+  ],
+  "overlap_pairs": [
+    {"fund_a":"Fund A Name", "fund_b":"Fund B Name", "overlap_pct": 80},
+    {"fund_a":"Fund C Name", "fund_b":"Fund D Name", "overlap_pct": 65}
+  ],
+  "cost_leakage": {"annual_loss": 32000, "total_invested": 500000, "loss_pct": 1.2, "detail":"Regular plans vs Direct plans"},
+  "risk_gauge": {"current": 75, "target": 45, "current_label":"High", "target_label":"Moderate"}
+}
+
+Rules:
+- Provide 6-8 insights covering risk, allocation, cost, redundancy, opportunities
+- problem_distribution percentages must sum to 100
+- before_after should show realistic improvements
+- overlap_pairs: identify mutual funds with similar mandates (large cap overlap etc)
+- cost_leakage: estimate commission drag from regular plans
+- Be specific with fund names and numbers from the portfolio
+- All values must be realistic and based on the actual portfolio data"""
         )
         chat.with_model("openai", "gpt-5.2")
         
-        user_message = UserMessage(text=f"Analyze this portfolio:\n{portfolio_text}")
+        user_message = UserMessage(text=f"Analyze:\n{portfolio_text}")
         response = await chat.send_message(user_message)
         
-        # Parse JSON from response
-        clean_response = response.strip()
-        if clean_response.startswith("```"):
-            clean_response = clean_response.split("```")[1]
-            if clean_response.startswith("json"):
-                clean_response = clean_response[4:]
-        
-        insights_data = json.loads(clean_response)
+        analysis = _parse_json_response_obj(response)
         
     except Exception as e:
         logger.error(f"Insights generation error: {e}")
-        insights_data = [
-            {"title": "Portfolio Review Needed", "description": "We couldn't generate AI insights right now. Please try again.", "type": "info", "priority": "medium"}
-        ]
+        analysis = {
+            "insights": [{"title": "Analysis Error", "description": "Could not generate insights. Try again.", "type": "info", "impact": "medium", "effort": "low", "category": "info", "current_value": "", "target_value": "", "progress": 0}],
+            "problem_distribution": [],
+            "before_after": {"before": {"return_pct": 0, "risk_label": "N/A", "risk_score": 0, "expense_ratio": 0}, "after": {"return_pct": 0, "risk_label": "N/A", "risk_score": 0, "expense_ratio": 0}},
+            "action_funnel": [],
+            "overlap_pairs": [],
+            "cost_leakage": {"annual_loss": 0, "total_invested": 0, "loss_pct": 0, "detail": ""},
+            "risk_gauge": {"current": 0, "target": 0, "current_label": "N/A", "target_label": "N/A"}
+        }
     
-    # Delete old insights and save new
+    # Save insights
     await db.ai_insights.delete_many({"user_id": user_id})
     saved_insights = []
-    for insight in insights_data:
+    for insight in analysis.get("insights", []):
         doc = {
             "insight_id": f"ins_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
             "title": insight.get("title", ""),
             "description": insight.get("description", ""),
             "type": insight.get("type", "info"),
-            "priority": insight.get("priority", "medium"),
+            "priority": insight.get("impact", "medium"),
+            "impact": insight.get("impact", "medium"),
+            "effort": insight.get("effort", "medium"),
+            "category": insight.get("category", "info"),
+            "current_value": insight.get("current_value", ""),
+            "target_value": insight.get("target_value", ""),
+            "progress": insight.get("progress", 0),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.ai_insights.insert_one(doc)
         saved_insights.append({k: v for k, v in doc.items() if k != "_id"})
     
-    return {"insights": saved_insights}
+    # Save full analysis
+    analysis["insights"] = saved_insights
+    await db.portfolio_analysis.delete_many({"user_id": user_id})
+    await db.portfolio_analysis.insert_one({
+        "user_id": user_id,
+        "analysis": analysis,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    return analysis
+
+@api_router.get("/insights/analysis")
+async def get_analysis(request: Request):
+    """Get the full portfolio analysis (insights + visualizations data)."""
+    user = await get_current_user(request)
+    doc = await db.portfolio_analysis.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if doc and "analysis" in doc:
+        return doc["analysis"]
+    return None
 
 # ==================== ROOT ====================
 
 @api_router.get("/")
 async def root():
-    return {"message": "Agentic Wealth System API"}
+    return {"message": "nivesh.ai API"}
 
 # Include router and CORS
 app.include_router(api_router)

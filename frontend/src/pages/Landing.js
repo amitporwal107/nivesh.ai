@@ -24,7 +24,7 @@ const Landing = () => {
               <TrendingUp className="w-4 h-4 text-white" strokeWidth={2.5} />
             </div>
             <span className="text-lg font-semibold text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
-              WealthPilot
+              nivesh.ai
             </span>
           </div>
           <Button
@@ -87,7 +87,7 @@ const Landing = () => {
             <div className="w-3 h-3 rounded-full bg-red-400" />
             <div className="w-3 h-3 rounded-full bg-amber-400" />
             <div className="w-3 h-3 rounded-full bg-emerald-400" />
-            <span className="ml-4 text-xs text-slate-400 font-medium">WealthPilot Dashboard</span>
+            <span className="ml-4 text-xs text-slate-400 font-medium">nivesh.ai Dashboard</span>
           </div>
           <div className="p-8 grid grid-cols-3 gap-6">
             <div className="bg-slate-50 rounded-xl p-6 h-32 flex flex-col justify-between">
@@ -142,7 +142,7 @@ const Landing = () => {
             <div className="w-6 h-6 bg-emerald-600 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-3 h-3 text-white" strokeWidth={2.5} />
             </div>
-            <span className="text-sm font-medium text-slate-500">WealthPilot</span>
+            <span className="text-sm font-medium text-slate-500">nivesh.ai</span>
           </div>
           <p className="text-xs text-slate-400">
             Investment in securities market are subject to market risks. AI-generated guidance for educational purposes only.

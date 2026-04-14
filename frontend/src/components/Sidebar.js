@@ -52,7 +52,7 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
             <TrendingUp className="w-5 h-5 text-white" strokeWidth={2.5} />
           </div>
           <span className="text-lg font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-            WealthPilot
+            nivesh.ai
           </span>
         </div>
 

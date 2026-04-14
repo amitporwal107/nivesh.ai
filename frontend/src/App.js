@@ -3,6 +3,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { NumberFormatProvider } from "@/context/NumberFormatContext";
 import { Toaster } from "@/components/ui/sonner";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
@@ -36,10 +37,12 @@ function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <AuthProvider>
-          <AppRouter />
-          <Toaster position="top-right" richColors />
-        </AuthProvider>
+        <NumberFormatProvider>
+          <AuthProvider>
+            <AppRouter />
+            <Toaster position="top-right" richColors />
+          </AuthProvider>
+        </NumberFormatProvider>
       </ThemeProvider>
     </BrowserRouter>
   );
