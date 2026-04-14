@@ -387,7 +387,11 @@ IMPORTANT RULES:
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"PyPDF2 text extraction failed: {e}")
+        err_str = str(e)
+        logger.warning(f"PyPDF2 text extraction failed: {err_str}")
+        # Missing PyCryptodome for AES-encrypted PDFs — give explicit error
+        if "pycryptodome" in err_str.lower() or "aes" in err_str.lower():
+            raise HTTPException(status_code=500, detail="Server missing PyCryptodome library for AES-encrypted PDFs. Please contact support.")
         # If we know it's encrypted and password wasn't provided or failed, raise clear error
         if pdf_is_encrypted and not decrypt_succeeded and not password:
             raise HTTPException(status_code=400, detail="PDF is password-protected. Please provide the password.")
