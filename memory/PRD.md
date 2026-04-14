@@ -12,7 +12,7 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 - Family portfolio management
 - Interactive dashboard with drill-down charts
 - AI-powered insights and recommendations
-- Live market data integration
+- Live market data integration (AMFI NAV + mfapi.in)
 - Chat interface with portfolio-aware AI
 
 ## Tech Stack
@@ -20,7 +20,7 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 - **Backend:** FastAPI, Motor/MongoDB, PyPDF2, pdf2image/poppler
 - **AI:** GPT-5.2 via emergentintegrations (Emergent LLM Key)
 - **Auth:** Emergent Managed Google OAuth
-- **Market Data:** AMFI India NAV API (portal.amfiindia.com)
+- **Market Data:** AMFI India NAV API (portal.amfiindia.com), mfapi.in (historical NAV)
 
 ## Architecture
 ```
@@ -33,12 +33,13 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 └── services/
     ├── __init__.py (Health score, risk analysis, recommendations)
     ├── ai_engine.py (GPT-5.2 integration)
-    └── amfi_nav.py (AMFI NAV scraper)
+    ├── amfi_nav.py (AMFI NAV scraper - 31K+ schemes)
+    └── fund_performance.py (Benchmark ratings via mfapi.in)
 
 /app/frontend/src/
 ├── components/
 │   ├── DashboardOverview.js, PortfolioView.js, FamilyView.js
-│   ├── InsightsView.js (4-tab: AI Overview, Overexposure, Fund Overlap, Performance)
+│   ├── InsightsView.js (5-tab: AI Overview, Benchmark, Overexposure, Fund Overlap, Performance)
 │   ├── ChatView.js, Sidebar.js, DrilldownModal.js
 │   └── ui/ (Shadcn components)
 ├── context/ (Auth, Theme, NumberFormat)
@@ -71,19 +72,22 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 - [x] Risk Analysis with warnings
 - [x] Smart recommendations (Regular→Direct, dead positions, allocation)
 - [x] AI-generated insights with Priority Matrix
-- [x] Action Funnel visualization
-- [x] Before/After impact comparison
-- [x] Problem distribution donut
-- [x] Risk gauge current vs target
+- [x] Action Funnel, Before/After impact, Problem distribution, Risk gauge
 
 ### Phase 4 — Live Data & Visual Insights (DONE - Feb 2026)
 - [x] AMFI Live NAV integration (31K+ schemes, auto-updates MF prices)
-- [x] Fund House / AMC Overexposure visualization (bar chart + expandable cards)
-- [x] Sector Concentration visualization (bar chart + expandable cards)
-- [x] Fund Overlap Matrix (programmatic overlap by sector/category/AMC)
+- [x] Fund House / AMC Overexposure visualization
+- [x] Sector Concentration visualization
+- [x] Fund Overlap Matrix (programmatic overlap)
 - [x] Performance Cards (sortable table with P&L, weight, CAGR, LIVE NAV badges)
-- [x] 4-tab InsightsView (AI Overview, Overexposure, Fund Overlap, Performance)
-- [x] NAV refresh endpoint
+- [x] 5-tab InsightsView
+
+### Phase 5 — MF Benchmark Analysis (DONE - Feb 2026)
+- [x] **MF Benchmark Rating** — Each MF rated as Overperforming / Meeting / Underperforming using 1Y historical NAV from mfapi.in vs category-average benchmark
+- [x] **MF Performance Pie Chart** — Donut showing distribution of outperforming/meeting/underperforming funds
+- [x] **Best & Worst Performers** — Top 3 and bottom 3 funds by 1Y return
+- [x] **Category Overlap Bar Graph** — Fund count per sector with amber (overlapping) vs green (unique) color coding
+- [x] **Fund-by-Fund Benchmark Comparison** — Rating badges, 1Y return vs benchmark, alpha value, visual comparison bars
 
 ### AI Chat (DONE)
 - [x] Portfolio-aware AI chat with GPT-5.2
@@ -95,6 +99,7 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 - `POST /api/portfolio/upload-raw` — Binary upload (CAS PDF bypass)
 - `GET /api/portfolio/analytics` — Full analytics with AMFI NAV updates
 - `GET /api/portfolio/deep-analytics` — Overexposure, overlap, performance cards
+- `GET /api/portfolio/fund-performance` — MF benchmark ratings via mfapi.in
 - `POST /api/nav/refresh` — Manual AMFI NAV refresh
 - `POST /api/insights/generate` — AI-powered portfolio analysis
 - `POST /api/chat/send` — AI chat with portfolio context
@@ -109,3 +114,4 @@ Indian retail investors managing multiple investments across stocks, mutual fund
 - [ ] Agentic AI execution and scenario simulation
 - [ ] Tax loss harvesting suggestions
 - [ ] SIP tracking and recommendations
+- [ ] Portfolio disclosure integration for real company-level overlap (AMFI data)
