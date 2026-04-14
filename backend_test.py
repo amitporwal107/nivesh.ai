@@ -154,8 +154,8 @@ class WealthSystemAPITester:
         return success
 
     def test_csv_upload(self):
-        """Test CSV upload"""
-        csv_content = """name,ticker,asset_type,quantity,buy_price,current_price,sector
+        """Test CSV upload via new unified endpoint"""
+        csv_content = """Name,Ticker,Type,Quantity,Buy Price,Current Price,Sector
 Test CSV Stock,TESTCSV,equity,5,800,900,Banking
 Test MF,TESTMF,mutual_fund,100,50,55,Financial Services"""
         
@@ -163,15 +163,124 @@ Test MF,TESTMF,mutual_fund,100,50,55,Financial Services"""
         files = {'file': ('test_holdings.csv', csv_file.getvalue(), 'text/csv')}
         
         success, response = self.run_test(
-            "CSV Upload",
+            "CSV Upload (New Endpoint)",
             "POST",
-            "portfolio/upload-csv",
+            "portfolio/upload",
             200,
             files=files
         )
         if success:
             print(f"   Imported {response.get('count', 0)} holdings")
         return success
+
+    def test_excel_upload(self):
+        """Test Excel upload via unified endpoint"""
+        try:
+            import openpyxl
+            from io import BytesIO
+            
+            # Create Excel file in memory
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            
+            # Headers
+            ws['A1'] = 'Name'
+            ws['B1'] = 'Ticker'
+            ws['C1'] = 'Type'
+            ws['D1'] = 'Quantity'
+            ws['E1'] = 'Buy Price'
+            ws['F1'] = 'Current Price'
+            ws['G1'] = 'Sector'
+            
+            # Data rows
+            ws['A2'] = 'Test Excel Stock'
+            ws['B2'] = 'TESTXL'
+            ws['C2'] = 'equity'
+            ws['D2'] = 8
+            ws['E2'] = 1200
+            ws['F2'] = 1350
+            ws['G2'] = 'IT'
+            
+            ws['A3'] = 'Test Excel MF'
+            ws['B3'] = 'TESTXLMF'
+            ws['C3'] = 'mutual_fund'
+            ws['D3'] = 200
+            ws['E3'] = 25
+            ws['F3'] = 28
+            ws['G3'] = 'Financial Services'
+            
+            # Save to BytesIO
+            excel_buffer = BytesIO()
+            wb.save(excel_buffer)
+            excel_buffer.seek(0)
+            
+            files = {'file': ('test_holdings.xlsx', excel_buffer.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+            
+            success, response = self.run_test(
+                "Excel Upload",
+                "POST",
+                "portfolio/upload",
+                200,
+                files=files
+            )
+            if success:
+                print(f"   Imported {response.get('count', 0)} holdings")
+            return success
+            
+        except ImportError:
+            print("❌ openpyxl not available - skipping Excel test")
+            return False
+        except Exception as e:
+            print(f"❌ Excel test failed: {e}")
+            return False
+
+    def test_cas_pdf_upload(self):
+        """Test CAS PDF async upload (mock PDF)"""
+        # Create a simple mock PDF content
+        mock_pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n>>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000074 00000 n \n0000000120 00000 n \ntrailer\n<<\n/Size 4\n/Root 1 0 R\n>>\nstartxref\n179\n%%EOF"
+        
+        files = {'file': ('test_cas.pdf', mock_pdf_content, 'application/pdf')}
+        
+        success, response = self.run_test(
+            "CAS PDF Upload (Async)",
+            "POST",
+            "portfolio/upload",
+            200,
+            files=files
+        )
+        
+        if success:
+            task_id = response.get('task_id')
+            status = response.get('status')
+            print(f"   Task ID: {task_id}")
+            print(f"   Status: {status}")
+            
+            if task_id and status == 'processing':
+                return task_id
+        return None
+
+    def test_upload_status_polling(self, task_id):
+        """Test upload status polling"""
+        if not task_id:
+            print("❌ No task_id provided for status polling")
+            return False
+            
+        success, response = self.run_test(
+            "Upload Status Polling",
+            "GET",
+            f"portfolio/upload-status/{task_id}",
+            200
+        )
+        
+        if success:
+            status = response.get('status', 'unknown')
+            message = response.get('message', '')
+            count = response.get('count', 0)
+            print(f"   Status: {status}")
+            print(f"   Message: {message}")
+            print(f"   Count: {count}")
+            return True
+        return False
 
     def test_portfolio_analytics(self):
         """Test portfolio analytics"""
@@ -276,7 +385,16 @@ def main():
         tester.test_update_holding(holding_id)
         # Don't delete immediately, keep for other tests
     
+    # Test new upload functionality
+    print("\n📤 UPLOAD TESTS")
     tester.test_csv_upload()
+    tester.test_excel_upload()
+    
+    # Test CAS PDF async upload
+    task_id = tester.test_cas_pdf_upload()
+    if task_id:
+        tester.test_upload_status_polling(task_id)
+    
     tester.test_portfolio_analytics()
     
     # Test AI features

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ import httpx
 import json
 import io
 import csv
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -292,9 +293,12 @@ async def parse_excel_holdings(content: bytes) -> list:
     return holdings
 
 async def parse_cas_pdf(content: bytes) -> list:
-    """Parse CAS (Consolidated Account Statement) PDF using AI."""
+    """Parse CAS (Consolidated Account Statement) PDF using AI with direct PDF upload."""
     from PyPDF2 import PdfReader
+    from emergentintegrations.llm.chat import FileContent
+    import base64
     
+    # First try text extraction
     reader = PdfReader(io.BytesIO(content))
     text = ""
     for page in reader.pages:
@@ -302,79 +306,152 @@ async def parse_cas_pdf(content: bytes) -> list:
         if extracted:
             text += extracted + "\n"
     
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract text from PDF. The file may be scanned/image-based.")
-    
-    # Truncate to fit token limits
-    text = text[:8000]
-    
-    try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"cas_parse_{uuid.uuid4().hex[:8]}",
-            system_message="""You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
-Extract all investment holdings from the CAS text provided.
+    cas_system_message = """You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
+Extract ALL investment holdings from the CAS data provided.
 
 Return ONLY a valid JSON array. Each object must have:
-- "name": scheme/fund name (string)
-- "ticker": ISIN or AMC code if found (string, empty if not found)
+- "name": scheme/fund name (string, clean and readable)
+- "ticker": ISIN code if found (string, empty if not found)
 - "asset_type": one of "mutual_fund", "equity", "etf", "bond", "gold", "fd", "other"
-- "quantity": number of units (float)
-- "buy_price": average cost per unit or NAV at purchase (float, 0 if unknown)
-- "current_price": current NAV or market price (float, 0 if unknown)
-- "sector": investment category like "Large Cap", "Mid Cap", "Debt", "ELSS", "Liquid", "Gold", "Other" (string)
+- "quantity": number of units/shares (float)
+- "buy_price": average cost per unit (float, 0 if unknown)
+- "current_price": current NAV or market price per unit (float, 0 if unknown)
+- "sector": category like "Large Cap", "Mid Cap", "Small Cap", "Flexi Cap", "Multi Cap", "Balanced", "Debt", "ELSS", "Index", "Gold", "Banking", "IT", "Other" (string)
 
-Parse folio numbers, scheme names, units, NAV values. If a fund appears multiple times (different folios), combine the units.
-If buy_price or current_price is not available, use 0.
-Return empty array [] if no holdings found.
-Do NOT include any explanation, only the JSON array."""
-        )
-        chat.with_model("openai", "gpt-5.2")
-        
-        user_message = UserMessage(text=f"Parse this CAS statement and extract holdings:\n\n{text}")
-        response = await chat.send_message(user_message)
-        
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("```")[1]
-            if clean.startswith("json"):
-                clean = clean[4:]
-        if clean.endswith("```"):
-            clean = clean[:-3]
-        
-        holdings = json.loads(clean.strip())
-        return holdings if isinstance(holdings, list) else []
-    except Exception as e:
-        logger.error(f"CAS AI parsing error: {e}")
-        raise HTTPException(status_code=422, detail=f"Could not parse CAS file with AI. Error: {str(e)}")
+IMPORTANT RULES:
+- If same fund appears with different folios, keep them SEPARATE (don't combine)
+- For mutual funds, use the NAV as current_price and avg cost as buy_price
+- For equities, use market price as current_price
+- For ETFs, classify as "etf" not "mutual_fund"
+- For Sovereign Gold Bonds, use asset_type "gold"
+- Extract ALL holdings, don't skip any
+- Return ONLY the JSON array, no explanation"""
 
-@api_router.post("/portfolio/upload")
-async def upload_portfolio(request: Request, file: UploadFile = File(...)):
-    """Upload portfolio file - supports CSV, Excel (.xlsx), and CAS PDF."""
-    user = await get_current_user(request)
-    content = await file.read()
-    filename = (file.filename or "").lower()
-    
-    # Detect file type and parse
-    if filename.endswith(".pdf"):
-        parsed = await parse_cas_pdf(content)
-    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-        parsed = await parse_excel_holdings(content)
-    elif filename.endswith(".csv"):
-        parsed = await parse_csv_holdings(content)
-    else:
-        # Try CSV first, then PDF
+    if text.strip() and len(text.strip()) > 200:
+        # Text-based PDF — use text directly
+        text = text[:12000]
         try:
-            parsed = await parse_csv_holdings(content)
-        except Exception:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"cas_txt_{uuid.uuid4().hex[:8]}",
+                system_message=cas_system_message
+            )
+            chat.with_model("openai", "gpt-5.2")
+            user_message = UserMessage(text=f"Parse this CAS statement and extract ALL holdings:\n\n{text}")
+            response = await chat.send_message(user_message)
+            return _parse_json_response(response)
+        except Exception as e:
+            logger.error(f"CAS text parsing error: {e}")
+            raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
+    
+    # Image-based PDF — split into smaller chunks and send each to GPT-5.2
+    logger.info("CAS PDF is image-based, processing in page batches")
+    try:
+        from PyPDF2 import PdfWriter
+        import base64
+        
+        total_pages = len(reader.pages)
+        all_holdings = []
+        
+        # Process in batches of 3 pages to keep under API size limits
+        for start_idx in range(0, total_pages, 3):
+            end_idx = min(start_idx + 3, total_pages)
+            
+            writer = PdfWriter()
+            for i in range(start_idx, end_idx):
+                writer.add_page(reader.pages[i])
+            
+            buf = io.BytesIO()
+            writer.write(buf)
+            chunk_bytes = buf.getvalue()
+            
+            # Skip very small chunks (likely empty/intro pages)
+            if len(chunk_bytes) < 5000:
+                continue
+            
+            pdf_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
+            
+            file_content = FileContent(
+                content_type="application/pdf",
+                file_content_base64=pdf_base64
+            )
+            
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"cas_p{start_idx}_{uuid.uuid4().hex[:6]}",
+                system_message=cas_system_message
+            )
+            chat.with_model("openai", "gpt-5.2")
+            
+            user_message = UserMessage(
+                text=f"These are pages {start_idx+1}-{end_idx} of a CAS (Consolidated Account Statement) from NSDL/CDSL India. Extract ALL investment holdings visible on these pages (mutual funds, equities, ETFs, gold bonds). If no holdings on these pages, return []. Return ONLY a JSON array.",
+                file_contents=[file_content]
+            )
+            
             try:
-                parsed = await parse_cas_pdf(content)
-            except Exception:
-                raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, Excel (.xlsx), or CAS PDF.")
-    
-    if not parsed:
-        return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": []}
-    
+                response = await chat.send_message(user_message)
+                page_holdings = _parse_json_response(response)
+                if page_holdings:
+                    all_holdings.extend(page_holdings)
+                    logger.info(f"Extracted {len(page_holdings)} holdings from pages {start_idx+1}-{end_idx}")
+            except Exception as page_err:
+                logger.warning(f"Failed to parse pages {start_idx+1}-{end_idx}: {page_err}")
+                continue
+        
+        # Deduplicate by name+quantity+current_price
+        seen = set()
+        unique_holdings = []
+        for h in all_holdings:
+            key = f"{h.get('name','').strip()}__{h.get('quantity',0)}__{h.get('current_price',0)}"
+            if key not in seen:
+                seen.add(key)
+                unique_holdings.append(h)
+        
+        logger.info(f"Total unique holdings from CAS: {len(unique_holdings)}")
+        
+        if not unique_holdings:
+            raise HTTPException(status_code=422, detail="Could not extract any holdings from the CAS PDF. Please ensure the file contains valid CAS data.")
+        
+        return unique_holdings
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CAS PDF parsing error: {e}")
+        raise HTTPException(status_code=422, detail=f"Could not parse CAS PDF. Error: {str(e)}")
+
+def _parse_json_response(response: str) -> list:
+    """Parse JSON array from LLM response, handling markdown code blocks."""
+    clean = response.strip()
+    if clean.startswith("```"):
+        lines = clean.split("\n")
+        # Remove first and last lines with ```
+        start = 1
+        end = len(lines) - 1
+        if lines[0].startswith("```json"):
+            start = 1
+        for i in range(len(lines) - 1, 0, -1):
+            if lines[i].strip() == "```":
+                end = i
+                break
+        clean = "\n".join(lines[start:end])
+    try:
+        result = json.loads(clean.strip())
+        return result if isinstance(result, list) else []
+    except json.JSONDecodeError:
+        # Try to find JSON array in the response
+        import re
+        match = re.search(r'\[[\s\S]*\]', clean)
+        if match:
+            try:
+                result = json.loads(match.group())
+                return result if isinstance(result, list) else []
+            except json.JSONDecodeError:
+                pass
+        return []
+
+async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None):
+    """Save parsed holdings to DB and optionally update task status."""
     holdings_added = []
     for h in parsed:
         asset_type = h.get("asset_type", "equity")
@@ -383,7 +460,7 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
         
         holding_doc = {
             "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
-            "user_id": user["user_id"],
+            "user_id": user_id,
             "name": h.get("name", "Unknown"),
             "ticker": h.get("ticker", ""),
             "asset_type": asset_type,
@@ -402,12 +479,106 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
             "quantity": holding_doc["quantity"],
         })
     
-    file_type = "CAS PDF" if filename.endswith(".pdf") else "Excel" if filename.endswith((".xlsx", ".xls")) else "CSV"
+    if task_id:
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {
+                "status": "completed",
+                "message": f"{len(holdings_added)} holdings imported from {file_type}",
+                "count": len(holdings_added),
+                "holdings": holdings_added,
+                "completed_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    
+    return holdings_added
+
+async def _process_cas_background(content: bytes, user_id: str, task_id: str):
+    """Background task for CAS PDF processing."""
+    try:
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "processing", "message": "Parsing CAS PDF with AI..."}}
+        )
+        parsed = await parse_cas_pdf(content)
+        if not parsed:
+            await db.upload_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {"status": "completed", "message": "No holdings found in CAS PDF", "count": 0, "holdings": []}}
+            )
+            return
+        await _save_holdings(user_id, parsed, "CAS PDF", task_id)
+    except Exception as e:
+        logger.error(f"Background CAS processing error: {e}")
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "error", "message": f"Failed to parse CAS: {str(e)}", "count": 0, "holdings": []}}
+        )
+
+@api_router.post("/portfolio/upload")
+async def upload_portfolio(request: Request, file: UploadFile = File(...)):
+    """Upload portfolio file - supports CSV, Excel (.xlsx), and CAS PDF."""
+    user = await get_current_user(request)
+    content = await file.read()
+    filename = (file.filename or "").lower()
+    user_id = user["user_id"]
+    
+    # For PDF files, process asynchronously (can take 1-3 minutes for image-based CAS)
+    if filename.endswith(".pdf"):
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
+        await db.upload_tasks.insert_one({
+            "task_id": task_id,
+            "user_id": user_id,
+            "status": "queued",
+            "message": "CAS PDF upload received, starting AI parsing...",
+            "count": 0,
+            "holdings": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        # Start background processing
+        asyncio.create_task(_process_cas_background(content, user_id, task_id))
+        return {
+            "task_id": task_id,
+            "status": "processing",
+            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes. Poll /api/portfolio/upload-status/{task_id} for updates.",
+            "count": 0,
+            "holdings": []
+        }
+    
+    # For CSV/Excel, process synchronously (fast)
+    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        parsed = await parse_excel_holdings(content)
+        file_type = "Excel"
+    elif filename.endswith(".csv"):
+        parsed = await parse_csv_holdings(content)
+        file_type = "CSV"
+    else:
+        try:
+            parsed = await parse_csv_holdings(content)
+            file_type = "CSV"
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, Excel (.xlsx), or CAS PDF.")
+    
+    if not parsed:
+        return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": []}
+    
+    holdings_added = await _save_holdings(user_id, parsed, file_type)
     return {
         "message": f"{len(holdings_added)} holdings imported from {file_type}",
         "count": len(holdings_added),
         "holdings": holdings_added
     }
+
+@api_router.get("/portfolio/upload-status/{task_id}")
+async def get_upload_status(request: Request, task_id: str):
+    """Poll the status of a CAS PDF upload task."""
+    user = await get_current_user(request)
+    task = await db.upload_tasks.find_one(
+        {"task_id": task_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Upload task not found")
+    return task
 
 # Keep old endpoint for backward compatibility
 @api_router.post("/portfolio/upload-csv")

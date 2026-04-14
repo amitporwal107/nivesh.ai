@@ -109,14 +109,56 @@ const PortfolioView = ({ holdings, onRefresh }) => {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setUploadResult(res.data);
-      toast.success(res.data.message || `${res.data.count} holdings imported`);
-      onRefresh();
+      
+      // Check if it's an async task (CAS PDF)
+      if (res.data.task_id && res.data.status === "processing") {
+        toast.info("CAS PDF is being processed by AI. This may take 1-2 minutes...");
+        setUploadResult({ message: "Processing CAS PDF with AI...", status: "processing" });
+        // Poll for status
+        const taskId = res.data.task_id;
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await axios.get(`${API}/portfolio/upload-status/${taskId}`, { withCredentials: true });
+            const task = statusRes.data;
+            if (task.status === "completed") {
+              clearInterval(pollInterval);
+              setUploadResult(task);
+              setUploading(false);
+              if (task.count > 0) {
+                toast.success(task.message || `${task.count} holdings imported`);
+              } else {
+                toast.info(task.message || "No holdings found");
+              }
+              onRefresh();
+            } else if (task.status === "error") {
+              clearInterval(pollInterval);
+              setUploadResult({ message: task.message, status: "error" });
+              setUploading(false);
+              toast.error(task.message || "CAS parsing failed");
+            } else {
+              setUploadResult({ message: task.message || "Processing...", status: "processing" });
+            }
+          } catch {
+            // Keep polling
+          }
+        }, 5000);
+        // Safety timeout after 5 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          setUploading(false);
+        }, 300000);
+      } else {
+        // Synchronous result (CSV/Excel)
+        setUploadResult(res.data);
+        toast.success(res.data.message || `${res.data.count} holdings imported`);
+        setUploading(false);
+        onRefresh();
+      }
     } catch (err) {
       const detail = err.response?.data?.detail || "Upload failed. Please check your file format.";
       toast.error(detail);
-    } finally {
       setUploading(false);
+    } finally {
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -404,11 +446,21 @@ const PortfolioView = ({ holdings, onRefresh }) => {
             {uploading && (
               <div className="flex items-center justify-center gap-3 py-4">
                 <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm text-slate-500">Processing file... CAS PDFs may take a moment.</span>
+                <span className="text-sm text-slate-500">
+                  {uploadResult?.status === "processing" 
+                    ? "AI is analyzing your CAS PDF... This may take 1-2 minutes." 
+                    : "Processing file..."}
+                </span>
               </div>
             )}
 
-            {uploadResult && (
+            {uploadResult && uploadResult.status === "error" && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-sm font-medium text-red-800">{uploadResult.message}</p>
+              </div>
+            )}
+
+            {uploadResult && uploadResult.count > 0 && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                 <p className="text-sm font-medium text-emerald-800">{uploadResult.message}</p>
                 {uploadResult.holdings?.length > 0 && (
