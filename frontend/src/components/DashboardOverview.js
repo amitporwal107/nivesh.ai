@@ -20,29 +20,36 @@ const ASSET_LABELS = {
   bond: "Bonds", gold: "Gold", fd: "Fixed Deposit", other: "Other",
 };
 
-// Custom Treemap content for heatmap
-const HeatmapCell = ({ x, y, width, height, name, return_pct, value }) => {
-  if (width < 4 || height < 4) return null;
+// Custom Treemap content for heatmap - clickable with proper data access
+const HeatmapCell = (props) => {
+  const { x, y, width, height, depth, index } = props;
+  if (width < 4 || height < 4 || depth !== 1) return null;
+  
+  // Recharts Treemap passes all data fields as direct props
+  const name = props.name || "";
+  const return_pct = typeof props.return_pct === "number" ? props.return_pct : 0;
+  const value = props.value || 0;
+  
   const isPositive = return_pct >= 0;
   const intensity = Math.min(Math.abs(return_pct) / 50, 1);
   const bg = isPositive
     ? `rgba(16, 185, 129, ${0.15 + intensity * 0.55})`
     : `rgba(239, 68, 68, ${0.15 + intensity * 0.55})`;
   const textColor = intensity > 0.4 ? "#fff" : isPositive ? "#065F46" : "#991B1B";
-  const showName = width > 60 && height > 30;
-  const showPct = width > 40 && height > 20;
+  const showName = width > 55 && height > 28;
+  const showPct = width > 35 && height > 18;
 
   return (
-    <g>
+    <g style={{ cursor: "pointer" }}>
       <rect x={x} y={y} width={width} height={height} fill={bg} stroke="#F8FAFC" strokeWidth={2} rx={6} />
       {showName && (
-        <text x={x + width / 2} y={y + height / 2 - (showPct ? 6 : 0)} textAnchor="middle" fill={textColor} fontSize={width > 100 ? 11 : 9} fontFamily="'Figtree', sans-serif" fontWeight={500}>
-          {name?.length > (width > 100 ? 20 : 12) ? name.slice(0, width > 100 ? 20 : 12) + "..." : name}
+        <text x={x + width / 2} y={y + height / 2 - (showPct ? 7 : 0)} textAnchor="middle" fill={textColor} fontSize={width > 120 ? 11 : width > 80 ? 10 : 8} fontFamily="'Figtree', sans-serif" fontWeight={500} style={{ pointerEvents: "none" }}>
+          {name.length > (width > 120 ? 22 : width > 80 ? 15 : 10) ? name.slice(0, width > 120 ? 22 : width > 80 ? 15 : 10) + "..." : name}
         </text>
       )}
       {showPct && (
-        <text x={x + width / 2} y={y + height / 2 + 12} textAnchor="middle" fill={textColor} fontSize={10} fontFamily="'JetBrains Mono', monospace" fontWeight={600}>
-          {isPositive ? "+" : ""}{return_pct}%
+        <text x={x + width / 2} y={y + height / 2 + (showName ? 10 : 0)} textAnchor="middle" fill={textColor} fontSize={width > 80 ? 11 : 9} fontFamily="'JetBrains Mono', monospace" fontWeight={600} style={{ pointerEvents: "none" }}>
+          {isPositive ? "+" : ""}{return_pct.toFixed(1)}%
         </text>
       )}
     </g>
@@ -293,9 +300,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <Card className="bg-white border-slate-100 rounded-2xl shadow-none" data-testid="stock-heatmap">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-medium text-slate-900" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Holdings Heatmap
-                </h3>
+                <div>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    Holdings Heatmap
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Click a holding to view details</p>
+                </div>
                 <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider uppercase">
                   <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-400/60" />Loss</div>
                   <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-400/40" />Low</div>
@@ -310,7 +320,40 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                     nameKey="name"
                     content={<HeatmapCell />}
                     animationDuration={400}
-                  />
+                    onClick={(node) => {
+                      if (node?.name) {
+                        const matched = holdings.filter(h => h.name.startsWith(node.name.replace("...", "").slice(0, 20)));
+                        if (matched.length > 0) {
+                          setDrilldown({ title: matched[0].name, holdings: matched });
+                        } else {
+                          // Show single holding detail
+                          const h = analytics.heatmap_data.find(d => d.name === node.name);
+                          if (h) {
+                            const assetHoldings = holdings.filter(hld => hld.asset_type === h.asset_type);
+                            setDrilldown({ title: `${ASSET_LABELS[h.asset_type] || h.asset_type} Holdings`, holdings: assetHoldings });
+                          }
+                        }
+                      }
+                    }}
+                  >
+                    <Tooltip 
+                      content={({ payload }) => {
+                        if (!payload?.[0]?.payload) return null;
+                        const d = payload[0].payload;
+                        const rp = d.return_pct ?? 0;
+                        const pos = rp >= 0;
+                        return (
+                          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg p-3 text-xs">
+                            <p className="font-medium text-slate-900 dark:text-white mb-1">{d.name}</p>
+                            {d.ticker && <p className="text-slate-400 text-[10px] mb-1">{d.ticker}</p>}
+                            <p className="text-slate-600 dark:text-slate-300">Value: {fmt(d.value)}</p>
+                            <p className={pos ? "text-emerald-600" : "text-red-500"}>Return: {pos ? "+" : ""}{rp}%</p>
+                            <p className="text-slate-400">{d.sector} &middot; {ASSET_LABELS[d.asset_type] || d.asset_type}</p>
+                          </div>
+                        );
+                      }}
+                    />
+                  </Treemap>
                 </ResponsiveContainer>
               </div>
             </CardContent>
@@ -381,8 +424,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   </h3>
                   <div className="space-y-2.5">
                     {analytics.top_gainers.map((g, i) => (
-                      <div key={i} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-slate-600 truncate max-w-[200px]">{g.name}</span>
+                      <div key={i} className="flex items-center justify-between py-1 cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/10 rounded-lg px-2 -mx-2 transition-colors"
+                        onClick={() => {
+                          const matched = holdings.filter(h => h.name === g.name);
+                          if (matched.length) setDrilldown({ title: g.name, holdings: matched });
+                        }}>
+                        <span className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{g.name}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-400">{fmt(g.value)}</span>
                           <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">+{g.pct_change}%</span>
@@ -403,8 +450,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   </h3>
                   <div className="space-y-2.5">
                     {analytics.top_losers.map((l, i) => (
-                      <div key={i} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-slate-600 truncate max-w-[200px]">{l.name}</span>
+                      <div key={i} className="flex items-center justify-between py-1 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg px-2 -mx-2 transition-colors"
+                        onClick={() => {
+                          const matched = holdings.filter(h => h.name === l.name);
+                          if (matched.length) setDrilldown({ title: l.name, holdings: matched });
+                        }}>
+                        <span className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{l.name}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-400">{fmt(l.value)}</span>
                           <span className="text-sm font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded-lg">{l.pct_change}%</span>
