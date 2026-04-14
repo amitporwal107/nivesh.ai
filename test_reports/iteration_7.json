@@ -1,0 +1,85 @@
+{
+  "summary": "Completed comprehensive testing of nivesh.ai deep analytics features including AMFI NAV integration, fund overlap matrix, overexposure analysis, and performance cards. Fixed AMFI NAV URL redirect issue. All 16 backend tests pass (100%). Frontend InsightsView with 4 tabs working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [],
+    "fixed": [
+      {
+        "endpoint": "/api/nav/refresh",
+        "issue": "AMFI NAV fetch failing due to URL redirect (302) from amfiindia.com to portal.amfiindia.com",
+        "fix": "Updated AMFI_NAV_URL in /app/backend/services/amfi_nav.py to use portal.amfiindia.com and added follow_redirects=True",
+        "status": "FIXED"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "console_warnings": [
+      {
+        "component": "Recharts",
+        "issue": "Chart width/height warnings on initial render - 'The width(-1) and height(-1) of chart should be greater than 0'",
+        "impact": "LOW - charts render correctly after container sizes are calculated",
+        "fix_priority": "LOW"
+      }
+    ]
+  },
+  "passed_tests": [
+    "Backend: API root endpoint",
+    "Backend: Authentication with test session token",
+    "Backend: Portfolio analytics with health_score, risk_analysis, recommendations",
+    "Backend: Portfolio analytics heatmap data",
+    "Backend: NAV refresh endpoint - 46 MF holdings updated, 31562 NAV entries loaded",
+    "Backend: Deep analytics structure (overexposure, overlap_matrix, performance_cards)",
+    "Backend: Overexposure fund house concentration",
+    "Backend: Overexposure sector concentration",
+    "Backend: Fund overlap matrix computation",
+    "Backend: Performance cards with AMFI NAV source",
+    "Backend: Holdings CRUD operations",
+    "Backend: Holdings filter by asset type",
+    "Backend: Insights endpoints",
+    "Backend: Portfolio management",
+    "Backend: Instrument search",
+    "Frontend: Dashboard loads with 121 holdings",
+    "Frontend: InsightsView 4 tabs navigation (AI Overview, Overexposure, Fund Overlap, Performance)",
+    "Frontend: Overexposure tab - Fund House Concentration bar chart",
+    "Frontend: Overexposure tab - Sector Concentration bar chart",
+    "Frontend: Fund Overlap tab - Summary stats (15 High, 0 Moderate, 0 Low)",
+    "Frontend: Fund Overlap tab - Overlap matrix with percentage and reason badges",
+    "Frontend: Performance tab - P&L summary cards (Total Invested, Current Value, Total P&L, Return %)",
+    "Frontend: Performance tab - Filter buttons (All, Mutual Funds, Equity, ETF, Gold)",
+    "Frontend: Performance tab - Sortable table with LIVE NAV badges",
+    "Frontend: AI Overview tab - Analyze Portfolio button",
+    "Frontend: AI Overview tab - Priority Matrix with 4 quadrants"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_deep_analytics.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/services/amfi_nav.py",
+    "/app/backend/tests/test_deep_analytics.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 tests passed)",
+    "frontend": "100% (all features working)"
+  },
+  "test_credentials": {
+    "user_id": "test-user-wealth001",
+    "email": "testuser@example.com",
+    "session_token": "test_session_wealth001"
+  },
+  "seed_data_creation": "Using existing test user with 121 holdings (68 mutual funds, ETFs, equities)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "AMFI NAV integration is working - URL was updated to portal.amfiindia.com. Deep analytics endpoint returns fund house concentration, sector concentration, fund overlap matrix, and performance cards. InsightsView has 4 tabs all working. Test user has 121 holdings with 46 mutual funds updated with live AMFI NAV data.",
+  "rca_of_the_issue": {
+    "issue": "AMFI NAV fetch returning 0 entries",
+    "root_cause": "AMFI India changed their NAV data URL from www.amfiindia.com to portal.amfiindia.com with a 302 redirect. The httpx client was not following redirects by default.",
+    "fix_applied": "1) Updated AMFI_NAV_URL constant to use portal.amfiindia.com directly, 2) Added follow_redirects=True to httpx.AsyncClient for future-proofing",
+    "verification": "NAV refresh now returns 31562 entries and updates 46 mutual fund holdings"
+  }
+}

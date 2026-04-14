@@ -21,6 +21,7 @@ from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInp
 from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
 from services import compute_health_score, compute_risk_analysis, generate_recommendations
 from services.ai_engine import AIEngine
+from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from middleware import RateLimitMiddleware, validate_env
 
 ROOT_DIR = Path(__file__).parent
@@ -813,6 +814,16 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         query["portfolio_id"] = portfolio_id
     holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
     
+    # Update mutual fund holdings with live NAV from AMFI
+    holdings = await update_holdings_nav(holdings)
+    # Persist updated NAV prices back to DB
+    for h in holdings:
+        if h.get("nav_source") == "AMFI" and h.get("holding_id"):
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {"current_price": h["current_price"], "nav_date": h.get("nav_date", ""), "nav_source": "AMFI"}}
+            )
+    
     if not holdings:
         return {
             "total_invested": 0, "current_value": 0, "total_returns": 0,
@@ -945,6 +956,240 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "risk_analysis": compute_risk_analysis(holdings, current_value),
         "recommendations": generate_recommendations(holdings, current_value, total_invested),
     }
+
+# ==================== NAV & DEEP ANALYTICS ROUTES ====================
+
+@api_router.post("/nav/refresh")
+async def refresh_nav(request: Request):
+    """Manually refresh AMFI NAV cache and update all MF holdings."""
+    user = await get_current_user(request)
+    nav_map = await fetch_nav_data()
+    holdings = await db.holdings.find({"user_id": user["user_id"], "asset_type": "mutual_fund"}, {"_id": 0}).to_list(2000)
+    updated_count = 0
+    for h in holdings:
+        isin = (h.get("ticker") or "").upper().strip()
+        name = h.get("name", "")
+        nav_entry = None
+        if isin and isin in nav_map:
+            nav_entry = nav_map[isin]
+        elif name:
+            nav_entry = await lookup_nav(name=name)
+        if nav_entry:
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {"current_price": nav_entry["nav"], "nav_date": nav_entry["date"], "nav_source": "AMFI"}}
+            )
+            updated_count += 1
+    return {"updated": updated_count, "total_mf": len(holdings), "nav_entries": len(nav_map)}
+
+
+@api_router.get("/portfolio/deep-analytics")
+async def get_deep_analytics(request: Request, portfolio_id: str = ""):
+    """Advanced analytics: overexposure, fund overlap, performance cards."""
+    user = await get_current_user(request)
+    query = {"user_id": user["user_id"]}
+    if portfolio_id:
+        query["portfolio_id"] = portfolio_id
+    holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
+
+    if not holdings:
+        return {"overexposure": {}, "overlap_matrix": [], "performance_cards": []}
+
+    total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
+    if total_value == 0:
+        return {"overexposure": {}, "overlap_matrix": [], "performance_cards": []}
+
+    # ── 1. Overexposure Analysis ──
+    # Fund house / AMC concentration
+    fund_house_map = {}
+    sector_concentration = {}
+    asset_type_values = {}
+
+    for h in holdings:
+        val = h["quantity"] * h["current_price"]
+        name = h.get("name", "")
+        sector = h.get("sector", "Other")
+        asset_type = h.get("asset_type", "other")
+
+        # Extract fund house from mutual fund name
+        if asset_type == "mutual_fund":
+            fund_house = _extract_fund_house(name)
+            fund_house_map.setdefault(fund_house, {"value": 0, "count": 0, "funds": []})
+            fund_house_map[fund_house]["value"] += val
+            fund_house_map[fund_house]["count"] += 1
+            fund_house_map[fund_house]["funds"].append(name[:50])
+
+        sector_concentration.setdefault(sector, {"value": 0, "count": 0, "holdings": []})
+        sector_concentration[sector]["value"] += val
+        sector_concentration[sector]["count"] += 1
+        sector_concentration[sector]["holdings"].append(name[:40])
+
+        asset_type_values[asset_type] = asset_type_values.get(asset_type, 0) + val
+
+    # Build overexposure data
+    fund_house_data = []
+    for fh, data in sorted(fund_house_map.items(), key=lambda x: x[1]["value"], reverse=True):
+        pct = (data["value"] / total_value * 100) if total_value > 0 else 0
+        fund_house_data.append({
+            "name": fh,
+            "value": round(data["value"], 2),
+            "pct": round(pct, 1),
+            "count": data["count"],
+            "funds": data["funds"][:5],
+            "risk_level": "high" if pct > 40 else "medium" if pct > 25 else "low"
+        })
+
+    sector_data = []
+    for sec, data in sorted(sector_concentration.items(), key=lambda x: x[1]["value"], reverse=True):
+        pct = (data["value"] / total_value * 100) if total_value > 0 else 0
+        sector_data.append({
+            "name": sec,
+            "value": round(data["value"], 2),
+            "pct": round(pct, 1),
+            "count": data["count"],
+            "holdings": data["holdings"][:5],
+            "risk_level": "high" if pct > 40 else "medium" if pct > 25 else "low"
+        })
+
+    # ── 2. Fund Overlap Matrix ──
+    mf_holdings = [h for h in holdings if h.get("asset_type") == "mutual_fund"]
+    overlap_matrix = []
+
+    if len(mf_holdings) >= 2:
+        # Group MFs by category/sector for overlap
+        for i in range(len(mf_holdings)):
+            for j in range(i + 1, len(mf_holdings)):
+                f_a = mf_holdings[i]
+                f_b = mf_holdings[j]
+                overlap = _compute_fund_overlap(f_a, f_b)
+                if overlap["overlap_pct"] > 0:
+                    overlap_matrix.append(overlap)
+
+        overlap_matrix.sort(key=lambda x: x["overlap_pct"], reverse=True)
+        overlap_matrix = overlap_matrix[:15]  # Top 15 overlaps
+
+    # ── 3. Performance Cards ──
+    performance_cards = []
+    for h in holdings:
+        inv = h["quantity"] * h["buy_price"]
+        cur = h["quantity"] * h["current_price"]
+        abs_return = cur - inv
+        pct_return = ((cur - inv) / inv * 100) if inv > 0 else 0
+        weight = (cur / total_value * 100) if total_value > 0 else 0
+
+        # Estimate CAGR if buy_date available
+        cagr = None
+        if h.get("buy_date") and inv > 0 and cur > 0:
+            try:
+                from dateutil.parser import parse as parse_date
+                buy_dt = parse_date(h["buy_date"])
+                now_dt = datetime.now(timezone.utc)
+                years = max((now_dt - buy_dt.replace(tzinfo=timezone.utc)).days / 365.25, 0.1)
+                cagr = round(((cur / inv) ** (1 / years) - 1) * 100, 1)
+            except Exception:
+                pass
+
+        performance_cards.append({
+            "name": h["name"][:50],
+            "ticker": h.get("ticker", ""),
+            "asset_type": h.get("asset_type", "other"),
+            "sector": h.get("sector", "Other"),
+            "quantity": h["quantity"],
+            "buy_price": round(h["buy_price"], 2),
+            "current_price": round(h["current_price"], 2),
+            "invested": round(inv, 2),
+            "current_value": round(cur, 2),
+            "abs_return": round(abs_return, 2),
+            "pct_return": round(pct_return, 1),
+            "weight": round(weight, 1),
+            "cagr": cagr,
+            "nav_source": h.get("nav_source", ""),
+            "nav_date": h.get("nav_date", ""),
+        })
+
+    performance_cards.sort(key=lambda x: x["pct_return"], reverse=True)
+
+    return {
+        "overexposure": {
+            "fund_house": fund_house_data,
+            "sector": sector_data[:15],
+            "total_value": round(total_value, 2),
+        },
+        "overlap_matrix": overlap_matrix,
+        "performance_cards": performance_cards,
+    }
+
+
+def _extract_fund_house(fund_name: str) -> str:
+    """Extract AMC/fund house name from a mutual fund name."""
+    known_houses = [
+        "HDFC", "ICICI Prudential", "ICICI", "SBI", "Axis", "Kotak",
+        "Aditya Birla Sun Life", "Aditya Birla", "Nippon India", "Nippon",
+        "UTI", "DSP", "Mirae Asset", "Mirae", "Tata", "Canara Robeco",
+        "HSBC", "Franklin Templeton", "Franklin", "Motilal Oswal", "Motilal",
+        "Parag Parikh", "PPFAS", "Quant", "Bandhan", "Edelweiss",
+        "Invesco", "Sundaram", "PGIM", "Baroda BNP", "Baroda",
+        "JM Financial", "JM", "WhiteOak", "Navi", "Groww", "ITI",
+        "360 ONE", "Bank of India", "BOI", "LIC", "Mahindra Manulife",
+    ]
+    name_lower = fund_name.lower()
+    for house in known_houses:
+        if house.lower() in name_lower:
+            return house
+    # Fallback: first word(s) before common keywords
+    for kw in ["mutual fund", "fund", "flexi", "large", "mid", "small", "multi", "balanced", "liquid", "overnight", "debt", "index"]:
+        idx = name_lower.find(kw)
+        if idx > 2:
+            return fund_name[:idx].strip().rstrip("-").strip()
+    return fund_name.split(" ")[0] if fund_name else "Unknown"
+
+
+def _compute_fund_overlap(fund_a: dict, fund_b: dict) -> dict:
+    """Compute overlap between two mutual funds based on sector and category similarity."""
+    name_a = fund_a.get("name", "")
+    name_b = fund_b.get("name", "")
+    sector_a = fund_a.get("sector", "Other").lower()
+    sector_b = fund_b.get("sector", "Other").lower()
+
+    overlap_score = 0
+    reasons = []
+
+    # Same sector = high overlap
+    if sector_a == sector_b and sector_a != "other":
+        overlap_score += 50
+        reasons.append(f"Same category: {fund_a.get('sector', 'Other')}")
+
+    # Extract category keywords
+    categories = ["large cap", "mid cap", "small cap", "flexi cap", "multi cap",
+                   "balanced", "hybrid", "debt", "liquid", "elss", "index",
+                   "nifty", "sensex", "banking", "it", "pharma", "infrastructure"]
+
+    cats_a = set(c for c in categories if c in name_a.lower())
+    cats_b = set(c for c in categories if c in name_b.lower())
+
+    shared_cats = cats_a & cats_b
+    if shared_cats:
+        overlap_score += min(len(shared_cats) * 25, 40)
+        reasons.append(f"Shared mandate: {', '.join(shared_cats)}")
+
+    # Same fund house = minor overlap
+    house_a = _extract_fund_house(name_a)
+    house_b = _extract_fund_house(name_b)
+    if house_a == house_b:
+        overlap_score += 10
+        reasons.append(f"Same AMC: {house_a}")
+
+    overlap_score = min(overlap_score, 95)
+
+    return {
+        "fund_a": name_a[:50],
+        "fund_b": name_b[:50],
+        "overlap_pct": overlap_score,
+        "reasons": reasons,
+        "sector_a": fund_a.get("sector", "Other"),
+        "sector_b": fund_b.get("sector", "Other"),
+    }
+
 
 # ==================== AI CHAT ROUTES ====================
 
