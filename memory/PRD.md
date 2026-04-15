@@ -1,66 +1,51 @@
 # nivesh.ai — Product Requirements Document
 
 ## Problem Statement
-AI-powered autonomous financial advisor for Indian retail investors. Portfolio upload/parsing, unified dashboard, actionable insights, AI chat. Invite-only access with email whitelisting.
+AI-powered autonomous financial advisor for Indian retail investors. Invite-only access, portfolio upload/parsing, unified dashboard, actionable insights, AI chat.
 
 ## Tech Stack
 - **Frontend:** React 18, Tailwind CSS, Recharts, Shadcn UI, Framer Motion, @react-oauth/google
 - **Backend:** FastAPI, Motor/MongoDB, PyPDF2, pdf2image/poppler, google-api-python-client
-- **AI:** GPT-5.2 via emergentintegrations (Emergent LLM Key)
+- **AI:** OpenAI SDK direct (gpt-4o for CAS parsing, gpt-4o-mini for chat/insights)
 - **Auth:** Direct Google OAuth 2.0 + Email Whitelist
-- **Market Data:** AMFI India NAV (portal.amfiindia.com), mfapi.in (historical NAV)
+- **Market Data:** AMFI NAV, mfapi.in
 - **Email:** Gmail API (read-only, CAS auto-fetch)
 
-## What's Been Implemented
+## What's Been Implemented (All Complete)
 
-### Phase 1-3 — Core, Dashboard, Intelligence (DONE)
-- Google OAuth (direct, not Emergent), invite-only whitelist
+### Core — Auth, Upload, Dashboard
+- Direct Google OAuth 2.0 + invite-only email whitelist
+- Admin panel (sidebar tab) with add/remove/block/bulk-upload/CSV
 - CAS PDF/CSV/Excel upload, family portfolios, dark/light mode
-- Interactive dashboard with drill-down charts, Health Score, Risk Analysis
-- AI chat with multi-turn memory, smart recommendations
+- Interactive dashboard with drill-down charts
 
-### Phase 4 — Live Data & Visual Insights (DONE)
+### AI & Insights (Redesigned)
+- **Portfolio Health Score** — Single metric (0-100) with circular gauge
+- **Actionable Insight Cards** — Problem → Why → Action → Impact in collapsible cards
+- **"If You Apply These Changes"** — Before/After with ₹ impact and 10Y wealth gain
+- **"What Happens If You Do Nothing?"** — Urgency section with annual cost leak
+- **Interactive Action Funnel** — Checkboxes with progress tracker
+- **Data Confidence Score** — Shows data quality (holdings tracked, NAV matched)
+- **Severity hierarchy** — Critical (red), Important (amber), Optimize (blue), Positive (green)
+
+### Market Data & Benchmark
 - AMFI Live NAV (31K+ schemes), Overexposure, Fund Overlap, Performance Cards
-- 5-tab InsightsView (AI Overview, Benchmark, Overexposure, Fund Overlap, Performance)
+- MF Benchmark Rating via mfapi.in (Outperforming/Meeting/Underperforming)
 
-### Phase 5 — MF Benchmark Analysis (DONE)
-- MF Benchmark Rating (Outperforming/Meeting/Underperforming) via mfapi.in
-- Performance Pie Chart, Best/Worst Performers, Category Overlap Bar Graph
+### Gmail Auto-Fetch
+- Gmail OAuth connect, CAS email scanner, one-click import, deduplication
 
-### Phase 6 — Invite-Only Access (DONE)
-- Direct Google OAuth 2.0 (replaced Emergent Auth)
-- Email whitelist system (MongoDB whitelisted_users collection)
-- Admin panel (sidebar tab for admin users only)
-- Add/remove/block/bulk-upload users, stats dashboard
-- Auto-seed admin on startup (priyankamantri@gmail.com)
+### Cost Optimization
+- Switched from Emergent LLM Key (GPT-5.2) to direct OpenAI SDK
+- gpt-4o-mini for chat & insights (~90% cost reduction)
+- gpt-4o for CAS parsing (accuracy-critical)
 
-### Phase 7 — Gmail Auto-Fetch (DONE - Apr 2026)
-- **Gmail OAuth Connect** — Separate OAuth flow for read-only Gmail access
-- **CAS Email Scanner** — Scans inbox for emails from NSDL/CDSL/CAMS/KFintech with PDF attachments
-- **Confidence Scoring** — Each email scored 0.0-1.0 based on sender/subject matching
-- **Auto-Import** — One-click import of CAS PDF from Gmail into existing parser
-- **Source Tagging** — Holdings tagged with source (CAS/email/manual) and confidence score
-- **Deduplication Engine** — Merges holdings if same name+ISIN already exists (updates, doesn't duplicate)
-- **Password Support** — Password field per attachment for encrypted CAS PDFs
-- **Import Tracking** — gmail_imports collection tracks what's been imported to prevent duplicates
-
-### Bug Fix Sprint — 10 Issues (DONE)
-- CAS password unlock (missing pycryptodome)
-- AI Chat multi-turn memory, ChatView/Dashboard/Landing dark mode
-- Day change variation, benchmark caching, upload auto-close, chat token optimization
-
-## Key API Endpoints
-- `POST /api/auth/google` — Google OAuth login + whitelist check
-- `GET /api/gmail/connect` — Start Gmail OAuth flow
-- `GET /api/oauth/gmail/callback` — Gmail OAuth callback
-- `POST /api/gmail/scan` — Scan Gmail for CAS emails
-- `POST /api/gmail/import` — Import CAS from Gmail attachment
-- `GET /api/portfolio/analytics` — Full analytics with AMFI NAV
-- `GET /api/portfolio/fund-performance` — MF benchmark ratings
-- `POST /api/admin/whitelist/add` — Add email to whitelist
+## Admin
+- Admin email: priyankamantri@gmail.com (seeded on startup)
+- Whitelisted: priyankamantri@gmail.com, rohit123gupta@gmail.com
 
 ## Remaining Backlog
-- P0: Finvu Account Aggregator integration (needs sandbox credentials)
-- P1: Goal-based planning module (Retirement, Child Education)
-- P1: Historical stock price API for equity holdings
+- P0: Finvu Account Aggregator integration
+- P1: Goal-based planning (Retirement, Child Education)
+- P1: Historical stock price API for equity
 - P2: Agentic AI execution and scenario simulation

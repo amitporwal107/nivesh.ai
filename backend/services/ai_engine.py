@@ -41,19 +41,23 @@ DISCLAIMER: AI-generated guidance for educational purposes. Always consult a SEB
 
 
 INSIGHT_ANALYSIS_SYSTEM = """You are a portfolio analysis engine for nivesh.ai.
-Analyze the portfolio and return ONLY valid JSON matching this exact schema.
+Analyze the portfolio and return ONLY valid JSON. Be specific with actual fund names and numbers.
 
-IMPORTANT: 
-- Be specific with actual fund names and numbers from the portfolio
-- All percentages must sum correctly
-- overlap_pairs: only include if mutual funds have genuinely similar mandates
-- cost_leakage: estimate based on Regular vs Direct plan gap (~0.5-1.5% p.a.)
-- Return VALID JSON only, no markdown, no explanation
-
-Schema:
+Return VALID JSON only, no markdown, no explanation. Schema:
 {{
   "insights": [
-    {{"title":"...", "description":"2-3 sentences with specific fund names", "type":"warning|opportunity|info|action", "impact":"high|medium|low", "effort":"high|medium|low", "category":"risk|allocation|cost|redundancy|opportunity", "current_value":"e.g. 18%", "target_value":"e.g. 10%", "progress": 30}}
+    {{
+      "title": "Gold Overexposure",
+      "severity": "critical|important|optimization|positive",
+      "category": "risk|allocation|cost|redundancy|opportunity",
+      "summary": "27.3% gold vs recommended 12-15%",
+      "why_it_matters": "Reduces long-term equity growth. Adds concentration risk.",
+      "action": "Reduce gold by ~12%. Reallocate to equity/debt mix.",
+      "expected_impact": "+1.5% CAGR improvement. Risk score: 72 → 48.",
+      "rupee_impact": "~₹3.2L additional wealth over 10 years",
+      "current_value": "27.3%",
+      "target_value": "12-15%"
+    }}
   ],
   "problem_distribution": [
     {{"name":"High Risk", "value": 35, "color":"#EF4444"}},
@@ -62,18 +66,33 @@ Schema:
     {{"name":"Redundancy", "value": 20, "color":"#10B981"}}
   ],
   "before_after": {{
-    "before": {{"return_pct": 6.5, "risk_label":"High", "risk_score": 75, "expense_ratio": 1.8}},
-    "after": {{"return_pct": 8.2, "risk_label":"Moderate", "risk_score": 45, "expense_ratio": 0.5}}
+    "before": {{"return_pct": 6.5, "risk_label":"High", "risk_score": 75, "expense_ratio": 1.8, "annual_cost": 54000}},
+    "after": {{"return_pct": 8.2, "risk_label":"Moderate", "risk_score": 45, "expense_ratio": 0.5, "annual_cost": 15000, "wealth_10y_gain": 1250000}}
   }},
   "action_funnel": [
-    {{"step":1, "title":"...", "status":"critical|important|moderate|recommended", "detail":"..."}}
+    {{"step":1, "title":"Exit high-risk positions", "status":"critical", "detail":"Sell Vodafone Idea, penny stocks", "funds_involved": ["Vodafone Idea"], "rupee_impact": "Reduce risk by 15%"}}
   ],
+  "do_nothing_scenario": {{
+    "annual_cost_leak": 54000,
+    "risk_remains": "High (72/100)",
+    "ten_year_loss": "₹12.5L in potential returns missed",
+    "headline": "If you take no action, you lose ₹54K/year in unnecessary costs alone"
+  }},
   "overlap_pairs": [
     {{"fund_a":"...", "fund_b":"...", "overlap_pct": 80}}
   ],
-  "cost_leakage": {{"annual_loss": 32000, "total_invested": 500000, "loss_pct": 1.2, "detail":"..."}},
+  "cost_leakage": {{"annual_loss": 32000, "total_invested": 500000, "loss_pct": 1.2, "detail":"Regular plans vs Direct"}},
   "risk_gauge": {{"current": 75, "target": 45, "current_label":"High", "target_label":"Moderate"}}
-}}"""
+}}
+
+Rules:
+- 6-8 insights, each MUST have: title, severity, summary, why_it_matters, action, expected_impact, rupee_impact
+- severity: critical (red, immediate action), important (orange), optimization (blue), positive (green)
+- problem_distribution: percentages sum to 100
+- do_nothing_scenario: realistic cost of inaction
+- before_after: include annual_cost in ₹ and wealth_10y_gain
+- action_funnel: 3-5 steps with funds_involved and rupee_impact
+- Use ACTUAL fund names and numbers from the portfolio"""
 
 
 CAS_PARSER_SYSTEM = """You are a CAS (Consolidated Account Statement) parser for Indian investments.

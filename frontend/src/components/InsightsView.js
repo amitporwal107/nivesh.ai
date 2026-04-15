@@ -18,8 +18,6 @@ import { useNumberFormat } from "@/context/NumberFormatContext";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const STATUS_COLORS = { critical: "#EF4444", important: "#F59E0B", moderate: "#3B82F6", recommended: "#10B981" };
-const CATEGORY_ICONS = { risk: Shield, allocation: Layers, cost: DollarSign, redundancy: Layers, opportunity: TrendingUp, info: Sparkles };
 const RISK_COLORS = { high: "#EF4444", medium: "#F59E0B", low: "#10B981" };
 const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
@@ -85,6 +83,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
   const funnel = analysis?.action_funnel || [];
   const cost = analysis?.cost_leakage;
   const gauge = analysis?.risk_gauge;
+  const doNothing = analysis?.do_nothing_scenario;
 
   const overexposure = deepAnalytics?.overexposure || {};
   const overlapMatrix = deepAnalytics?.overlap_matrix || [];
@@ -192,7 +191,9 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
               cost={cost}
               ins={ins}
               funnel={funnel}
+              doNothing={doNothing}
               fmt={fmt}
+              analytics={deepAnalytics}
             />
           )}
 
@@ -243,33 +244,297 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
 // ════════════════════════════════════════
 // OVERVIEW TAB (existing AI analysis)
 // ════════════════════════════════════════
-const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, fmt }) => (
-  <div className="space-y-6">
-    {/* Row 1: Problem Donut + Risk Gauge + Before/After */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {pd.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
+const SEVERITY_CONFIG = {
+  critical: { color: "#EF4444", bg: "bg-red-50 dark:bg-red-900/15", border: "border-red-200 dark:border-red-800", label: "Critical", icon: AlertTriangle },
+  important: { color: "#F59E0B", bg: "bg-amber-50 dark:bg-amber-900/15", border: "border-amber-200 dark:border-amber-800", label: "Important", icon: AlertTriangle },
+  optimization: { color: "#3B82F6", bg: "bg-blue-50 dark:bg-blue-900/15", border: "border-blue-200 dark:border-blue-800", label: "Optimize", icon: TrendingUp },
+  positive: { color: "#10B981", bg: "bg-emerald-50 dark:bg-emerald-900/15", border: "border-emerald-200 dark:border-emerald-800", label: "Good", icon: Target },
+};
+
+const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analytics }) => {
+  const [expandedInsight, setExpandedInsight] = useState(null);
+  const [completedActions, setCompletedActions] = useState({});
+
+  const toggleAction = (step) => setCompletedActions(prev => ({ ...prev, [step]: !prev[step] }));
+  const completedCount = Object.values(completedActions).filter(Boolean).length;
+
+  // Compute confidence score from analytics data
+  const totalHoldings = analytics?.performance_cards?.length || 0;
+  const navMatched = analytics?.performance_cards?.filter(c => c.nav_source === "AMFI").length || 0;
+  const confidencePct = totalHoldings > 0 ? Math.round((navMatched / totalHoldings) * 100) : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* ── Row 1: Health Score + Risk Gauge + Data Confidence ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Portfolio Health Score */}
+        {gauge && gauge.current > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full" data-testid="health-score-card">
+              <CardContent className="p-6 text-center">
+                <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Portfolio Health</p>
+                <div className="relative w-24 h-24 mx-auto mb-3">
+                  <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="#F1F5F9" strokeWidth="8" className="dark:stroke-slate-700" />
+                    <circle cx="50" cy="50" r="42" fill="none" strokeWidth="8" strokeDasharray={`${(100 - gauge.current) * 2.64} 264`} strokeLinecap="round"
+                      stroke={gauge.current > 60 ? "#EF4444" : gauge.current > 35 ? "#F59E0B" : "#10B981"} />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{100 - gauge.current}</span>
+                    <span className="text-[9px] text-slate-400">/100</span>
+                  </div>
+                </div>
+                <p className={`text-sm font-semibold ${gauge.current > 60 ? "text-red-500" : gauge.current > 35 ? "text-amber-500" : "text-emerald-600"}`}>
+                  {gauge.current > 60 ? "Needs Attention" : gauge.current > 35 ? "Moderate" : "Healthy"}
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Risk Gauge Current → Target */}
+        {gauge && gauge.current > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
+              <CardContent className="p-6">
+                <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Risk Assessment</p>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-500">Now</span>
+                      <span className="font-semibold text-red-500">{gauge.current_label} ({gauge.current})</span>
+                    </div>
+                    <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
+                    </div>
+                  </div>
+                  <div className="flex justify-center"><ArrowRight className="w-4 h-4 text-slate-300" /></div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-500">After Actions</span>
+                      <span className="font-semibold text-emerald-600">{gauge.target_label} ({gauge.target})</span>
+                    </div>
+                    <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${gauge.target}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Data Confidence */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full" data-testid="confidence-card">
             <CardContent className="p-6">
-              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                Portfolio Issues
+              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Data Confidence</p>
+              <div className="text-center mb-3">
+                <span className="text-3xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{confidencePct}%</span>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${totalHoldings > 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  <span className="text-slate-500 dark:text-slate-400">{totalHoldings} holdings tracked</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${navMatched > 0 ? "bg-emerald-500" : "bg-amber-500"}`} />
+                  <span className="text-slate-500 dark:text-slate-400">{navMatched} MFs with live NAV</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${confidencePct > 50 ? "bg-emerald-500" : "bg-amber-500"}`} />
+                  <span className="text-slate-500 dark:text-slate-400">{confidencePct > 70 ? "High accuracy" : confidencePct > 40 ? "Some estimates" : "Limited data"}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* ── Impact of Actions (expanded) ── */}
+      {ba && ba.before && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <Card className="bg-gradient-to-r from-slate-50 to-emerald-50/30 dark:from-slate-800 dark:to-emerald-900/10 border-slate-100 dark:border-slate-700 rounded-2xl" data-testid="impact-card">
+            <CardContent className="p-6 md:p-8">
+              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-5" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                If You Apply These Changes
               </h3>
-              <div className="h-40">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Risk Score</p>
+                  <p className="text-lg text-red-500 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.risk_score}</p>
+                  <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.after.risk_score}</p>
+                </div>
+                <div className="text-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Returns</p>
+                  <p className="text-lg text-slate-400 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.return_pct}%</p>
+                  <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>+{ba.after.return_pct}%</p>
+                </div>
+                <div className="text-center p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Annual Cost</p>
+                  <p className="text-lg text-red-500 line-through opacity-60">{ba.before.annual_cost ? fmt(ba.before.annual_cost) : `${ba.before.expense_ratio}%`}</p>
+                  <p className="text-2xl font-bold text-emerald-600">{ba.after.annual_cost ? fmt(ba.after.annual_cost) : `${ba.after.expense_ratio}%`}</p>
+                </div>
+                {ba.after.wealth_10y_gain && (
+                  <div className="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">10Y Wealth Gain</p>
+                    <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>+{fmt(ba.after.wealth_10y_gain)}</p>
+                    <p className="text-[10px] text-emerald-500 mt-1">additional wealth</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* ── "Do Nothing" Scenario ── */}
+      {doNothing && doNothing.headline && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <Card className="bg-red-50/50 dark:bg-red-900/10 border-red-200 dark:border-red-800 rounded-2xl" data-testid="do-nothing-card">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-red-500" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    What Happens If You Do Nothing?
+                  </h3>
+                  <p className="text-sm text-red-600 dark:text-red-300 font-medium">{doNothing.headline}</p>
+                  <div className="flex flex-wrap gap-4 mt-3 text-xs">
+                    {doNothing.annual_cost_leak > 0 && (
+                      <span className="text-red-500">Annual leak: <strong>{fmt(doNothing.annual_cost_leak)}</strong></span>
+                    )}
+                    {doNothing.risk_remains && (
+                      <span className="text-red-500">Risk: <strong>{doNothing.risk_remains}</strong></span>
+                    )}
+                    {doNothing.ten_year_loss && (
+                      <span className="text-red-500">10Y cost: <strong>{doNothing.ten_year_loss}</strong></span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* ── Actionable Insight Cards (Collapsible) ── */}
+      {ins.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <div className="space-y-3" data-testid="actionable-insights">
+            <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              Actionable Insights ({ins.length})
+            </h3>
+            {ins.map((insight, i) => {
+              const sev = SEVERITY_CONFIG[insight.severity] || SEVERITY_CONFIG[insight.type === "warning" ? "critical" : insight.type === "opportunity" ? "optimization" : "important"] || SEVERITY_CONFIG.important;
+              const SevIcon = sev.icon;
+              const isExpanded = expandedInsight === i;
+
+              return (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  className={`rounded-xl border ${sev.border} overflow-hidden`}
+                  data-testid={`insight-card-${i}`}
+                >
+                  {/* Level 1: Scannable */}
+                  <div
+                    className={`p-4 cursor-pointer ${sev.bg} hover:opacity-90 transition-opacity`}
+                    onClick={() => setExpandedInsight(isExpanded ? null : i)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <SevIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: sev.color }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</p>
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${sev.color}15`, color: sev.color }}>
+                            {sev.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {insight.summary || insight.description?.slice(0, 80)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {insight.current_value && (
+                          <span className="text-xs text-slate-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                            {insight.current_value} → {insight.target_value}
+                          </span>
+                        )}
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Level 2: Expanded detail */}
+                  {isExpanded && (
+                    <div className="p-4 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 space-y-3">
+                      {/* Why it matters */}
+                      {(insight.why_it_matters || insight.description) && (
+                        <div>
+                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Why It Matters</p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{insight.why_it_matters || insight.description}</p>
+                        </div>
+                      )}
+
+                      {/* Recommended Action */}
+                      {insight.action && (
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                          <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Recommended Action</p>
+                          <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{insight.action}</p>
+                        </div>
+                      )}
+
+                      {/* Expected Impact */}
+                      <div className="flex gap-4">
+                        {insight.expected_impact && (
+                          <div className="flex-1">
+                            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Expected Impact</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-300">{insight.expected_impact}</p>
+                          </div>
+                        )}
+                        {insight.rupee_impact && (
+                          <div className="flex-shrink-0 text-right">
+                            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Value</p>
+                            <p className="text-sm font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{insight.rupee_impact}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ── Problem Distribution + Cost Leakage ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {pd.length > 0 && (
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+            <CardContent className="p-6">
+              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Issue Breakdown</p>
+              <div className="h-36">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={pd} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={2} dataKey="value">
+                    <Pie data={pd} cx="50%" cy="50%" innerRadius={32} outerRadius={55} paddingAngle={2} dataKey="value">
                       {pd.map((d, i) => <Cell key={i} fill={d.color} />)}
                     </Pie>
                     <Tooltip formatter={v => `${v}%`} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="space-y-1.5 mt-2">
+              <div className="space-y-1 mt-2">
                 {pd.map(d => (
                   <div key={d.name} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-xs text-slate-600 dark:text-slate-400">{d.name}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">{d.name}</span>
                     </div>
                     <span className="text-xs font-medium text-slate-900 dark:text-white">{d.value}%</span>
                   </div>
@@ -277,231 +542,81 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, fmt }) => (
               </div>
             </CardContent>
           </Card>
-        </motion.div>
-      )}
+        )}
 
-      {gauge && gauge.current > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
+        {cost && cost.annual_loss > 0 && (
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
             <CardContent className="p-6">
-              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                Risk Assessment
-              </h3>
-              <div className="space-y-5">
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-slate-500">Current Risk</span>
-                    <span className="font-medium text-red-500">{gauge.current_label} ({gauge.current}/100)</span>
-                  </div>
-                  <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-center text-slate-400">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1.5">
-                    <span className="text-slate-500">After Actions</span>
-                    <span className="font-medium text-emerald-600">{gauge.target_label} ({gauge.target}/100)</span>
-                  </div>
-                  <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${gauge.target}%` }} />
-                  </div>
-                </div>
+              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Cost Leakage</p>
+              <div className="text-center mb-4">
+                <p className="text-3xl font-bold text-red-500" style={{ fontFamily: "'Outfit', sans-serif" }}>{fmt(cost.annual_loss)}</p>
+                <p className="text-xs text-red-400 mt-1">lost per year ({cost.loss_pct}% of portfolio)</p>
               </div>
-              {cost && cost.annual_loss > 0 && (
-                <div className="mt-5 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800">
-                  <p className="text-[10px] font-bold tracking-wider uppercase text-red-400 mb-1">Annual Cost Leakage</p>
-                  <p className="text-lg font-semibold text-red-600 dark:text-red-400" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    {fmt(cost.annual_loss)}
-                  </p>
-                  <p className="text-[10px] text-red-400 mt-0.5">{cost.detail}</p>
-                </div>
-              )}
+              <p className="text-xs text-slate-500 dark:text-slate-400 text-center">{cost.detail}</p>
+              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg text-center">
+                <p className="text-xs text-emerald-600 font-medium">Switching to direct plans could save {fmt(cost.annual_loss)}/year</p>
+              </div>
             </CardContent>
           </Card>
-        </motion.div>
-      )}
+        )}
+      </div>
 
-      {ba && ba.before.return_pct > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl h-full">
-            <CardContent className="p-6">
-              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                Impact of Actions
-              </h3>
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[
-                      { name: "Returns %", before: ba.before.return_pct, after: ba.after.return_pct },
-                      { name: "Risk Score", before: ba.before.risk_score, after: ba.after.risk_score },
-                      { name: "Expense %", before: ba.before.expense_ratio * 10, after: ba.after.expense_ratio * 10 },
-                    ]}
-                    margin={{ top: 5, right: 5, left: -15, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 12, border: "1px solid #E2E8F0" }} />
-                    <Bar dataKey="before" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={20} name="Before" />
-                    <Bar dataKey="after" fill="#10B981" radius={[4, 4, 0, 0]} barSize={20} name="After" />
-                  </BarChart>
-                </ResponsiveContainer>
+      {/* ── Interactive Action Funnel ── */}
+      {funnel.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl" data-testid="action-funnel">
+            <CardContent className="p-6 md:p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  Action Plan
+                </h3>
+                <div className="flex items-center gap-2">
+                  <div className="w-20 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                    <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${funnel.length > 0 ? (completedCount / funnel.length) * 100 : 0}%` }} />
+                  </div>
+                  <span className="text-xs text-slate-400">{completedCount}/{funnel.length}</span>
+                </div>
               </div>
-              <div className="flex items-center justify-center gap-4 mt-2 text-[10px]">
-                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded bg-red-500" />Before</div>
-                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded bg-emerald-500" />After</div>
+              <div className="space-y-3">
+                {funnel.map((step, i) => {
+                  const done = completedActions[step.step];
+                  const statusColors = { critical: "#EF4444", important: "#F59E0B", moderate: "#3B82F6", recommended: "#10B981" };
+                  return (
+                    <div key={i} className={`flex items-start gap-4 p-3 rounded-xl transition-all ${done ? "bg-emerald-50/50 dark:bg-emerald-900/10 opacity-70" : "hover:bg-slate-50 dark:hover:bg-slate-800"}`}>
+                      <button
+                        onClick={() => toggleAction(step.step)}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border-2 transition-all ${
+                          done ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-200 dark:border-slate-600 hover:border-emerald-400"
+                        }`}
+                        data-testid={`action-check-${i}`}
+                      >
+                        {done ? <span className="text-xs font-bold">✓</span> : <span className="text-xs font-bold text-slate-400">{step.step}</span>}
+                      </button>
+                      <div className="flex-1">
+                        <p className={`text-sm font-medium ${done ? "line-through text-slate-400" : "text-slate-900 dark:text-white"}`}>{step.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{step.detail}</p>
+                        {step.rupee_impact && <p className="text-[10px] text-emerald-600 font-medium mt-1">{step.rupee_impact}</p>}
+                      </div>
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${statusColors[step.status] || "#94A3B8"}15`, color: statusColors[step.status] || "#94A3B8" }}>
+                        {step.status}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-4 p-3">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                    <Target className="w-4 h-4 text-white" />
+                  </div>
+                  <p className="text-sm font-medium text-emerald-600">Optimized Portfolio</p>
+                </div>
               </div>
             </CardContent>
           </Card>
         </motion.div>
       )}
     </div>
-
-    {/* Priority Matrix */}
-    {ins.length > 0 && <PriorityMatrix ins={ins} />}
-
-    {/* Action Funnel */}
-    {funnel.length > 0 && <ActionFunnel funnel={funnel} />}
-
-    {/* Detailed Insight Cards */}
-    {ins.length > 0 && <InsightCards ins={ins} />}
-  </div>
-);
-
-const PriorityMatrix = ({ ins }) => (
-  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-    <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
-      <CardContent className="p-6 md:p-8">
-        <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Priority Matrix</h3>
-        <div className="relative border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden" style={{ minHeight: 360 }}>
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] font-bold tracking-wider uppercase text-slate-400 whitespace-nowrap">Impact</div>
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] font-bold tracking-wider uppercase text-slate-400">Effort</div>
-          <div className="grid grid-cols-2 grid-rows-2 ml-6 mb-6" style={{ minHeight: 340 }}>
-            <div className="border-r border-b border-slate-100 dark:border-slate-700 p-3 bg-emerald-50/50 dark:bg-emerald-900/10">
-              <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-2">Do First</p>
-              <div className="space-y-2">
-                {ins.filter(i => i.impact === "high" && i.effort !== "high").map((i, idx) => (
-                  <MatrixCard key={idx} item={i} borderColor="border-emerald-200 dark:border-emerald-800" />
-                ))}
-              </div>
-            </div>
-            <div className="border-b border-slate-100 dark:border-slate-700 p-3 bg-amber-50/50 dark:bg-amber-900/10">
-              <p className="text-[9px] font-bold tracking-wider uppercase text-amber-600 mb-2">Plan & Schedule</p>
-              <div className="space-y-2">
-                {ins.filter(i => i.impact === "high" && i.effort === "high").map((i, idx) => (
-                  <MatrixCard key={idx} item={i} borderColor="border-amber-200 dark:border-amber-800" />
-                ))}
-              </div>
-            </div>
-            <div className="border-r border-slate-100 dark:border-slate-700 p-3 bg-blue-50/50 dark:bg-blue-900/10">
-              <p className="text-[9px] font-bold tracking-wider uppercase text-blue-600 mb-2">Quick Wins</p>
-              <div className="space-y-2">
-                {ins.filter(i => i.impact !== "high" && i.effort !== "high").map((i, idx) => (
-                  <MatrixCard key={idx} item={i} borderColor="border-blue-200 dark:border-blue-800" />
-                ))}
-              </div>
-            </div>
-            <div className="p-3 bg-slate-50/50 dark:bg-slate-800/50">
-              <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-2">Defer</p>
-              <div className="space-y-2">
-                {ins.filter(i => i.impact !== "high" && i.effort === "high").map((i, idx) => (
-                  <MatrixCard key={idx} item={i} borderColor="border-slate-200 dark:border-slate-700" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  </motion.div>
-);
-
-const MatrixCard = ({ item, borderColor }) => (
-  <div className={`p-2.5 bg-white dark:bg-slate-800 rounded-lg border ${borderColor} shadow-sm`}>
-    <p className="text-xs font-medium text-slate-900 dark:text-white">{item.title}</p>
-    <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">{item.description}</p>
-    {item.current_value && <p className="text-[10px] text-slate-400 mt-1">{item.current_value} → {item.target_value}</p>}
-  </div>
-);
-
-const ActionFunnel = ({ funnel }) => (
-  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-    <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
-      <CardContent className="p-6 md:p-8">
-        <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Action Funnel</h3>
-        <div className="space-y-3">
-          {funnel.map((step, i) => (
-            <div key={i} className="flex items-start gap-4">
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: STATUS_COLORS[step.status] || "#94A3B8" }}>
-                  {step.step}
-                </div>
-                {i < funnel.length - 1 && <div className="w-0.5 h-8 bg-slate-200 dark:bg-slate-700 mt-1" />}
-              </div>
-              <div className="flex-1 pb-2">
-                <p className="text-sm font-medium text-slate-900 dark:text-white">{step.title}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{step.detail}</p>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ backgroundColor: `${STATUS_COLORS[step.status]}15`, color: STATUS_COLORS[step.status] }}>
-                {step.status}
-              </span>
-            </div>
-          ))}
-          <div className="flex items-start gap-4">
-            <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center">
-              <Target className="w-4 h-4 text-white" />
-            </div>
-            <p className="text-sm font-medium text-emerald-600 pt-1.5">Optimized Portfolio</p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  </motion.div>
-);
-
-const InsightCards = ({ ins }) => (
-  <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-    <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
-      <CardContent className="p-6 md:p-8">
-        <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>Detailed Insights</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {ins.map((i, idx) => {
-            const Icon = CATEGORY_ICONS[i.category] || Sparkles;
-            const colors = {
-              warning: "border-amber-200 bg-amber-50/80 dark:bg-amber-900/15 dark:border-amber-800",
-              opportunity: "border-emerald-200 bg-emerald-50/80 dark:bg-emerald-900/15 dark:border-emerald-800",
-              action: "border-blue-200 bg-blue-50/80 dark:bg-blue-900/15 dark:border-blue-800",
-              info: "border-slate-200 bg-slate-50/80 dark:bg-slate-800/50 dark:border-slate-700",
-            };
-            return (
-              <div key={idx} className={`p-4 rounded-xl border ${colors[i.type] || colors.info}`}>
-                <div className="flex items-start gap-3">
-                  <Icon className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" strokeWidth={1.5} />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{i.title}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{i.description}</p>
-                    {(i.current_value || i.progress > 0) && (
-                      <div className="mt-3">
-                        {i.current_value && <p className="text-[10px] text-slate-400 mb-1">Current: {i.current_value} → Target: {i.target_value}</p>}
-                        <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.min(i.progress || 0, 100)}%` }} />
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{i.progress || 0}% aligned</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  </motion.div>
-);
+  );
+};
 
 // ════════════════════════════════════════
 // OVEREXPOSURE TAB
