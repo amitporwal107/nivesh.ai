@@ -307,9 +307,19 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       <GmailImport onRefresh={onRefresh} />
 
       {/* Latest CAS notice */}
-      <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center -mt-2 mb-2">
-        Only the latest uploaded CAS will be considered. Re-uploading replaces the previous portfolio.
-      </p>
+      {holdings.length > 0 && (() => {
+        const latest = holdings.reduce((max, h) => {
+          const t = h.uploaded_at || h.created_at || "";
+          return t > max ? t : max;
+        }, "");
+        const formatted = latest ? new Date(latest).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        return (
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center -mt-2 mb-2">
+            {formatted && <span>Last updated: <strong className="text-slate-500 dark:text-slate-400">{formatted}</strong> &middot; </span>}
+            Only the latest uploaded CAS will be considered. Re-uploading replaces the previous portfolio.
+          </p>
+        );
+      })()}
 
       <Tabs value={activeAssetTab} onValueChange={setActiveAssetTab} className="mb-6">
         <TabsList className="bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
