@@ -14,7 +14,6 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 # Local modules
 from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInput, AssetType
@@ -43,6 +42,7 @@ db = client[os.environ['DB_NAME']]
 
 # LLM Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 
 # Google OAuth
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
@@ -56,7 +56,7 @@ user_repo = UserRepository(db)
 session_repo = SessionRepository(db)
 portfolio_repo = PortfolioRepository(db)
 holding_repo = HoldingRepository(db)
-ai_engine = AIEngine(EMERGENT_LLM_KEY)
+ai_engine = AIEngine(OPENAI_API_KEY)
 
 app = FastAPI(title="nivesh.ai API", version="2.0")
 api_router = APIRouter(prefix="/api")
@@ -946,8 +946,7 @@ async def parse_excel_holdings(content: bytes) -> list:
     return holdings
 
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:
-    """Parse CAS (Consolidated Account Statement) PDF using AI with direct PDF upload."""
-    from emergentintegrations.llm.chat import FileContent
+    """Parse CAS (Consolidated Account Statement) PDF using AI with direct OpenAI API."""
     import base64
     
     cas_system_message = """You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
@@ -1009,15 +1008,8 @@ IMPORTANT RULES:
     if text.strip() and len(text.strip()) > 200:
         text = text[:12000]
         try:
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY,
-                session_id=f"cas_txt_{uuid.uuid4().hex[:8]}",
-                system_message=cas_system_message
-            )
-            chat.with_model("openai", "gpt-5.2")
-            user_message = UserMessage(text=f"Parse this CAS statement and extract ALL holdings:\n\n{text}")
-            response = await chat.send_message(user_message)
-            return _parse_json_response(response)
+            parsed = await ai_engine.parse_cas_text(text, f"cas_txt_{uuid.uuid4().hex[:8]}")
+            return parsed
         except Exception as e:
             logger.error(f"CAS text parsing error: {e}")
             raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
@@ -1114,28 +1106,26 @@ IMPORTANT RULES:
             if not chunk_bytes or len(chunk_bytes) < 1000:
                 continue
             
-            pdf_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
-            
-            file_content = FileContent(
-                content_type="application/pdf",
-                file_content_base64=pdf_base64
-            )
-            
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY,
-                session_id=f"cas_p{start_idx}_{uuid.uuid4().hex[:6]}",
-                system_message=cas_system_message
-            )
-            chat.with_model("openai", "gpt-5.2")
-            
-            user_message = UserMessage(
-                text=f"These are pages {start_idx+1}-{end_idx} of a CAS (Consolidated Account Statement) from NSDL/CDSL India. Extract ALL investment holdings visible on these pages (mutual funds, equities, ETFs, gold bonds). If no holdings on these pages, return []. Return ONLY a JSON array.",
-                file_contents=[file_content]
-            )
+            # Convert PDF chunk to images for OpenAI vision
+            try:
+                from pdf2image import convert_from_bytes as cfb2
+                convert_kw = {"dpi": 150}
+                page_images = cfb2(chunk_bytes, **convert_kw)
+                image_data_list = []
+                for img in page_images:
+                    img_buf2 = io.BytesIO()
+                    img.save(img_buf2, format="PNG")
+                    image_data_list.append(img_buf2.getvalue())
+            except Exception as e:
+                logger.warning(f"Image conversion failed for pages {start_idx+1}-{end_idx}: {e}")
+                continue
             
             try:
-                response = await chat.send_message(user_message)
-                page_holdings = _parse_json_response(response)
+                page_holdings = await ai_engine.parse_cas_images(
+                    image_data_list,
+                    f"{start_idx+1}-{end_idx}",
+                    f"cas_p{start_idx}_{uuid.uuid4().hex[:6]}"
+                )
                 if page_holdings:
                     all_holdings.extend(page_holdings)
                     logger.info(f"Extracted {len(page_holdings)} holdings from pages {start_idx+1}-{end_idx}")
@@ -1938,27 +1928,18 @@ Disclaimer: This is AI-generated guidance for educational purposes. Always consu
     recent_msgs.reverse()
     
     try:
-        # Use a stable session_id per user for conversation continuity
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"wealth_{user_id}",
-            system_message=system_message
-        )
-        chat.with_model("openai", "gpt-5.2")
-        
-        # Build conversation context as a single message instead of replaying each
-        # This avoids N API calls per message and properly includes AI responses
+        # Build conversation history for context
+        history = []
         if len(recent_msgs) > 1:
-            history_text = "Previous conversation:\n"
-            for m in recent_msgs[:-1]:  # Exclude the just-added user message
-                role_label = "User" if m["role"] == "user" else "Advisor"
-                history_text += f"{role_label}: {m['content'][:500]}\n"
-            history_text += f"\nNow respond to the user's latest message:"
-            user_message = UserMessage(text=f"{history_text}\n\nUser: {msg.message}")
-        else:
-            user_message = UserMessage(text=msg.message)
-        
-        ai_response = await chat.send_message(user_message)
+            for m in recent_msgs[:-1]:
+                history.append({"role": m["role"], "content": m["content"][:500]})
+
+        ai_response = await ai_engine.chat(
+            message=msg.message,
+            portfolio_context=portfolio_context,
+            history=history,
+            session_id=f"wealth_{user_id}",
+        )
         
     except Exception as e:
         logger.error(f"LLM error: {e}")
@@ -2029,55 +2010,10 @@ async def generate_insights(request: Request):
         portfolio_text += f"- {h['name']} ({h['asset_type']}, {h.get('sector','N/A')}): qty={h['quantity']}, ₹{h['buy_price']}→₹{h['current_price']} ({ret_pct:.1f}%)\n"
     
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"insights_{user_id}_{uuid.uuid4().hex[:6]}",
-            system_message="""You are an expert Indian financial advisor. Analyze the portfolio and return a comprehensive JSON analysis.
-
-Return ONLY valid JSON with this exact structure:
-{
-  "insights": [
-    {"title":"...", "description":"2-3 sentences", "type":"warning|opportunity|info|action", "impact":"high|medium|low", "effort":"high|medium|low", "category":"risk|allocation|cost|redundancy|opportunity", "current_value":"e.g. 18%", "target_value":"e.g. 10%", "progress": 30}
-  ],
-  "problem_distribution": [
-    {"name":"High Risk", "value": 35, "color":"#EF4444"},
-    {"name":"Allocation Issues", "value": 25, "color":"#F59E0B"},
-    {"name":"Cost Inefficiency", "value": 20, "color":"#3B82F6"},
-    {"name":"Redundancy", "value": 20, "color":"#10B981"}
-  ],
-  "before_after": {
-    "before": {"return_pct": 6.5, "risk_label":"High", "risk_score": 75, "expense_ratio": 1.8},
-    "after": {"return_pct": 8.2, "risk_label":"Moderate", "risk_score": 45, "expense_ratio": 0.5}
-  },
-  "action_funnel": [
-    {"step":1, "title":"Remove High Risk Stocks", "status":"critical", "detail":"Sell Vodafone, penny stocks"},
-    {"step":2, "title":"Shift to Direct Plans", "status":"important", "detail":"Switch 5 regular plans to direct"},
-    {"step":3, "title":"Consolidate Overlapping Funds", "status":"moderate", "detail":"Merge 3 similar large-cap funds"},
-    {"step":4, "title":"Rebalance Asset Allocation", "status":"recommended", "detail":"Increase debt to 15%, reduce equity"}
-  ],
-  "overlap_pairs": [
-    {"fund_a":"Fund A Name", "fund_b":"Fund B Name", "overlap_pct": 80},
-    {"fund_a":"Fund C Name", "fund_b":"Fund D Name", "overlap_pct": 65}
-  ],
-  "cost_leakage": {"annual_loss": 32000, "total_invested": 500000, "loss_pct": 1.2, "detail":"Regular plans vs Direct plans"},
-  "risk_gauge": {"current": 75, "target": 45, "current_label":"High", "target_label":"Moderate"}
-}
-
-Rules:
-- Provide 6-8 insights covering risk, allocation, cost, redundancy, opportunities
-- problem_distribution percentages must sum to 100
-- before_after should show realistic improvements
-- overlap_pairs: identify mutual funds with similar mandates (large cap overlap etc)
-- cost_leakage: estimate commission drag from regular plans
-- Be specific with fund names and numbers from the portfolio
-- All values must be realistic and based on the actual portfolio data"""
+        analysis = await ai_engine.analyze_portfolio(
+            portfolio_text,
+            f"insights_{user_id}_{uuid.uuid4().hex[:6]}"
         )
-        chat.with_model("openai", "gpt-5.2")
-        
-        user_message = UserMessage(text=f"Analyze:\n{portfolio_text}")
-        response = await chat.send_message(user_message)
-        
-        analysis = _parse_json_response_obj(response)
         
     except Exception as e:
         logger.error(f"Insights generation error: {e}")

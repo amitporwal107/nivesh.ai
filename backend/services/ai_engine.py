@@ -1,10 +1,13 @@
-"""AI Engine — prompt strategy, guardrails, structured outputs, retry logic."""
+"""AI Engine — uses OpenAI SDK directly with cost-optimized model selection.
+- gpt-4o: CAS PDF parsing (needs accuracy)
+- gpt-4o-mini: Chat, Insights, Analysis (cheap, fast, good quality)
+"""
 import json
 import logging
-import uuid
 import re
+import base64
 from typing import Optional
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -73,66 +76,134 @@ Schema:
 }}"""
 
 
-class AIEngine:
-    """Centralized AI layer with prompt management and guardrails."""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-
-    async def chat(self, message: str, portfolio_context: str, history: list, session_id: str) -> str:
-        """Send a chat message with portfolio context and conversation history."""
-        system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
-
-        chat = LlmChat(api_key=self.api_key, session_id=session_id, system_message=system)
-        chat.with_model("openai", "gpt-5.2")
-
-        # Replay history (skip last which is the current message)
-        for m in history:
-            if m["role"] == "user":
-                await chat.send_message(UserMessage(text=m["content"]))
-
-        response = await chat.send_message(UserMessage(text=message))
-
-        # Guardrail: check for hallucinated guarantees
-        response = self._apply_guardrails(response)
-        return response
-
-    async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
-        """Generate comprehensive portfolio analysis with structured output."""
-        chat = LlmChat(api_key=self.api_key, session_id=session_id, system_message=INSIGHT_ANALYSIS_SYSTEM)
-        chat.with_model("openai", "gpt-5.2")
-
-        response = await chat.send_message(UserMessage(text=f"Analyze:\n{portfolio_text}"))
-        parsed = self._parse_json_object(response)
-
-        # Validate structure
-        if not parsed.get("insights"):
-            raise ValueError("AI response missing 'insights' field")
-
-        return parsed
-
-    async def parse_cas_document(self, file_contents: list, page_range: str, session_id: str) -> list:
-        """Parse CAS document pages using vision model."""
-        from emergentintegrations.llm.chat import FileContent
-
-        system = """You are a CAS (Consolidated Account Statement) parser for Indian investments.
+CAS_PARSER_SYSTEM = """You are a CAS (Consolidated Account Statement) parser for Indian investments.
 Extract ALL holdings. Return ONLY a JSON array:
 [{"name":"...","ticker":"ISIN if found","asset_type":"mutual_fund|equity|etf|bond|gold|fd|other","quantity":float,"buy_price":float,"current_price":float,"sector":"Large Cap|Mid Cap|..."}]
 Rules: Keep different folios separate. Use 0 for unknown prices. Return [] if no holdings."""
 
-        chat = LlmChat(api_key=self.api_key, session_id=session_id, system_message=system)
-        chat.with_model("openai", "gpt-5.2")
 
-        msg = UserMessage(
-            text=f"Extract holdings from pages {page_range} of this CAS statement. Return JSON array only.",
-            file_contents=file_contents,
-        )
-        response = await chat.send_message(msg)
-        return self._parse_json_array(response)
+# Model choices — cost optimized
+MODEL_EXPENSIVE = "gpt-4o"       # For CAS parsing (needs accuracy) ~$2.50/1M input
+MODEL_CHEAP = "gpt-4o-mini"      # For chat & insights ~$0.15/1M input
+
+
+class AIEngine:
+    """Centralized AI layer using OpenAI SDK directly."""
+
+    def __init__(self, api_key: str):
+        self.client = AsyncOpenAI(api_key=api_key)
+
+    async def chat(self, message: str, portfolio_context: str, history: list, session_id: str) -> str:
+        """Send a chat message with portfolio context. Uses gpt-4o-mini (cheap)."""
+        system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
+
+        messages = [{"role": "system", "content": system}]
+
+        # Add conversation history
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"][:1000]})
+
+        # Add current message
+        messages.append({"role": "user", "content": message})
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=MODEL_CHEAP,
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.7,
+            )
+            text = response.choices[0].message.content
+            return self._apply_guardrails(text)
+        except Exception as e:
+            logger.error(f"OpenAI chat failed: {e}")
+            raise
+
+    async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
+        """Generate comprehensive portfolio analysis. Uses gpt-4o-mini (cheap)."""
+        try:
+            response = await self.client.chat.completions.create(
+                model=MODEL_CHEAP,
+                messages=[
+                    {"role": "system", "content": INSIGHT_ANALYSIS_SYSTEM},
+                    {"role": "user", "content": f"Analyze:\n{portfolio_text}"},
+                ],
+                max_tokens=3000,
+                temperature=0.3,
+            )
+            text = response.choices[0].message.content
+            parsed = self._parse_json_object(text)
+
+            if not parsed.get("insights"):
+                raise ValueError("AI response missing 'insights' field")
+            return parsed
+        except Exception as e:
+            logger.error(f"OpenAI analysis failed: {e}")
+            raise
+
+    async def parse_cas_text(self, text: str, session_id: str) -> list:
+        """Parse CAS text content using gpt-4o (accurate)."""
+        try:
+            response = await self.client.chat.completions.create(
+                model=MODEL_EXPENSIVE,
+                messages=[
+                    {"role": "system", "content": CAS_PARSER_SYSTEM},
+                    {"role": "user", "content": f"Extract all holdings from this CAS statement. Return JSON array only.\n\n{text[:15000]}"},
+                ],
+                max_tokens=4000,
+                temperature=0.1,
+            )
+            result = response.choices[0].message.content
+            return self._parse_json_array(result)
+        except Exception as e:
+            logger.error(f"OpenAI CAS text parse failed: {e}")
+            raise
+
+    async def parse_cas_images(self, image_data_list: list, page_range: str, session_id: str) -> list:
+        """Parse CAS images using gpt-4o vision (accurate)."""
+        content = [{"type": "text", "text": f"Extract holdings from pages {page_range} of this CAS statement. Return JSON array only."}]
+
+        for img_data in image_data_list:
+            if isinstance(img_data, bytes):
+                b64 = base64.b64encode(img_data).decode("utf-8")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"},
+                })
+            elif isinstance(img_data, str) and img_data.startswith("http"):
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_data, "detail": "high"},
+                })
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=MODEL_EXPENSIVE,
+                messages=[
+                    {"role": "system", "content": CAS_PARSER_SYSTEM},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=4000,
+                temperature=0.1,
+            )
+            result = response.choices[0].message.content
+            return self._parse_json_array(result)
+        except Exception as e:
+            logger.error(f"OpenAI CAS image parse failed: {e}")
+            raise
+
+    async def parse_cas_document(self, file_contents: list, page_range: str, session_id: str) -> list:
+        """Legacy compatibility — routes to parse_cas_images."""
+        # Convert emergentintegrations FileContent to image data
+        image_data = []
+        for fc in file_contents:
+            if hasattr(fc, 'url'):
+                image_data.append(fc.url)
+            elif hasattr(fc, 'data'):
+                image_data.append(fc.data)
+        return await self.parse_cas_images(image_data, page_range, session_id)
 
     def _apply_guardrails(self, text: str) -> str:
-        """Apply safety guardrails to AI output."""
-        # Flag absolute guarantees
         danger_phrases = ["guaranteed returns", "will definitely", "100% safe", "no risk"]
         for phrase in danger_phrases:
             if phrase.lower() in text.lower():
@@ -141,7 +212,6 @@ Rules: Keep different folios separate. Use 0 for unknown prices. Return [] if no
         return text
 
     def _parse_json_object(self, response: str) -> dict:
-        """Parse JSON object from LLM response with cleanup."""
         clean = response.strip()
         if clean.startswith("```"):
             lines = clean.split("\n")
@@ -164,7 +234,6 @@ Rules: Keep different folios separate. Use 0 for unknown prices. Return [] if no
             return {}
 
     def _parse_json_array(self, response: str) -> list:
-        """Parse JSON array from LLM response with cleanup."""
         clean = response.strip()
         if clean.startswith("```"):
             lines = clean.split("\n")
