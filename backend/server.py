@@ -998,131 +998,105 @@ IMPORTANT RULES:
             raise HTTPException(status_code=400, detail="Incorrect PDF password or the file is corrupted. Please check and try again.")
 
     if text.strip() and len(text.strip()) > 200:
-        text = text[:12000]
-        try:
-            parsed = await ai_engine.parse_cas_text(text, f"cas_txt_{uuid.uuid4().hex[:8]}")
-            return parsed
-        except Exception as e:
-            logger.error(f"CAS text parsing error: {e}")
-            raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
-    
-    # Image-based PDF — get page count reliably using pdf2image/poppler
-    logger.info(f"CAS PDF is image-based, processing in page batches (password={'yes' if password else 'no'})")
-    try:
-        from pdf2image import pdfinfo_from_bytes
-        from PyPDF2 import PdfReader as PdfReader2, PdfWriter
+        # For large CAS, process in text chunks to avoid token limits
+        all_parsed = []
+        chunk_size = 15000
+        full_text = text.strip()
         
-        # Use poppler (pdfinfo) for reliable page count — pass password if available
+        if len(full_text) <= chunk_size:
+            # Small enough for single call
+            try:
+                parsed = await ai_engine.parse_cas_text(full_text, f"cas_txt_{uuid.uuid4().hex[:8]}")
+                all_parsed.extend(parsed)
+            except Exception as e:
+                logger.error(f"CAS text parsing error: {e}")
+                raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
+        else:
+            # Split into chunks, process each
+            for i in range(0, len(full_text), chunk_size):
+                chunk = full_text[i:i+chunk_size]
+                if len(chunk.strip()) < 100:
+                    continue
+                try:
+                    parsed = await ai_engine.parse_cas_text(chunk, f"cas_txt_c{i//chunk_size}_{uuid.uuid4().hex[:6]}")
+                    if parsed:
+                        all_parsed.extend(parsed)
+                        logger.info(f"CAS text chunk {i//chunk_size}: extracted {len(parsed)} holdings")
+                except Exception as e:
+                    logger.warning(f"CAS text chunk {i//chunk_size} failed: {e}")
+        
+        if all_parsed:
+            # Deduplicate
+            seen = set()
+            unique = []
+            for h in all_parsed:
+                key = f"{h.get('name','').strip().lower()}__{h.get('quantity',0)}"
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(h)
+            return unique
+    
+    # Image-based PDF — convert pages to images and use OpenAI vision
+    logger.info(f"CAS PDF is image-based, processing via OpenAI vision (password={'yes' if password else 'no'})")
+    try:
+        from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+        
+        # Get page count
+        pdfinfo_kwargs = {}
+        if password:
+            pdfinfo_kwargs["userpw"] = password
         try:
-            pdfinfo_kwargs = {}
-            if password:
-                pdfinfo_kwargs["userpw"] = password
             info = pdfinfo_from_bytes(content, **pdfinfo_kwargs)
             total_pages = info.get("Pages", 0)
-            logger.info(f"pdf2image detected {total_pages} pages")
         except Exception as e:
             logger.warning(f"pdfinfo failed: {e}")
             total_pages = 0
         
-        # Fallback: try PyPDF2 with strict=False and decrypt
-        if total_pages == 0:
-            try:
-                fallback_reader = PdfReader2(io.BytesIO(content), strict=False)
-                if fallback_reader.is_encrypted and password:
-                    fallback_reader.decrypt(password)
-                total_pages = len(fallback_reader.pages)
-                logger.info(f"PyPDF2 strict=False detected {total_pages} pages")
-            except Exception as e:
-                logger.warning(f"PyPDF2 fallback failed: {e}")
-        
         if total_pages == 0:
             detail = "Could not read PDF."
-            if password:
-                detail += " The password may be incorrect."
-            else:
+            if not password:
                 detail += " The file may be password-protected — please provide the password."
             raise HTTPException(status_code=400, detail=detail)
         
+        logger.info(f"CAS has {total_pages} pages, processing 2 pages per batch")
+        
         all_holdings = []
+        convert_kwargs = {"dpi": 150}
+        if password:
+            convert_kwargs["userpw"] = password
         
-        # Re-read with strict=False and decrypt for page extraction
-        pdf_reader = None
-        try:
-            pdf_reader = PdfReader2(io.BytesIO(content), strict=False)
-            if pdf_reader.is_encrypted and password:
-                pdf_reader.decrypt(password)
-            # Test if we can actually access pages after decryption
-            _ = len(pdf_reader.pages)
-        except Exception as e:
-            logger.warning(f"PyPDF2 reader init failed: {e}")
-            pdf_reader = None
-        
-        # Process in batches of 3 pages
-        for start_idx in range(0, total_pages, 3):
-            end_idx = min(start_idx + 3, total_pages)
+        # Process 2 pages per API call for better accuracy
+        for start_page in range(1, total_pages + 1, 2):
+            end_page = min(start_page + 1, total_pages)
             
-            # Try to create chunk PDF from pages
-            chunk_bytes = None
-            if pdf_reader and len(pdf_reader.pages) >= end_idx:
-                try:
-                    writer = PdfWriter()
-                    for i in range(start_idx, end_idx):
-                        writer.add_page(pdf_reader.pages[i])
-                    buf = io.BytesIO()
-                    writer.write(buf)
-                    chunk_bytes = buf.getvalue()
-                except Exception as e:
-                    logger.warning(f"PyPDF2 page split failed for pages {start_idx+1}-{end_idx}: {e}")
-            
-            # Fallback: use pdf2image to extract pages as a new PDF via poppler
-            if not chunk_bytes or len(chunk_bytes) < 1000:
-                try:
-                    from pdf2image import convert_from_bytes
-                    from PIL import Image
-                    
-                    convert_kwargs = {"first_page": start_idx+1, "last_page": end_idx, "dpi": 150}
-                    if password:
-                        convert_kwargs["userpw"] = password
-                    images = convert_from_bytes(content, **convert_kwargs)
-                    if images:
-                        # Convert images back to a PDF
-                        img_buf = io.BytesIO()
-                        rgb_images = [img.convert('RGB') for img in images]
-                        rgb_images[0].save(img_buf, format='PDF', save_all=True, append_images=rgb_images[1:])
-                        chunk_bytes = img_buf.getvalue()
-                        logger.info(f"Used pdf2image fallback for pages {start_idx+1}-{end_idx}")
-                except Exception as e:
-                    logger.warning(f"pdf2image fallback failed for pages {start_idx+1}-{end_idx}: {e}")
-                    continue
-            
-            if not chunk_bytes or len(chunk_bytes) < 1000:
+            try:
+                page_images = convert_from_bytes(
+                    content, first_page=start_page, last_page=end_page, **convert_kwargs
+                )
+            except Exception as e:
+                logger.warning(f"Image conversion failed for pages {start_page}-{end_page}: {e}")
                 continue
             
-            # Convert PDF chunk to images for OpenAI vision
-            try:
-                from pdf2image import convert_from_bytes as cfb2
-                convert_kw = {"dpi": 150}
-                page_images = cfb2(chunk_bytes, **convert_kw)
-                image_data_list = []
-                for img in page_images:
-                    img_buf2 = io.BytesIO()
-                    img.save(img_buf2, format="PNG")
-                    image_data_list.append(img_buf2.getvalue())
-            except Exception as e:
-                logger.warning(f"Image conversion failed for pages {start_idx+1}-{end_idx}: {e}")
+            image_data_list = []
+            for img in page_images:
+                img_buf = io.BytesIO()
+                img.save(img_buf, format="PNG", optimize=True)
+                image_data_list.append(img_buf.getvalue())
+            
+            if not image_data_list:
                 continue
             
             try:
                 page_holdings = await ai_engine.parse_cas_images(
                     image_data_list,
-                    f"{start_idx+1}-{end_idx}",
-                    f"cas_p{start_idx}_{uuid.uuid4().hex[:6]}"
+                    f"{start_page}-{end_page}",
+                    f"cas_p{start_page}_{uuid.uuid4().hex[:6]}"
                 )
                 if page_holdings:
                     all_holdings.extend(page_holdings)
-                    logger.info(f"Extracted {len(page_holdings)} holdings from pages {start_idx+1}-{end_idx}")
+                    logger.info(f"Pages {start_page}-{end_page}: extracted {len(page_holdings)} holdings")
             except Exception as page_err:
-                logger.warning(f"Failed to parse pages {start_idx+1}-{end_idx}: {page_err}")
+                logger.warning(f"AI parse failed for pages {start_page}-{end_page}: {page_err}")
                 continue
         
         # Deduplicate by name+quantity+current_price
