@@ -20,7 +20,7 @@ GMAIL_SCOPES = [
 
 # CAS email detection patterns
 CAS_SENDERS = [
-    "nsdl", "cdsl", "cams", "kfintech", "karvy",
+    "nsdl-cas@nsdl.co.in", "nsdl", "cdsl", "cams", "kfintech", "karvy",
     "donotreply@camsonline.com", "donotreply@kfintech.com",
     "noreply@nsdl.co.in", "ecas@nsdl.co.in",
     "noreply@cdslindia.com", "edis@cdslindia.com",
@@ -128,12 +128,14 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
 
     # Use simple Gmail search — multiple queries to maximize recall
     queries = [
-        "from:nsdl has:attachment filename:pdf",
+        "from:NSDL-CAS@nsdl.co.in has:attachment filename:pdf",
+        "from:nsdl.co.in has:attachment filename:pdf",
         "from:cdsl has:attachment filename:pdf",
         "from:cams has:attachment filename:pdf",
+        "from:camsonline.com has:attachment filename:pdf",
         "from:kfintech has:attachment filename:pdf",
         "from:karvy has:attachment filename:pdf",
-        "subject:CAS has:attachment filename:pdf",
+        "subject:\"NSDL CAS\" has:attachment filename:pdf",
         "subject:\"consolidated account statement\" has:attachment filename:pdf",
         "subject:\"e-CAS\" has:attachment filename:pdf",
     ]
