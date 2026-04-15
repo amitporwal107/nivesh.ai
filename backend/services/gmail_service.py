@@ -126,29 +126,42 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
     """Scan Gmail for CAS-related emails with PDF attachments.
     Returns list of email metadata with attachment info."""
 
-    # Build search query
-    sender_queries = " OR ".join([f"from:{s}" for s in CAS_SENDERS[:6]])
-    subject_queries = " OR ".join([f'subject:"{s}"' for s in CAS_SUBJECTS[:4]])
-    query = f"({sender_queries} OR {subject_queries}) has:attachment filename:pdf"
+    # Use simple Gmail search — multiple queries to maximize recall
+    queries = [
+        "from:nsdl has:attachment filename:pdf",
+        "from:cdsl has:attachment filename:pdf",
+        "from:cams has:attachment filename:pdf",
+        "from:kfintech has:attachment filename:pdf",
+        "from:karvy has:attachment filename:pdf",
+        "subject:CAS has:attachment filename:pdf",
+        "subject:\"consolidated account statement\" has:attachment filename:pdf",
+        "subject:\"e-CAS\" has:attachment filename:pdf",
+    ]
 
-    logger.info(f"Gmail search query: {query}")
+    all_message_ids = set()
+    all_messages = []
 
-    try:
-        results = service.users().messages().list(
-            userId="me",
-            q=query,
-            maxResults=max_results,
-        ).execute()
-    except Exception as e:
-        logger.error(f"Gmail search failed: {e}")
-        return []
+    for query in queries:
+        try:
+            results = service.users().messages().list(
+                userId="me",
+                q=query,
+                maxResults=10,
+            ).execute()
+            for m in results.get("messages", []):
+                if m["id"] not in all_message_ids:
+                    all_message_ids.add(m["id"])
+                    all_messages.append(m)
+        except Exception as e:
+            logger.warning(f"Gmail search failed for query '{query}': {e}")
 
-    messages = results.get("messages", [])
-    if not messages:
+    logger.info(f"Gmail scan: {len(all_messages)} unique emails found from {len(queries)} queries")
+
+    if not all_messages:
         return []
 
     cas_emails = []
-    for msg_meta in messages:
+    for msg_meta in all_messages[:max_results]:
         try:
             msg = service.users().messages().get(
                 userId="me", id=msg_meta["id"], format="metadata",
