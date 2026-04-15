@@ -166,8 +166,7 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
     for msg_meta in all_messages[:max_results]:
         try:
             msg = service.users().messages().get(
-                userId="me", id=msg_meta["id"], format="metadata",
-                metadataHeaders=["From", "Subject", "Date"],
+                userId="me", id=msg_meta["id"], format="full",
             ).execute()
 
             headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
@@ -178,6 +177,7 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
             # Check for PDF attachments
             attachments = _find_pdf_attachments(msg.get("payload", {}))
             if not attachments:
+                logger.debug(f"Email '{subject[:40]}' from '{sender[:30]}' has no PDF attachments, skipping")
                 continue
 
             # Score confidence
