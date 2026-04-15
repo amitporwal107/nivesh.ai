@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, UploadFile, File, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -23,6 +23,11 @@ from services import compute_health_score, compute_risk_analysis, generate_recom
 from services.ai_engine import AIEngine
 from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from services.fund_performance import compute_benchmark_ratings
+from services.gmail_service import (
+    get_authorization_url, exchange_code_for_tokens,
+    get_gmail_credentials, build_gmail_service,
+    scan_for_cas_emails, download_attachment,
+)
 from middleware import RateLimitMiddleware, validate_env
 
 ROOT_DIR = Path(__file__).parent
@@ -401,6 +406,350 @@ async def get_admin_stats(request: Request):
             "total_holdings": total_holdings,
         },
     }
+
+# ==================== GMAIL AUTO-FETCH ROUTES ====================
+
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "")
+
+@api_router.get("/gmail/connect")
+async def gmail_connect(request: Request):
+    """Start Gmail OAuth flow — redirects user to Google consent screen."""
+    user = await get_current_user(request)
+
+    redirect_uri = GMAIL_REDIRECT_URI
+    if not redirect_uri:
+        # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+        raise HTTPException(status_code=500, detail="GMAIL_REDIRECT_URI not configured")
+
+    state = f"{user['user_id']}_{uuid.uuid4().hex[:8]}"
+    await db.gmail_oauth_states.insert_one({
+        "state": state,
+        "user_id": user["user_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+    })
+
+    url = get_authorization_url(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, state)
+    return {"auth_url": url}
+
+
+@api_router.get("/oauth/gmail/callback")
+async def gmail_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    """Handle Gmail OAuth callback from Google."""
+    if error:
+        logger.error(f"Gmail OAuth error: {error}")
+        return RedirectResponse(url="/dashboard?gmail_error=denied")
+
+    if not code or not state:
+        return RedirectResponse(url="/dashboard?gmail_error=missing_params")
+
+    # Verify state
+    state_doc = await db.gmail_oauth_states.find_one({"state": state}, {"_id": 0})
+    if not state_doc:
+        return RedirectResponse(url="/dashboard?gmail_error=invalid_state")
+
+    # Check expiry
+    expires_at = state_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        return RedirectResponse(url="/dashboard?gmail_error=state_expired")
+
+    user_id = state_doc["user_id"]
+    await db.gmail_oauth_states.delete_one({"state": state})
+
+    redirect_uri = GMAIL_REDIRECT_URI
+    if not redirect_uri:
+        return RedirectResponse(url="/dashboard?gmail_error=config_error")
+
+    try:
+        tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code)
+    except Exception as e:
+        logger.error(f"Gmail token exchange failed: {e}")
+        return RedirectResponse(url="/dashboard?gmail_error=token_exchange_failed")
+
+    # Store tokens
+    await db.gmail_tokens.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "user_id": user_id,
+            **tokens,
+            "connected_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+    logger.info(f"Gmail connected for user {user_id}")
+    return RedirectResponse(url="/dashboard?gmail=connected")
+
+
+@api_router.get("/gmail/status")
+async def gmail_status(request: Request):
+    """Check if user has Gmail connected."""
+    user = await get_current_user(request)
+    token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not token_doc:
+        return {"connected": False}
+    return {
+        "connected": True,
+        "connected_at": token_doc.get("connected_at"),
+    }
+
+
+@api_router.post("/gmail/disconnect")
+async def gmail_disconnect(request: Request):
+    """Disconnect Gmail — remove stored tokens."""
+    user = await get_current_user(request)
+    await db.gmail_tokens.delete_one({"user_id": user["user_id"]})
+    return {"message": "Gmail disconnected"}
+
+
+@api_router.post("/gmail/scan")
+async def gmail_scan(request: Request):
+    """Scan Gmail for CAS emails. Returns list of found emails with attachment info."""
+    user = await get_current_user(request)
+    token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Gmail not connected. Please connect Gmail first.")
+
+    try:
+        creds = get_gmail_credentials(token_doc)
+        service = build_gmail_service(creds)
+
+        # Update stored token if refreshed
+        if creds.token != token_doc["access_token"]:
+            await db.gmail_tokens.update_one(
+                {"user_id": user["user_id"]},
+                {"$set": {
+                    "access_token": creds.token,
+                    "expires_at": creds.expiry.replace(tzinfo=timezone.utc).isoformat() if creds.expiry else None,
+                }}
+            )
+
+        emails = scan_for_cas_emails(service, max_results=20)
+
+        # Check which have already been imported
+        imported_ids = set()
+        existing = await db.gmail_imports.find({"user_id": user["user_id"]}, {"_id": 0, "message_id": 1}).to_list(500)
+        imported_ids = {e["message_id"] for e in existing}
+
+        for email in emails:
+            email["already_imported"] = email["message_id"] in imported_ids
+
+        return {"emails": emails, "total": len(emails)}
+    except Exception as e:
+        logger.error(f"Gmail scan failed: {e}")
+        if "invalid_grant" in str(e).lower() or "token" in str(e).lower():
+            await db.gmail_tokens.delete_one({"user_id": user["user_id"]})
+            raise HTTPException(status_code=401, detail="Gmail session expired. Please reconnect Gmail.")
+        raise HTTPException(status_code=500, detail=f"Gmail scan failed: {str(e)}")
+
+
+@api_router.post("/gmail/import")
+async def gmail_import(request: Request, background_tasks: BackgroundTasks):
+    """Import a specific CAS email attachment. Triggers background processing."""
+    user = await get_current_user(request)
+    body = await request.json()
+    message_id = body.get("message_id")
+    attachment_id = body.get("attachment_id")
+    filename = body.get("filename", "cas.pdf")
+    password = body.get("password", "")
+    portfolio_id = body.get("portfolio_id", "")
+
+    if not message_id or not attachment_id:
+        raise HTTPException(status_code=400, detail="message_id and attachment_id required")
+
+    # Check deduplication
+    existing = await db.gmail_imports.find_one({
+        "user_id": user["user_id"],
+        "message_id": message_id,
+        "attachment_id": attachment_id,
+    })
+    if existing and existing.get("status") == "completed":
+        raise HTTPException(status_code=409, detail="This attachment has already been imported")
+
+    token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="Gmail not connected")
+
+    try:
+        creds = get_gmail_credentials(token_doc)
+        service = build_gmail_service(creds)
+        content = download_attachment(service, message_id, attachment_id)
+    except Exception as e:
+        logger.error(f"Gmail attachment download failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download attachment from Gmail")
+
+    # Create task and process in background
+    task_id = f"gmail_{uuid.uuid4().hex[:12]}"
+    await db.upload_tasks.insert_one({
+        "task_id": task_id,
+        "user_id": user["user_id"],
+        "status": "processing",
+        "message": f"Importing {filename} from Gmail...",
+        "count": 0,
+        "holdings": [],
+        "source": "email",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Record import attempt
+    await db.gmail_imports.update_one(
+        {"user_id": user["user_id"], "message_id": message_id, "attachment_id": attachment_id},
+        {"$set": {
+            "user_id": user["user_id"],
+            "message_id": message_id,
+            "attachment_id": attachment_id,
+            "filename": filename,
+            "task_id": task_id,
+            "status": "processing",
+            "imported_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+    background_tasks.add_task(
+        _process_gmail_cas_background, content, user["user_id"], task_id, portfolio_id, password, message_id, attachment_id
+    )
+
+    return {"task_id": task_id, "status": "processing", "message": f"Importing {filename} from Gmail..."}
+
+
+async def _process_gmail_cas_background(
+    content: bytes, user_id: str, task_id: str, portfolio_id: str, password: str,
+    message_id: str, attachment_id: str
+):
+    """Background task for Gmail CAS import."""
+    try:
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "processing", "message": "Parsing CAS PDF from Gmail with AI..."}}
+        )
+        parsed = await parse_cas_pdf(content, password=password)
+        if not parsed:
+            await db.upload_tasks.update_one(
+                {"task_id": task_id},
+                {"$set": {"status": "completed", "message": "No holdings found in CAS email", "count": 0}}
+            )
+            await db.gmail_imports.update_one(
+                {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
+                {"$set": {"status": "completed", "count": 0}}
+            )
+            return
+
+        # Tag source as 'email' and add confidence
+        for h in parsed:
+            h["source"] = "email"
+            h["confidence"] = 0.95
+
+        await _save_holdings_with_dedup(user_id, parsed, "Gmail CAS", task_id, portfolio_id)
+
+        # Update import record
+        final_task = await db.upload_tasks.find_one({"task_id": task_id}, {"_id": 0})
+        await db.gmail_imports.update_one(
+            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
+            {"$set": {"status": "completed", "count": final_task.get("count", 0)}}
+        )
+    except HTTPException as he:
+        error_msg = he.detail if hasattr(he, 'detail') else str(he)
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "error", "message": error_msg}}
+        )
+        await db.gmail_imports.update_one(
+            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
+            {"$set": {"status": "error"}}
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "password" in error_msg.lower() or "decrypt" in error_msg.lower():
+            error_msg = "PDF is password-protected. Please provide the password."
+        await db.upload_tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "error", "message": error_msg}}
+        )
+        await db.gmail_imports.update_one(
+            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
+            {"$set": {"status": "error"}}
+        )
+
+
+async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: str, task_id: str, portfolio_id: str):
+    """Save holdings with deduplication — merges if same holding exists from another source."""
+    existing_holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+
+    # Build lookup by (name_normalized, isin)
+    existing_map = {}
+    for h in existing_holdings:
+        key = (h.get("name", "").lower().strip()[:50], (h.get("ticker") or "").upper().strip())
+        existing_map[key] = h
+
+    new_count = 0
+    updated_count = 0
+    skipped_count = 0
+    saved_holdings = []
+
+    for h in parsed:
+        name = h.get("name", "").strip()
+        isin = h.get("isin", h.get("ticker", "")).upper().strip()
+        key = (name.lower()[:50], isin)
+
+        if key in existing_map:
+            ex = existing_map[key]
+            # Update with newer data if quantities match or are higher
+            if h.get("quantity", 0) > 0:
+                updates = {
+                    "current_price": h.get("current_price", ex.get("current_price", 0)),
+                    "source": h.get("source", "email"),
+                    "confidence": h.get("confidence", 0.95),
+                }
+                if h.get("quantity") != ex.get("quantity"):
+                    updates["quantity"] = h["quantity"]
+                await db.holdings.update_one(
+                    {"holding_id": ex["holding_id"]},
+                    {"$set": updates}
+                )
+                updated_count += 1
+            else:
+                skipped_count += 1
+            continue
+
+        # New holding
+        holding_id = f"hold_{uuid.uuid4().hex[:12]}"
+        doc = {
+            "holding_id": holding_id,
+            "portfolio_id": portfolio_id or "",
+            "user_id": user_id,
+            "name": name,
+            "ticker": isin,
+            "asset_type": h.get("asset_type", "mutual_fund"),
+            "quantity": h.get("quantity", 0),
+            "buy_price": h.get("buy_price", h.get("avg_price", 0)),
+            "current_price": h.get("current_price", h.get("buy_price", 0)),
+            "sector": h.get("sector", "Other"),
+            "buy_date": h.get("buy_date", ""),
+            "source": h.get("source", "email"),
+            "confidence": h.get("confidence", 0.95),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.holdings.insert_one(doc)
+        doc.pop("_id", None)
+        saved_holdings.append(doc)
+        new_count += 1
+
+    msg = f"{new_count} new holdings imported from {source_label}"
+    if updated_count > 0:
+        msg += f", {updated_count} updated"
+    if skipped_count > 0:
+        msg += f", {skipped_count} unchanged"
+
+    await db.upload_tasks.update_one(
+        {"task_id": task_id},
+        {"$set": {"status": "completed", "message": msg, "count": new_count + updated_count, "holdings": saved_holdings[:50]}}
+    )
+
 
 # ==================== PORTFOLIO MANAGEMENT ROUTES ====================
 

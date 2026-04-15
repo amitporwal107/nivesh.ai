@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import GmailImport from "@/components/GmailImport";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -276,6 +277,9 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       </div>
 
       {/* Asset Type Tabs */}
+      {/* Gmail Auto-Import */}
+      <GmailImport onRefresh={onRefresh} />
+
       <Tabs value={activeAssetTab} onValueChange={setActiveAssetTab} className="mb-6">
         <TabsList className="bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
           {TAB_FILTERS.map(t => (
