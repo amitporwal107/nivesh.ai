@@ -429,7 +429,14 @@ async def gmail_connect(request: Request):
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
     })
 
-    url = get_authorization_url(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, state)
+    url, code_verifier = get_authorization_url(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, state)
+
+    # Store code_verifier with the state for PKCE
+    await db.gmail_oauth_states.update_one(
+        {"state": state},
+        {"$set": {"code_verifier": code_verifier}}
+    )
+
     return {"auth_url": url}
 
 
@@ -458,6 +465,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         return RedirectResponse(url="/dashboard?gmail_error=state_expired")
 
     user_id = state_doc["user_id"]
+    code_verifier = state_doc.get("code_verifier")
     await db.gmail_oauth_states.delete_one({"state": state})
 
     redirect_uri = GMAIL_REDIRECT_URI
@@ -465,7 +473,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         return RedirectResponse(url="/dashboard?gmail_error=config_error")
 
     try:
-        tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code)
+        tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier)
     except Exception as e:
         logger.error(f"Gmail token exchange failed: {e}")
         return RedirectResponse(url="/dashboard?gmail_error=token_exchange_failed")
@@ -2136,10 +2144,16 @@ app.include_router(api_router)
 
 app.add_middleware(RateLimitMiddleware)
 
+_cors_env = os.environ.get('CORS_ORIGINS', '')
+if _cors_env == '*':
+    _cors_origins = ["https://ai-advisor-30.preview.emergentagent.com", "http://localhost:3000"]
+else:
+    _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
