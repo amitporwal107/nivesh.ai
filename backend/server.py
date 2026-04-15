@@ -1040,6 +1040,7 @@ IMPORTANT RULES:
     logger.info(f"CAS PDF is image-based, processing via OpenAI vision (password={'yes' if password else 'no'})")
     try:
         from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+        import asyncio
         
         # Get page count
         pdfinfo_kwargs = {}
@@ -1058,46 +1059,48 @@ IMPORTANT RULES:
                 detail += " The file may be password-protected — please provide the password."
             raise HTTPException(status_code=400, detail=detail)
         
-        logger.info(f"CAS has {total_pages} pages, processing 2 pages per batch")
+        logger.info(f"CAS has {total_pages} pages, processing 3 pages per batch in parallel")
         
-        all_holdings = []
-        convert_kwargs = {"dpi": 150}
+        # Convert ALL pages to images in one go (faster than per-batch conversion)
+        convert_kwargs = {"dpi": 130}
         if password:
             convert_kwargs["userpw"] = password
+        all_page_images = convert_from_bytes(content, **convert_kwargs)
+        logger.info(f"Converted {len(all_page_images)} pages to images")
         
-        # Process 2 pages per API call for better accuracy
-        for start_page in range(1, total_pages + 1, 2):
-            end_page = min(start_page + 1, total_pages)
-            
-            try:
-                page_images = convert_from_bytes(
-                    content, first_page=start_page, last_page=end_page, **convert_kwargs
-                )
-            except Exception as e:
-                logger.warning(f"Image conversion failed for pages {start_page}-{end_page}: {e}")
-                continue
-            
+        # Build batches of 3 pages
+        batches = []
+        batch_size = 3
+        for start in range(0, len(all_page_images), batch_size):
+            end = min(start + batch_size, len(all_page_images))
             image_data_list = []
-            for img in page_images:
+            for img in all_page_images[start:end]:
                 img_buf = io.BytesIO()
                 img.save(img_buf, format="PNG", optimize=True)
                 image_data_list.append(img_buf.getvalue())
-            
-            if not image_data_list:
-                continue
-            
+            batches.append((start + 1, end, image_data_list))
+        
+        # Process ALL batches in parallel
+        async def parse_batch(start_page, end_page, images):
             try:
-                page_holdings = await ai_engine.parse_cas_images(
-                    image_data_list,
-                    f"{start_page}-{end_page}",
+                holdings = await ai_engine.parse_cas_images(
+                    images, f"{start_page}-{end_page}",
                     f"cas_p{start_page}_{uuid.uuid4().hex[:6]}"
                 )
-                if page_holdings:
-                    all_holdings.extend(page_holdings)
-                    logger.info(f"Pages {start_page}-{end_page}: extracted {len(page_holdings)} holdings")
-            except Exception as page_err:
-                logger.warning(f"AI parse failed for pages {start_page}-{end_page}: {page_err}")
-                continue
+                if holdings:
+                    logger.info(f"Pages {start_page}-{end_page}: {len(holdings)} holdings")
+                return holdings or []
+            except Exception as e:
+                logger.warning(f"Pages {start_page}-{end_page} failed: {e}")
+                return []
+        
+        results = await asyncio.gather(
+            *[parse_batch(s, e, imgs) for s, e, imgs in batches]
+        )
+        
+        all_holdings = []
+        for batch_result in results:
+            all_holdings.extend(batch_result)
         
         # Deduplicate by name+quantity+current_price
         seen = set()
