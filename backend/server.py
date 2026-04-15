@@ -852,6 +852,15 @@ async def delete_holding(request: Request, holding_id: str):
         raise HTTPException(status_code=404, detail="Holding not found")
     return {"message": "Holding deleted"}
 
+@api_router.delete("/portfolio/holdings-all")
+async def clear_all_holdings(request: Request):
+    """Delete ALL holdings for the current user."""
+    user = await get_current_user(request)
+    result = await db.holdings.delete_many({"user_id": user["user_id"]})
+    await db.fund_performance_cache.delete_many({"user_id": user["user_id"]})
+    return {"message": f"{result.deleted_count} holdings cleared", "deleted": result.deleted_count}
+
+
 async def parse_csv_holdings(content: bytes) -> list:
     """Parse CSV/Excel files into holding rows."""
     holdings = []

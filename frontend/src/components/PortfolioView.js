@@ -59,8 +59,23 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
   // Autocomplete
   const [autoResults, setAutoResults] = useState([]);
   const [showAuto, setShowAuto] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const autoRef = useRef(null);
   const autoTimeout = useRef(null);
+
+  const clearPortfolio = async () => {
+    if (!window.confirm("Clear all holdings? This cannot be undone.")) return;
+    setClearing(true);
+    try {
+      const res = await axios.delete(`${API}/portfolio/holdings-all`, { withCredentials: true });
+      toast.success(res.data.message || "Portfolio cleared");
+      onRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to clear");
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const searchInstruments = async (q) => {
     if (q.length < 2) { setAutoResults([]); return; }
@@ -274,6 +289,17 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             <DropdownMenuItem onClick={() => toggleSort("quantity")}>Quantity</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {holdings.length > 0 && (
+          <Button
+            variant="outline"
+            onClick={clearPortfolio}
+            disabled={clearing}
+            className="rounded-xl border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600"
+            data-testid="clear-portfolio-button"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />{clearing ? "Clearing..." : "Clear All"}
+          </Button>
+        )}
       </div>
 
       {/* Asset Type Tabs */}
