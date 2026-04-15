@@ -98,7 +98,12 @@ Rules:
 CAS_PARSER_SYSTEM = """You are a CAS (Consolidated Account Statement) parser for Indian investments.
 Extract ALL holdings. Return ONLY a JSON array:
 [{"name":"...","ticker":"ISIN if found","asset_type":"mutual_fund|equity|etf|bond|gold|fd|other","quantity":float,"buy_price":float,"current_price":float,"sector":"Large Cap|Mid Cap|..."}]
-Rules: Keep different folios separate. Use 0 for unknown prices. Return [] if no holdings."""
+Rules:
+- Keep different folios separate
+- For buy_price: use "Cost Value", "Invested Value", "Cost", or "Avg NAV" if available. If only current NAV/price is shown, use that as buy_price too.
+- For current_price: use "Market Value / Units" or "Current NAV" or "Value" 
+- NEVER use 0 for buy_price if you have ANY price data — use current_price as buy_price if cost is unknown
+- Return [] if no holdings"""
 
 
 # Model choices — cost optimized

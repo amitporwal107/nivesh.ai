@@ -1222,6 +1222,12 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
         if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
             asset_type = "mutual_fund" if "fund" in h.get("name", "").lower() else "equity"
         
+        buy_price_val = float(h.get("buy_price", 0))
+        current_price_val = float(h.get("current_price", 0))
+        # CAS PDFs often don't include cost basis — use current_price as fallback
+        if buy_price_val == 0 and current_price_val > 0:
+            buy_price_val = current_price_val
+        
         holding_doc = {
             "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
@@ -1230,8 +1236,8 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
             "ticker": h.get("ticker", ""),
             "asset_type": asset_type,
             "quantity": float(h.get("quantity", 0)),
-            "buy_price": float(h.get("buy_price", 0)),
-            "current_price": float(h.get("current_price", 0)),
+            "buy_price": buy_price_val,
+            "current_price": current_price_val,
             "sector": h.get("sector", "Other"),
             "buy_date": h.get("buy_date", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "source": "cas" if is_cas else h.get("source", "manual"),
@@ -1479,7 +1485,10 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     holding_perf = []
     
     for h in holdings:
-        inv = h["quantity"] * h["buy_price"]
+        # When CAS doesn't provide buy_price, use current_price as proxy
+        # (CAS PDFs often only show current NAV, not purchase cost)
+        buy_p = h["buy_price"] if h["buy_price"] > 0 else h["current_price"]
+        inv = h["quantity"] * buy_p
         cur = h["quantity"] * h["current_price"]
         total_invested += inv
         current_value += cur
@@ -1555,7 +1564,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     # Uses date-based hash for consistent-per-day but different-each-day values
     import hashlib
     trend = []
-    base = total_invested
+    base = total_invested if total_invested > 0 else current_value * 0.9  # Fallback: 90% of current
     for i in range(30):
         day_offset = 29 - i
         d = datetime.now(timezone.utc) - timedelta(days=day_offset)
