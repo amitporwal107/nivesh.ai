@@ -306,6 +306,11 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       {/* Gmail Auto-Import */}
       <GmailImport onRefresh={onRefresh} />
 
+      {/* Latest CAS notice */}
+      <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center -mt-2 mb-2">
+        Only the latest uploaded CAS will be considered. Re-uploading replaces the previous portfolio.
+      </p>
+
       <Tabs value={activeAssetTab} onValueChange={setActiveAssetTab} className="mb-6">
         <TabsList className="bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
           {TAB_FILTERS.map(t => (
@@ -323,7 +328,28 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       {filteredHoldings.length === 0 ? (
         <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
           <CardContent className="p-12 text-center">
-            <p className="text-slate-500 dark:text-slate-400 text-sm">{searchQuery || activeAssetTab !== "all" ? "No holdings match your filters." : "No holdings yet. Add your first investment above."}</p>
+            <Upload className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" strokeWidth={1.5} />
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              {searchQuery || activeAssetTab !== "all" ? "No holdings match your filters" : "No holdings yet"}
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md mx-auto">
+              {searchQuery || activeAssetTab !== "all"
+                ? "Try adjusting your search or filter."
+                : "Upload your NSDL/CDSL CAS statement or connect Gmail to auto-import your portfolio."}
+            </p>
+            {!searchQuery && activeAssetTab === "all" && (
+              <div className="flex items-center justify-center gap-3">
+                <Button onClick={() => setShowUploadDialog(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl" data-testid="empty-upload-btn">
+                  <Upload className="w-4 h-4 mr-2" /> Upload CAS PDF
+                </Button>
+                <Button variant="outline" onClick={() => setShowAddDialog(true)} className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-add-btn">
+                  <Plus className="w-4 h-4 mr-2" /> Add Manually
+                </Button>
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-4">
+              Only the latest uploaded CAS will be considered. Re-uploading replaces the previous portfolio.
+            </p>
           </CardContent>
         </Card>
       ) : (
