@@ -1,11 +1,31 @@
-import React from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { GoogleLogin } from "@react-oauth/google";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, Shield, MessageSquare, PieChart } from "lucide-react";
-import { motion } from "framer-motion";
+import { TrendingUp, Shield, MessageSquare, PieChart, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const Landing = () => {
-  const { login } = useAuth();
+  const { loginWithGoogle, authError, setAuthError, googleClientId } = useAuth();
+  const [loggingIn, setLoggingIn] = useState(false);
+  const navigate = useNavigate();
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setLoggingIn(true);
+    try {
+      await loginWithGoogle(credentialResponse.credential);
+      navigate("/dashboard", { replace: true });
+    } catch {
+      // authError is set by loginWithGoogle
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    setAuthError("Google sign-in was cancelled or failed. Please try again.");
+  };
 
   const features = [
     { icon: PieChart, title: "Portfolio Intelligence", desc: "Unified view of all your investments — stocks, MFs, ETFs, bonds, gold." },
@@ -27,13 +47,22 @@ const Landing = () => {
               nivesh.ai
             </span>
           </div>
-          <Button
-            data-testid="login-button"
-            onClick={login}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-6 h-10 font-medium transition-colors"
-          >
-            Sign in with Google
-          </Button>
+          <div data-testid="nav-google-login">
+            {googleClientId ? (
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="outline"
+                size="medium"
+                text="signin_with"
+                shape="pill"
+              />
+            ) : (
+              <Button disabled className="rounded-xl px-6 h-10 opacity-50">
+                Loading...
+              </Button>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -46,7 +75,7 @@ const Landing = () => {
           className="text-center max-w-3xl mx-auto"
         >
           <p className="text-xs font-bold tracking-[0.15em] uppercase text-emerald-600 mb-6">
-            AI-Powered Wealth Management
+            Invite-Only Beta
           </p>
           <h1
             className="text-4xl sm:text-5xl lg:text-6xl font-medium tracking-tight text-slate-900 dark:text-white leading-tight"
@@ -59,20 +88,59 @@ const Landing = () => {
           <p className="mt-6 text-base sm:text-lg text-slate-500 dark:text-slate-400 leading-relaxed max-w-xl mx-auto">
             Track all your assets, get AI-powered insights, and make confident investment decisions. Built for Indian investors.
           </p>
-          <div className="mt-10 flex items-center justify-center gap-4">
-            <Button
-              data-testid="hero-cta-button"
-              onClick={login}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-8 h-12 text-base font-medium transition-colors"
-            >
-              Get Started Free
-            </Button>
-            <Button
-              variant="outline"
-              className="rounded-xl px-8 h-12 text-base font-medium border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              Learn More
-            </Button>
+
+          {/* Google Login Button — Hero CTA */}
+          <div className="mt-10 flex flex-col items-center gap-4">
+            {googleClientId ? (
+              <div data-testid="hero-google-login">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  theme="filled_blue"
+                  size="large"
+                  text="continue_with"
+                  shape="pill"
+                  width={300}
+                />
+              </div>
+            ) : (
+              <Button disabled className="rounded-xl px-8 h-12 text-base opacity-50">
+                Loading Google Sign-In...
+              </Button>
+            )}
+
+            {loggingIn && (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                Signing you in...
+              </div>
+            )}
+
+            {/* Access Denied Error */}
+            <AnimatePresence>
+              {authError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="max-w-md w-full"
+                  data-testid="auth-error"
+                >
+                  <div className="flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-red-700 dark:text-red-400">{authError}</p>
+                      <button
+                        onClick={() => setAuthError(null)}
+                        className="text-xs text-red-500 hover:text-red-700 mt-1 underline"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </motion.div>
 

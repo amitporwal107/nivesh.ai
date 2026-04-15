@@ -7,6 +7,7 @@ import PortfolioView from "@/components/PortfolioView";
 import ChatView from "@/components/ChatView";
 import InsightsView from "@/components/InsightsView";
 import FamilyView from "@/components/FamilyView";
+import AdminView from "@/components/AdminView";
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -72,6 +73,8 @@ const Dashboard = () => {
         return <ChatView />;
       case "insights":
         return <InsightsView insights={insights} onRefresh={fetchData} />;
+      case "admin":
+        return user?.is_admin ? <AdminView /> : null;
       default:
         return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
     }

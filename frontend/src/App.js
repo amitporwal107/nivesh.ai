@@ -1,13 +1,13 @@
 import React from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { NumberFormatProvider } from "@/context/NumberFormatContext";
 import { Toaster } from "@/components/ui/sonner";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
-import AuthCallback from "@/pages/AuthCallback";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -23,13 +23,34 @@ const ProtectedRoute = ({ children }) => {
 };
 
 function AppRouter() {
-  const location = useLocation();
-  if (location.hash?.includes("session_id=")) return <AuthCallback />;
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+  );
+}
+
+function AppInner() {
+  const { googleClientId } = useAuth();
+
+  // Wrap in GoogleOAuthProvider once we have the client ID
+  if (googleClientId) {
+    return (
+      <GoogleOAuthProvider clientId={googleClientId}>
+        <AppRouter />
+        <Toaster position="top-right" richColors />
+      </GoogleOAuthProvider>
+    );
+  }
+
+  // Render without Google provider while loading client ID
+  return (
+    <>
+      <AppRouter />
+      <Toaster position="top-right" richColors />
+    </>
   );
 }
 
@@ -39,8 +60,7 @@ function App() {
       <ThemeProvider>
         <NumberFormatProvider>
           <AuthProvider>
-            <AppRouter />
-            <Toaster position="top-right" richColors />
+            <AppInner />
           </AuthProvider>
         </NumberFormatProvider>
       </ThemeProvider>

@@ -39,6 +39,13 @@ db = client[os.environ['DB_NAME']]
 # LLM Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
+# Google OAuth
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+
+# Admin email — seeded on startup
+ADMIN_EMAIL = "priyankamantri@gmail.com"
+
 # Initialize layers
 user_repo = UserRepository(db)
 session_repo = SessionRepository(db)
@@ -81,33 +88,100 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="User not found")
     return user_doc
 
+
+async def require_admin(request: Request) -> dict:
+    """Get current user and verify they are an admin."""
+    user = await get_current_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+async def check_whitelist(email: str) -> dict:
+    """Check if email is in the whitelist. Returns the whitelist doc or None."""
+    normalized = email.strip().lower()
+    return await db.whitelisted_users.find_one({"email": normalized}, {"_id": 0})
+
+
+async def seed_admin_and_whitelist():
+    """Ensure admin email is whitelisted and marked as admin on startup."""
+    email = ADMIN_EMAIL.strip().lower()
+    existing = await db.whitelisted_users.find_one({"email": email})
+    if not existing:
+        await db.whitelisted_users.insert_one({
+            "email": email,
+            "status": "invited",
+            "is_admin": True,
+            "invited_at": datetime.now(timezone.utc).isoformat(),
+            "registered_at": None,
+            "invited_by": "system",
+        })
+        logger.info(f"Seeded admin whitelist: {email}")
+    elif not existing.get("is_admin"):
+        await db.whitelisted_users.update_one({"email": email}, {"$set": {"is_admin": True}})
+    # Also ensure indexes
+    await db.whitelisted_users.create_index("email", unique=True)
+
+
 # ==================== AUTH ROUTES ====================
 
-@api_router.post("/auth/session")
-async def exchange_session(request: Request, response: Response):
+@api_router.post("/auth/google")
+async def google_auth(request: Request, response: Response):
+    """Exchange Google OAuth credential (id_token) for a session.
+    Checks whitelist before allowing access."""
     body = await request.json()
-    session_id = body.get("session_id")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    async with httpx.AsyncClient() as http_client:
-        resp = await http_client.get(
-            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-            headers={"X-Session-ID": session_id}
+    credential = body.get("credential")
+    if not credential:
+        raise HTTPException(status_code=400, detail="Google credential required")
+
+    # Verify the Google ID token
+    try:
+        async with httpx.AsyncClient() as http_client:
+            # Verify token with Google's tokeninfo endpoint
+            resp = await http_client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}"
+            )
+            if resp.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid Google token")
+            
+            token_data = resp.json()
+            
+            # Verify the audience matches our client ID
+            if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
+                raise HTTPException(status_code=401, detail="Token audience mismatch")
+            
+            email = token_data.get("email", "").strip().lower()
+            name = token_data.get("name", "")
+            picture = token_data.get("picture", "")
+            
+            if not email:
+                raise HTTPException(status_code=401, detail="No email in Google token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google token verification failed: {e}")
+        raise HTTPException(status_code=401, detail="Failed to verify Google token")
+
+    # ── Whitelist Check ──
+    whitelist_entry = await check_whitelist(email)
+    if not whitelist_entry:
+        logger.warning(f"Access denied for non-whitelisted email: {email}")
+        raise HTTPException(
+            status_code=403,
+            detail="Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin."
         )
-    if resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
-    
-    user_data = resp.json()
-    email = user_data["email"]
-    name = user_data.get("name", "")
-    picture = user_data.get("picture", "")
-    session_token = user_data.get("session_token", str(uuid.uuid4()))
-    
+
+    # Update whitelist status
+    update_fields = {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}
+    await db.whitelisted_users.update_one({"email": email}, {"$set": update_fields})
+
+    is_admin = whitelist_entry.get("is_admin", False)
+
+    # Create or update user
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     if existing_user:
         user_id = existing_user["user_id"]
-        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture}})
+        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture, "is_admin": is_admin}})
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({
@@ -115,16 +189,20 @@ async def exchange_session(request: Request, response: Response):
             "email": email,
             "name": name,
             "picture": picture,
+            "is_admin": is_admin,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
-    
+
+    # Create session
+    session_token = str(uuid.uuid4())
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     })
-    
+
+    # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
     response.set_cookie(
         key="session_token",
         value=session_token,
@@ -134,9 +212,16 @@ async def exchange_session(request: Request, response: Response):
         path="/",
         max_age=7 * 24 * 3600
     )
-    
+
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return user_doc
+
+
+@api_router.post("/auth/session")
+async def exchange_session(request: Request, response: Response):
+    """Legacy session exchange — redirect to Google auth."""
+    raise HTTPException(status_code=410, detail="Emergent auth removed. Use Google OAuth via /api/auth/google")
+
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
@@ -150,6 +235,172 @@ async def logout(request: Request, response: Response):
         await db.user_sessions.delete_many({"session_token": session_token})
     response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
     return {"message": "Logged out"}
+
+@api_router.get("/auth/google-client-id")
+async def get_google_client_id():
+    """Return the Google OAuth client ID for the frontend."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google OAuth not configured")
+    return {"client_id": GOOGLE_CLIENT_ID}
+
+
+# ==================== WHITELIST / ADMIN ROUTES ====================
+
+@api_router.get("/admin/whitelist")
+async def list_whitelist(request: Request):
+    """List all whitelisted users. Admin only."""
+    await require_admin(request)
+    entries = await db.whitelisted_users.find({}, {"_id": 0}).sort("invited_at", -1).to_list(1000)
+    # Enrich with user registration info
+    for entry in entries:
+        user = await db.users.find_one({"email": entry["email"]}, {"_id": 0})
+        entry["user_name"] = user.get("name", "") if user else ""
+        entry["user_picture"] = user.get("picture", "") if user else ""
+    return entries
+
+
+@api_router.post("/admin/whitelist/add")
+async def add_to_whitelist(request: Request):
+    """Add a single email to the whitelist. Admin only."""
+    admin = await require_admin(request)
+    body = await request.json()
+    email = body.get("email", "").strip().lower()
+    is_admin = body.get("is_admin", False)
+
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+
+    existing = await db.whitelisted_users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"{email} is already whitelisted")
+
+    await db.whitelisted_users.insert_one({
+        "email": email,
+        "status": "invited",
+        "is_admin": is_admin,
+        "invited_at": datetime.now(timezone.utc).isoformat(),
+        "registered_at": None,
+        "invited_by": admin.get("email", "admin"),
+    })
+
+    return {"message": f"{email} added to whitelist", "email": email}
+
+
+@api_router.post("/admin/whitelist/bulk-upload")
+async def bulk_upload_whitelist(request: Request):
+    """Bulk upload emails via CSV. Admin only.
+    Expects JSON body with 'emails' array."""
+    admin = await require_admin(request)
+    body = await request.json()
+    emails = body.get("emails", [])
+
+    if not emails:
+        raise HTTPException(status_code=400, detail="No emails provided")
+
+    added = 0
+    skipped = 0
+    errors = []
+    for raw_email in emails:
+        email = raw_email.strip().lower()
+        if not email or "@" not in email:
+            errors.append(f"Invalid: {raw_email}")
+            continue
+        existing = await db.whitelisted_users.find_one({"email": email})
+        if existing:
+            skipped += 1
+            continue
+        await db.whitelisted_users.insert_one({
+            "email": email,
+            "status": "invited",
+            "is_admin": False,
+            "invited_at": datetime.now(timezone.utc).isoformat(),
+            "registered_at": None,
+            "invited_by": admin.get("email", "admin"),
+        })
+        added += 1
+
+    return {"added": added, "skipped": skipped, "errors": errors, "total": len(emails)}
+
+
+@api_router.delete("/admin/whitelist/{email}")
+async def remove_from_whitelist(request: Request, email: str):
+    """Remove an email from the whitelist. Admin only. Cannot remove self."""
+    admin = await require_admin(request)
+    email = email.strip().lower()
+
+    if email == admin.get("email", "").lower():
+        raise HTTPException(status_code=400, detail="Cannot remove yourself from the whitelist")
+
+    result = await db.whitelisted_users.delete_one({"email": email})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Email not found in whitelist")
+
+    # Also invalidate their sessions
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if user:
+        await db.user_sessions.delete_many({"user_id": user["user_id"]})
+
+    return {"message": f"{email} removed from whitelist"}
+
+
+@api_router.patch("/admin/whitelist/{email}")
+async def update_whitelist_entry(request: Request, email: str):
+    """Update whitelist entry (toggle admin, change status). Admin only."""
+    await require_admin(request)
+    body = await request.json()
+    email = email.strip().lower()
+
+    entry = await db.whitelisted_users.find_one({"email": email})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Email not found in whitelist")
+
+    update = {}
+    if "is_admin" in body:
+        update["is_admin"] = bool(body["is_admin"])
+    if "status" in body and body["status"] in ("invited", "active", "blocked"):
+        update["status"] = body["status"]
+        # If blocking, invalidate sessions
+        if body["status"] == "blocked":
+            user = await db.users.find_one({"email": email}, {"_id": 0})
+            if user:
+                await db.user_sessions.delete_many({"user_id": user["user_id"]})
+
+    if update:
+        await db.whitelisted_users.update_one({"email": email}, {"$set": update})
+        # Also update user record if admin status changed
+        if "is_admin" in update:
+            await db.users.update_one({"email": email}, {"$set": {"is_admin": update["is_admin"]}})
+
+    return {"message": f"Updated {email}", "updates": update}
+
+
+@api_router.get("/admin/stats")
+async def get_admin_stats(request: Request):
+    """Get whitelist and usage statistics. Admin only."""
+    await require_admin(request)
+
+    total_whitelisted = await db.whitelisted_users.count_documents({})
+    active_users = await db.whitelisted_users.count_documents({"status": "active"})
+    invited_pending = await db.whitelisted_users.count_documents({"status": "invited"})
+    blocked = await db.whitelisted_users.count_documents({"status": "blocked"})
+    total_users = await db.users.count_documents({})
+    total_holdings = await db.holdings.count_documents({})
+    total_portfolios = await db.portfolios.count_documents({})
+
+    return {
+        "whitelist": {
+            "total": total_whitelisted,
+            "active": active_users,
+            "pending": invited_pending,
+            "blocked": blocked,
+            "conversion_rate": round((active_users / total_whitelisted * 100) if total_whitelisted > 0 else 0, 1),
+        },
+        "usage": {
+            "total_users": total_users,
+            "total_portfolios": total_portfolios,
+            "total_holdings": total_holdings,
+        },
+    }
 
 # ==================== PORTFOLIO MANAGEMENT ROUTES ====================
 
@@ -1543,6 +1794,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_seed():
+    logger.info("Connected to MongoDB")
+    await seed_admin_and_whitelist()
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

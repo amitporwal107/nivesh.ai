@@ -1,11 +1,11 @@
 import React, { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun } from "lucide-react";
+import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-const navItems = [
+const baseNavItems = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "family", label: "Family", icon: Users },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
@@ -17,6 +17,11 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
   const { logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Add Admin tab if user is admin
+  const navItems = user?.is_admin
+    ? [...baseNavItems, { id: "admin", label: "Admin", icon: ShieldCheck }]
+    : baseNavItems;
 
   const handleNav = (id) => {
     setActiveTab(id);
