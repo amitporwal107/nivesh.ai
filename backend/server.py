@@ -685,61 +685,43 @@ async def _process_gmail_cas_background(
 
 
 async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: str, task_id: str, portfolio_id: str):
-    """Save holdings with deduplication — merges if same holding exists from another source."""
-    existing_holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
-
-    # Build lookup by (name_normalized, isin)
-    existing_map = {}
-    for h in existing_holdings:
-        key = (h.get("name", "").lower().strip()[:50], (h.get("ticker") or "").upper().strip())
-        existing_map[key] = h
+    """Save holdings from Gmail CAS — replaces all existing holdings (latest CAS = source of truth)."""
+    
+    # CAS is the full snapshot — clear old holdings
+    delete_query = {"user_id": user_id}
+    if portfolio_id:
+        delete_query["portfolio_id"] = portfolio_id
+    old_count = await db.holdings.count_documents(delete_query)
+    await db.holdings.delete_many(delete_query)
+    logger.info(f"Gmail CAS import: cleared {old_count} old holdings for user {user_id}")
 
     new_count = 0
-    updated_count = 0
-    skipped_count = 0
     saved_holdings = []
 
     for h in parsed:
         name = h.get("name", "").strip()
         isin = h.get("isin", h.get("ticker", "")).upper().strip()
-        key = (name.lower()[:50], isin)
-
-        if key in existing_map:
-            ex = existing_map[key]
-            # Update with newer data if quantities match or are higher
-            if h.get("quantity", 0) > 0:
-                updates = {
-                    "current_price": h.get("current_price", ex.get("current_price", 0)),
-                    "source": h.get("source", "email"),
-                    "confidence": h.get("confidence", 0.95),
-                }
-                if h.get("quantity") != ex.get("quantity"):
-                    updates["quantity"] = h["quantity"]
-                await db.holdings.update_one(
-                    {"holding_id": ex["holding_id"]},
-                    {"$set": updates}
-                )
-                updated_count += 1
-            else:
-                skipped_count += 1
-            continue
-
-        # New holding
+        
         holding_id = f"hold_{uuid.uuid4().hex[:12]}"
+        asset_type = h.get("asset_type", "mutual_fund")
+        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
+            asset_type = "mutual_fund" if "fund" in name.lower() else "equity"
+        
         doc = {
             "holding_id": holding_id,
             "portfolio_id": portfolio_id or "",
             "user_id": user_id,
             "name": name,
             "ticker": isin,
-            "asset_type": h.get("asset_type", "mutual_fund"),
+            "asset_type": asset_type,
             "quantity": h.get("quantity", 0),
             "buy_price": h.get("buy_price", h.get("avg_price", 0)),
             "current_price": h.get("current_price", h.get("buy_price", 0)),
             "sector": h.get("sector", "Other"),
             "buy_date": h.get("buy_date", ""),
-            "source": h.get("source", "email"),
+            "source": "email",
             "confidence": h.get("confidence", 0.95),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         await db.holdings.insert_one(doc)
@@ -747,16 +729,17 @@ async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: st
         saved_holdings.append(doc)
         new_count += 1
 
-    msg = f"{new_count} new holdings imported from {source_label}"
-    if updated_count > 0:
-        msg += f", {updated_count} updated"
-    if skipped_count > 0:
-        msg += f", {skipped_count} unchanged"
+    msg = f"{new_count} holdings imported from {source_label}"
+    if old_count > 0:
+        msg += f" (replaced {old_count} previous)"
 
     await db.upload_tasks.update_one(
         {"task_id": task_id},
-        {"$set": {"status": "completed", "message": msg, "count": new_count + updated_count, "holdings": saved_holdings[:50]}}
+        {"$set": {"status": "completed", "message": msg, "count": new_count, "holdings": saved_holdings[:50]}}
     )
+    
+    # Invalidate cached analytics
+    await db.fund_performance_cache.delete_many({"user_id": user_id})
 
 
 # ==================== PORTFOLIO MANAGEMENT ROUTES ====================
@@ -1210,7 +1193,20 @@ def _parse_json_response_obj(response: str) -> dict:
         return {}
 
 async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None, portfolio_id: str = ""):
-    """Save parsed holdings to DB and optionally update task status."""
+    """Save parsed holdings to DB. For CAS uploads, replaces ALL existing holdings
+    (latest CAS = source of truth). For manual/other uploads, appends."""
+    
+    is_cas = "cas" in file_type.lower()
+    
+    if is_cas:
+        # CAS is the full portfolio snapshot — replace everything
+        delete_query = {"user_id": user_id}
+        if portfolio_id:
+            delete_query["portfolio_id"] = portfolio_id
+        old_count = await db.holdings.count_documents(delete_query)
+        await db.holdings.delete_many(delete_query)
+        logger.info(f"CAS upload: cleared {old_count} old holdings for user {user_id}")
+    
     holdings_added = []
     for h in parsed:
         asset_type = h.get("asset_type", "equity")
@@ -1229,6 +1225,8 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
             "current_price": float(h.get("current_price", 0)),
             "sector": h.get("sector", "Other"),
             "buy_date": h.get("buy_date", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "source": "cas" if is_cas else h.get("source", "manual"),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.holdings.insert_one(holding_doc)
@@ -1239,17 +1237,24 @@ async def _save_holdings(user_id: str, parsed: list, file_type: str, task_id: st
             "quantity": holding_doc["quantity"],
         })
     
+    msg = f"{len(holdings_added)} holdings imported from {file_type}"
+    if is_cas and old_count > 0:
+        msg = f"{len(holdings_added)} holdings imported from {file_type} (replaced {old_count} previous)"
+    
     if task_id:
         await db.upload_tasks.update_one(
             {"task_id": task_id},
             {"$set": {
                 "status": "completed",
-                "message": f"{len(holdings_added)} holdings imported from {file_type}",
+                "message": msg,
                 "count": len(holdings_added),
                 "holdings": holdings_added,
                 "completed_at": datetime.now(timezone.utc).isoformat()
             }}
         )
+    
+    # Invalidate cached analytics
+    await db.fund_performance_cache.delete_many({"user_id": user_id})
     
     return holdings_added
 
