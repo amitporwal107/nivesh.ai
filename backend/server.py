@@ -546,10 +546,12 @@ async def gmail_scan(request: Request):
 
         emails = scan_for_cas_emails(service, max_results=20)
 
-        # Check which have already been imported
+        # Check which have already been imported (only if holdings still exist)
+        holdings_exist = await db.holdings.count_documents({"user_id": user["user_id"]}) > 0
         imported_ids = set()
-        existing = await db.gmail_imports.find({"user_id": user["user_id"]}, {"_id": 0, "message_id": 1}).to_list(500)
-        imported_ids = {e["message_id"] for e in existing}
+        if holdings_exist:
+            existing = await db.gmail_imports.find({"user_id": user["user_id"], "status": "completed"}, {"_id": 0, "message_id": 1}).to_list(500)
+            imported_ids = {e["message_id"] for e in existing}
 
         for email in emails:
             email["already_imported"] = email["message_id"] in imported_ids
@@ -577,14 +579,19 @@ async def gmail_import(request: Request, background_tasks: BackgroundTasks):
     if not message_id or not attachment_id:
         raise HTTPException(status_code=400, detail="message_id and attachment_id required")
 
-    # Check deduplication
+    # Check deduplication — allow re-import if holdings were cleared
     existing = await db.gmail_imports.find_one({
         "user_id": user["user_id"],
         "message_id": message_id,
         "attachment_id": attachment_id,
     })
     if existing and existing.get("status") == "completed":
-        raise HTTPException(status_code=409, detail="This attachment has already been imported")
+        # Check if holdings still exist — if cleared, allow re-import
+        holdings_exist = await db.holdings.count_documents({"user_id": user["user_id"]})
+        if holdings_exist > 0:
+            raise HTTPException(status_code=409, detail="This attachment has already been imported")
+        # Holdings were cleared — remove old import record to allow re-import
+        await db.gmail_imports.delete_one({"_id": existing["_id"]})
 
     token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
     if not token_doc:
@@ -862,10 +869,11 @@ async def delete_holding(request: Request, holding_id: str):
 
 @api_router.delete("/portfolio/holdings-all")
 async def clear_all_holdings(request: Request):
-    """Delete ALL holdings for the current user."""
+    """Delete ALL holdings for the current user. Also resets Gmail import tracking so CAS can be re-imported."""
     user = await get_current_user(request)
     result = await db.holdings.delete_many({"user_id": user["user_id"]})
     await db.fund_performance_cache.delete_many({"user_id": user["user_id"]})
+    await db.gmail_imports.delete_many({"user_id": user["user_id"]})
     return {"message": f"{result.deleted_count} holdings cleared", "deleted": result.deleted_count}
 
 
