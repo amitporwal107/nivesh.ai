@@ -1,11 +1,11 @@
 <analysis>**original_problem_statement**: 
-Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on Phase 1: Indian market (NSE/BSE, MFs), Portfolio upload/parsing, Unified unified dashboard, basic insights, and chat interface. 
+Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on Phase 1: Indian market (NSE/BSE, MFs), Portfolio upload/parsing, Unified dashboard, basic insights, and chat interface. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, and an actionable insights dashboard. 
 
 **User's preferred language**: 
 English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A robust, full-stack financial dashboard named . It features direct Google OAuth (replacing Emergent Auth), an Admin Whitelist system for invite-only access, multi-format portfolio upload (CAS PDF, CSV, Excel), and a Gmail Auto-Fetch integration for CAS statements. The dashboard uses Recharts for visual insights (Benchmark, Overlap, Overexposure) and features a redesigned Actionable Insights UI with a Portfolio Health Score. The backend is powered by FastAPI and MongoDB. The AI engine now directly uses the user's personal OpenAI API key via the usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
+A robust, full-stack financial dashboard named . It features direct Google OAuth for login, an Admin Whitelist system for invite-only access, multi-format portfolio upload (CAS PDF, CSV, Excel), and a Gmail Auto-Fetch integration for CAS statements. The dashboard uses Recharts for visual insights and includes deep analytics like risk breakdown, overexposure, and performance score. The AI engine parses CAS files using the user's personal OpenAI API key via the usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
               [-o ORGANIZATION] [-t {openai,azure}]
               [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
               [--azure-ad-token AZURE_AD_TOKEN] [-V]
@@ -42,95 +42,60 @@ options:
                         https://www.microsoft.com/en-
                         us/security/business/identity-access/microsoft-entra-
                         id
-  -V, --version         show program's version number and exit SDK (abandoning the Emergent wrapper) for fast, parallelized CAS parsing.
+  -V, --version         show program's version number and exit SDK. Recent additions include data flags for Simulated/Modeled values, drill-downs for risk and performance charts, categorized Top Movers (Best & Worst), and SGB (Sovereign Gold Bond) series extraction.
 
 **Last working item**: 
-    - Last item agent was working: The agent was answering the user's questions about Emergent credit consumption. Prior to the interruption, the user requested (in Msg 809) to add explanations for how risk/health metrics are calculated, add drill-downs to the pie/bar charts, make the optimize portfolio button actionable, and improve AMFI data matching.
-    - Status: BLOCKED (User explicitly commanded: Stop everything for now. And put preview to idle).
-    - Agent Testing Done: N/A for the upcoming UI tasks.
-    - Which testing method agent to use?: frontend testing agent for the UI drill-downs and tooltips once resumed.
-    - User Testing Done: Y (User tested the previous CAS parsing and clearing logic).
+    - Last item agent was working: Investigating a broken Google Login flow reported by the user. The user uploaded a screenshot showing an  error. The agent identified that this is a Google Cloud Console configuration issue—the current dynamic preview URL is not added to the Authorized JavaScript origins in the user's Google OAuth Client settings. The agent used  to instruct the user to update their GCP console and is waiting for confirmation.
+    - Status: BLOCKED / USER VERIFICATION PENDING
+    - Agent Testing Done: N (Requires manual user action in Google Cloud Console)
+    - Which testing method agent to use?: Manual testing via frontend screenshot/clicking once user confirms the URL is whitelisted.
+    - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-  - Issue 1: Missing Insight Explanations, Chart Drill-downs, and AMFI Matching (Requested in Msg 809)
-     - Attempted fixes: None. The agent was distracted by fixing a recurring CAS parsing bug and explaining credit usage to the user.
-     - Next debug checklist: 
-       - Update  /  to add info tooltips explaining the math behind the Portfolio Health Score and Risk Score.
-       - Add  drill-down events to the new pie/bar charts in the Insights tabs.
-       - Wire up the Optimize button to trigger the Action Funnel.
-       - Review  matching logic to ensure higher matching rates for mutual funds.
-     - Why fix this issue and what will be achieved with the fix?: User explicitly requested this for better data transparency and interactivity.
-     - Status: NOT STARTED
-     - Is recurring issue? N
-     - Should Test frontend/backend/both after fix?: Both
-     - Blocked on other issue: User paused the session. Wait for user instruction before starting.
+  Issue 1: Google OAuth Login Broken () (P0)
+  
+  Issues Detail:
+  - Issue 1: Google OAuth Login Broken
+     - Attempted fixes: Investigated , , and . Verified that the code is correct but the dynamic preview URL is being rejected by Google due to missing CORS origin whitelisting.
+     - Next debug checklist: Wait for the user to confirm they have added the new preview URL to their Google Cloud Console under Authorized JavaScript origins. Once confirmed, test the login flow. DO NOT rewrite auth code unless it still fails after the user confirms GCP is updated.
+     - Why fix this issue and what will be achieved with the fix?: Absolute blocker; users cannot access the app.
+     - Status: BLOCKED / USER VERIFICATION PENDING
+     - Is recurring issue? Y (Happens when the preview URL changes on a new fork/container).
+     - Should Test frontend/backend/both after fix?: Frontend
+     - Blocked on other issue: None
 
 **In progress Task List**: 
 None.
 
 **Upcoming and Future Tasks**
-  - P0: Finvu Account Aggregator integration (needs sandbox credentials from user).
+  - P0:  refactoring — The file is extremely bloated (~2200 lines). Routing logic (auth, portfolios, chat, whitelist, gmail) should be split into a  directory using .
+  - P1: Integrate a free historical stock price API (e.g., Yahoo Finance) to fetch real-time CMP for equity holdings. This will eliminate the Missing CMP issue and show accurate P&L instead of relying on upload-time CMP.
+  - P1: Finvu Account Aggregator integration (needs sandbox credentials from user).
   - P1: Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs.
-  - P1: Historical stock price API for equity holdings.
   - P2: Portfolio versioning (Delta tracking between CAS uploads).
   - P2: Agentic AI execution and scenario simulation.
 
 **Completed work in this session**
-- AMFI Live NAV Integration & Benchmark Analysis (DONE)
-- Visual Insights (Fund overlap matrix, overexposure charts, performance cards) (DONE)
-- Implemented Invite-Only Access (Email Whitelisting) & Admin Dashboard (DONE)
-- Replaced Emergent Auth with standard Google OAuth () (DONE)
-- Built Gmail Auto-Fetch for CAS imports () (DONE)
-- Replaced Emergent LLM key with user's personal OpenAI key using usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
-              [-o ORGANIZATION] [-t {openai,azure}]
-              [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
-              [--azure-ad-token AZURE_AD_TOKEN] [-V]
-              {api,tools,migrate,grit} ...
-
-positional arguments:
-  {api,tools,migrate,grit}
-    api                 Direct API calls
-    tools               Client side tools for convenience
-
-options:
-  -h, --help            show this help message and exit
-  -v, --verbose         Set verbosity.
-  -b API_BASE, --api-base API_BASE
-                        What API base url to use.
-  -k API_KEY, --api-key API_KEY
-                        What API key to use.
-  -p PROXY [PROXY ...], --proxy PROXY [PROXY ...]
-                        What proxy to use.
-  -o ORGANIZATION, --organization ORGANIZATION
-                        Which organization to run as (will use your default
-                        organization if not specified)
-  -t {openai,azure}, --api-type {openai,azure}
-                        The backend API to call, must be `openai` or `azure`
-  --api-version API_VERSION
-                        The Azure API version, e.g.
-                        'https://learn.microsoft.com/en-us/azure/ai-
-                        services/openai/reference#rest-api-versioning'
-  --azure-endpoint AZURE_ENDPOINT
-                        The Azure endpoint, e.g.
-                        'https://endpoint.openai.azure.com'
-  --azure-ad-token AZURE_AD_TOKEN
-                        A token from Azure Active Directory,
-                        https://www.microsoft.com/en-
-                        us/security/business/identity-access/microsoft-entra-
-                        id
-  -V, --version         show program's version number and exit SDK directly (DONE)
-- Insights UI Overhaul (Actionable Insight Cards, Health Score SVG, Collapsible cards) (DONE)
-- Portfolio Clear All button & CAS upload override logic (DONE)
-- Fixed missing  for password-protected AES CAS PDFs (DONE)
-- Fixed CAS Parsing for large image-based PDFs (Added  install to backend startup, parallel 3-page vision API batches) (DONE)
+- Added Data Quality Flags: SIMULATED badge for Day Change, MODELED for Performance Trend (DONE)
+- Added Explanation Tooltips to Health Score and Risk Score components (DONE)
+- Sector exposure risk fixed to only include Equity sectors (DONE)
+- Portfolio Grid now highlights holdings with Missing CMP in amber (DONE)
+- Added Gmail Import History and Upload History APIs, plus last import timestamp UI (DONE)
+- Added Risk Drill-down with specific holding breakdowns (DONE)
+- Improved CAS Parser (Prompt Rule 10) to accurately extract Sovereign Gold Bond (SGB) Series names (DONE)
+- Refactored Top Movers (Best & Worst) into distinct Equity/MF tabs with show more toggles (DONE)
+- Added click-to-drill-down functionality for MF Performance pie charts in InsightsView (DONE)
 
 **Earlier issues found/mentioned but not fixed**
 None.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork:  getting uninstalled when the Kubernetes container restarts, causing image-based CAS PDF parsing to fail and throw errors.
+  - Issue recurrence in previous fork:  gets uninstalled when the Kubernetes container restarts, breaking image-based CAS PDF parsing. 
   - Recurrence count: 2
-  - Status: RESOLVED (Agent added  inside FastAPI's  in  to ensure it survives restarts. **Do not remove this.**)
+  - Status: RESOLVED (Kept  inside FastAPI's  in . **DO NOT remove this.**)
+  - Issue recurrence in previous fork: Google OAuth failing due to preview URL changes.
+  - Recurrence count: 1
+  - Status: BLOCKED (Waiting on user to whitelist the new URL).
 
 **Code Architecture**
 
@@ -138,7 +103,7 @@ None.
 **Key Technical Concepts**
 - Frontend: React, Tailwind CSS, Recharts, Shadcn UI, Context API, Google OAuth ().
 - Backend: FastAPI, Motor/MongoDB,  (Gmail API).
-- PDF Parsing: , ,  (installed via system bash on startup),  (for AES decryption).
+- PDF Parsing: , ,  (installed on startup via bash),  (for AES decryption).
 - AI Engine: Uses usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
               [-o ORGANIZATION] [-t {openai,azure}]
               [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
@@ -176,7 +141,7 @@ options:
                         https://www.microsoft.com/en-
                         us/security/business/identity-access/microsoft-entra-
                         id
-  -V, --version         show program's version number and exit SDK directly with User's personal API key (No Emergent LLM wrapper). Parses PDFs in parallel chunks.
+  -V, --version         show program's version number and exit SDK directly with User's personal API key. Parallel processing chunked pages.
 
 **key DB schema**
   - : 
@@ -186,122 +151,45 @@ options:
   - : 
 
 **changes in tech stack**
-  - **Removed Emergent Auth:** App now uses direct Google OAuth.
-  - **Removed Emergent LLM Key / emergentintegrations:** The user provided their personal OpenAI key.  was rewritten to use .
-  - Added  for decrypting AES password-protected PDFs.
-  - Added  for Gmail integration.
+  - None in this session. Still using standard Google OAuth and the user's native OpenAI API key.
 
-**All files of reference**
-  - : Heavily updated to include whitelist routes, Admin APIs, Gmail callbacks, and poppler installation.
-  - : Completely rewritten to use the standard usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
-              [-o ORGANIZATION] [-t {openai,azure}]
-              [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
-              [--azure-ad-token AZURE_AD_TOKEN] [-V]
-              {api,tools,migrate,grit} ...
-
-positional arguments:
-  {api,tools,migrate,grit}
-    api                 Direct API calls
-    tools               Client side tools for convenience
-
-options:
-  -h, --help            show this help message and exit
-  -v, --verbose         Set verbosity.
-  -b API_BASE, --api-base API_BASE
-                        What API base url to use.
-  -k API_KEY, --api-key API_KEY
-                        What API key to use.
-  -p PROXY [PROXY ...], --proxy PROXY [PROXY ...]
-                        What proxy to use.
-  -o ORGANIZATION, --organization ORGANIZATION
-                        Which organization to run as (will use your default
-                        organization if not specified)
-  -t {openai,azure}, --api-type {openai,azure}
-                        The backend API to call, must be `openai` or `azure`
-  --api-version API_VERSION
-                        The Azure API version, e.g.
-                        'https://learn.microsoft.com/en-us/azure/ai-
-                        services/openai/reference#rest-api-versioning'
-  --azure-endpoint AZURE_ENDPOINT
-                        The Azure endpoint, e.g.
-                        'https://endpoint.openai.azure.com'
-  --azure-ad-token AZURE_AD_TOKEN
-                        A token from Azure Active Directory,
-                        https://www.microsoft.com/en-
-                        us/security/business/identity-access/microsoft-entra-
-                        id
-  -V, --version         show program's version number and exit SDK and parallelize page parsing.
-  - : Created for Gmail CAS auto-fetch.
-  - : Created to manage whitelisted emails.
-  - : Heavily refactored into a layered UI with actionable cards and a Health Score.
-  - : Created for Gmail OAuth connection UI.
+**All files of reference** 
+  - : Updated analytics endpoints to include data flags, risk breakdowns, and missing CMP logic.
+  - : Updated CAS parsing prompt for SGB series names.
+  - : Majorly updated. Added explanatory tooltips for metrics, tabbed views for Best/Worst, and Simulated/Modeled badges.
+  - : Updated to support onClick events on pie charts to spawn .
+  - : Updated grid table row coloring to highlight missing CMP in amber.
+  - : Updated to display the last import timestamp.
+  - : Manages Google Login (Currently encountering blocked requests from Google).
 
 **Areas that need refactoring**
-  -  is getting extremely bloated (>2100 lines). Routing logic (auth, portfolios, chat, whitelist, gmail) should be split into a  directory using .
+  -  is critically bloated (~2200 lines). All route definitions (Auth, Gmail, Portfolios, Whitelist, Webhooks) need to be moved to a  directory using FastAPI's .
 
 **key api endpoints**
   - : Custom validation for Google OAuth tokens.
-  -  & : Admin whitelist management.
-  -  & : Gmail OAuth and CAS scan triggers.
-  - : Raw binary CAS upload (replaces previous holdings).
-  - : Wipes all user holdings, analysis, and Gmail cache.
+  - : Fetches the calculated portfolio metrics (includes new data flags).
+  -  & : Newly updated to fetch import timestamps and scan triggers.
 
-**Critical Info for New Agent**
-  - **STOP AND WAIT:** The user paused the session due to concerns over credit consumption. Their last command was Stop everything for now. And put preview to idle. **Do not make unsolicited code changes immediately.** Greet the user, confirm the environment is ready, and ask if they would like to resume the pending UI tasks (Metrics explanation, chart drill-downs, AMFI matching).
-  - **OpenAI Key:** The app now strictly uses the User's personal OpenAI API key (saved in ). Do NOT revert to  or the Emergent LLM key.
-  - **Poppler Persistence:** The backend  explicitly runs an Reading package lists...
-Building dependency tree...
-Reading state information...
-The following additional packages will be installed:
-  libpoppler126 poppler-data
-Suggested packages:
-  ghostscript fonts-japanese-mincho | fonts-ipafont-mincho fonts-arphic-ukai
-  fonts-arphic-uming fonts-nanum
-The following NEW packages will be installed:
-  libpoppler126 poppler-data poppler-utils
-0 upgraded, 3 newly installed, 0 to remove and 7 not upgraded.
-Need to get 3531 kB of archives.
-After this operation, 19.2 MB of additional disk space will be used.
-Get:1 https://cloudfront.debian.net/debian bookworm/main arm64 poppler-data all 0.4.12-1 [1601 kB]
-Get:2 https://cloudfront.debian.net/debian bookworm/main arm64 libpoppler126 arm64 22.12.0-2+deb12u1 [1753 kB]
-Get:3 https://cloudfront.debian.net/debian bookworm/main arm64 poppler-utils arm64 22.12.0-2+deb12u1 [177 kB]
-Fetched 3531 kB in 0s (19.3 MB/s)
-Selecting previously unselected package poppler-data.
-(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 44543 files and directories currently installed.)
-Preparing to unpack .../poppler-data_0.4.12-1_all.deb ...
-Unpacking poppler-data (0.4.12-1) ...
-Selecting previously unselected package libpoppler126:arm64.
-Preparing to unpack .../libpoppler126_22.12.0-2+deb12u1_arm64.deb ...
-Unpacking libpoppler126:arm64 (22.12.0-2+deb12u1) ...
-Selecting previously unselected package poppler-utils.
-Preparing to unpack .../poppler-utils_22.12.0-2+deb12u1_arm64.deb ...
-Unpacking poppler-utils (22.12.0-2+deb12u1) ...
-Setting up poppler-data (0.4.12-1) ...
-Setting up libpoppler126:arm64 (22.12.0-2+deb12u1) ...
-Setting up poppler-utils (22.12.0-2+deb12u1) ...
-Processing triggers for libc-bin (2.36-9+deb12u13) ...
-Processing triggers for fontconfig (2.14.1-4) ... in its  function. Do NOT remove this, as the container resets lose poppler, which breaks CAS image parsing.
-  - **Admin Auth:** Google OAuth handles logins. The test user () is the admin for the whitelist.
+**Critical Info for New Agent** 
+  - **Login Blocking:** The Google login is failing due to the dynamic preview URL not being whitelisted in Google Cloud Console. You are currently waiting for the user to update this. Do NOT modify the Google OAuth code or libraries unless the user confirms GCP is updated and it is still failing.
+  - **Poppler Persistence:** Ensure  remains in  inside .
+  - **Auth/Testing Credentials:** Always rely on  to know the admin user (). 
 
-**documents and test reports created in this job**
-  -  through 
+**documents and test reports created in this job** 
+  - 
+  - 
   -  (Updated)
   -  (Updated)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (Msg 836) User asked why credits are consuming fast while idle.
- - (Msg 847) User repeated concerns about credit consumption.
- - (Msg 863) User stated CAS parsing was incomplete and asked to fix it permanently. (Agent fixed it via page-by-page parallel vision API).
- - (Msg 872) User uploaded CAS PDFs for testing.
- - (Msg 892) User requested ability to re-import Gmail CAS after clearing portfolio. (Completed).
- - (Msg 902) User clarified that clearing portfolio should wipe the DB and dashboard entirely. (Completed).
- - (Msg 910) User stated they were testing the clearing flow.
- - (Msg 912) User asked again about credit consumption and requested to put preview to idle.
- - (Msg 916) User commanded: Stop everything for now. And put preview to idle.
- - (Msg 918) User uploaded a screenshot of their credit balance (189.39 credits).
+ - (Msg 5) User uploaded bugs document and CAS pdf, asked to fix critical/high bugs first.
+ - (Msg 12) User confirmed order of work, told agent to flag calculated values, and proceed.
+ - (Msg 131) User requested 4 new features: SGB Series extraction, MF performance drill-down, Best/Worst separation, UI readability.
+ - (Msg 182) User uploaded a screenshot indicating Google login is broken ().
+ - *(Pending Human Message)* Agent sent an  explaining the GCP URL whitelist issue and is waiting for the user's confirmation.
 
 **Project Health Check:**
-Healthy.
+Broken (Login flow is failing due to external Google Cloud Console configuration).
 
 **3rd Party Integrations** 
  - OpenAI GPT-4o / GPT-4o-mini — requires **User API Key** (Implemented directly via usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
@@ -342,17 +230,17 @@ options:
                         us/security/business/identity-access/microsoft-entra-
                         id
   -V, --version         show program's version number and exit SDK).
- - Google OAuth — requires **User API Key** (Implemented).
+ - Google OAuth — requires **User API Key** (Implemented, currently blocked by CORS/Origin config).
  - Gmail API — requires **User API Key** (Implemented).
 
 **Testing status**
-  - Testing agent used after significant changes: YES
+  - Testing agent used after significant changes: YES (iterations 11 & 12).
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: 
-  - Known regressions: None
+  - Test files created: , 
+  - Known regressions: Login fails (External Config Issue).
 
 **Credentials to test flow:**
 See . (Admin user is ).
 
 **What agent forgot to execute**
-In message 809, the user uploaded screenshots and requested: explanations for risk/health metrics, drill-downs for pie/bar charts, making the optimize portfolio button actionable, and improving AMFI matching. The agent got distracted by the CAS parsing bug and user credit questions, so these UI improvements were left untouched.</analysis>
+The agent successfully resolved all issues outlined in the bugs document and the subsequent user requests. No tasks were forgotten; the session ended abruptly due to the login environment issue.</analysis>
