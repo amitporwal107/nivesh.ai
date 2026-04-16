@@ -89,6 +89,7 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - Connect to a Human Advisor (from user's .docx file)
 - Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs
 - Issue 1 - CAS Monthly Data Chart: Use actual CAS monthly portfolio values
+- **CAS PDF Parsing Performance** — Currently slow; optimize parsing pipeline (batch OCR, caching, lighter AI calls, parallel page processing)
 
 ### P2
 - Finvu Account Aggregator integration (needs sandbox creds)
