@@ -11,10 +11,13 @@ beautifulsoup4==4.14.3
 black==26.3.1
 boto3==1.42.86
 botocore==1.42.86
+casparser==0.8.1
+casparser_isin==2025.3.1
 certifi==2026.2.25
 cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.3.2
+colorama==0.4.6
 cryptography==46.0.7
 curl_cffi==0.15.0
 distro==1.9.0
@@ -78,7 +81,7 @@ pandas==3.0.2
 passlib==1.7.4
 pathspec==1.0.4
 pdf2image==1.17.0
-pdfminer.six==20251230
+pdfminer.six==20240706
 pdfplumber==0.11.9
 peewee==4.0.4
 pillow==12.2.0
@@ -110,12 +113,13 @@ python-multipart==0.0.24
 pytokens==0.4.1
 pytz==2026.1.post1
 PyYAML==6.0.3
+RapidFuzz==3.14.5
 referencing==0.37.0
 regex==2026.4.4
 reportlab==4.4.10
 requests==2.33.1
 requests-oauthlib==2.0.0
-rich==14.3.3
+rich==13.9.4
 rpds-py==0.30.0
 rsa==4.9.1
 s3transfer==0.16.0

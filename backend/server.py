@@ -997,8 +997,108 @@ async def parse_excel_holdings(content: bytes) -> list:
     wb.close()
     return holdings
 
+
+def _classify_mf_sector(scheme_name: str) -> str:
+    """Classify mutual fund into sector based on scheme name."""
+    name = scheme_name.lower()
+    if any(k in name for k in ["index", "nifty", "sensex", "etf"]): return "Index"
+    if any(k in name for k in ["small cap", "smallcap"]): return "Small Cap"
+    if any(k in name for k in ["mid cap", "midcap"]): return "Mid Cap"
+    if any(k in name for k in ["large cap", "largecap", "bluechip", "large & mid"]): return "Large Cap"
+    if any(k in name for k in ["flexi cap", "flexicap", "multi cap", "multicap"]): return "Flexi Cap"
+    if any(k in name for k in ["balanced", "hybrid", "advantage", "dynamic"]): return "Balanced"
+    if any(k in name for k in ["elss", "tax"]): return "ELSS"
+    if any(k in name for k in ["debt", "bond", "gilt", "liquid", "money market", "overnight", "short", "credit", "duration", "arbitrage"]): return "Debt"
+    if any(k in name for k in ["gold", "sgb", "sovereign"]): return "Gold"
+    if any(k in name for k in ["international", "global", "us ", "nasdaq", "fang", "nyse"]): return "International"
+    if any(k in name for k in ["banking", "financial"]): return "Banking"
+    if any(k in name for k in ["pharma", "health"]): return "Healthcare"
+    if any(k in name for k in ["technology", "digital", "it "]): return "IT"
+    if any(k in name for k in ["contra", "value"]): return "Value"
+    if any(k in name for k in ["focused", "opportunities"]): return "Focused"
+    return "Other"
+
+
+def _convert_casparser_to_holdings(cas_data: dict) -> list:
+    """Convert casparser output dict to our holdings format."""
+    holdings = []
+    folios = cas_data.get("folios", [])
+    if not folios:
+        return []
+
+    for folio in folios:
+        for scheme in folio.get("schemes", []):
+            # Get current units balance
+            units = scheme.get("close_calculated") or scheme.get("close", 0) or 0
+            if units <= 0:
+                continue
+
+            scheme_name = scheme.get("scheme", "Unknown Fund")
+            isin = scheme.get("isin", "") or ""
+            valuation = scheme.get("valuation", {}) or {}
+            nav = valuation.get("nav", 0) or 0
+
+            # Calculate average cost from transactions
+            total_cost = 0.0
+            total_purchase_units = 0.0
+            for tx in scheme.get("transactions", []):
+                tx_type = (tx.get("type", "") or "").upper()
+                tx_amount = tx.get("amount", 0) or 0
+                tx_units = tx.get("units", 0) or 0
+                if tx_type in ("PURCHASE", "PURCHASE_SIP", "SWITCH_IN", "SWITCH_IN_MERGER",
+                               "NEW_FUND_OFFER", "REINVESTMENT", "SYSTEMATIC_INVESTMENT"):
+                    if tx_amount > 0 and tx_units > 0:
+                        total_cost += abs(tx_amount)
+                        total_purchase_units += abs(tx_units)
+                elif tx_type in ("REDEMPTION", "SWITCH_OUT"):
+                    if tx_amount > 0 and tx_units > 0:
+                        # Reduce cost proportionally
+                        if total_purchase_units > 0:
+                            cost_per_unit = total_cost / total_purchase_units
+                            total_cost -= cost_per_unit * abs(tx_units)
+                            total_purchase_units -= abs(tx_units)
+
+            avg_cost = total_cost / total_purchase_units if total_purchase_units > 0 else 0
+
+            # Determine asset type
+            name_lower = scheme_name.lower()
+            if any(k in name_lower for k in ["gold", "sgb", "sovereign gold"]):
+                asset_type = "gold"
+            elif any(k in name_lower for k in ["etf", "exchange traded"]):
+                asset_type = "etf"
+            else:
+                asset_type = "mutual_fund"
+
+            holdings.append({
+                "name": scheme_name,
+                "ticker": isin,
+                "asset_type": asset_type,
+                "quantity": round(units, 4),
+                "buy_price": round(avg_cost, 4) if avg_cost > 0 else round(nav, 4),
+                "current_price": round(nav, 4),
+                "sector": _classify_mf_sector(scheme_name),
+            })
+
+    logger.info(f"casparser: processed {len(folios)} folios → {len(holdings)} holdings")
+    return holdings
+
+
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:
-    """Parse CAS (Consolidated Account Statement) PDF using AI with direct OpenAI API."""
+    """Parse CAS (Consolidated Account Statement) PDF.
+    Uses casparser library first (accurate, structured), falls back to AI if needed."""
+    
+    # ── Try casparser first (dedicated CAS parsing library) ──
+    try:
+        import casparser
+        cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
+        holdings = _convert_casparser_to_holdings(cas_data)
+        if holdings:
+            logger.info(f"casparser extracted {len(holdings)} holdings successfully")
+            return holdings
+        logger.info("casparser returned no holdings, falling back to AI parsing")
+    except Exception as e:
+        logger.info(f"casparser failed: {e}, falling back to AI parsing")
+
     import base64
     
     cas_system_message = """You are a CAS (Consolidated Account Statement) parser for Indian mutual funds and investments.
