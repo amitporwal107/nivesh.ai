@@ -23,6 +23,7 @@ from services.ai_engine import AIEngine
 from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from services.fund_performance import compute_benchmark_ratings
 from services.live_price import fetch_live_prices
+from services.sgb_prices import apply_sgb_issue_prices
 from services.gmail_service import (
     get_authorization_url, exchange_code_for_tokens,
     get_gmail_credentials, build_gmail_service,
@@ -1545,6 +1546,21 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
                 }}
             )
     
+    # Apply SGB issue prices from RBI mapping
+    holdings, sgb_updated = apply_sgb_issue_prices(holdings)
+    # Persist SGB buy prices back to DB
+    for h in holdings:
+        if h.get("price_source_buy") == "rbi_sgb_mapping" and h.get("holding_id"):
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {
+                    "buy_price": h["buy_price"],
+                    "sgb_series": h.get("sgb_series", ""),
+                    "sgb_issue_date": h.get("sgb_issue_date", ""),
+                    "price_source_buy": "rbi_sgb_mapping",
+                }}
+            )
+    
     if not holdings:
         return {
             "total_invested": 0, "current_value": 0, "total_returns": 0,
@@ -1844,6 +1860,8 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
 
     # Fetch live prices for equity/ETF
     holdings, _ = await fetch_live_prices(holdings)
+    # Apply SGB issue prices
+    holdings, _ = apply_sgb_issue_prices(holdings)
 
     total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
     if total_value == 0:

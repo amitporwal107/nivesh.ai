@@ -1,0 +1,82 @@
+{
+  "summary": "Iteration 14 testing complete. All 10 backend tests pass (100%). Issue 2 (Heatmap %): Backend returns correct return_pct values (-4.0%, +169.0%, +223.8%, etc.) in heatmap_data. DOM contains correct text but visual rendering shows only '%' symbol - this is a FRONTEND RENDERING BUG. Issue 3 (AI Insights): FIXED - Cards show full descriptions. Issue 4 (SGB prices): FIXED - SGBs have RBI issue prices (₹5,409, ₹5,926, ₹4,852, etc.) with 160-224% returns.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "DashboardOverview - Holdings Heatmap",
+        "issue": "Heatmap cells show only '%' symbol without the percentage numbers. DOM contains correct values like '-4.0%', '+169.0%' but visual rendering is broken. Text computedLength is 7px instead of expected 49px.",
+        "selector": "[data-testid='stock-heatmap'] svg text",
+        "priority": "HIGH",
+        "root_cause": "SVG text elements have correct textContent but getComputedTextLength() returns 7px instead of ~49px. Font metrics not being applied correctly to treemap text elements."
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Dashboard charts",
+        "issues": ["Console warnings about chart dimensions (-1 width/height) - cosmetic only"]
+      }
+    ]
+  },
+  "passed_tests": [
+    "Backend: heatmap_data contains return_pct values for all holdings",
+    "Backend: return_pct values are reasonable percentages (-100% to +500%)",
+    "Backend: AI Insights have description field with meaningful content",
+    "Backend: AI Insights descriptions are not placeholder text",
+    "Backend: SGB holdings have buy_price from RBI mapping (2500-7000 range)",
+    "Backend: SGB holdings show positive returns (gold appreciated)",
+    "Backend: SGB entries in heatmap have significant positive returns (>50%)",
+    "Backend: live_price_stats present in analytics",
+    "Backend: Recommendations have reduce_amount/add_amount fields",
+    "Backend: Risk factors have action_plan field",
+    "Frontend: AI Insights cards show full descriptions (Issue 3 FIXED)",
+    "Frontend: SGB holdings in Gold tab show correct buy prices (Issue 4 FIXED)",
+    "Frontend: Live prices badge shows '33 live prices'",
+    "Frontend: Recommendations show amounts like 'Reduce: ₹13.97L', 'Add: ₹19.87L'"
+  ],
+  "features_verified": {
+    "issue_2_heatmap_percentages": "PARTIAL - Backend returns correct data, but frontend rendering shows only '%' without numbers",
+    "issue_3_ai_insights_descriptions": "FIXED - Cards show full descriptions from API",
+    "issue_4_sgb_prices": "FIXED - SGBs have RBI issue prices with 160-224% returns"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14.py",
+    "/app/test_reports/pytest/pytest_results_iteration14.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix heatmap percentage rendering - SVG text elements have correct content but visual rendering shows only '%'. The text computedLength is 7px instead of expected 49px. Check if JetBrains Mono font is being applied correctly to SVG text elements in the Treemap content renderer."
+  ],
+  "critical_code_review_comments": [
+    "Issue 2 (Heatmap): Backend data is correct (return_pct values present). Frontend DashboardOverview.js line 602 renders text correctly in DOM but visual rendering is broken. The inline content renderer for Treemap creates text elements with correct textContent but font metrics are not applied.",
+    "Issue 3 (AI Insights): FIXED - Frontend correctly displays description field from API response",
+    "Issue 4 (SGB): FIXED - services/sgb_prices.py correctly maps ISIN to RBI issue prices, applied in analytics endpoint"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14.py"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 tests passed)",
+    "frontend": "66% (2/3 issues fixed, 1 rendering bug)"
+  },
+  "test_credentials": {
+    "user_id": "test-user-wealth001",
+    "email": "testuser@example.com",
+    "session_token": "test_session_wealth001"
+  },
+  "seed_data_creation": "None - used existing test user with 65 holdings",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Issue 2 (Heatmap %) has a frontend rendering bug. The backend returns correct return_pct values in heatmap_data. The frontend DashboardOverview.js creates SVG text elements with correct textContent (e.g., '-4.0%', '+169.0%') but the visual rendering shows only '%' symbol. The text computedLength is 7px instead of expected 49px. This suggests font metrics are not being applied to the Treemap content renderer's text elements. Issues 3 and 4 are fully fixed.",
+  "rca_of_issue": {
+    "issue_2_heatmap": {
+      "symptom": "Heatmap cells show only '%' symbol without percentage numbers",
+      "investigation": "1. Backend API returns correct return_pct values. 2. DOM contains correct text like '-4.0%', '+169.0%'. 3. SVG text elements have correct textContent. 4. getComputedTextLength() returns 7px instead of ~49px. 5. Font test with same content returns correct 49px length.",
+      "root_cause": "The Treemap content renderer creates text elements but the font metrics are not being applied correctly. The text is in the DOM but renders at incorrect width, causing numbers to be cut off or invisible.",
+      "suggested_fix": "Check if the JetBrains Mono font is being loaded before the Treemap renders. Consider using a web-safe monospace font as fallback, or ensure font is loaded before rendering the treemap."
+    }
+  }
+}
