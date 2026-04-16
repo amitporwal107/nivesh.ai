@@ -1,54 +1,17 @@
 <analysis>**original_problem_statement**: 
-Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on Phase 1: Indian market (NSE/BSE, MFs), Portfolio upload/parsing, Unified dashboard, basic insights, and chat interface. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, and an actionable insights dashboard. 
+Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on the Indian market (NSE/BSE, MFs), Portfolio upload/parsing, Unified dashboard, actionable insights, and chat interface. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, actionable insights dashboard with quantified action plans, live equity/ETF pricing, and scenario simulation (Simulate Optimized Portfolio).
 
 **User's preferred language**: 
 English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A robust, full-stack financial dashboard named . It features direct Google OAuth for login, an Admin Whitelist system for invite-only access, multi-format portfolio upload (CAS PDF, CSV, Excel), and a Gmail Auto-Fetch integration for CAS statements. The dashboard uses Recharts for visual insights and includes deep analytics like risk breakdown, overexposure, and performance score. The AI engine parses CAS files using the user's personal OpenAI API key via the usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
-              [-o ORGANIZATION] [-t {openai,azure}]
-              [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
-              [--azure-ad-token AZURE_AD_TOKEN] [-V]
-              {api,tools,migrate,grit} ...
-
-positional arguments:
-  {api,tools,migrate,grit}
-    api                 Direct API calls
-    tools               Client side tools for convenience
-
-options:
-  -h, --help            show this help message and exit
-  -v, --verbose         Set verbosity.
-  -b API_BASE, --api-base API_BASE
-                        What API base url to use.
-  -k API_KEY, --api-key API_KEY
-                        What API key to use.
-  -p PROXY [PROXY ...], --proxy PROXY [PROXY ...]
-                        What proxy to use.
-  -o ORGANIZATION, --organization ORGANIZATION
-                        Which organization to run as (will use your default
-                        organization if not specified)
-  -t {openai,azure}, --api-type {openai,azure}
-                        The backend API to call, must be `openai` or `azure`
-  --api-version API_VERSION
-                        The Azure API version, e.g.
-                        'https://learn.microsoft.com/en-us/azure/ai-
-                        services/openai/reference#rest-api-versioning'
-  --azure-endpoint AZURE_ENDPOINT
-                        The Azure endpoint, e.g.
-                        'https://endpoint.openai.azure.com'
-  --azure-ad-token AZURE_AD_TOKEN
-                        A token from Azure Active Directory,
-                        https://www.microsoft.com/en-
-                        us/security/business/identity-access/microsoft-entra-
-                        id
-  -V, --version         show program's version number and exit SDK. Recent additions include data flags for Simulated/Modeled values, drill-downs for risk and performance charts, categorized Top Movers (Best & Worst), and SGB (Sovereign Gold Bond) series extraction.
+A robust, full-stack financial dashboard named . It features Google OAuth, Admin Whitelist, and multi-format portfolio upload (CAS PDF, CSV, Excel) with Gmail Auto-Fetch. The AI engine parses CAS files using the user's personal OpenAI API key. The dashboard includes live equity and ETF pricing via  (NSE ISIN mapped), deep analytics with specific actionable recommendation amounts, a Simulate Optimized Portfolio engine, categorized drill-downs, and accurate SGB (Sovereign Gold Bond) tracking using RBI issue prices.
 
 **Last working item**: 
-    - Last item agent was working: Investigating a broken Google Login flow reported by the user. The user uploaded a screenshot showing an  error. The agent identified that this is a Google Cloud Console configuration issue—the current dynamic preview URL is not added to the Authorized JavaScript origins in the user's Google OAuth Client settings. The agent used  to instruct the user to update their GCP console and is waiting for confirmation.
-    - Status: BLOCKED / USER VERIFICATION PENDING
-    - Agent Testing Done: N (Requires manual user action in Google Cloud Console)
-    - Which testing method agent to use?: Manual testing via frontend screenshot/clicking once user confirms the URL is whitelisted.
+    - Last item agent was working: Fixing three specific UI/Data bugs reported by the user via screenshots: 1) Heatmap missing percentage allocations, 2) AI recommendations missing descriptive action items, and 3) SGB showing 0% returns because CAS doesn't provide issue prices. The agent fixed all three (handled Recharts 3.x prop stripping, mapped SGB ISINs to RBI historical issue prices, and exposed description text), successfully tested them via the testing agent, and finished the task.
+    - Status: USER VERIFICATION PENDING
+    - Agent Testing Done: Y
+    - Which testing method agent to use?: NA
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
@@ -56,9 +19,9 @@ options:
   
   Issues Detail:
   - Issue 1: Google OAuth Login Broken
-     - Attempted fixes: Investigated , , and . Verified that the code is correct but the dynamic preview URL is being rejected by Google due to missing CORS origin whitelisting.
-     - Next debug checklist: Wait for the user to confirm they have added the new preview URL to their Google Cloud Console under Authorized JavaScript origins. Once confirmed, test the login flow. DO NOT rewrite auth code unless it still fails after the user confirms GCP is updated.
-     - Why fix this issue and what will be achieved with the fix?: Absolute blocker; users cannot access the app.
+     - Attempted fixes: Investigated in a previous fork. The code is correct, but the dynamic preview URL is rejected by Google due to missing CORS origin whitelisting. In this session, the user was asked if they added the URL to their GCP console, and they replied **not yet**.
+     - Next debug checklist: Wait for the user to confirm they have added the new preview URL to their Google Cloud Console under Authorized JavaScript origins. Test the login flow only after confirmation.
+     - Why fix this issue and what will be achieved with the fix?: Absolute blocker for fresh logins; users cannot access the app without it.
      - Status: BLOCKED / USER VERIFICATION PENDING
      - Is recurring issue? Y (Happens when the preview URL changes on a new fork/container).
      - Should Test frontend/backend/both after fix?: Frontend
@@ -68,43 +31,41 @@ options:
 None.
 
 **Upcoming and Future Tasks**
-  - P0:  refactoring — The file is extremely bloated (~2200 lines). Routing logic (auth, portfolios, chat, whitelist, gmail) should be split into a  directory using .
-  - P1: Integrate a free historical stock price API (e.g., Yahoo Finance) to fetch real-time CMP for equity holdings. This will eliminate the Missing CMP issue and show accurate P&L instead of relying on upload-time CMP.
+  - P0:  refactoring — The file is critically bloated (>2300 lines). Routing logic (auth, portfolios, chat, whitelist, gmail) should be split into a  directory using .
   - P1: Finvu Account Aggregator integration (needs sandbox credentials from user).
   - P1: Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs.
   - P2: Portfolio versioning (Delta tracking between CAS uploads).
-  - P2: Agentic AI execution and scenario simulation.
+  - P2: Agentic AI execution and scenario simulation (beyond the current 1-year basic simulation).
 
 **Completed work in this session**
-- Added Data Quality Flags: SIMULATED badge for Day Change, MODELED for Performance Trend (DONE)
-- Added Explanation Tooltips to Health Score and Risk Score components (DONE)
-- Sector exposure risk fixed to only include Equity sectors (DONE)
-- Portfolio Grid now highlights holdings with Missing CMP in amber (DONE)
-- Added Gmail Import History and Upload History APIs, plus last import timestamp UI (DONE)
-- Added Risk Drill-down with specific holding breakdowns (DONE)
-- Improved CAS Parser (Prompt Rule 10) to accurately extract Sovereign Gold Bond (SGB) Series names (DONE)
-- Refactored Top Movers (Best & Worst) into distinct Equity/MF tabs with show more toggles (DONE)
-- Added click-to-drill-down functionality for MF Performance pie charts in InsightsView (DONE)
+- Live prices integration for Equities/ETFs using  and ISIN-to-Symbol mapping (DONE)
+- Simulate Optimized Portfolio backend endpoint and frontend button (DONE)
+- Quantified amounts (reduce/add ₹) in actionable insights recommendations (DONE)
+- Fund-by-Fund Benchmark Drilldown added to InsightsView (DONE)
+- Collapsible UI sections in Dashboard (Asset Allocation, Sector, Heatmap) (DONE)
+- Performance Trend chart converted from AreaChart to BarChart (DONE)
+- SGB Issue Price mapping () for accurate historical returns calculation (DONE)
+- Fixed Heatmap % not displaying due to Recharts 3.x stripping custom props & SVG font rendering issues (DONE)
+- Fixed AI Insights descriptions visibility to show full text (DONE)
 
 **Earlier issues found/mentioned but not fixed**
 None.
 
 **Known issue recurrence from previous fork**
   - Issue recurrence in previous fork:  gets uninstalled when the Kubernetes container restarts, breaking image-based CAS PDF parsing. 
-  - Recurrence count: 2
+  - Recurrence count: 3
   - Status: RESOLVED (Kept  inside FastAPI's  in . **DO NOT remove this.**)
   - Issue recurrence in previous fork: Google OAuth failing due to preview URL changes.
-  - Recurrence count: 1
-  - Status: BLOCKED (Waiting on user to whitelist the new URL).
+  - Recurrence count: 2
+  - Status: BLOCKED (User explicitly stated they have not yet whitelisted the URL).
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- Frontend: React, Tailwind CSS, Recharts, Shadcn UI, Context API, Google OAuth ().
-- Backend: FastAPI, Motor/MongoDB,  (Gmail API).
-- PDF Parsing: , ,  (installed on startup via bash),  (for AES decryption).
-- AI Engine: Uses usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
+- Frontend: React, Tailwind CSS, Recharts (v3.x), Shadcn UI, Context API, Google OAuth.
+- Backend: FastAPI, Motor/MongoDB, .
+- Data Integrations:  for live stock/ETF prices, usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
               [-o ORGANIZATION] [-t {openai,azure}]
               [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
               [--azure-ad-token AZURE_AD_TOKEN] [-V]
@@ -141,55 +102,54 @@ options:
                         https://www.microsoft.com/en-
                         us/security/business/identity-access/microsoft-entra-
                         id
-  -V, --version         show program's version number and exit SDK directly with User's personal API key. Parallel processing chunked pages.
+  -V, --version         show program's version number and exit SDK (User's API key).
+- PDF Parsing: , , , .
 
 **key DB schema**
   - : 
   - : 
   - : 
   - : 
-  - : 
 
 **changes in tech stack**
-  - None in this session. Still using standard Google OAuth and the user's native OpenAI API key.
+  - Added  to the backend for fetching live market prices of NSE equities and ETFs.
 
 **All files of reference** 
-  - : Updated analytics endpoints to include data flags, risk breakdowns, and missing CMP logic.
-  - : Updated CAS parsing prompt for SGB series names.
-  - : Majorly updated. Added explanatory tooltips for metrics, tabbed views for Best/Worst, and Simulated/Modeled badges.
-  - : Updated to support onClick events on pie charts to spawn .
-  - : Updated grid table row coloring to highlight missing CMP in amber.
-  - : Updated to display the last import timestamp.
-  - : Manages Google Login (Currently encountering blocked requests from Google).
+  -  (New): Handles ISIN-to-Symbol mapping and batch downloading prices via yfinance.
+  -  (New): Static mapping dictionary of historical SGB ISINs to RBI Issue Prices.
+  -  (Updated): Added  endpoint. Intercepts holdings data to inject SGB issue prices and live equity prices before calculations.
+  -  (Updated): Refactored Treemap (Heatmap) to use inline render functions due to Recharts 3.x prop limitations. Added collapsibles.
+  -  (Updated): Added Simulate Optimized Portfolio button and  components. 
 
 **Areas that need refactoring**
-  -  is critically bloated (~2200 lines). All route definitions (Auth, Gmail, Portfolios, Whitelist, Webhooks) need to be moved to a  directory using FastAPI's .
+  -  is critically bloated (~2300 lines). Route definitions must be decoupled to .
 
 **key api endpoints**
-  - : Custom validation for Google OAuth tokens.
-  - : Fetches the calculated portfolio metrics (includes new data flags).
-  -  & : Newly updated to fetch import timestamps and scan triggers.
+  - : New endpoint returning , , and quantified action plans.
+  - : Updated to integrate  and .
+  - : Fails until GCP is whitelisted.
 
 **Critical Info for New Agent** 
-  - **Login Blocking:** The Google login is failing due to the dynamic preview URL not being whitelisted in Google Cloud Console. You are currently waiting for the user to update this. Do NOT modify the Google OAuth code or libraries unless the user confirms GCP is updated and it is still failing.
-  - **Poppler Persistence:** Ensure  remains in  inside .
-  - **Auth/Testing Credentials:** Always rely on  to know the admin user (). 
+  - **Login Blocking:** The user confirmed they have not yet added the preview URL to their Google Cloud Console. Do NOT try to debug or rewrite the Google Auth code. Remind the user to do this if they complain about login issues.
+  - **Recharts Heatmap Rendering:** Recharts 3.x no longer passes custom  props easily into Treemap content. The heatmap % text also fails to render in SVG if using custom web fonts (). Stick to system fonts () for SVG text within Recharts.
+  - **SGB Data Logic:** CAS statements provide  as the  for SGBs. Use  to retrieve the real issue price and avoid showing 0% returns.
 
 **documents and test reports created in this job** 
   - 
   - 
   -  (Updated)
-  -  (Updated)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (Msg 5) User uploaded bugs document and CAS pdf, asked to fix critical/high bugs first.
- - (Msg 12) User confirmed order of work, told agent to flag calculated values, and proceed.
- - (Msg 131) User requested 4 new features: SGB Series extraction, MF performance drill-down, Best/Worst separation, UI readability.
- - (Msg 182) User uploaded a screenshot indicating Google login is broken ().
- - *(Pending Human Message)* Agent sent an  explaining the GCP URL whitelist issue and is waiting for the user's confirmation.
+ - (Msg 7) User responded not yet to adding the URL in GCP and asked to hold off on old priorities to focus on new bugs.
+ - (Msg 10) User uploaded a document outlining 8 new features/bugs (Simulate button, Live Prices, Drilldowns).
+ - (Msg 39) User approved the agent's plan to implement the document's requests.
+ - (Msg 210) User stated: let me test it first. And then I will discuss next functionaility.
+ - (Msg 212) User uploaded screenshots of 3 specific bugs: Heatmap missing %, AI recommendations missing descriptions, SGB issue price missing.
+ - (Msg 217) User said: lets fix issue 2,3, 4 for now (referring to the 3 bugs in their screenshots).
+ - *(Pending Human Message)* The agent fixed the 3 bugs, verified them, and requested the user to test the app and optionally discuss the next features (e.g., Gold Price Tracker). Await user feedback.
 
 **Project Health Check:**
-Broken (Login flow is failing due to external Google Cloud Console configuration).
+Broken (Login flow is failing due to external Google Cloud Console configuration, though app features work for existing active sessions).
 
 **3rd Party Integrations** 
  - OpenAI GPT-4o / GPT-4o-mini — requires **User API Key** (Implemented directly via usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
@@ -230,11 +190,12 @@ options:
                         us/security/business/identity-access/microsoft-entra-
                         id
   -V, --version         show program's version number and exit SDK).
- - Google OAuth — requires **User API Key** (Implemented, currently blocked by CORS/Origin config).
+ - Google OAuth — requires **User API Key** (Implemented, blocked by user's GCP config).
  - Gmail API — requires **User API Key** (Implemented).
+ - Yahoo Finance () — Free open-source integration, no key required.
 
 **Testing status**
-  - Testing agent used after significant changes: YES (iterations 11 & 12).
+  - Testing agent used after significant changes: YES (iterations 13 & 14).
   - Troubleshoot agent used after agent stuck in loop: NO
   - Test files created: , 
   - Known regressions: Login fails (External Config Issue).
@@ -243,4 +204,4 @@ options:
 See . (Admin user is ).
 
 **What agent forgot to execute**
-The agent successfully resolved all issues outlined in the bugs document and the subsequent user requests. No tasks were forgotten; the session ended abruptly due to the login environment issue.</analysis>
+All tasks and issues specified in the session by the user were successfully executed and verified.</analysis>
