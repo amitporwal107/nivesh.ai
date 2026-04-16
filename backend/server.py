@@ -869,12 +869,19 @@ async def delete_holding(request: Request, holding_id: str):
 
 @api_router.delete("/portfolio/holdings-all")
 async def clear_all_holdings(request: Request):
-    """Delete ALL holdings for the current user. Also resets Gmail import tracking so CAS can be re-imported."""
+    """Delete ALL holdings and associated data for the current user. Full reset."""
     user = await get_current_user(request)
-    result = await db.holdings.delete_many({"user_id": user["user_id"]})
-    await db.fund_performance_cache.delete_many({"user_id": user["user_id"]})
-    await db.gmail_imports.delete_many({"user_id": user["user_id"]})
-    return {"message": f"{result.deleted_count} holdings cleared", "deleted": result.deleted_count}
+    uid = user["user_id"]
+    
+    holdings_deleted = (await db.holdings.delete_many({"user_id": uid})).deleted_count
+    await db.fund_performance_cache.delete_many({"user_id": uid})
+    await db.gmail_imports.delete_many({"user_id": uid})
+    await db.portfolio_analysis.delete_many({"user_id": uid})
+    await db.ai_insights.delete_many({"user_id": uid})
+    await db.upload_tasks.delete_many({"user_id": uid})
+    await db.chat_messages.delete_many({"user_id": uid})
+    
+    return {"message": f"{holdings_deleted} holdings cleared. All portfolio data reset.", "deleted": holdings_deleted}
 
 
 async def parse_csv_holdings(content: bytes) -> list:
