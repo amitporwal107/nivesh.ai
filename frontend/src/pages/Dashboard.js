@@ -69,13 +69,9 @@ const Dashboard = () => {
     }
   }, [user, loading, navigate, fetchData, fetchProfile]);
 
-  const handleJourneyComplete = (journeyType) => {
-    setUserProfile((prev) => ({ ...prev, journey_type: journeyType }));
-    if (journeyType === "new_investor") {
-      setActiveTab("risk_profile");
-    } else {
-      setActiveTab("portfolio");
-    }
+  const handleOnboardingComplete = () => {
+    fetchProfile();
+    setActiveTab("overview");
   };
 
   const handleRiskProfileComplete = () => {
@@ -93,9 +89,9 @@ const Dashboard = () => {
 
   if (!user) return null;
 
-  // Show onboarding if journey type not set
-  if (!userProfile?.journey_type) {
-    return <OnboardingView onComplete={handleJourneyComplete} />;
+  // Show onboarding if not completed
+  if (!userProfile?.onboarding_completed) {
+    return <OnboardingView onComplete={handleOnboardingComplete} userProfile={userProfile} />;
   }
 
   const renderContent = () => {

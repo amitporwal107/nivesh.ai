@@ -100,6 +100,36 @@ class RiskProfileInput(BaseModel):
     answers: List[RiskProfileAnswer]
 
 
+class InvestmentGoal(str, Enum):
+    RETIREMENT = "retirement"
+    HOUSE = "house"
+    EDUCATION = "education"
+    TRAVEL = "travel"
+    WEALTH = "wealth"
+    EMERGENCY = "emergency"
+
+
+class RiskAppetiteLevel(str, Enum):
+    CONSERVATIVE = "conservative"
+    MODERATE = "moderate"
+    AGGRESSIVE = "aggressive"
+
+
+class InvestmentHorizonLevel(str, Enum):
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+    VERY_LONG = "very_long"
+
+
+class QuickSetupInput(BaseModel):
+    age: int = Field(..., ge=18, le=100)
+    goal: InvestmentGoal
+    risk_appetite: RiskAppetiteLevel
+    investment_horizon: InvestmentHorizonLevel
+    monthly_investment: Optional[float] = Field(default=None, ge=0)
+
+
 # ── Response / Internal Models ──
 
 class HealthScoreBreakdown(BaseModel):

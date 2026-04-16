@@ -1,0 +1,79 @@
+{
+  "summary": "Iteration 16 testing complete. Complete onboarding flow with 2 paths (New Investor & Existing Investor) fully functional. Backend: 17/17 tests passed (100%). Frontend: All onboarding steps verified via Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: GET /api/user/profile returns initial state (journey_type=null, onboarding_completed=false)",
+    "Backend: POST /api/user/journey sets journey_type to new_investor",
+    "Backend: POST /api/user/journey sets journey_type to existing_investor",
+    "Backend: POST /api/user/journey rejects invalid journey_type with 422",
+    "Backend: Journey type persists in profile after setting",
+    "Backend: POST /api/user/quick-setup accepts valid input and returns starter_plan",
+    "Backend: POST /api/user/quick-setup works without monthly_investment (optional)",
+    "Backend: POST /api/user/quick-setup accepts all 6 goals (retirement, house, education, travel, wealth, emergency)",
+    "Backend: POST /api/user/quick-setup accepts all 3 risk appetites (conservative, moderate, aggressive)",
+    "Backend: POST /api/user/quick-setup accepts all 4 horizons (short, medium, long, very_long)",
+    "Backend: POST /api/user/quick-setup validates age range (18-100)",
+    "Backend: POST /api/user/quick-setup rejects invalid goal with 422",
+    "Backend: Quick setup and starter_plan persist in profile",
+    "Backend: POST /api/user/complete-onboarding marks onboarding_completed=true",
+    "Backend: Onboarding completion persists in profile",
+    "Backend: Full new investor flow (journey -> quick-setup -> complete) works end-to-end",
+    "Backend: Full existing investor flow (journey -> complete) works end-to-end",
+    "Frontend: Onboarding Step 1 - Investor Type selection shows both cards (Existing/New)",
+    "Frontend: SEBI disclaimer banner visible on all onboarding steps",
+    "Frontend: New Investor Step 2 - Age input with +/- buttons and preset buttons (22, 28, 35, 45, 55)",
+    "Frontend: New Investor Step 3 - Goal selection with 6 cards (retirement, house, education, travel, wealth, emergency)",
+    "Frontend: New Investor Step 4 - Risk Appetite with 3 options (conservative, moderate, aggressive)",
+    "Frontend: New Investor Step 5 - Investment Horizon with 4 options (short, medium, long, very_long)",
+    "Frontend: New Investor Step 6 - Monthly Investment with SIP presets (5000, 10000, 25000, 50000) and Skip option",
+    "Frontend: New Investor Step 7 - Starter Plan shows allocation bar, fund recommendations, wealth projection, insights",
+    "Frontend: New Investor Step 8 - Playbook shows 3 cards (Start Your SIP, Track Your Goals, Learn & Grow)",
+    "Frontend: Progress bar shows 8 steps for new investor flow",
+    "Frontend: Existing Investor Step 2 - Data Source selection (Upload CAS, Gmail, Account Aggregator disabled/Coming Soon)",
+    "Frontend: Existing Investor Step 3 - Upload step with drag-drop zone",
+    "Frontend: Existing Investor Step 4 - Playbook shows 3 cards (Portfolio Health Check, Smart Rebalancing, Set Financial Goals)",
+    "Frontend: Progress bar shows 4 steps for existing investor flow",
+    "Frontend: Both paths converge at Playbook page with 'Go to Dashboard' button",
+    "Frontend: After completing onboarding, user sees the main dashboard (not onboarding again)"
+  ],
+  "features_verified": {
+    "new_investor_flow": "WORKING - 8-step wizard: Investor Type -> Age -> Goal -> Risk -> Horizon -> Monthly Investment -> Starter Plan -> Playbook -> Dashboard",
+    "existing_investor_flow": "WORKING - 4-step wizard: Investor Type -> Data Source -> Upload -> Playbook -> Dashboard",
+    "quick_setup_api": "WORKING - Generates allocation, fund recommendations, projection, insights based on user inputs",
+    "starter_plan_display": "WORKING - Shows allocation bar (Equity/Debt/Gold/Cash), fund categories with rationale, wealth projection, key insights",
+    "sebi_disclaimer": "WORKING - Visible on all onboarding steps",
+    "progress_bar": "WORKING - Shows correct step count (8 for new, 4 for existing)",
+    "onboarding_persistence": "WORKING - User sees dashboard after completing onboarding, not onboarding again"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_onboarding_flow.py",
+    "/app/test_reports/pytest/pytest_results_iteration16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_onboarding_flow.py"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 tests passed)",
+    "frontend": "100% (all features working)"
+  },
+  "test_credentials": {
+    "user_id": "user_0b63665e3e03",
+    "email": "aporwal107@gmail.com",
+    "session_token": "hkaz5rKJX05a-ky0p-fnncyta-MabtLwVwglXQ_PvA0"
+  },
+  "seed_data_creation": "Reset user_profiles for user_0b63665e3e03 (journey_type=null, onboarding_completed=false, quick_setup=null, starter_plan=null) before each test",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Complete onboarding flow with 2 paths (New Investor & Existing Investor) is fully functional. New investor flow has 8 steps and generates a personalized starter plan with allocation, fund recommendations, and wealth projection. Existing investor flow has 4 steps with data source options (Upload CAS, Gmail, Account Aggregator coming soon). Both paths converge at Playbook page. After onboarding, user sees the main dashboard. Test user user_0b63665e3e03 has onboarding_completed=true with journey_type=existing_investor.",
+  "rca_of_issue": {}
+}
