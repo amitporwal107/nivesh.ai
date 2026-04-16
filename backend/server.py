@@ -32,6 +32,14 @@ from middleware import RateLimitMiddleware, validate_env
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Ensure poppler-utils is installed (needed for image-based CAS PDFs)
+import subprocess
+try:
+    subprocess.run(["which", "pdftoppm"], check=True, capture_output=True)
+except subprocess.CalledProcessError:
+    subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
+    subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
+
 # Validate env on startup
 validate_env()
 
