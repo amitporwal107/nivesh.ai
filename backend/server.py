@@ -16,7 +16,7 @@ from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 
 # Local modules
-from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInput, AssetType
+from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInput, AssetType, JourneyInput, RiskProfileInput
 from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
 from services import compute_health_score, compute_risk_analysis, generate_recommendations, simulate_optimized_portfolio
 from services.ai_engine import AIEngine
@@ -2061,11 +2061,42 @@ def _compute_fund_overlap(fund_a: dict, fund_b: dict) -> dict:
 
 # ==================== AI CHAT ROUTES ====================
 
-@api_router.get("/chat/messages")
-async def get_chat_messages(request: Request):
+@api_router.get("/chat/sessions")
+async def list_chat_sessions(request: Request):
     user = await get_current_user(request)
-    messages = await db.chat_messages.find(
+    sessions = await db.chat_sessions.find(
         {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("updated_at", -1).to_list(50)
+    return sessions
+
+@api_router.post("/chat/sessions")
+async def create_chat_session(request: Request):
+    user = await get_current_user(request)
+    session_doc = {
+        "session_id": f"sess_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "title": "New Conversation",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.chat_sessions.insert_one(session_doc)
+    return {k: v for k, v in session_doc.items() if k != "_id"}
+
+@api_router.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(request: Request, session_id: str):
+    user = await get_current_user(request)
+    await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
+    await db.chat_messages.delete_many({"session_id": session_id, "user_id": user["user_id"]})
+    return {"message": "Session deleted"}
+
+@api_router.get("/chat/messages")
+async def get_chat_messages(request: Request, session_id: Optional[str] = None):
+    user = await get_current_user(request)
+    query = {"user_id": user["user_id"]}
+    if session_id:
+        query["session_id"] = session_id
+    messages = await db.chat_messages.find(
+        query, {"_id": 0}
     ).sort("created_at", 1).to_list(200)
     return messages
 
@@ -2074,15 +2105,50 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     user = await get_current_user(request)
     user_id = user["user_id"]
     
+    # Resolve or create session
+    session_id = msg.session_id
+    if not session_id:
+        # Get or create a default session
+        existing = await db.chat_sessions.find_one(
+            {"user_id": user_id}, {"_id": 0}, sort=[("updated_at", -1)]
+        )
+        if existing:
+            session_id = existing["session_id"]
+        else:
+            session_id = f"sess_{uuid.uuid4().hex[:12]}"
+            await db.chat_sessions.insert_one({
+                "session_id": session_id,
+                "user_id": user_id,
+                "title": "New Conversation",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+    
     # Save user message
     user_msg_doc = {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
         "user_id": user_id,
         "role": "user",
         "content": msg.message,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(user_msg_doc)
+    
+    # Auto-title session from first user message
+    session_msgs_count = await db.chat_messages.count_documents({"session_id": session_id, "role": "user"})
+    if session_msgs_count == 1:
+        title = msg.message[:50] + ("..." if len(msg.message) > 50 else "")
+        await db.chat_sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {"title": title}}
+        )
+    
+    # Update session timestamp
+    await db.chat_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
     
     # Gather portfolio context
     holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(100)
@@ -2097,6 +2163,13 @@ async def send_chat(request: Request, msg: ChatMessageInput):
             ret = ((cur - inv) / inv * 100) if inv > 0 else 0
             portfolio_context += f"  - {h['name']} ({h['asset_type']}): {h['quantity']} units @ ₹{h['buy_price']} → ₹{h['current_price']} ({ret:.1f}%) | Sector: {h.get('sector','N/A')}\n"
     
+    # Get user risk profile context
+    risk_context = ""
+    user_profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0})
+    if user_profile and user_profile.get("risk_profile"):
+        rp = user_profile["risk_profile"]
+        risk_context = f"\n\nUser's Risk Profile: {rp.get('category', 'Unknown')} (Score: {rp.get('score', 'N/A')}/100)"
+    
     system_message = f"""You are an expert AI Financial Advisor for Indian retail investors. You provide personalized, data-driven financial guidance.
 
 Your capabilities:
@@ -2107,7 +2180,14 @@ Your capabilities:
 - Goal-based financial planning (retirement, education, wealth growth)
 - Market intelligence and trends
 
-Guidelines:
+Formatting guidelines:
+- Use **bold** for key terms and important numbers
+- Use bullet points and numbered lists for recommendations
+- Use tables (markdown) when comparing options
+- Use headings (##) to organize long responses
+- Keep responses well-structured and scannable
+
+Content guidelines:
 - Always use ₹ (INR) for currency
 - Reference Indian markets (NSE/BSE), SEBI regulations
 - Be specific with actionable recommendations
@@ -2115,13 +2195,13 @@ Guidelines:
 - Include disclaimers for investment advice
 - Be conversational and friendly, not robotic
 - Use data from the user's portfolio when available
-{portfolio_context}
+{portfolio_context}{risk_context}
 
 Disclaimer: This is AI-generated guidance for educational purposes. Always consult a SEBI-registered advisor before making investment decisions."""
     
-    # Get recent chat history for context
+    # Get recent chat history for this session
     recent_msgs = await db.chat_messages.find(
-        {"user_id": user_id}, {"_id": 0}
+        {"user_id": user_id, "session_id": session_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(20)
     recent_msgs.reverse()
     
@@ -2136,7 +2216,7 @@ Disclaimer: This is AI-generated guidance for educational purposes. Always consu
             message=msg.message,
             portfolio_context=portfolio_context,
             history=history,
-            session_id=f"wealth_{user_id}",
+            session_id=f"wealth_{user_id}_{session_id}",
         )
         
     except Exception as e:
@@ -2146,6 +2226,7 @@ Disclaimer: This is AI-generated guidance for educational purposes. Always consu
     # Save AI response
     ai_msg_doc = {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
         "user_id": user_id,
         "role": "assistant",
         "content": ai_response,
@@ -2159,10 +2240,116 @@ Disclaimer: This is AI-generated guidance for educational purposes. Always consu
     }
 
 @api_router.delete("/chat/clear")
-async def clear_chat(request: Request):
+async def clear_chat(request: Request, session_id: Optional[str] = None):
     user = await get_current_user(request)
-    await db.chat_messages.delete_many({"user_id": user["user_id"]})
+    query = {"user_id": user["user_id"]}
+    if session_id:
+        query["session_id"] = session_id
+    await db.chat_messages.delete_many(query)
+    if session_id:
+        await db.chat_sessions.delete_one({"session_id": session_id, "user_id": user["user_id"]})
+    else:
+        await db.chat_sessions.delete_many({"user_id": user["user_id"]})
     return {"message": "Chat cleared"}
+
+
+# ==================== USER PROFILE / ONBOARDING ROUTES ====================
+
+@api_router.get("/user/profile")
+async def get_user_profile(request: Request):
+    user = await get_current_user(request)
+    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not profile:
+        return {"user_id": user["user_id"], "journey_type": None, "risk_profile": None, "onboarding_completed": False}
+    return profile
+
+@api_router.post("/user/journey")
+async def set_journey(request: Request, body: JourneyInput):
+    user = await get_current_user(request)
+    now = datetime.now(timezone.utc).isoformat()
+    await db.user_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "journey_type": body.journey_type,
+            "updated_at": now,
+        }, "$setOnInsert": {
+            "user_id": user["user_id"],
+            "risk_profile": None,
+            "onboarding_completed": False,
+            "created_at": now,
+        }},
+        upsert=True
+    )
+    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return profile
+
+@api_router.get("/user/risk-profile")
+async def get_risk_profile(request: Request):
+    user = await get_current_user(request)
+    profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not profile or not profile.get("risk_profile"):
+        return {"risk_profile": None}
+    return {"risk_profile": profile["risk_profile"]}
+
+@api_router.post("/user/risk-profile")
+async def save_risk_profile(request: Request, body: RiskProfileInput):
+    user = await get_current_user(request)
+    
+    # Calculate risk score from answers
+    score_map = {
+        "market_drop": {"hold": 30, "buy_more": 10, "sell_some": 60, "sell_all": 90},
+        "investment_horizon": {"less_1yr": 80, "1_3yr": 60, "3_5yr": 40, "5_10yr": 20, "10yr_plus": 10},
+        "loss_tolerance": {"none": 90, "up_to_10": 60, "up_to_25": 35, "up_to_50": 15},
+        "income_stability": {"very_stable": 15, "stable": 30, "moderate": 50, "unstable": 75},
+        "investment_knowledge": {"beginner": 60, "intermediate": 40, "advanced": 20, "expert": 10},
+        "goal_priority": {"safety": 80, "income": 55, "growth": 30, "aggressive_growth": 10},
+    }
+    
+    total = 0
+    count = 0
+    answers_dict = {}
+    for a in body.answers:
+        answers_dict[a.question_id] = a.answer
+        if a.question_id in score_map and a.answer in score_map[a.question_id]:
+            total += score_map[a.question_id][a.answer]
+            count += 1
+    
+    risk_score = round(total / count) if count > 0 else 50
+    
+    if risk_score <= 25:
+        category = "Aggressive"
+    elif risk_score <= 45:
+        category = "Moderately Aggressive"
+    elif risk_score <= 60:
+        category = "Moderate"
+    elif risk_score <= 75:
+        category = "Moderately Conservative"
+    else:
+        category = "Conservative"
+    
+    risk_profile = {
+        "score": risk_score,
+        "category": category,
+        "answers": answers_dict,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    now = datetime.now(timezone.utc).isoformat()
+    await db.user_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "risk_profile": risk_profile,
+            "onboarding_completed": True,
+            "updated_at": now,
+        }, "$setOnInsert": {
+            "user_id": user["user_id"],
+            "journey_type": None,
+            "created_at": now,
+        }},
+        upsert=True
+    )
+    
+    return {"risk_profile": risk_profile}
 
 # ==================== AI INSIGHTS ROUTES ====================
 

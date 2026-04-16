@@ -8,6 +8,8 @@ import ChatView from "@/components/ChatView";
 import InsightsView from "@/components/InsightsView";
 import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
+import OnboardingView from "@/components/OnboardingView";
+import RiskProfileView from "@/components/RiskProfileView";
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -22,6 +24,19 @@ const Dashboard = () => {
   const [insights, setInsights] = useState([]);
   const [portfolios, setPortfolios] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/user/profile`, { withCredentials: true });
+      setUserProfile(res.data);
+    } catch {
+      setUserProfile({ journey_type: null, risk_profile: null, onboarding_completed: false });
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setDataLoading(true);
@@ -48,10 +63,27 @@ const Dashboard = () => {
       navigate("/", { replace: true });
       return;
     }
-    if (user) fetchData();
-  }, [user, loading, navigate, fetchData]);
+    if (user) {
+      fetchProfile();
+      fetchData();
+    }
+  }, [user, loading, navigate, fetchData, fetchProfile]);
 
-  if (loading) {
+  const handleJourneyComplete = (journeyType) => {
+    setUserProfile((prev) => ({ ...prev, journey_type: journeyType }));
+    if (journeyType === "new_investor") {
+      setActiveTab("risk_profile");
+    } else {
+      setActiveTab("portfolio");
+    }
+  };
+
+  const handleRiskProfileComplete = () => {
+    fetchProfile();
+    setActiveTab("overview");
+  };
+
+  if (loading || profileLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] dark:bg-slate-950">
         <div className="w-10 h-10 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
@@ -60,6 +92,11 @@ const Dashboard = () => {
   }
 
   if (!user) return null;
+
+  // Show onboarding if journey type not set
+  if (!userProfile?.journey_type) {
+    return <OnboardingView onComplete={handleJourneyComplete} />;
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -73,6 +110,8 @@ const Dashboard = () => {
         return <ChatView />;
       case "insights":
         return <InsightsView insights={insights} onRefresh={fetchData} />;
+      case "risk_profile":
+        return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
       case "admin":
         return user?.is_admin ? <AdminView /> : null;
       default:

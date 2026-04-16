@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -11,6 +11,7 @@ const baseNavItems = [
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "chat", label: "AI Chat", icon: MessageSquare },
   { id: "insights", label: "Insights", icon: Lightbulb },
+  { id: "risk_profile", label: "Risk Profile", icon: Shield },
 ];
 
 const Sidebar = ({ activeTab, setActiveTab, user }) => {

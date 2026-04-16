@@ -79,6 +79,25 @@ class HoldingUpdate(BaseModel):
 
 class ChatMessageInput(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
+    session_id: Optional[str] = None
+
+
+class JourneyType(str, Enum):
+    EXISTING_INVESTOR = "existing_investor"
+    NEW_INVESTOR = "new_investor"
+
+
+class JourneyInput(BaseModel):
+    journey_type: JourneyType
+
+
+class RiskProfileAnswer(BaseModel):
+    question_id: str
+    answer: str
+
+
+class RiskProfileInput(BaseModel):
+    answers: List[RiskProfileAnswer]
 
 
 # ── Response / Internal Models ──

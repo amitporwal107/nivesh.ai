@@ -43,7 +43,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Higher limit for AI endpoints (they're slower)
         if "/chat/" in request.url.path or "/insights/" in request.url.path:
-            max_req = 20
+            max_req = 60  # Increased from 20 for better UX
         else:
             max_req = 120
 

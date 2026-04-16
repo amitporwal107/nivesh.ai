@@ -51,3 +51,22 @@
 }
 .loading-dot:nth-child(2) { animation-delay: 0.16s; }
 .loading-dot:nth-child(3) { animation-delay: 0.32s; }
+
+/* Chat markdown styling */
+.chat-markdown h3,
+.chat-markdown h4 {
+    font-family: 'Outfit', system-ui, sans-serif;
+}
+
+.chat-markdown table {
+    border-spacing: 0;
+}
+
+.chat-markdown a {
+    color: #059669;
+    text-decoration: underline;
+}
+
+.dark .chat-markdown a {
+    color: #34d399;
+}
