@@ -110,7 +110,9 @@ CRITICAL RULES:
 6. For quantity: use "No. of Shares" or "No. of Units" or "Balance Units"
 7. Keep different folios as SEPARATE entries (same fund, different folio = separate holdings)
 8. If a page has no holdings (just transactions/notes), return []
-9. Do NOT include transaction history, only current holdings/balances"""
+9. Do NOT include transaction history, only current holdings/balances
+10. For Sovereign Gold Bonds (SGB): use the FULL series name including year and series number, e.g. "Sovereign Gold Bond 2020-21 Series VII" or "SGB 2018-19 Ser-III". Do NOT simplify to just "Sovereign Gold Bond" or "Central Government". Include the tranche/series identifier exactly as shown in the CAS.
+11. For Government Securities / T-Bills: include the full name with maturity date and coupon if shown."""
 
 
 # Model choices — cost optimized

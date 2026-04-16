@@ -1193,6 +1193,10 @@ const RATING_CONFIG = {
 };
 
 const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
+  const [drilldownRating, setDrilldownRating] = useState(null);
+  const [showAllTop, setShowAllTop] = useState(false);
+  const [showAllBottom, setShowAllBottom] = useState(false);
+
   useEffect(() => {
     if (!data && !loading) onLoad();
   }, []);
@@ -1245,10 +1249,10 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
   const summary = data.summary || {};
 
   const pieData = [
-    { name: "Outperforming", value: dist.overperforming || 0, color: "#10B981" },
-    { name: "Meeting Benchmark", value: dist.meeting || 0, color: "#3B82F6" },
-    { name: "Underperforming", value: dist.underperforming || 0, color: "#EF4444" },
-    { name: "No Data", value: dist.no_data || 0, color: "#CBD5E1" },
+    { name: "Outperforming", value: dist.overperforming || 0, color: "#10B981", ratingKey: "outperforming" },
+    { name: "Meeting Benchmark", value: dist.meeting || 0, color: "#3B82F6", ratingKey: "meeting" },
+    { name: "Underperforming", value: dist.underperforming || 0, color: "#EF4444", ratingKey: "underperforming" },
+    { name: "No Data", value: dist.no_data || 0, color: "#CBD5E1", ratingKey: "no_data" },
   ].filter(d => d.value > 0);
 
   const overlapBarData = catOverlap
@@ -1281,16 +1285,23 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                 <div className="w-40 h-40 flex-shrink-0" data-testid="benchmark-pie">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={2} dataKey="value">
-                        {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={2} dataKey="value"
+                        onClick={(entry) => {
+                          if (entry?.ratingKey) setDrilldownRating(entry.ratingKey);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        {pieData.map((d, i) => <Cell key={i} fill={d.color} className="cursor-pointer hover:opacity-80 transition-opacity" />)}
                       </Pie>
-                      <Tooltip formatter={(v, name) => [`${v} funds`, name]} />
+                      <Tooltip formatter={(v, name) => [`${v} funds — click to view`, name]} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="flex-1 space-y-2.5">
                   {pieData.map(d => (
-                    <div key={d.name} className="flex items-center justify-between">
+                    <div key={d.name} className="flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                      onClick={() => setDrilldownRating(d.ratingKey)}
+                    >
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
                         <span className="text-xs text-slate-600 dark:text-slate-400">{d.name}</span>
@@ -1302,9 +1313,44 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                     <p className="text-[10px] text-slate-400">
                       {summary.matched || 0} of {summary.total_mf || 0} funds matched with AMFI data
                     </p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">Click a segment or label to see funds in that category</p>
                   </div>
                 </div>
               </div>
+
+              {/* Drilldown: show funds for clicked rating */}
+              {drilldownRating && (() => {
+                const ratingMap = { outperforming: "outperforming", meeting: "meeting", underperforming: "underperforming", no_data: "no_data" };
+                const ratingLabel = { outperforming: "Outperforming", meeting: "Meeting Benchmark", underperforming: "Underperforming", no_data: "No Data" };
+                const drillFunds = ratings.filter(r => r.rating === ratingMap[drilldownRating]);
+                return (
+                  <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-medium text-slate-900 dark:text-white">
+                        {ratingLabel[drilldownRating]} Funds ({drillFunds.length})
+                      </p>
+                      <button onClick={() => setDrilldownRating(null)} className="text-[10px] text-slate-400 hover:text-slate-600">Close</button>
+                    </div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {drillFunds.length > 0 ? drillFunds.map((r, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                          <span className="text-slate-700 dark:text-slate-300 truncate flex-1 mr-2">{r.name}</span>
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <span className={`font-bold ${(r.return_1y || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                              {r.return_1y !== null ? `${r.return_1y >= 0 ? "+" : ""}${r.return_1y}%` : "—"}
+                            </span>
+                            {r.benchmark_return !== null && (
+                              <span className="text-slate-400">vs {r.benchmark_return >= 0 ? "+" : ""}{r.benchmark_return}%</span>
+                            )}
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-xs text-slate-400 text-center py-3">No funds in this category</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </motion.div>
@@ -1317,8 +1363,8 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                 Best & Worst Performers (1Y Return)
               </h3>
               <div className="space-y-1">
-                {topPerf.slice(0, 3).map((p, i) => (
-                  <div key={`top-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10">
+                {(showAllTop ? topPerf : topPerf.slice(0, 5)).map((p, i) => (
+                  <div key={`top-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-colors">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
                         <TrendingUp className="w-3 h-3 text-emerald-600" />
@@ -1330,11 +1376,20 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                     </span>
                   </div>
                 ))}
+                {topPerf.length > 5 && (
+                  <button
+                    onClick={() => setShowAllTop(!showAllTop)}
+                    className="w-full text-[10px] font-medium text-emerald-600 hover:text-emerald-700 py-1 text-center"
+                    data-testid="show-more-top-performers"
+                  >
+                    {showAllTop ? "Show Less" : `Show All ${topPerf.length}`}
+                  </button>
+                )}
 
                 <div className="border-t border-slate-100 dark:border-slate-700 my-2" />
 
-                {bottomPerf.slice(0, 3).map((p, i) => (
-                  <div key={`bottom-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-900/10">
+                {(showAllBottom ? bottomPerf : bottomPerf.slice(0, 5)).map((p, i) => (
+                  <div key={`bottom-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                         <TrendingDown className="w-3 h-3 text-red-500" />
@@ -1346,6 +1401,15 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                     </span>
                   </div>
                 ))}
+                {bottomPerf.length > 5 && (
+                  <button
+                    onClick={() => setShowAllBottom(!showAllBottom)}
+                    className="w-full text-[10px] font-medium text-red-500 hover:text-red-600 py-1 text-center"
+                    data-testid="show-more-bottom-performers"
+                  >
+                    {showAllBottom ? "Show Less" : `Show All ${bottomPerf.length}`}
+                  </button>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -596,63 +596,8 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         </Card>
       </motion.div>
 
-      {/* ─── TOP MOVERS ─── */}
-      {(analytics.top_gainers?.length > 0 || analytics.top_losers?.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {analytics.top_gainers?.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
-                <CardContent className="p-6">
-                  <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    <TrendingUp className="w-4 h-4 text-emerald-600" /> Top Gainers
-                  </h3>
-                  <div className="space-y-2.5">
-                    {analytics.top_gainers.map((g, i) => (
-                      <div key={i} className="flex items-center justify-between py-1 cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-900/10 rounded-lg px-2 -mx-2 transition-colors"
-                        onClick={() => {
-                          const matched = holdings.filter(h => h.name === g.name);
-                          if (matched.length) setDrilldown({ title: g.name, holdings: matched });
-                        }}>
-                        <span className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{g.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">{fmt(g.value)}</span>
-                          <span className="text-sm font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">+{g.pct_change}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-          {analytics.top_losers?.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.54 }}>
-              <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
-                <CardContent className="p-6">
-                  <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    <TrendingDown className="w-4 h-4 text-red-500" /> Top Losers
-                  </h3>
-                  <div className="space-y-2.5">
-                    {analytics.top_losers.map((l, i) => (
-                      <div key={i} className="flex items-center justify-between py-1 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg px-2 -mx-2 transition-colors"
-                        onClick={() => {
-                          const matched = holdings.filter(h => h.name === l.name);
-                          if (matched.length) setDrilldown({ title: l.name, holdings: matched });
-                        }}>
-                        <span className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">{l.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400">{fmt(l.value)}</span>
-                          <span className="text-sm font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded-lg">{l.pct_change}%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-        </div>
-      )}
+      {/* ─── BEST & WORST (Separated by Equity/MF with Show More) ─── */}
+      <BestWorstSection analytics={analytics} holdings={holdings} fmt={fmt} setDrilldown={setDrilldown} />
 
       {/* Drilldown Modal */}
       <DrilldownModal
@@ -661,6 +606,151 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         title={drilldown?.title || ""}
         holdings={drilldown?.holdings || []}
       />
+    </div>
+  );
+};
+
+// ── Best & Worst Section with Equity/MF tabs and Show More ──
+const BestWorstSection = ({ analytics, holdings, fmt, setDrilldown }) => {
+  const [moverTab, setMoverTab] = useState("all");
+  const [showAllGainers, setShowAllGainers] = useState(false);
+  const [showAllLosers, setShowAllLosers] = useState(false);
+
+  const allGainers = analytics.top_gainers || [];
+  const allLosers = analytics.top_losers || [];
+
+  const filteredGainers = useMemo(() => {
+    if (moverTab === "all") return allGainers;
+    if (moverTab === "equity") return allGainers.filter(g => g.asset_type === "equity");
+    return allGainers.filter(g => g.asset_type === "mutual_fund");
+  }, [allGainers, moverTab]);
+
+  const filteredLosers = useMemo(() => {
+    if (moverTab === "all") return allLosers;
+    if (moverTab === "equity") return allLosers.filter(l => l.asset_type === "equity");
+    return allLosers.filter(l => l.asset_type === "mutual_fund");
+  }, [allLosers, moverTab]);
+
+  const INITIAL_COUNT = 5;
+  const visibleGainers = showAllGainers ? filteredGainers : filteredGainers.slice(0, INITIAL_COUNT);
+  const visibleLosers = showAllLosers ? filteredLosers : filteredLosers.slice(0, INITIAL_COUNT);
+
+  if (allGainers.length === 0 && allLosers.length === 0) return null;
+
+  const MoverRow = ({ item, positive }) => (
+    <div
+      className={`flex items-center justify-between py-1.5 cursor-pointer rounded-lg px-2 -mx-2 transition-colors ${
+        positive ? "hover:bg-emerald-50 dark:hover:bg-emerald-900/10" : "hover:bg-red-50 dark:hover:bg-red-900/10"
+      }`}
+      onClick={() => {
+        const matched = holdings.filter(h => h.name === item.name);
+        if (matched.length) setDrilldown({ title: item.name, holdings: matched });
+      }}
+      data-testid={`mover-${positive ? "gainer" : "loser"}-${item.name?.slice(0,10)}`}
+    >
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="text-sm text-slate-600 dark:text-slate-300 truncate">{item.name}</span>
+        <span className="text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded-full flex-shrink-0 uppercase">
+          {item.asset_type === "mutual_fund" ? "MF" : item.asset_type === "equity" ? "EQ" : item.asset_type?.toUpperCase()?.slice(0,3)}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        <span className="text-xs text-slate-400">{fmt(item.value)}</span>
+        <span className={`text-sm font-medium px-2 py-0.5 rounded-lg ${
+          positive ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" : "text-red-500 bg-red-50 dark:bg-red-900/20"
+        }`}>
+          {positive ? "+" : ""}{item.pct_change}%
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Tab filter */}
+      <div className="flex items-center gap-2 mb-4" data-testid="movers-tabs">
+        {[
+          { id: "all", label: "All" },
+          { id: "equity", label: "Equity" },
+          { id: "mutual_fund", label: "Mutual Funds" },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => { setMoverTab(t.id); setShowAllGainers(false); setShowAllLosers(false); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+              moverTab === t.id
+                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 bg-slate-100 dark:bg-slate-800"
+            }`}
+            data-testid={`movers-tab-${t.id}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Gainers */}
+        {filteredGainers.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
+              <CardContent className="p-6">
+                <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <TrendingUp className="w-4 h-4 text-emerald-600" /> Best Performers
+                  <span className="text-[10px] text-slate-400 font-normal ml-auto">{filteredGainers.length} holdings</span>
+                </h3>
+                <div className="space-y-1" data-testid="gainers-list">
+                  {visibleGainers.map((g, i) => <MoverRow key={i} item={g} positive />)}
+                </div>
+                {filteredGainers.length > INITIAL_COUNT && (
+                  <button
+                    onClick={() => setShowAllGainers(!showAllGainers)}
+                    className="mt-3 w-full flex items-center justify-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 py-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/10 transition-colors"
+                    data-testid="show-more-gainers"
+                  >
+                    {showAllGainers ? "Show Less" : `Show All ${filteredGainers.length}`}
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAllGainers ? "rotate-180" : ""}`} />
+                  </button>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Losers */}
+        {filteredLosers.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.54 }}>
+            <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none">
+              <CardContent className="p-6">
+                <h3 className="text-base font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <TrendingDown className="w-4 h-4 text-red-500" /> Worst Performers
+                  <span className="text-[10px] text-slate-400 font-normal ml-auto">{filteredLosers.length} holdings</span>
+                </h3>
+                <div className="space-y-1" data-testid="losers-list">
+                  {visibleLosers.map((l, i) => <MoverRow key={i} item={l} positive={false} />)}
+                </div>
+                {filteredLosers.length > INITIAL_COUNT && (
+                  <button
+                    onClick={() => setShowAllLosers(!showAllLosers)}
+                    className="mt-3 w-full flex items-center justify-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                    data-testid="show-more-losers"
+                  >
+                    {showAllLosers ? "Show Less" : `Show All ${filteredLosers.length}`}
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAllLosers ? "rotate-180" : ""}`} />
+                  </button>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Empty state for filtered view */}
+        {filteredGainers.length === 0 && filteredLosers.length === 0 && (
+          <div className="col-span-2 text-center py-6 text-sm text-slate-400">
+            No {moverTab === "equity" ? "equity" : "mutual fund"} holdings with P&L data
+          </div>
+        )}
+      </div>
     </div>
   );
 };

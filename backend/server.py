@@ -1567,7 +1567,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
             sector_map_equity[sec] = sector_map_equity.get(sec, 0) + cur
         
         pct_change = ((cur - inv) / inv * 100) if inv > 0 else 0
-        holding_perf.append({"name": h["name"], "pct_change": round(pct_change, 2), "value": cur})
+        holding_perf.append({"name": h["name"], "pct_change": round(pct_change, 2), "value": cur, "asset_type": h.get("asset_type", "other")})
     
     total_returns = current_value - total_invested
     returns_pct = (total_returns / total_invested * 100) if total_invested > 0 else 0
@@ -1607,8 +1607,8 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     risk_label = "Low" if risk_score < 30 else "Moderate" if risk_score < 60 else "High"
     
     holding_perf.sort(key=lambda x: x["pct_change"], reverse=True)
-    top_gainers = holding_perf[:5]
-    top_losers = list(reversed(holding_perf[-5:])) if len(holding_perf) > 5 else []
+    top_gainers = holding_perf[:10]
+    top_losers = list(reversed(holding_perf[-10:])) if len(holding_perf) > 10 else []
     
     # Heatmap data: all holdings with value and return info for treemap
     heatmap_data = []
