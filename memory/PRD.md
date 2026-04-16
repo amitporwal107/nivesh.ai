@@ -30,6 +30,10 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - [x] **Missing CMP Highlighting**: Amber row highlighting + "No live CMP" label in portfolio grid
 - [x] **Gmail Import History**: Status endpoint shows last import timestamp; dedicated history API
 - [x] **Upload History API**: Track all file uploads with status and timestamps
+- [x] **SGB Series Names**: CAS parser prompt updated with rule 10 to extract full SGB series identifiers
+- [x] **MF Performance Drill-down**: Clickable pie chart segments in Benchmark tab show funds by rating category
+- [x] **Best & Worst Separated**: Dashboard movers section now has All/Equity/MF tabs with 5-item initial view + "Show More"
+- [x] **UI Readability**: Reduced cognitive load with tab organization, show-more patterns, and better information hierarchy
 
 ## Key DB Collections
 - `whitelisted_users`: {email, status, is_admin, invited_at, registered_at}
@@ -57,9 +61,7 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 ### P1
 - Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs
 - Historical stock price API for equity holdings (live CMP)
-- SGB series name preservation in CAS parsing
-- MF Performance drill-down with benchmark comparison
-- Best & Worst section separated for equity/MF with "show more"
+- Benchmark tooltip explaining what benchmark is and how it's calculated
 
 ### P2
 - Portfolio versioning (Delta tracking between CAS uploads)
