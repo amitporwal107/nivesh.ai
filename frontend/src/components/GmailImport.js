@@ -23,6 +23,7 @@ const getConfLevel = (c) => c >= 0.7 ? "high" : c >= 0.4 ? "medium" : "low";
 const GmailImport = ({ onRefresh }) => {
   const [connected, setConnected] = useState(false);
   const [connectedAt, setConnectedAt] = useState(null);
+  const [lastImport, setLastImport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [emails, setEmails] = useState([]);
@@ -76,6 +77,7 @@ const GmailImport = ({ onRefresh }) => {
       const res = await axios.get(`${API}/gmail/status`, { withCredentials: true });
       setConnected(res.data.connected);
       setConnectedAt(res.data.connected_at);
+      setLastImport(res.data.last_import || null);
     } catch {} finally {
       setLoading(false);
     }
@@ -163,7 +165,18 @@ const GmailImport = ({ onRefresh }) => {
               Gmail Auto-Import
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {connected ? "Connected — scan your inbox for CAS statements" : "Connect Gmail to auto-detect CAS emails"}
+              {connected ? (
+                <>
+                  Connected — scan your inbox for CAS statements
+                  {lastImport && (
+                    <span className="block text-[10px] text-slate-400 mt-0.5">
+                      Last import: <strong>{lastImport.filename || "CAS"}</strong> on{" "}
+                      {new Date(lastImport.imported_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {lastImport.count > 0 && ` (${lastImport.count} holdings)`}
+                    </span>
+                  )}
+                </>
+              ) : "Connect Gmail to auto-detect CAS emails"}
             </p>
           </div>
           {connected ? (

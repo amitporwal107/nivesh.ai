@@ -503,15 +503,50 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
 
 @api_router.get("/gmail/status")
 async def gmail_status(request: Request):
-    """Check if user has Gmail connected."""
+    """Check if user has Gmail connected, with last import info."""
     user = await get_current_user(request)
     token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
     if not token_doc:
         return {"connected": False}
+    
+    # Get last successful import
+    last_import = await db.gmail_imports.find_one(
+        {"user_id": user["user_id"], "status": "completed"},
+        {"_id": 0},
+        sort=[("imported_at", -1)]
+    )
+    
     return {
         "connected": True,
         "connected_at": token_doc.get("connected_at"),
+        "last_import": {
+            "filename": last_import.get("filename"),
+            "imported_at": last_import.get("imported_at"),
+            "count": last_import.get("count", 0),
+        } if last_import else None,
     }
+
+
+@api_router.get("/gmail/history")
+async def gmail_import_history(request: Request):
+    """Get history of all Gmail imports for this user."""
+    user = await get_current_user(request)
+    imports = await db.gmail_imports.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("imported_at", -1).to_list(50)
+    return {"imports": imports}
+
+
+@api_router.get("/portfolio/upload-history")
+async def upload_history(request: Request):
+    """Get history of all file uploads (CAS, CSV, Excel) for this user."""
+    user = await get_current_user(request)
+    tasks = await db.upload_tasks.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0, "task_id": 1, "status": 1, "message": 1, "count": 1, "source": 1, "created_at": 1, "completed_at": 1}
+    ).sort("created_at", -1).to_list(50)
+    return {"uploads": tasks}
 
 
 @api_router.post("/gmail/disconnect")
@@ -1505,23 +1540,31 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     total_invested = 0
     current_value = 0
     asset_map = {}
-    sector_map = {}
+    sector_map_equity = {}  # Equity-only sector exposure
     holding_perf = []
+    missing_cmp_count = 0
+    assumed_cost_count = 0
     
     for h in holdings:
-        # When CAS doesn't provide buy_price, use current_price as proxy
-        # (CAS PDFs often only show current NAV, not purchase cost)
         buy_p = h["buy_price"] if h["buy_price"] > 0 else h["current_price"]
         inv = h["quantity"] * buy_p
         cur = h["quantity"] * h["current_price"]
         total_invested += inv
         current_value += cur
         
+        # Track data quality flags
+        if h["buy_price"] > 0 and abs(h["buy_price"] - h["current_price"]) < 0.01:
+            missing_cmp_count += 1
+        if h["buy_price"] == 0 or (h.get("source") == "cas" and abs(h["buy_price"] - h["current_price"]) < 0.01):
+            assumed_cost_count += 1
+        
         at = h.get("asset_type", "other")
         asset_map[at] = asset_map.get(at, 0) + cur
         
-        sec = h.get("sector", "Other")
-        sector_map[sec] = sector_map.get(sec, 0) + cur
+        # Sector exposure: equity holdings only (not MFs, ETFs, etc.)
+        if at == "equity":
+            sec = h.get("sector", "Other")
+            sector_map_equity[sec] = sector_map_equity.get(sec, 0) + cur
         
         pct_change = ((cur - inv) / inv * 100) if inv > 0 else 0
         holding_perf.append({"name": h["name"], "pct_change": round(pct_change, 2), "value": cur})
@@ -1530,7 +1573,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     returns_pct = (total_returns / total_invested * 100) if total_invested > 0 else 0
     
     asset_allocation = [{"name": k, "value": round(v, 2)} for k, v in asset_map.items()]
-    sector_exposure = [{"name": k, "value": round(v, 2)} for k, v in sector_map.items()]
+    sector_exposure = [{"name": k, "value": round(v, 2)} for k, v in sector_map_equity.items()]
     
     # Risk scoring: based on concentration and diversification
     risk_score = 0
@@ -1555,7 +1598,8 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         elif max_sector_pct > 30:
             risk_score += 15
     
-    equity_pct = asset_map.get("equity", 0) / current_value * 100 if current_value > 0 else 0
+    equity_val_total = (asset_map.get("equity", 0) + asset_map.get("mutual_fund", 0) + asset_map.get("etf", 0))
+    equity_pct = equity_val_total / current_value * 100 if current_value > 0 else 0
     if equity_pct > 80:
         risk_score += 15
     
@@ -1585,16 +1629,15 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     heatmap_data.sort(key=lambda x: x["value"], reverse=True)
     
     # Performance trend: modeled 30-day portfolio value based on current data
-    # Uses date-based hash for consistent-per-day but different-each-day values
+    # SIMULATED — no real historical price data available
     import hashlib
     trend = []
-    base = total_invested if total_invested > 0 else current_value * 0.9  # Fallback: 90% of current
+    base = total_invested if total_invested > 0 else current_value * 0.9
     for i in range(30):
         day_offset = 29 - i
         d = datetime.now(timezone.utc) - timedelta(days=day_offset)
-        # Date-based deterministic noise: same value for same day, different each day
         day_hash = int(hashlib.md5(d.strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
-        noise = ((day_hash % 1000) / 1000.0 - 0.5) * 0.03  # ±1.5% noise
+        noise = ((day_hash % 1000) / 1000.0 - 0.5) * 0.03
         progress = (30 - day_offset) / 30
         modeled = base + (total_returns * progress) + (noise * current_value)
         trend.append({
@@ -1604,11 +1647,33 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     if trend:
         trend[-1]["value"] = round(current_value, 0)
     
-    # Day change: based on today's date hash so it varies daily but is consistent within a day
+    # Day change: SIMULATED — no real-time market feed connected
     today_hash = int(hashlib.md5(datetime.now(timezone.utc).strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
-    day_pct = ((today_hash % 2000) / 2000.0 - 0.5) * 0.04  # ±2% daily swing
+    day_pct = ((today_hash % 2000) / 2000.0 - 0.5) * 0.04
     day_change = round(current_value * day_pct, 2)
     day_change_pct = round((day_change / current_value * 100) if current_value > 0 else 0, 2)
+    
+    # ── Data Quality Flags ──
+    data_flags = {
+        "day_change_simulated": True,
+        "performance_trend_simulated": True,
+        "missing_cmp_count": missing_cmp_count,
+        "assumed_cost_count": assumed_cost_count,
+        "total_holdings": len(holdings),
+        "sector_exposure_equity_only": True,
+        "explanations": {
+            "day_change": "Day change is simulated using a deterministic model. Real-time market data feed is not connected. Actual day change requires a live stock/MF price API.",
+            "performance_trend": "The 30-day trend is modeled, not based on actual historical portfolio values. Historical price API integration is needed for real data.",
+            "risk_score": f"Risk Score ({risk_score}/100): Based on concentration risk (top holding %), asset diversity ({len(set(h.get('asset_type') for h in holdings))} asset types), sector concentration, and equity overweight ({equity_pct:.0f}%). Higher score = Higher risk.",
+            "health_diversification": "Diversification: Measured using HHI (Herfindahl-Hirschman Index) for concentration, number of asset types (equity, MF, gold, etc.), and sector spread. More diverse = higher score.",
+            "health_risk": "Risk Management: Inverse of the raw risk score. Lower portfolio risk = higher risk management score.",
+            "health_cost": "Cost Efficiency: Penalizes Regular plan mutual funds vs Direct plans. More Direct plans = higher cost efficiency.",
+            "health_performance": "Performance: Based on overall portfolio return %. 15%+ return = 95, 10-15% = 80, 5-10% = 65, 0-5% = 50, negative = lower.",
+            "health_overall": "Overall Health = 30% Diversification + 25% Risk Management + 20% Cost Efficiency + 25% Performance. Grade: A+ (90+), A (80+), B+ (70+), B (60+), C (50+), D (35+), F (<35).",
+            "sector_exposure": "Sector exposure is calculated for equity (stock) holdings only. Mutual funds are excluded as their underlying sector allocation is not available from CAS data.",
+            "missing_cmp": f"{missing_cmp_count} holdings have Current Market Price (CMP) equal to Buy Price — this usually means no live price data is available. P&L for these holdings will show as zero.",
+        }
+    }
     
     return {
         "total_invested": round(total_invested, 2),
@@ -1626,6 +1691,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "top_losers": top_losers,
         "heatmap_data": heatmap_data[:40],
         "performance_trend": trend,
+        "data_flags": data_flags,
         # ── Product Intelligence ──
         "health_score": compute_health_score(holdings, total_invested, current_value),
         "risk_analysis": compute_risk_analysis(holdings, current_value),
@@ -2129,7 +2195,7 @@ app.add_middleware(RateLimitMiddleware)
 
 _cors_env = os.environ.get('CORS_ORIGINS', '')
 if _cors_env == '*':
-    _cors_origins = ["https://ai-advisor-30.preview.emergentagent.com", "http://localhost:3000"]
+    _cors_origins = ["https://finance-agent-8.preview.emergentagent.com", "http://localhost:3000"]
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
 

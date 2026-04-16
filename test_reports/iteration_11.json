@@ -1,0 +1,89 @@
+{
+  "summary": "Iteration 11 testing complete. All 15 backend API tests pass (100%). Frontend UI verified: SimulatedBadge on Day Change ('SIMULATED'), 'MODELED' badge on Performance Trend, InfoTooltips on health score components working, amber highlighting for missing CMP holdings in Portfolio grid, risk drill-down with holdings breakdown, Gmail import component visible.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Dashboard charts",
+        "issues": ["Console warnings about chart dimensions (-1 width/height) - cosmetic issue, charts still render correctly"]
+      }
+    ]
+  },
+  "passed_tests": [
+    "Backend: GET /api/portfolio/analytics returns data_flags object with day_change_simulated, performance_trend_simulated, missing_cmp_count, assumed_cost_count",
+    "Backend: data_flags.explanations contains all 9 required explanation keys (day_change, performance_trend, risk_score, health_*, sector_exposure, missing_cmp)",
+    "Backend: data_flags.sector_exposure_equity_only is True",
+    "Backend: sector_exposure explanation clarifies equity-only calculation",
+    "Backend: risk_analysis contains risk_factors array with factor, severity, description, holdings",
+    "Backend: risk_factors have proper structure with holdings breakdown",
+    "Backend: GET /api/gmail/status returns connected status and last_import info",
+    "Backend: GET /api/gmail/status requires authentication (401 without token)",
+    "Backend: GET /api/gmail/history returns imports history array",
+    "Backend: GET /api/gmail/history requires authentication",
+    "Backend: GET /api/portfolio/upload-history returns uploads history array",
+    "Backend: GET /api/portfolio/upload-history requires authentication",
+    "Backend: upload history items have task_id and status fields",
+    "Backend: health_score contains all breakdown fields (diversification, risk, cost_efficiency, performance, overall, grade)",
+    "Backend: missing_cmp explanation present in data_flags",
+    "Frontend: Dashboard loads with 65 holdings, 33 missing CMP indicator",
+    "Frontend: 'NEEDS DATA' badge on Total Invested and Total Returns cards",
+    "Frontend: 'SIMULATED' badge on Day Change card",
+    "Frontend: 'MODELED' badge on Portfolio Performance chart",
+    "Frontend: Health Score card displays with grade A (88/100)",
+    "Frontend: 11 info icons present for tooltips",
+    "Frontend: InfoTooltip shows explanation on hover (tested health_overall)",
+    "Frontend: Risk Analysis shows 'Sector Concentration' risk factor with 'click to view' for holdings",
+    "Frontend: Portfolio view shows holdings table with 65 rows",
+    "Frontend: Amber background highlighting present for missing CMP rows",
+    "Frontend: 'No live CMP' label visible on holdings where buy_price == current_price",
+    "Frontend: Gmail Auto-Import component visible with 'Connect Gmail' button"
+  ],
+  "features_verified": {
+    "data_flags": "WORKING - day_change_simulated, performance_trend_simulated, missing_cmp_count, assumed_cost_count, explanations all present",
+    "sector_exposure_equity_only": "WORKING - Flag set to true, explanation clarifies MFs excluded",
+    "risk_drill_down": "WORKING - risk_factors array with holdings breakdown, clickable in UI",
+    "gmail_status_last_import": "WORKING - Returns last_import object when connected",
+    "gmail_history": "WORKING - Returns imports array",
+    "upload_history": "WORKING - Returns uploads array with task_id, status, source, etc.",
+    "simulated_badge_day_change": "WORKING - Shows 'SIMULATED' badge on Day Change card",
+    "modeled_badge_performance": "WORKING - Shows 'MODELED' badge on Performance Trend chart",
+    "info_tooltips_health_score": "WORKING - Hover shows detailed explanation for each component",
+    "missing_cmp_highlighting": "WORKING - Amber background and 'No live CMP' label on affected rows"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bug_fixes_iteration11.py",
+    "/app/test_reports/pytest/pytest_results_iteration11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "All bug fixes from 'nivesh.ai bugs.docx' have been properly implemented",
+    "Data quality flags clearly communicate simulated/modeled data to users",
+    "Health score tooltips provide good transparency on calculation methodology",
+    "Risk drill-down with holdings breakdown enables actionable insights"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bug_fixes_iteration11.py"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 tests passed)",
+    "frontend": "100% (all UI elements verified)"
+  },
+  "test_credentials": {
+    "user_id": "test-user-wealth001",
+    "email": "testuser@example.com",
+    "session_token": "test_session_wealth001"
+  },
+  "seed_data_creation": "None - used existing test user and holdings",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All bug fixes from iteration 11 verified. Backend endpoints: /api/portfolio/analytics (with data_flags), /api/gmail/status (with last_import), /api/gmail/history, /api/portfolio/upload-history all working. Frontend: SimulatedBadge, InfoTooltip, amber CMP highlighting all functional. Note: Day change and performance trend are intentionally SIMULATED/MODELED (documented in data_flags). Gmail OAuth requires real user interaction for full flow testing.",
+  "mocked_apis": {
+    "day_change": "SIMULATED - Uses hash-based deterministic model, not real market data",
+    "performance_trend": "MODELED - 30-day trend is modeled, not historical portfolio values"
+  }
+}

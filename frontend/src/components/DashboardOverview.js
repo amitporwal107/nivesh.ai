@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   BarChart, Bar,
   Treemap,
@@ -12,6 +12,30 @@ import {
 import { motion } from "framer-motion";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import DrilldownModal from "@/components/DrilldownModal";
+
+// ── InfoTooltip: hover to show explanation ──
+const InfoTooltip = ({ text, children }) => {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative inline-flex items-center" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      {children || <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-help ml-1" />}
+      {show && (
+        <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 text-[11px] leading-relaxed text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-lg pointer-events-none">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+};
+
+// ── SimulatedBadge: red flag for simulated/assumed data ──
+const SimulatedBadge = ({ label = "Simulated", tooltip }) => (
+  <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-red-600 bg-red-50 dark:bg-red-900/30 dark:text-red-400 px-1.5 py-0.5 rounded-md ml-1.5" data-testid="simulated-badge">
+    <Flag className="w-2.5 h-2.5" />
+    {label}
+    {tooltip && <InfoTooltip text={tooltip} />}
+  </span>
+);
 
 const COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
@@ -113,6 +137,8 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
   const rPos = analytics.total_returns >= 0;
   const dPos = (analytics.day_change || 0) >= 0;
   const allocationData = analytics.asset_allocation.map(a => ({ ...a, label: ASSET_LABELS[a.name] || a.name }));
+  const flags = analytics.data_flags || {};
+  const explanations = flags.explanations || {};
 
   return (
     <div data-testid="dashboard-overview" className="space-y-6">
@@ -127,6 +153,11 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
             <p className="text-sm text-slate-400">{today}</p>
             <span className="text-slate-300 mx-1">|</span>
             <p className="text-sm text-slate-500 font-medium">{analytics.holdings_count} holdings</p>
+            {flags.missing_cmp_count > 0 && (
+              <span className="text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-md font-medium">
+                {flags.missing_cmp_count} missing CMP
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -147,16 +178,26 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
       {/* ─── KPI CARDS (5 across) ─── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
-          { label: "Total Invested", value: fmt(analytics.total_invested), testid: "total-invested" },
+          { label: "Total Invested", value: fmt(analytics.total_invested), testid: "total-invested",
+            flag: flags.assumed_cost_count > 0 ? "assumed" : null,
+            flagTooltip: explanations.missing_cmp },
           { label: "Current Value", value: fmt(analytics.current_value), testid: "current-value" },
-          { label: "Total Returns", value: `${rPos ? "+" : ""}${fmt(Math.abs(analytics.total_returns))}`, sub: `${rPos ? "+" : ""}${analytics.returns_pct.toFixed(1)}%`, color: rPos ? "text-emerald-600" : "text-red-500", icon: rPos ? TrendingUp : TrendingDown, testid: "total-returns" },
-          { label: "Day Change", value: `${dPos ? "+" : ""}${fmt(Math.abs(analytics.day_change || 0))}`, sub: `${dPos ? "+" : ""}${(analytics.day_change_pct || 0).toFixed(2)}%`, color: dPos ? "text-emerald-600" : "text-red-500", icon: dPos ? ArrowUpRight : ArrowDownRight, testid: "day-change" },
-          { label: "Risk Score", value: analytics.risk_label, sub: `${analytics.risk_score}/100`, icon: AlertTriangle, color: analytics.risk_score < 30 ? "text-emerald-600" : analytics.risk_score < 60 ? "text-amber-500" : "text-red-500", testid: "risk-score", bar: analytics.risk_score },
+          { label: "Total Returns", value: `${rPos ? "+" : ""}${fmt(Math.abs(analytics.total_returns))}`, sub: `${rPos ? "+" : ""}${analytics.returns_pct.toFixed(1)}%`, color: rPos ? "text-emerald-600" : "text-red-500", icon: rPos ? TrendingUp : TrendingDown, testid: "total-returns",
+            flag: flags.assumed_cost_count > 0 ? "assumed" : null,
+            flagTooltip: explanations.missing_cmp },
+          { label: "Day Change", value: `${dPos ? "+" : ""}${fmt(Math.abs(analytics.day_change || 0))}`, sub: `${dPos ? "+" : ""}${(analytics.day_change_pct || 0).toFixed(2)}%`, color: dPos ? "text-emerald-600" : "text-red-500", icon: dPos ? ArrowUpRight : ArrowDownRight, testid: "day-change",
+            flag: "simulated",
+            flagTooltip: explanations.day_change },
+          { label: "Risk Score", value: analytics.risk_label, sub: `${analytics.risk_score}/100`, icon: AlertTriangle, color: analytics.risk_score < 30 ? "text-emerald-600" : analytics.risk_score < 60 ? "text-amber-500" : "text-red-500", testid: "risk-score", bar: analytics.risk_score,
+            infoTooltip: explanations.risk_score },
         ].map((kpi, i) => (
           <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
             <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 dark:hover:border-slate-600 transition-all duration-300 h-full">
               <CardContent className="p-5">
-                <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{kpi.label}</p>
+                <div className="flex items-center gap-1">
+                  <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{kpi.label}</p>
+                  {kpi.infoTooltip && <InfoTooltip text={kpi.infoTooltip}><Info className="w-3 h-3 text-slate-400 hover:text-slate-600 cursor-help mb-2" /></InfoTooltip>}
+                </div>
                 <div className="flex items-center gap-1.5">
                   {kpi.icon && <kpi.icon className={`w-4 h-4 ${kpi.color}`} strokeWidth={1.5} />}
                   <p className={`text-xl font-semibold ${kpi.color || "text-slate-900 dark:text-white"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={kpi.testid}>
@@ -164,6 +205,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   </p>
                 </div>
                 {kpi.sub && <p className={`text-xs mt-0.5 ${kpi.color || "text-slate-500"}`}>{kpi.sub}</p>}
+                {kpi.flag && (
+                  <SimulatedBadge
+                    label={kpi.flag === "simulated" ? "Simulated" : "Needs Data"}
+                    tooltip={kpi.flagTooltip}
+                  />
+                )}
                 {kpi.bar !== undefined && (
                   <div className="mt-2 w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${kpi.bar}%`, background: "linear-gradient(90deg, #10B981 0%, #F59E0B 50%, #EF4444 100%)" }} data-testid="risk-bar" />
@@ -182,7 +229,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="health-score-card">
               <CardContent className="p-6">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>Portfolio Health</h3>
+                <div className="flex items-center gap-1">
+                  <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>Portfolio Health</h3>
+                  <InfoTooltip text={explanations.health_overall || "Overall portfolio health score based on diversification, risk management, cost efficiency, and performance."}>
+                    <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 cursor-help mb-4 ml-1" />
+                  </InfoTooltip>
+                </div>
                 <div className="flex items-center justify-center mb-4">
                   <div className="relative w-28 h-28">
                     <svg className="w-28 h-28 transform -rotate-90" viewBox="0 0 100 100">
@@ -198,14 +250,17 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                 </div>
                 <div className="space-y-2">
                   {[
-                    { label: "Diversification", val: analytics.health_score.diversification, color: "#3B82F6" },
-                    { label: "Risk Management", val: analytics.health_score.risk, color: "#10B981" },
-                    { label: "Cost Efficiency", val: analytics.health_score.cost_efficiency, color: "#F59E0B" },
-                    { label: "Performance", val: analytics.health_score.performance, color: "#8B5CF6" },
+                    { label: "Diversification", val: analytics.health_score.diversification, color: "#3B82F6", tooltip: explanations.health_diversification },
+                    { label: "Risk Management", val: analytics.health_score.risk, color: "#10B981", tooltip: explanations.health_risk },
+                    { label: "Cost Efficiency", val: analytics.health_score.cost_efficiency, color: "#F59E0B", tooltip: explanations.health_cost },
+                    { label: "Performance", val: analytics.health_score.performance, color: "#8B5CF6", tooltip: explanations.health_performance },
                   ].map(item => (
                     <div key={item.label}>
                       <div className="flex justify-between text-[10px] mb-0.5">
-                        <span className="text-slate-500 dark:text-slate-400">{item.label}</span>
+                        <span className="text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
+                          {item.label}
+                          {item.tooltip && <InfoTooltip text={item.tooltip}><Info className="w-2.5 h-2.5 text-slate-400 hover:text-slate-600 cursor-help" /></InfoTooltip>}
+                        </span>
                         <span className="font-medium text-slate-700 dark:text-slate-300">{item.val}</span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
@@ -219,15 +274,49 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           </motion.div>
 
           {/* Risk Warnings */}
-          {analytics.risk_analysis && analytics.risk_analysis.warnings?.length > 0 && (
+          {analytics.risk_analysis && (analytics.risk_analysis.warnings?.length > 0 || analytics.risk_analysis.risk_factors?.length > 0) && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }}>
               <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full">
                 <CardContent className="p-6">
                   <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4 flex items-center gap-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    <AlertTriangle className="w-4 h-4 text-amber-500" /> Risk Warnings
+                    <AlertTriangle className="w-4 h-4 text-amber-500" /> Risk Analysis
+                    <InfoTooltip text={explanations.risk_score || "Risk factors detected in your portfolio"}>
+                      <Info className="w-3 h-3 text-slate-400 hover:text-slate-600 cursor-help" />
+                    </InfoTooltip>
                   </h3>
-                  <div className="space-y-3">
-                    {analytics.risk_analysis.warnings.map((w, i) => (
+                  {/* Risk Factors with drilldown */}
+                  {analytics.risk_analysis.risk_factors?.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {analytics.risk_analysis.risk_factors.map((rf, i) => (
+                        <div key={i}
+                          className={`p-2.5 rounded-lg border cursor-pointer transition-all hover:shadow-sm ${
+                            rf.severity === "high" ? "border-red-200 bg-red-50/50 dark:bg-red-900/10 dark:border-red-800" :
+                            "border-amber-200 bg-amber-50/50 dark:bg-amber-900/10 dark:border-amber-800"
+                          }`}
+                          onClick={() => {
+                            if (rf.holdings?.length > 0) {
+                              const matched = holdings.filter(h => rf.holdings.some(rh => h.name.startsWith(rh.name?.slice(0, 20))));
+                              if (matched.length > 0) setDrilldown({ title: rf.factor, holdings: matched });
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-slate-900 dark:text-white">{rf.factor}</span>
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                              rf.severity === "high" ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" : "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+                            }`}>{rf.severity}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{rf.description}</p>
+                          {rf.holdings?.length > 0 && (
+                            <p className="text-[9px] text-slate-400 mt-1">{rf.holdings.length} holding(s) — click to view</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Warning list */}
+                  <div className="space-y-2">
+                    {analytics.risk_analysis.warnings?.map((w, i) => (
                       <div key={i} className="flex items-start gap-2.5 text-sm">
                         <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
                         <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">{w}</p>
@@ -271,9 +360,14 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="performance-trend-chart">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Portfolio Performance
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    Portfolio Performance
+                  </h3>
+                  {flags.performance_trend_simulated && (
+                    <SimulatedBadge label="Modeled" tooltip={explanations.performance_trend} />
+                  )}
+                </div>
                 <span className="text-xs text-slate-400 font-medium">Last 30 days</span>
               </div>
               <div className="h-64">
@@ -288,7 +382,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                     <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} interval="preserveStartEnd" />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} tickFormatter={(v) => fmtShort(v)} width={55} />
-                    <Tooltip
+                    <RechartsTooltip
                       contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", fontFamily: "'Figtree', sans-serif", fontSize: 13 }}
                       formatter={(v) => [fmt(v), "Value"]}
                     />
@@ -320,7 +414,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                         }}>
                         {allocationData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} className="cursor-pointer hover:opacity-80 transition-opacity" />)}
                       </Pie>
-                      <Tooltip formatter={(v) => fmt(v)} />
+                      <RechartsTooltip formatter={(v) => fmt(v)} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -354,7 +448,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
             <CardContent className="p-6 md:p-8">
               <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
-              <p className="text-[10px] text-slate-400 mb-5">Click a bar to view holdings</p>
+              <p className="text-[10px] text-slate-400 mb-5">Equity holdings only &middot; Click a bar to view holdings</p>
               {sectorBarData.length > 0 ? (
                 <div className="h-64 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
@@ -369,7 +463,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                       <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
                       <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={(v) => `${v}%`} />
                       <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={100} />
-                      <Tooltip formatter={(v) => [`${v}%`, "Allocation"]} contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13 }} />
+                      <RechartsTooltip formatter={(v) => [`${v}%`, "Allocation"]} contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 13 }} />
                       <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={18} className="cursor-pointer">
                         {sectorBarData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Bar>
@@ -426,7 +520,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                       }
                     }}
                   >
-                    <Tooltip 
+                    <RechartsTooltip 
                       content={({ payload }) => {
                         if (!payload?.[0]?.payload) return null;
                         const d = payload[0].payload;

@@ -8,7 +8,6 @@ def compute_health_score(holdings: list, total_invested: float, current_value: f
     if not holdings or total_invested == 0:
         return {"diversification": 0, "risk": 0, "cost_efficiency": 0, "performance": 0, "overall": 0, "grade": "N/A"}
 
-    n = len(holdings)
     returns_pct = ((current_value - total_invested) / total_invested * 100) if total_invested > 0 else 0
 
     # ── Diversification Score (0-100) ──
@@ -72,29 +71,46 @@ def compute_health_score(holdings: list, total_invested: float, current_value: f
 
 
 def compute_risk_analysis(holdings: list, current_value: float) -> dict:
-    """Detailed risk analysis with warnings."""
+    """Detailed risk analysis with warnings and per-factor holdings breakdown."""
     if not holdings or current_value == 0:
-        return {"score": 0, "label": "N/A", "concentration_risk": 0, "top_holding_pct": 0, "asset_count": 0, "sector_count": 0, "warnings": []}
+        return {"score": 0, "label": "N/A", "concentration_risk": 0, "top_holding_pct": 0, "asset_count": 0, "sector_count": 0, "warnings": [], "risk_factors": []}
 
     score = _compute_risk_score(holdings, current_value)
     label = "Low" if score < 25 else "Moderate" if score < 50 else "High" if score < 75 else "Very High"
 
-    values = [(h["name"], h["quantity"] * h["current_price"]) for h in holdings]
+    values = [(h["name"], h["quantity"] * h["current_price"], h) for h in holdings]
     values.sort(key=lambda x: x[1], reverse=True)
     top_pct = (values[0][1] / current_value * 100) if values else 0
 
     # HHI
-    shares = [v / current_value for _, v in values if current_value > 0]
+    shares = [v / current_value for _, v, _ in values if current_value > 0]
     hhi = sum(s ** 2 for s in shares) if shares else 0
 
     asset_types = set(h.get("asset_type") for h in holdings)
     sectors = set(h.get("sector", "Other") for h in holdings)
 
     warnings = []
+    risk_factors = []
+    
     if top_pct > 20:
         warnings.append(f"Top holding ({values[0][0][:30]}) is {top_pct:.1f}% of portfolio — high concentration risk")
+        # Add top 5 holdings as risk factor detail
+        risk_factors.append({
+            "factor": "Concentration Risk",
+            "severity": "high" if top_pct > 30 else "medium",
+            "description": f"Top holding is {top_pct:.1f}% of portfolio",
+            "holdings": [{"name": n[:40], "value": round(v, 0), "pct": round(v / current_value * 100, 1)} for n, v, _ in values[:5]],
+        })
+    
     if len(asset_types) < 3:
         warnings.append(f"Only {len(asset_types)} asset types — consider diversifying across equity, debt, gold")
+        risk_factors.append({
+            "factor": "Low Diversification",
+            "severity": "medium",
+            "description": f"Only {len(asset_types)} asset types: {', '.join(sorted(asset_types))}",
+            "holdings": [],
+        })
+    
     if hhi > 0.15:
         warnings.append("Portfolio is concentrated in few holdings — spread across more instruments")
 
@@ -108,6 +124,31 @@ def compute_risk_analysis(holdings: list, current_value: float) -> dict:
     equity_pct = equity_val / current_value * 100 if current_value > 0 else 0
     if equity_pct > 85:
         warnings.append(f"Equity exposure is {equity_pct:.0f}% — consider adding debt/gold for stability")
+        risk_factors.append({
+            "factor": "Equity Overweight",
+            "severity": "high" if equity_pct > 90 else "medium",
+            "description": f"Equity/MF/ETF is {equity_pct:.0f}% of portfolio. Recommended: 60-80%.",
+            "holdings": [{"name": h["name"][:40], "value": round(h["quantity"] * h["current_price"], 0), "asset_type": h.get("asset_type")} 
+                        for h in sorted(holdings, key=lambda x: x["quantity"] * x["current_price"], reverse=True) 
+                        if h.get("asset_type") in ("equity", "mutual_fund", "etf")][:8],
+        })
+
+    # Sector concentration check
+    sector_map_risk = {}
+    for h in holdings:
+        sec = h.get("sector", "Other")
+        sector_map_risk[sec] = sector_map_risk.get(sec, 0) + h["quantity"] * h["current_price"]
+    if sector_map_risk:
+        top_sector = max(sector_map_risk, key=sector_map_risk.get)
+        top_sector_pct = sector_map_risk[top_sector] / current_value * 100
+        if top_sector_pct > 35:
+            risk_factors.append({
+                "factor": "Sector Concentration",
+                "severity": "high" if top_sector_pct > 50 else "medium",
+                "description": f"{top_sector} is {top_sector_pct:.0f}% of portfolio",
+                "holdings": [{"name": h["name"][:40], "value": round(h["quantity"] * h["current_price"], 0), "sector": h.get("sector")} 
+                            for h in holdings if h.get("sector") == top_sector][:5],
+            })
 
     # Regular plan warning
     regular_mfs = [h["name"] for h in holdings if "regular" in h.get("name", "").lower() and h.get("asset_type") == "mutual_fund"]
@@ -122,6 +163,7 @@ def compute_risk_analysis(holdings: list, current_value: float) -> dict:
         "asset_count": len(asset_types),
         "sector_count": len(sectors),
         "warnings": warnings[:6],
+        "risk_factors": risk_factors[:5],
     }
 
 
@@ -161,7 +203,6 @@ def generate_recommendations(holdings: list, current_value: float, total_investe
         })
 
     # 3. Asset allocation
-    equity_pct = (asset_map.get("equity", 0) + asset_map.get("mutual_fund", 0) + asset_map.get("etf", 0)) / current_value * 100 if current_value > 0 else 0
     debt_pct = (asset_map.get("bond", 0) + asset_map.get("fd", 0)) / current_value * 100 if current_value > 0 else 0
     gold_pct = asset_map.get("gold", 0) / current_value * 100 if current_value > 0 else 0
 

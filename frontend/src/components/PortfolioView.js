@@ -387,7 +387,9 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                 const pnlPct = inv > 0 ? (pnl / inv) * 100 : 0;
                 const pos = pnl >= 0;
                 return (
-                  <TableRow key={h.holding_id} className="border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                  <TableRow key={h.holding_id} className={`border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/30 ${
+                    (h.buy_price > 0 && Math.abs(h.buy_price - h.current_price) < 0.01) ? "bg-amber-50/40 dark:bg-amber-900/10" : ""
+                  }`}>
                     <TableCell className="py-3">
                       <p className="text-sm font-medium text-slate-900 dark:text-white">{h.name}</p>
                       {h.ticker && <p className="text-[10px] text-slate-400">{h.ticker}</p>}
@@ -395,7 +397,14 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                     <TableCell><span className="text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{ASSET_LABELS[h.asset_type] || h.asset_type}</span></TableCell>
                     <TableCell className="text-sm text-slate-700 dark:text-slate-300">{h.quantity.toLocaleString(undefined, {maximumFractionDigits: 3})}</TableCell>
                     <TableCell className="text-sm text-slate-700 dark:text-slate-300">₹{h.buy_price.toLocaleString()}</TableCell>
-                    <TableCell className="text-sm text-slate-700 dark:text-slate-300">₹{h.current_price.toLocaleString()}</TableCell>
+                    <TableCell className="text-sm text-slate-700 dark:text-slate-300">
+                      <span className={`${(h.buy_price > 0 && Math.abs(h.buy_price - h.current_price) < 0.01) ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                        ₹{h.current_price.toLocaleString()}
+                      </span>
+                      {h.buy_price > 0 && Math.abs(h.buy_price - h.current_price) < 0.01 && (
+                        <span className="block text-[9px] text-amber-500 font-medium">No live CMP</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-sm font-medium text-slate-900 dark:text-white">₹{cur.toLocaleString(undefined, {maximumFractionDigits: 0})}</TableCell>
                     <TableCell>
                       <p className={`text-sm font-medium ${pos ? "text-emerald-600" : "text-red-500"}`}>{pos ? "+" : ""}₹{Math.abs(pnl).toLocaleString(undefined, {maximumFractionDigits: 0})}</p>

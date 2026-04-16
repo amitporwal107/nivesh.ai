@@ -19,7 +19,7 @@ import os
 import hashlib
 from datetime import datetime, timezone
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://ai-advisor-30.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://finance-agent-8.preview.emergentagent.com').rstrip('/')
 TEST_SESSION_TOKEN = "test_session_wealth001"
 
 
