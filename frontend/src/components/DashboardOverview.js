@@ -598,8 +598,8 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                       return (
                         <g style={{cursor:"pointer"}}>
                           <rect x={x} y={y} width={width} height={height} fill={bg} stroke="#F8FAFC" strokeWidth={2} rx={6} />
-                          {sn && <text x={x+width/2} y={y+height/2-(sp?7:0)} textAnchor="middle" fill={tc} fontSize={width>120?11:width>80?10:8} fontFamily="'Figtree',sans-serif" fontWeight={500} style={{pointerEvents:"none"}}>{n.length>(width>120?22:width>80?15:10)?n.slice(0,width>120?22:width>80?15:10)+"...":n}</text>}
-                          {sp && <text x={x+width/2} y={y+height/2+(sn?10:0)} textAnchor="middle" fill={tc} fontSize={width>80?11:9} fontFamily="'JetBrains Mono',monospace" fontWeight={600} style={{pointerEvents:"none"}}>{pos?"+":""}{rp.toFixed(1)}%</text>}
+                          {sn && <text x={x+width/2} y={y+height/2-(sp?7:0)} textAnchor="middle" fill={tc} fontSize={width>120?11:width>80?10:8} fontFamily="system-ui, -apple-system, sans-serif" fontWeight={500} style={{pointerEvents:"none"}}>{n.length>(width>120?22:width>80?15:10)?n.slice(0,width>120?22:width>80?15:10)+"...":n}</text>}
+                          {sp && <text x={x+width/2} y={y+height/2+(sn?10:0)} textAnchor="middle" fill={tc} fontSize={width>80?12:10} fontFamily="system-ui, -apple-system, sans-serif" fontWeight={700} style={{pointerEvents:"none"}}>{`${pos?"+":""}${rp.toFixed(1)}%`}</text>}
                         </g>
                       );
                     }}
