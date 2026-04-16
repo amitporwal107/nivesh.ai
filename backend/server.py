@@ -18,10 +18,11 @@ from datetime import datetime, timezone, timedelta
 # Local modules
 from models import PortfolioCreate, HoldingCreate, HoldingUpdate, ChatMessageInput, AssetType
 from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
-from services import compute_health_score, compute_risk_analysis, generate_recommendations
+from services import compute_health_score, compute_risk_analysis, generate_recommendations, simulate_optimized_portfolio
 from services.ai_engine import AIEngine
 from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from services.fund_performance import compute_benchmark_ratings
+from services.live_price import fetch_live_prices
 from services.gmail_service import (
     get_authorization_url, exchange_code_for_tokens,
     get_gmail_credentials, build_gmail_service,
@@ -1529,6 +1530,21 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
                 {"$set": {"current_price": h["current_price"], "nav_date": h.get("nav_date", ""), "nav_source": "AMFI"}}
             )
     
+    # Update equity and ETF holdings with live prices from Yahoo Finance
+    holdings, live_price_stats = await fetch_live_prices(holdings)
+    # Persist live prices back to DB
+    for h in holdings:
+        if h.get("price_source") == "yahoo_finance" and h.get("holding_id"):
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {
+                    "current_price": h["current_price"],
+                    "price_source": "yahoo_finance",
+                    "price_updated_at": h.get("price_updated_at", ""),
+                    "nse_symbol": h.get("nse_symbol", ""),
+                }}
+            )
+    
     if not holdings:
         return {
             "total_invested": 0, "current_value": 0, "total_returns": 0,
@@ -1692,6 +1708,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "heatmap_data": heatmap_data[:40],
         "performance_trend": trend,
         "data_flags": data_flags,
+        "live_price_stats": live_price_stats,
         # ── Product Intelligence ──
         "health_score": compute_health_score(holdings, total_invested, current_value),
         "risk_analysis": compute_risk_analysis(holdings, current_value),
@@ -1699,6 +1716,53 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     }
 
 # ==================== NAV & DEEP ANALYTICS ROUTES ====================
+
+@api_router.post("/portfolio/refresh-prices")
+async def refresh_equity_prices(request: Request):
+    """Manually refresh live equity/ETF prices from Yahoo Finance."""
+    user = await get_current_user(request)
+    holdings = await db.holdings.find(
+        {"user_id": user["user_id"], "asset_type": {"$in": ["equity", "etf"]}},
+        {"_id": 0}
+    ).to_list(2000)
+    
+    if not holdings:
+        return {"updated": 0, "message": "No equity/ETF holdings found"}
+    
+    holdings, stats = await fetch_live_prices(holdings)
+    # Persist
+    for h in holdings:
+        if h.get("price_source") == "yahoo_finance" and h.get("holding_id"):
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {
+                    "current_price": h["current_price"],
+                    "price_source": "yahoo_finance",
+                    "price_updated_at": h.get("price_updated_at", ""),
+                    "nse_symbol": h.get("nse_symbol", ""),
+                }}
+            )
+    return {"message": "Prices refreshed", **stats}
+
+@api_router.get("/portfolio/simulate")
+async def simulate_portfolio(request: Request, portfolio_id: str = ""):
+    """Simulate optimized portfolio if all recommendations are implemented."""
+    user = await get_current_user(request)
+    query = {"user_id": user["user_id"]}
+    if portfolio_id:
+        query["portfolio_id"] = portfolio_id
+    holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
+    if not holdings:
+        return {"current_returns_pct": 0, "optimized_returns_pct": 0, "additional_returns": 0, "actions": []}
+    
+    # Fetch live prices first
+    holdings, _ = await fetch_live_prices(holdings)
+    holdings = await update_holdings_nav(holdings)
+    
+    total_invested = sum(h["quantity"] * (h["buy_price"] if h["buy_price"] > 0 else h["current_price"]) for h in holdings)
+    current_value = sum(h["quantity"] * h["current_price"] for h in holdings)
+    
+    return simulate_optimized_portfolio(holdings, current_value, total_invested)
 
 @api_router.post("/nav/refresh")
 async def refresh_nav(request: Request):
@@ -1777,6 +1841,9 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
 
     if not holdings:
         return {"overexposure": {}, "overlap_matrix": [], "performance_cards": []}
+
+    # Fetch live prices for equity/ETF
+    holdings, _ = await fetch_live_prices(holdings)
 
     total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
     if total_value == 0:

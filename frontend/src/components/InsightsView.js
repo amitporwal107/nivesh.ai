@@ -3,11 +3,11 @@ import axios from "axios";
 import {
   Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
-  BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter,
+  BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
@@ -254,6 +254,8 @@ const SEVERITY_CONFIG = {
 const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analytics }) => {
   const [expandedInsight, setExpandedInsight] = useState(null);
   const [completedActions, setCompletedActions] = useState({});
+  const [simulation, setSimulation] = useState(null);
+  const [simulating, setSimulating] = useState(false);
 
   const toggleAction = (step) => setCompletedActions(prev => ({ ...prev, [step]: !prev[step] }));
   const completedCount = Object.values(completedActions).filter(Boolean).length;
@@ -261,7 +263,20 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
   // Compute confidence score from analytics data
   const totalHoldings = analytics?.performance_cards?.length || 0;
   const navMatched = analytics?.performance_cards?.filter(c => c.nav_source === "AMFI").length || 0;
-  const confidencePct = totalHoldings > 0 ? Math.round((navMatched / totalHoldings) * 100) : 0;
+  const livePriced = analytics?.performance_cards?.filter(c => c.nav_source === "yahoo_finance" || c.nav_source === "AMFI").length || 0;
+  const confidencePct = totalHoldings > 0 ? Math.round(((navMatched + livePriced) / totalHoldings) * 50 + 50) : 0;
+
+  const runSimulation = async () => {
+    setSimulating(true);
+    try {
+      const res = await axios.get(`${API}/portfolio/simulate`, { withCredentials: true });
+      if (res.data) setSimulation(res.data);
+    } catch {
+      toast.error("Failed to run simulation");
+    } finally {
+      setSimulating(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -512,6 +527,112 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           </div>
         </motion.div>
       )}
+
+      {/* ── Simulate Optimized Portfolio Button ── */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        <Card className="bg-gradient-to-r from-emerald-50 to-blue-50 dark:from-emerald-900/15 dark:to-blue-900/15 border-emerald-200 dark:border-emerald-800 rounded-2xl" data-testid="simulate-card">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                    Simulate Optimized Portfolio
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    See projected returns if all recommendations are implemented
+                  </p>
+                </div>
+              </div>
+              <Button
+                data-testid="simulate-button"
+                onClick={runSimulation}
+                disabled={simulating}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+              >
+                {simulating ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+                {simulating ? "Simulating..." : "Run Simulation"}
+              </Button>
+            </div>
+
+            {/* Simulation Results */}
+            <AnimatePresence>
+              {simulation && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="overflow-hidden"
+                >
+                  <div className="border-t border-emerald-200 dark:border-emerald-800 pt-4 mt-2">
+                    {/* Key metrics row */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="text-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Current Returns</p>
+                        <p className="text-lg font-bold text-slate-700 dark:text-slate-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {simulation.current_returns_pct >= 0 ? "+" : ""}{simulation.current_returns_pct}%
+                        </p>
+                        <p className="text-[10px] text-slate-400">{fmt(simulation.current_returns)}</p>
+                      </div>
+                      <div className="text-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Optimized (1Y)</p>
+                        <p className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          +{simulation.optimized_returns_pct}%
+                        </p>
+                        <p className="text-[10px] text-emerald-500">{fmt(simulation.optimized_value_1yr)}</p>
+                      </div>
+                      <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Additional Returns</p>
+                        <p className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                          +{fmt(simulation.additional_returns)}
+                        </p>
+                        <p className="text-[10px] text-emerald-500">+{simulation.additional_returns_pct}% extra p.a.</p>
+                      </div>
+                      <div className="text-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Actions</p>
+                        <p className="text-lg font-bold text-slate-700 dark:text-slate-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {simulation.actions?.length || 0}
+                        </p>
+                        <p className="text-[10px] text-slate-400">to implement</p>
+                      </div>
+                    </div>
+
+                    {/* Action breakdown */}
+                    {simulation.actions?.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Action Breakdown</p>
+                        {simulation.actions.map((a, i) => (
+                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                a.action === "sell" ? "bg-red-100 dark:bg-red-900/30" :
+                                a.action === "buy" ? "bg-emerald-100 dark:bg-emerald-900/30" :
+                                a.action === "switch" ? "bg-blue-100 dark:bg-blue-900/30" :
+                                "bg-amber-100 dark:bg-amber-900/30"
+                              }`}>
+                                {a.action === "sell" ? <ArrowDownRight className="w-3 h-3 text-red-500" /> :
+                                 a.action === "buy" ? <ArrowUpRight className="w-3 h-3 text-emerald-600" /> :
+                                 <ArrowRight className="w-3 h-3 text-amber-600" />}
+                              </div>
+                              <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{a.title}</span>
+                            </div>
+                            <span className="text-xs font-bold text-emerald-600 ml-2 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                              {a.savings_1yr > 0 ? `+${fmt(a.savings_1yr)}/yr` : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* ── Problem Distribution + Cost Leakage ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1183,6 +1304,156 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
 export default InsightsView;
 
 // ════════════════════════════════════════
+// FUND BENCHMARK DRILLDOWN - Grouped by AMC
+// ════════════════════════════════════════
+const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
+  const [expandedAmc, setExpandedAmc] = useState(null);
+
+  // Group funds by AMC
+  const amcGroups = useMemo(() => {
+    const groups = {};
+    const knownHouses = [
+      "HDFC", "ICICI Prudential", "ICICI", "SBI", "Axis", "Kotak",
+      "Aditya Birla Sun Life", "Aditya Birla", "Nippon India", "Nippon",
+      "UTI", "DSP", "Mirae Asset", "Mirae", "Tata", "Canara Robeco",
+      "Parag Parikh", "PPFAS", "Quant", "Bandhan", "Edelweiss",
+      "Invesco", "Sundaram", "PGIM", "Groww", "Motilal Oswal",
+    ];
+
+    (ratings || []).forEach(r => {
+      const name = r.name || "";
+      let amc = "Other";
+      for (const house of knownHouses) {
+        if (name.toLowerCase().includes(house.toLowerCase())) {
+          amc = house;
+          break;
+        }
+      }
+      if (!groups[amc]) groups[amc] = { funds: [], totalReturn: 0, count: 0 };
+      groups[amc].funds.push(r);
+      if (r.return_1y !== null) {
+        groups[amc].totalReturn += r.return_1y;
+        groups[amc].count += 1;
+      }
+    });
+
+    return Object.entries(groups)
+      .map(([name, data]) => ({
+        name,
+        funds: data.funds,
+        avgReturn: data.count > 0 ? (data.totalReturn / data.count) : null,
+        outperforming: data.funds.filter(f => f.rating === "outperforming").length,
+        underperforming: data.funds.filter(f => f.rating === "underperforming").length,
+      }))
+      .sort((a, b) => b.funds.length - a.funds.length);
+  }, [ratings]);
+
+  if (!amcGroups.length) return <p className="text-sm text-slate-400 text-center py-6">No fund data available</p>;
+
+  return (
+    <div className="space-y-2" data-testid="fund-benchmark-drilldown">
+      {amcGroups.map((amc) => {
+        const isExpanded = expandedAmc === amc.name;
+        return (
+          <div key={amc.name} className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <button
+              onClick={() => setExpandedAmc(isExpanded ? null : amc.name)}
+              className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+              data-testid={`amc-group-${amc.name}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-600 dark:text-slate-300">
+                  {amc.name.charAt(0)}
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{amc.name}</p>
+                  <p className="text-[10px] text-slate-500">{amc.funds.length} fund{amc.funds.length > 1 ? "s" : ""}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {amc.outperforming > 0 && (
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">
+                    {amc.outperforming} outperforming
+                  </span>
+                )}
+                {amc.underperforming > 0 && (
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-red-500 bg-red-50 dark:bg-red-900/30 px-1.5 py-0.5 rounded">
+                    {amc.underperforming} underperforming
+                  </span>
+                )}
+                {amc.avgReturn !== null && (
+                  <span className={`text-xs font-bold ${amc.avgReturn >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                    {amc.avgReturn >= 0 ? "+" : ""}{amc.avgReturn.toFixed(1)}%
+                  </span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+              </div>
+            </button>
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="border-t border-slate-100 dark:border-slate-700 p-4 space-y-3">
+                    {amc.funds.map((r, i) => {
+                      const cfg = RATING_CONFIG[r.rating] || RATING_CONFIG.no_data;
+                      const RIcon = cfg.icon;
+                      return (
+                        <div key={i} className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3`} data-testid={`fund-rating-${amc.name}-${i}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <RIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: cfg.color }} />
+                                <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{r.name}</p>
+                              </div>
+                              <p className="text-[10px] text-slate-500">{r.sector} {r.scheme_category ? `| ${r.scheme_category}` : ""}</p>
+                            </div>
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
+                              {cfg.label}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-3">
+                            <div>
+                              <p className="text-[9px] text-slate-400">1Y Return</p>
+                              <p className={`text-sm font-bold ${(r.return_1y || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                                {r.return_1y !== null ? `${r.return_1y >= 0 ? "+" : ""}${r.return_1y}%` : "—"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-slate-400">Benchmark</p>
+                              <p className="text-sm font-medium text-slate-600 dark:text-slate-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                                {r.benchmark_return !== null ? `${r.benchmark_return >= 0 ? "+" : ""}${r.benchmark_return}%` : "—"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] text-slate-400">Alpha</p>
+                              <p className={`text-sm font-bold ${(r.alpha || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                                {r.alpha !== null ? `${r.alpha >= 0 ? "+" : ""}${r.alpha}%` : "—"}
+                              </p>
+                            </div>
+                          </div>
+                          {r.benchmark_name && (
+                            <p className="text-[9px] text-slate-400 mt-1">Benchmark: {r.benchmark_name}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ════════════════════════════════════════
 // BENCHMARK TAB - MF Benchmark Ratings, Performance Pie, Category Overlap Bar
 // ════════════════════════════════════════
 const RATING_CONFIG = {
@@ -1461,89 +1732,15 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
         </motion.div>
       )}
 
-      {/* Fund-by-Fund Benchmark Ratings */}
+      {/* Fund-by-Fund Benchmark Ratings - Grouped by AMC */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
           <CardContent className="p-6 md:p-8">
-            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-6" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
               Fund-by-Fund Benchmark Comparison
             </h3>
-            <div className="space-y-3" data-testid="fund-ratings-list">
-              {ratings.map((r, i) => {
-                const cfg = RATING_CONFIG[r.rating] || RATING_CONFIG.no_data;
-                const RIcon = cfg.icon;
-                return (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.02 }}
-                    className={`rounded-xl border ${cfg.border} ${cfg.bg} p-4`}
-                    data-testid={`fund-rating-${i}`}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <RIcon className="w-4 h-4 flex-shrink-0" style={{ color: cfg.color }} />
-                          <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{r.name}</p>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                          <span>{r.sector}</span>
-                          {r.scheme_category && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700">{r.scheme_category}</span>}
-                        </div>
-                      </div>
-
-                      <div className="flex-shrink-0 text-right">
-                        <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-lg" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
-                          {cfg.label}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Return comparison bar */}
-                    <div className="mt-3 grid grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-[10px] text-slate-400 mb-0.5">1Y Return</p>
-                        <p className={`text-sm font-bold ${(r.return_1y || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {r.return_1y !== null ? `${r.return_1y >= 0 ? "+" : ""}${r.return_1y}%` : "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 mb-0.5">Benchmark</p>
-                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {r.benchmark_return !== null ? `${r.benchmark_return >= 0 ? "+" : ""}${r.benchmark_return}%` : "—"}
-                        </p>
-                        {r.benchmark_name && <p className="text-[9px] text-slate-400">{r.benchmark_name}</p>}
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 mb-0.5">Alpha</p>
-                        <p className={`text-sm font-bold ${(r.alpha || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {r.alpha !== null ? `${r.alpha >= 0 ? "+" : ""}${r.alpha}%` : "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Visual bar: fund return vs benchmark */}
-                    {r.return_1y !== null && r.benchmark_return !== null && (
-                      <div className="mt-2">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden relative">
-                            <div className="h-full rounded-full absolute top-0 left-0" style={{ width: `${Math.min(Math.max(((r.return_1y + 20) / 60) * 100, 5), 95)}%`, backgroundColor: cfg.color, opacity: 0.7 }} />
-                          </div>
-                          <span className="text-[9px] text-slate-400 w-8 text-right">Fund</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden relative">
-                            <div className="h-full rounded-full absolute top-0 left-0 bg-slate-400" style={{ width: `${Math.min(Math.max(((r.benchmark_return + 20) / 60) * 100, 5), 95)}%` }} />
-                          </div>
-                          <span className="text-[9px] text-slate-400 w-8 text-right">Avg</span>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Click on an AMC group to expand and view individual fund details</p>
+            <FundBenchmarkDrilldown ratings={ratings} fmt={fmt} />
           </CardContent>
         </Card>
       </motion.div>

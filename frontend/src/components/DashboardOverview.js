@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown, ChevronUp, Zap, Activity } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,9 +9,46 @@ import {
   BarChart, Bar,
   Treemap,
 } from "recharts";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import DrilldownModal from "@/components/DrilldownModal";
+
+// ── Collapsible Section Wrapper ──
+const CollapsibleSection = ({ title, subtitle, icon: Icon, defaultOpen = true, badge, children, testId }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div data-testid={testId}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between py-2 group"
+        data-testid={`${testId}-toggle`}
+      >
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" strokeWidth={1.5} />}
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>{title}</h3>
+          {badge}
+        </div>
+        <div className="flex items-center gap-2">
+          {subtitle && <span className="text-xs text-slate-400 font-medium">{subtitle}</span>}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 // ── InfoTooltip: hover to show explanation ──
 const InfoTooltip = ({ text, children }) => {
@@ -153,6 +190,11 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
             <p className="text-sm text-slate-400">{today}</p>
             <span className="text-slate-300 mx-1">|</span>
             <p className="text-sm text-slate-500 font-medium">{analytics.holdings_count} holdings</p>
+            {analytics.live_price_stats?.updated > 0 && (
+              <span className="text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded-md font-medium flex items-center gap-1" data-testid="live-price-badge">
+                <Activity className="w-2.5 h-2.5" />{analytics.live_price_stats.updated} live prices
+              </span>
+            )}
             {flags.missing_cmp_count > 0 && (
               <span className="text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded-md font-medium">
                 {flags.missing_cmp_count} missing CMP
@@ -307,6 +349,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                             }`}>{rf.severity}</span>
                           </div>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{rf.description}</p>
+                          {rf.action_plan && (
+                            <div className="mt-2 p-2 bg-emerald-50/80 dark:bg-emerald-900/15 rounded-lg border border-emerald-200/50 dark:border-emerald-800/50">
+                              <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 mb-0.5">Action Plan</p>
+                              <p className="text-[10px] text-emerald-700 dark:text-emerald-300 leading-relaxed">{rf.action_plan}</p>
+                            </div>
+                          )}
                           {rf.holdings?.length > 0 && (
                             <p className="text-[9px] text-slate-400 mt-1">{rf.holdings.length} holding(s) — click to view</p>
                           )}
@@ -343,7 +391,24 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                           <span className="text-xs font-medium text-slate-900 dark:text-white">{r.title}</span>
                           <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">{r.impact}</span>
                         </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">{r.description?.slice(0, 120)}{r.description?.length > 120 ? "..." : ""}</p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">{r.description}</p>
+                        {(r.reduce_amount > 0 || r.add_amount > 0) && (
+                          <div className="flex gap-3 mt-2 text-[10px]">
+                            {r.reduce_amount > 0 && (
+                              <span className="text-red-500 font-medium flex items-center gap-1">
+                                <ArrowDownRight className="w-3 h-3" />Reduce: {fmt(r.reduce_amount)}
+                              </span>
+                            )}
+                            {r.add_amount > 0 && (
+                              <span className="text-emerald-600 font-medium flex items-center gap-1">
+                                <ArrowUpRight className="w-3 h-3" />Add: {fmt(r.add_amount)}
+                              </span>
+                            )}
+                            {r.current_pct !== undefined && r.target_pct !== undefined && (
+                              <span className="text-slate-400">{r.current_pct}% → {r.target_pct}%</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -354,42 +419,47 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         </div>
       )}
 
-      {/* ─── PERFORMANCE TREND (FULL WIDTH LINE CHART) ─── */}
+      {/* ─── PERFORMANCE TREND (BAR CHART) ─── */}
       {analytics.performance_trend?.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="performance-trend-chart">
             <CardContent className="p-6 md:p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Portfolio Performance
-                  </h3>
-                  {flags.performance_trend_simulated && (
-                    <SimulatedBadge label="Modeled" tooltip={explanations.performance_trend} />
-                  )}
+              <CollapsibleSection
+                title="Portfolio Performance"
+                subtitle="Last 30 days"
+                icon={BarChart3}
+                testId="section-performance"
+                badge={flags.performance_trend_simulated && (
+                  <SimulatedBadge label="Modeled" tooltip={explanations.performance_trend} />
+                )}
+              >
+                <div className="h-64 mt-4">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analytics.performance_trend} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#059669" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="#059669" stopOpacity={0.4} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} interval={4} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} tickFormatter={(v) => fmtShort(v)} width={55} />
+                      <RechartsTooltip
+                        contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", fontFamily: "'Figtree', sans-serif", fontSize: 13 }}
+                        formatter={(v) => [fmt(v), "Value"]}
+                      />
+                      <Bar dataKey="value" fill="url(#barGrad)" radius={[4, 4, 0, 0]} barSize={16} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-                <span className="text-xs text-slate-400 font-medium">Last 30 days</span>
-              </div>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analytics.performance_trend} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#059669" stopOpacity={0.15} />
-                        <stop offset="95%" stopColor="#059669" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} interval="preserveStartEnd" />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#94A3B8" }} tickFormatter={(v) => fmtShort(v)} width={55} />
-                    <RechartsTooltip
-                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", fontFamily: "'Figtree', sans-serif", fontSize: 13 }}
-                      formatter={(v) => [fmt(v), "Value"]}
-                    />
-                    <Area type="monotone" dataKey="value" stroke="#059669" strokeWidth={2.5} fill="url(#trendGrad)" dot={false} activeDot={{ r: 5, fill: "#059669", strokeWidth: 0 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+                {explanations.performance_trend && (
+                  <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-700">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">How is this calculated?</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">{explanations.performance_trend}</p>
+                  </div>
+                )}
+              </CollapsibleSection>
             </CardContent>
           </Card>
         </motion.div>
@@ -400,8 +470,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Asset Allocation</h3>
-              <p className="text-[10px] text-slate-400 mb-5">Click a segment to view details</p>
+              <CollapsibleSection title="Asset Allocation" subtitle="Click a segment to view details" testId="section-allocation">
               <div className="flex items-center gap-6">
                 <div className="w-44 h-44 flex-shrink-0 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
@@ -440,6 +509,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   })}
                 </div>
               </div>
+              </CollapsibleSection>
             </CardContent>
           </Card>
         </motion.div>
@@ -447,8 +517,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="sector-exposure-chart">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>Sector Exposure</h3>
-              <p className="text-[10px] text-slate-400 mb-5">Equity holdings only &middot; Click a bar to view holdings</p>
+              <CollapsibleSection title="Sector Exposure" subtitle="Equity holdings only" testId="section-sector">
               {sectorBarData.length > 0 ? (
                 <div className="h-64 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
@@ -473,6 +542,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
               ) : (
                 <p className="text-sm text-slate-400 text-center py-10">No sector data</p>
               )}
+              </CollapsibleSection>
             </CardContent>
           </Card>
         </motion.div>
@@ -483,19 +553,18 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.38 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none" data-testid="stock-heatmap">
             <CardContent className="p-6 md:p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Holdings Heatmap
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Click a holding to view details</p>
-                </div>
-                <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider uppercase">
-                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-400/60" />Loss</div>
-                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-400/40" />Low</div>
-                  <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500/80" />High</div>
-                </div>
-              </div>
+              <CollapsibleSection
+                title="Holdings Heatmap"
+                subtitle="Click a holding to view details"
+                testId="section-heatmap"
+                badge={
+                  <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider uppercase ml-4">
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-400/60" />Loss</div>
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-400/40" />Low</div>
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500/80" />High</div>
+                  </div>
+                }
+              >
               <div className="h-80 rounded-xl overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
                   <Treemap
@@ -540,6 +609,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   </Treemap>
                 </ResponsiveContainer>
               </div>
+              </CollapsibleSection>
             </CardContent>
           </Card>
         </motion.div>
