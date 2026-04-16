@@ -1,51 +1,78 @@
-# nivesh.ai — Product Requirements Document
+# nivesh.ai - Product Requirements Document
 
-## Problem Statement
-AI-powered autonomous financial advisor for Indian retail investors. Invite-only access, portfolio upload/parsing, unified dashboard, actionable insights, AI chat.
+## Original Problem Statement
+Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on Indian market (NSE/BSE, MFs), portfolio upload/parsing, unified dashboard, insights, and chat interface.
 
-## Tech Stack
-- **Frontend:** React 18, Tailwind CSS, Recharts, Shadcn UI, Framer Motion, @react-oauth/google
-- **Backend:** FastAPI, Motor/MongoDB, PyPDF2, pdf2image/poppler, google-api-python-client
-- **AI:** OpenAI SDK direct (gpt-4o for CAS parsing, gpt-4o-mini for chat/insights)
-- **Auth:** Direct Google OAuth 2.0 + Email Whitelist
-- **Market Data:** AMFI NAV, mfapi.in
-- **Email:** Gmail API (read-only, CAS auto-fetch)
+## Architecture
+- **Frontend**: React + Tailwind CSS + Recharts + Shadcn UI + Google OAuth (@react-oauth/google)
+- **Backend**: FastAPI + Motor/MongoDB + OpenAI SDK (user's personal key)
+- **PDF Parsing**: PyPDF2 + pdf2image + poppler + pycryptodome (AES)
+- **AI**: OpenAI GPT-4o (CAS parsing) + GPT-4o-mini (chat/insights)
 
-## What's Been Implemented (All Complete)
+## Core Features (Implemented)
+- [x] Google OAuth with invite-only whitelist
+- [x] Admin dashboard for email whitelisting
+- [x] Multi-format portfolio upload (CAS PDF, CSV, Excel)
+- [x] Gmail auto-fetch for CAS statements
+- [x] AMFI Live NAV integration & benchmark analysis
+- [x] Visual insights (fund overlap, overexposure, performance cards)
+- [x] AI-powered chat with portfolio context
+- [x] Portfolio Health Score with breakdowns
+- [x] Risk analysis with warnings
+- [x] Smart recommendations (Regular→Direct, rebalancing)
 
-### Core — Auth, Upload, Dashboard
-- Direct Google OAuth 2.0 + invite-only email whitelist
-- Admin panel (sidebar tab) with add/remove/block/bulk-upload/CSV
-- CAS PDF/CSV/Excel upload, family portfolios, dark/light mode
-- Interactive dashboard with drill-down charts
+## Bug Fixes (April 2026)
+- [x] **Data Quality Flags**: Day Change marked as "Simulated", Performance Trend as "Modeled"
+- [x] **Assumed Data Badges**: Holdings with CMP = Buy Price flagged "Needs Data" 
+- [x] **Sector Exposure**: Fixed to equity-only (excludes MFs)
+- [x] **Calculation Explanations**: Info tooltips on Health Score, Risk Score, Diversification, Cost Efficiency, Performance
+- [x] **Risk Drill-down**: Shows risk factors with severity, description, and clickable holdings breakdown
+- [x] **Missing CMP Highlighting**: Amber row highlighting + "No live CMP" label in portfolio grid
+- [x] **Gmail Import History**: Status endpoint shows last import timestamp; dedicated history API
+- [x] **Upload History API**: Track all file uploads with status and timestamps
 
-### AI & Insights (Redesigned)
-- **Portfolio Health Score** — Single metric (0-100) with circular gauge
-- **Actionable Insight Cards** — Problem → Why → Action → Impact in collapsible cards
-- **"If You Apply These Changes"** — Before/After with ₹ impact and 10Y wealth gain
-- **"What Happens If You Do Nothing?"** — Urgency section with annual cost leak
-- **Interactive Action Funnel** — Checkboxes with progress tracker
-- **Data Confidence Score** — Shows data quality (holdings tracked, NAV matched)
-- **Severity hierarchy** — Critical (red), Important (amber), Optimize (blue), Positive (green)
+## Key DB Collections
+- `whitelisted_users`: {email, status, is_admin, invited_at, registered_at}
+- `gmail_imports`: {user_id, message_id, imported_at, status, count}
+- `users`: {user_id, email, name, picture, created_at}
+- `portfolios`: {portfolio_id, user_id, name, member_name, relationship}
+- `holdings`: {holding_id, portfolio_id, user_id, asset_type, name, isin, quantity, avg_price, current_price, sector, uploaded_at}
+- `upload_tasks`: {task_id, user_id, status, message, count, source, created_at}
 
-### Market Data & Benchmark
-- AMFI Live NAV (31K+ schemes), Overexposure, Fund Overlap, Performance Cards
-- MF Benchmark Rating via mfapi.in (Outperforming/Meeting/Underperforming)
+## Key API Endpoints
+- `POST /api/auth/google` - Google OAuth login
+- `GET /api/portfolio/analytics` - Portfolio analytics with data_flags
+- `GET /api/gmail/status` - Gmail status + last import info
+- `GET /api/gmail/history` - Gmail import history
+- `GET /api/portfolio/upload-history` - File upload history
+- `POST /api/portfolio/upload-raw` - CAS PDF upload
+- `GET /api/portfolio/deep-analytics` - Advanced analytics
+- `GET /api/portfolio/fund-performance` - MF benchmark ratings
 
-### Gmail Auto-Fetch
-- Gmail OAuth connect, CAS email scanner, one-click import, deduplication
+## Backlog (Prioritized)
+### P0
+- Finvu Account Aggregator integration (needs sandbox credentials)
+- Fix portfolio value discrepancy (needs user to upload new CAS for validation)
 
-### Cost Optimization
-- Switched from Emergent LLM Key (GPT-5.2) to direct OpenAI SDK
-- gpt-4o-mini for chat & insights (~90% cost reduction)
-- gpt-4o for CAS parsing (accuracy-critical)
+### P1
+- Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs
+- Historical stock price API for equity holdings (live CMP)
+- SGB series name preservation in CAS parsing
+- MF Performance drill-down with benchmark comparison
+- Best & Worst section separated for equity/MF with "show more"
 
-## Admin
-- Admin email: priyankamantri@gmail.com (seeded on startup)
-- Whitelisted: priyankamantri@gmail.com, rohit123gupta@gmail.com
+### P2
+- Portfolio versioning (Delta tracking between CAS uploads)
+- Agentic AI execution and scenario simulation
+- Data confidence tracking and improvement guidance
+- CAS file download history with links
+- UI readability improvements (tabs for categories)
 
-## Remaining Backlog
-- P0: Finvu Account Aggregator integration
-- P1: Goal-based planning (Retirement, Child Education)
-- P1: Historical stock price API for equity
-- P2: Agentic AI execution and scenario simulation
+### Refactoring
+- server.py split into /routes directory using APIRouter (~2200 lines)
+
+## Technical Notes
+- Poppler-utils installed via server.py startup event (survives container restarts)
+- OpenAI key is user's personal key (NOT Emergent LLM key)
+- Day change and performance trend are SIMULATED (no live market feed)
+- Admin user: priyankamantri@gmail.com
