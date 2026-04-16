@@ -1006,42 +1006,66 @@ IMPORTANT RULES:
             raise HTTPException(status_code=400, detail="Incorrect PDF password or the file is corrupted. Please check and try again.")
 
     if text.strip() and len(text.strip()) > 200:
-        # For large CAS, process in text chunks to avoid token limits
-        all_parsed = []
-        chunk_size = 15000
-        full_text = text.strip()
+        # Process page-by-page for accuracy (each page is a logical unit)
+        # Combine pages into groups that are under token limits
+        from PyPDF2 import PdfReader as _PdfReader
+        page_texts = []
+        try:
+            _reader = _PdfReader(io.BytesIO(content))
+            if _reader.is_encrypted and password:
+                _reader.decrypt(password)
+            for pg in _reader.pages:
+                pt = pg.extract_text() or ""
+                if pt.strip():
+                    page_texts.append(pt)
+        except Exception:
+            # Fallback: split full text by page markers or size
+            page_texts = [text]
         
-        if len(full_text) <= chunk_size:
-            # Small enough for single call
-            try:
-                parsed = await ai_engine.parse_cas_text(full_text, f"cas_txt_{uuid.uuid4().hex[:8]}")
-                all_parsed.extend(parsed)
-            except Exception as e:
-                logger.error(f"CAS text parsing error: {e}")
-                raise HTTPException(status_code=422, detail=f"Could not parse CAS text. Error: {str(e)}")
-        else:
-            # Split into chunks, process each
-            for i in range(0, len(full_text), chunk_size):
-                chunk = full_text[i:i+chunk_size]
-                if len(chunk.strip()) < 100:
-                    continue
+        if not page_texts:
+            page_texts = [text]
+        
+        all_parsed = []
+        # Group pages into batches that stay under ~12K chars each
+        current_batch = ""
+        batch_num = 0
+        for pt in page_texts:
+            if len(current_batch) + len(pt) > 12000 and current_batch:
+                # Process this batch
                 try:
-                    parsed = await ai_engine.parse_cas_text(chunk, f"cas_txt_c{i//chunk_size}_{uuid.uuid4().hex[:6]}")
+                    parsed = await ai_engine.parse_cas_text(current_batch, f"cas_txt_b{batch_num}_{uuid.uuid4().hex[:6]}")
                     if parsed:
                         all_parsed.extend(parsed)
-                        logger.info(f"CAS text chunk {i//chunk_size}: extracted {len(parsed)} holdings")
+                        logger.info(f"CAS text batch {batch_num}: {len(parsed)} holdings")
                 except Exception as e:
-                    logger.warning(f"CAS text chunk {i//chunk_size} failed: {e}")
+                    logger.warning(f"CAS text batch {batch_num} failed: {e}")
+                current_batch = pt
+                batch_num += 1
+            else:
+                current_batch += "\n" + pt
+        
+        # Process final batch
+        if current_batch.strip():
+            try:
+                parsed = await ai_engine.parse_cas_text(current_batch, f"cas_txt_b{batch_num}_{uuid.uuid4().hex[:6]}")
+                if parsed:
+                    all_parsed.extend(parsed)
+                    logger.info(f"CAS text batch {batch_num}: {len(parsed)} holdings")
+            except Exception as e:
+                logger.warning(f"CAS text batch {batch_num} failed: {e}")
         
         if all_parsed:
-            # Deduplicate
+            # Deduplicate by ISIN+name
             seen = set()
             unique = []
             for h in all_parsed:
-                key = f"{h.get('name','').strip().lower()}__{h.get('quantity',0)}"
+                isin = (h.get("ticker") or h.get("isin") or "").strip().upper()
+                name = h.get("name", "").strip().lower()[:40]
+                key = f"{isin}__{name}" if isin else f"__{name}__{h.get('quantity',0)}"
                 if key not in seen:
                     seen.add(key)
                     unique.append(h)
+            logger.info(f"CAS text total: {len(all_parsed)} raw → {len(unique)} unique holdings")
             return unique
     
     # Image-based PDF — convert pages to images and use OpenAI vision

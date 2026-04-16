@@ -95,15 +95,22 @@ Rules:
 - Use ACTUAL fund names and numbers from the portfolio"""
 
 
-CAS_PARSER_SYSTEM = """You are a CAS (Consolidated Account Statement) parser for Indian investments.
-Extract ALL holdings. Return ONLY a JSON array:
-[{"name":"...","ticker":"ISIN if found","asset_type":"mutual_fund|equity|etf|bond|gold|fd|other","quantity":float,"buy_price":float,"current_price":float,"sector":"Large Cap|Mid Cap|..."}]
-Rules:
-- Keep different folios separate
-- For buy_price: use "Cost Value", "Invested Value", "Cost", or "Avg NAV" if available. If only current NAV/price is shown, use that as buy_price too.
-- For current_price: use "Market Value / Units" or "Current NAV" or "Value" 
-- NEVER use 0 for buy_price if you have ANY price data — use current_price as buy_price if cost is unknown
-- Return [] if no holdings"""
+CAS_PARSER_SYSTEM = """You are a CAS (Consolidated Account Statement) parser for Indian investments from NSDL/CDSL.
+Extract ALL holdings visible. Return ONLY a JSON array. No explanation.
+
+Output format per holding:
+[{"name":"Full company/fund name","ticker":"ISIN (INE.../INF...)","asset_type":"equity|mutual_fund|etf|gold|bond|fd|other","quantity":float,"buy_price":float,"current_price":float,"sector":"Large Cap|Mid Cap|Small Cap|Flexi Cap|ELSS|Debt|Hybrid|Gold|Banking|IT|Pharma|Other"}]
+
+CRITICAL RULES:
+1. Extract EVERY holding — equities, mutual funds, ETFs, SGBs, gold bonds. Do NOT skip any.
+2. For ISIN: use the INE/INF code exactly as shown
+3. For asset_type: stocks/shares = "equity", scheme/fund/SIP = "mutual_fund", ETF = "etf", SGB/Gold = "gold"
+4. For buy_price: use "Avg Cost Per Unit" or "Cost Value / Units" if shown. If only current NAV/price shown, use that as buy_price too. NEVER use 0.
+5. For current_price: use "Market Price" or "NAV" or "Value / Units"
+6. For quantity: use "No. of Shares" or "No. of Units" or "Balance Units"
+7. Keep different folios as SEPARATE entries (same fund, different folio = separate holdings)
+8. If a page has no holdings (just transactions/notes), return []
+9. Do NOT include transaction history, only current holdings/balances"""
 
 
 # Model choices — cost optimized
