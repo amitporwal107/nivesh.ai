@@ -2259,8 +2259,10 @@ async def clear_chat(request: Request, session_id: Optional[str] = None):
 async def get_user_profile(request: Request):
     user = await get_current_user(request)
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    holdings_count = await db.holdings.count_documents({"user_id": user["user_id"]})
     if not profile:
-        return {"user_id": user["user_id"], "journey_type": None, "risk_profile": None, "onboarding_completed": False}
+        return {"user_id": user["user_id"], "journey_type": None, "risk_profile": None, "onboarding_completed": False, "has_holdings": holdings_count > 0}
+    profile["has_holdings"] = holdings_count > 0
     return profile
 
 @api_router.post("/user/journey")

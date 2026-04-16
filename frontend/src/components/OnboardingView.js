@@ -87,6 +87,8 @@ const OnboardingView = ({ onComplete, userProfile }) => {
       if (userProfile.quick_setup) return "starter-plan";
       return "age";
     }
+    // Existing investor: if they already have holdings, skip to playbook
+    if (userProfile.has_holdings) return "playbook";
     return "data-source";
   };
 
