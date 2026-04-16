@@ -71,6 +71,7 @@ const Dashboard = () => {
 
   const handleOnboardingComplete = () => {
     fetchProfile();
+    fetchData();
     setActiveTab("overview");
   };
 
