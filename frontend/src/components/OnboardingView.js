@@ -162,7 +162,7 @@ const OnboardingView = ({ onComplete, userProfile }) => {
       await new Promise((r) => setTimeout(r, 2000));
       try {
         const res = await axios.get(`${API}/portfolio/upload-status/${taskId}`, { withCredentials: true });
-        if (res.data.status === "done") {
+        if (res.data.status === "done" || res.data.status === "completed") {
           setUploadResult({ status: "done", count: res.data.count || 0, message: `${res.data.count || 0} holdings imported successfully` });
           setUploading(false);
           return;
