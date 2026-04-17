@@ -1097,7 +1097,14 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
             return holdings
         logger.info("casparser returned no holdings, falling back to AI parsing")
     except Exception as e:
-        logger.info(f"casparser failed: {e}, falling back to AI parsing")
+        logger.info(f"casparser failed: {e}, falling back to local OCR parsing")
+
+    # ── Fallback: Local Tesseract OCR (no cloud dependency) ──
+    from services.cas_parser import parse_nsdl_cas_image
+    local_holdings = parse_nsdl_cas_image(content, password)
+    if local_holdings:
+        logger.info(f"Local OCR parser extracted {len(local_holdings)} holdings")
+        return local_holdings
 
     import base64
     
