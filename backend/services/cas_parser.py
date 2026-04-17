@@ -57,6 +57,13 @@ def fix_isin_ocr(raw: str) -> str:
             chars[i] = '5'
         elif ch == 'l' and i >= 6:
             chars[i] = '1'
+        elif ch == 'I' and i >= 6:
+            # Letter 'I' in a digit-heavy position is almost always OCR of '1'.
+            # Only convert when flanked by digits (e.g. "M0INI0" → "M01NI0").
+            prev_c = chars[i - 1] if i > 0 else ''
+            next_c = chars[i + 1] if i + 1 < len(chars) else ''
+            if prev_c.isdigit() or (next_c.isdigit() and i >= 7):
+                chars[i] = '1'
         elif ch == 'B' and i >= 9:
             chars[i] = '8'
         elif ch == 'Z' and i >= 6:
@@ -68,7 +75,12 @@ def fix_isin_ocr(raw: str) -> str:
     return result
 
 # Table header patterns for precise section detection
-EQUITY_HEADER = re.compile(r'ISIN\s+Company\s+Name\s+Face\s+Value', re.IGNORECASE)
+EQUITY_HEADER = re.compile(
+    r'(?:ISIN\s+(?:Stock\s+Symbol\s+)?Company\s+Name\s+Face\s+Value'
+    r'|Equit(?:y|ies)\s+\(E\)\s*\n?\s*(?:Equity\s+Shares\s*\n?\s*)?Company\s+Name'
+    r'|Equity\s+Shares\s*\n?\s*Company\s+Name\s+Face\s+Value)',
+    re.IGNORECASE
+)
 MF_M_HEADER = re.compile(r'ISIN\s+(?:ISIN\s+)?Description\s+(?:No\.\s+of\s+)?NAV\s+Value', re.IGNORECASE)
 SGB_HEADER = re.compile(r'Sovereign\s+Gold\s+Bonds?\s*\(SGB\)', re.IGNORECASE)
 MF_FOLIO_HEADER = re.compile(r'ISIN\s+(?:ISIN\s+)?Description\s+Folio\s+No', re.IGNORECASE)
@@ -705,24 +717,121 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
 
     logger.info(f"Holdings pages identified: {[p+1 for p in holdings_pages]} (of {total_pages})")
 
-    # ── Phase 3: Full OCR only on holdings pages ──
-    page_texts = {}
-    for i in holdings_pages:
-        if i < len(scan_texts):
-            page_texts[i] = scan_texts[i]
+    # ── Phase 3: OCR holdings pages at TWO DPI levels (200 + 300) for maximum recall.
+    # Different DPIs catch different rows depending on font density / page noise.
+    page_texts_200 = {i: ocr_page(images[i]) for i in holdings_pages}
+    hires_images: Dict[int, "Image.Image"] = {}
+    page_texts_300 = {}
+    try:
+        hires_kwargs = {"dpi": 300}
+        if password:
+            hires_kwargs["userpw"] = password
+        for p in holdings_pages:
+            hi_imgs = convert_from_bytes(content, first_page=p+1, last_page=p+1, **hires_kwargs)
+            if hi_imgs:
+                hires_images[p] = hi_imgs[0]
+                page_texts_300[p] = ocr_page(hi_imgs[0])
+    except Exception as e:
+        logger.warning(f"300 DPI re-render failed: {e}")
+
+    ordered_texts_200 = [page_texts_200[i] for i in sorted(page_texts_200.keys())]
+    ordered_texts_300 = [page_texts_300[i] for i in sorted(page_texts_300.keys())] if page_texts_300 else []
+
+    logger.info(
+        f"OCR'd {len(ordered_texts_200)} pages @200DPI, {len(ordered_texts_300)} @300DPI "
+        f"(skipped {total_pages - len(ordered_texts_200)} non-holdings pages)"
+    )
+
+    # ── Phase 4a: Text parse at BOTH DPIs, then union ──
+    def _run_text_parse(texts):
+        if cas_type == "CDSL":
+            return _parse_cdsl_cas(texts)
+        return _parse_nsdl_cas(texts)
+
+    holdings_txt_200 = _run_text_parse(ordered_texts_200)
+    holdings_txt_300 = _run_text_parse(ordered_texts_300) if ordered_texts_300 else []
+    # Union: for each ISIN, pick the entry with non-zero qty*price; prefer 300 DPI
+    # when both are valid (usually more accurate text recognition).
+    def _merge_dpi(a_list, b_list):
+        merged_map: Dict[str, Dict] = {}
+        for h in a_list:
+            tk = h.get("ticker")
+            if tk:
+                merged_map[tk] = h
+        for h in b_list:
+            tk = h.get("ticker")
+            if not tk:
+                continue
+            if tk not in merged_map:
+                merged_map[tk] = h
+                continue
+            va = merged_map[tk].get("quantity", 0) * merged_map[tk].get("current_price", 0)
+            vb = h.get("quantity", 0) * h.get("current_price", 0)
+            if va == 0 and vb > 0:
+                merged_map[tk] = h
+            elif vb > 0 and va > 0 and merged_map[tk].get("quantity", 0) == 0 and h.get("quantity", 0) > 0:
+                merged_map[tk] = h
+        return list(merged_map.values())
+
+    holdings_txt = _merge_dpi(holdings_txt_300, holdings_txt_200)
+    logger.info(
+        f"Text parse union: 200DPI={len(holdings_txt_200)}, 300DPI={len(holdings_txt_300)} "
+        f"→ {len(holdings_txt)} unique"
+    )
+
+    # ── Phase 4b: Supplementary parser — img2table (recovers missed rows) ──
+    holdings_tbl: List[Dict] = []
+    try:
+        from services.cas_parser_tables import parse_pages_via_tables
+        # Use hi-res images for img2table (better table detection)
+        holdings_page_imgs = [hires_images.get(i) or images[i] for i in holdings_pages]
+        holdings_tbl = parse_pages_via_tables(holdings_page_imgs)
+        logger.info(f"img2table pass: {len(holdings_tbl)} holdings")
+    except Exception as e:
+        logger.warning(f"img2table pass failed ({e}); using text-only result")
+
+    # ── Phase 4c: Merge — pick the better entry per ISIN between text & table parses
+    # Rule: prefer the row with non-zero (qty × price); if both non-zero, prefer the
+    # row with a non-zero quantity (text parser sometimes gets value but loses qty).
+    def _best(a: dict, b: dict) -> dict:
+        va = a.get("quantity", 0) * a.get("current_price", 0)
+        vb = b.get("quantity", 0) * b.get("current_price", 0)
+        if va == 0 and vb > 0:
+            return b
+        if vb == 0 and va > 0:
+            return a
+        # Both non-zero: prefer one with a non-zero quantity
+        qa, qb = a.get("quantity", 0), b.get("quantity", 0)
+        if qa == 0 and qb > 0:
+            return b
+        if qb == 0 and qa > 0:
+            return a
+        # Otherwise keep the text-parsed one (safer default)
+        return a
+
+    merged: Dict[str, Dict] = {}
+    for h in holdings_txt:
+        tk = h.get("ticker")
+        if tk:
+            merged[tk] = h
+    replaced = added_from_tbl = 0
+    for h in holdings_tbl:
+        tk = h.get("ticker")
+        if not tk:
+            continue
+        if tk in merged:
+            best = _best(merged[tk], h)
+            if best is not merged[tk]:
+                merged[tk] = best
+                replaced += 1
         else:
-            page_texts[i] = ocr_page(images[i])
-
-    # Combine holdings page texts in order
-    ordered_texts = [page_texts[i] for i in sorted(page_texts.keys())]
-
-    logger.info(f"OCR'd {len(ordered_texts)} holdings pages (skipped {total_pages - len(ordered_texts)} pages)")
-
-    # ── Phase 4: Parse based on CAS type ──
-    if cas_type == "CDSL":
-        holdings = _parse_cdsl_cas(ordered_texts)
-    else:
-        holdings = _parse_nsdl_cas(ordered_texts)
+            merged[tk] = h
+            added_from_tbl += 1
+    holdings = list(merged.values())
+    logger.info(
+        f"Merged: text={len(holdings_txt)} + table={len(holdings_tbl)} → "
+        f"{len(holdings)} unique (added {added_from_tbl}, replaced {replaced})"
+    )
 
     # ── Phase 5: Apply learned OCR corrections ──
     from services.ocr_correction import apply_corrections
