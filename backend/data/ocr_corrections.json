@@ -1,0 +1,135 @@
+{
+  "isin_map": {
+    "INEO66P01011": {
+      "correct": "INE066P01011",
+      "context": "INOX WIND - O\u21920 at pos 3",
+      "added_at": "2026-04-17T04:35:16.717220+00:00",
+      "times_applied": 0
+    },
+    "INF200KO1RAO": {
+      "correct": "INF200K01RA0",
+      "context": "SBI Contra - O\u21920 at pos 7,11",
+      "added_at": "2026-04-17T04:35:16.717423+00:00",
+      "times_applied": 0
+    },
+    "INFOS0101569": {
+      "correct": "INF090I01569",
+      "context": "Franklin Small Cap - O\u21920,S\u21929,1\u2192I",
+      "added_at": "2026-04-17T04:35:16.717610+00:00",
+      "times_applied": 0
+    },
+    "INF769KO1IR7": {
+      "correct": "INF769K01IR7",
+      "context": "Mirae Asset - O\u21920 at pos 7",
+      "added_at": "2026-04-17T04:35:16.720586+00:00",
+      "times_applied": 0
+    },
+    "INF179KO1830": {
+      "correct": "INF179K01830",
+      "context": "HDFC Balanced Adv - O\u21920 at pos 7",
+      "added_at": "2026-04-17T04:35:16.726848+00:00",
+      "times_applied": 0
+    },
+    "INF109KO16LO": {
+      "correct": "INF109K016L0",
+      "context": "ICICI Pru Large Cap - O\u21920",
+      "added_at": "2026-04-17T04:35:16.728025+00:00",
+      "times_applied": 0
+    },
+    "INF109KO1AF8": {
+      "correct": "INF109K01AF8",
+      "context": "ICICI Pru Value - O\u21920",
+      "added_at": "2026-04-17T04:35:16.737987+00:00",
+      "times_applied": 0
+    },
+    "INF209KO1BR9": {
+      "correct": "INF209K01BR9",
+      "context": "Aditya Birla Large Cap - O\u21920",
+      "added_at": "2026-04-17T04:35:16.730522+00:00",
+      "times_applied": 0
+    },
+    "INF179KO1CR2": {
+      "correct": "INF179K01CR2",
+      "context": "HDFC Mid Cap Growth - O\u21920",
+      "added_at": "2026-04-17T04:35:16.733441+00:00",
+      "times_applied": 0
+    },
+    "INF179KO1CT8": {
+      "correct": "INF179K01CT8",
+      "context": "HDFC Mid Cap IDCW - O\u21920",
+      "added_at": "2026-04-17T04:35:16.736253+00:00",
+      "times_applied": 0
+    },
+    "INF174KO1187": {
+      "correct": "INF174K01187",
+      "context": "Kotak Large & Midcap - O\u21920",
+      "added_at": "2026-04-17T04:35:16.739397+00:00",
+      "times_applied": 0
+    },
+    "INF769KO1EY2": {
+      "correct": "INF769K01EY2",
+      "context": "Mirae Midcap - O\u21920",
+      "added_at": "2026-04-17T04:35:16.741741+00:00",
+      "times_applied": 0
+    },
+    "INF204KO1HY3": {
+      "correct": "INF204K01HY3",
+      "context": "Nippon Small Cap - O\u21920",
+      "added_at": "2026-04-17T04:35:16.742242+00:00",
+      "times_applied": 0
+    }
+  },
+  "name_map": {
+    "necongot ee": {
+      "correct": "NTPC GREEN ENERGY LIMITED",
+      "isin": "INE733E01010",
+      "added_at": "2026-04-17T04:35:16.749095+00:00"
+    },
+    "rn oe": {
+      "correct": "ORIENT CEMENT LIMITED",
+      "isin": "INE876N01018",
+      "added_at": "2026-04-17T04:35:16.749944+00:00"
+    },
+    "boonwianes": {
+      "correct": "GODREJ CONSUMER PRODUCTS LIMITED",
+      "isin": "INE364U01010",
+      "added_at": "2026-04-17T04:35:16.750420+00:00"
+    }
+  },
+  "patterns": [
+    {
+      "position": 3,
+      "ocr_char": "O",
+      "correct_char": "0",
+      "count": 2
+    },
+    {
+      "position": 7,
+      "ocr_char": "O",
+      "correct_char": "0",
+      "count": 12
+    },
+    {
+      "position": 11,
+      "ocr_char": "O",
+      "correct_char": "0",
+      "count": 2
+    },
+    {
+      "position": 4,
+      "ocr_char": "S",
+      "correct_char": "9",
+      "count": 1
+    },
+    {
+      "position": 6,
+      "ocr_char": "1",
+      "correct_char": "I",
+      "count": 1
+    }
+  ],
+  "stats": {
+    "total_corrections": 17,
+    "auto_applied": 0
+  }
+}

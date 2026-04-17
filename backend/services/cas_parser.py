@@ -31,48 +31,40 @@ ISIN_OCR_MAP = str.maketrans({
 
 
 def fix_isin_ocr(raw: str) -> str:
-    """Fix common OCR errors in ISINs. Preserves IN prefix + E/F type indicator."""
+    """Fix common OCR errors in ISINs using position-aware correction."""
     if len(raw) < 12:
         return raw
-    # Prefix must be "IN"
-    prefix = "IN"
-    if raw[0] in ('1', 'I', 'i', '|'):
-        prefix = "IN"
-    # 3rd char: E (equity) or F (MF) — preserve as-is
-    type_char = raw[2] if len(raw) > 2 else ""
-    if type_char in ('e', 'E', 'F', 'f'):
-        type_char = type_char.upper()
-    # Rest: fix digit positions (positions 5-11 are typically alphanumeric)
-    rest = raw[3:]
-    # Positions 3-5 are AMC code (letters), 6-7 digits, 8-11 mixed, 12 check digit
-    fixed = ""
-    for idx, ch in enumerate(rest):
-        pos = idx + 3  # position in full ISIN
-        if pos >= 9:  # last 3 chars are usually digits
-            if ch == 'O' or ch == 'o':
-                fixed += '0'
-            elif ch == 'S' or ch == 's':
-                fixed += '5'
-            elif ch == 'l':
-                fixed += '1'
-            elif ch == 'B' and idx > 4:  # B→8 only in digit positions
-                fixed += '8'
-            else:
-                fixed += ch
-        elif pos >= 6 and pos <= 8:  # middle positions — could be letter or digit
-            if ch == 'O' and (idx > 0 and rest[idx-1].isdigit()):
-                fixed += '0'  # O after digit → likely 0
-            elif ch == 'o':
-                fixed += '0'
-            else:
-                fixed += ch
-        else:
-            fixed += ch
 
-    result = prefix + type_char + fixed
-    # Ensure exactly 12 chars
-    if len(result) > 12:
-        result = result[:12]
+    chars = list(raw)
+
+    # Fix prefix: must be "IN"
+    if chars[0] in ('1', 'i', '|', 'l'):
+        chars[0] = 'I'
+    if chars[1] in ('M', 'm'):
+        chars[1] = 'N'
+
+    # Position 2: E (equity) or F (mutual fund) — keep as letter
+    # Positions 3-5: could be digits or letters (AMC code)
+    # Positions 6-11: mostly digits, some letters
+
+    # Apply position-aware corrections
+    for i in range(3, len(chars)):
+        ch = chars[i]
+        # In digit-heavy positions (3,4,6,7,8,9,10,11), fix letter→digit
+        if ch == 'O' or ch == 'o':
+            chars[i] = '0'
+        elif ch == 'S' and i >= 6:
+            chars[i] = '5'
+        elif ch == 'l' and i >= 6:
+            chars[i] = '1'
+        elif ch == 'B' and i >= 9:
+            chars[i] = '8'
+        elif ch == 'Z' and i >= 6:
+            chars[i] = '2'
+        elif ch == 'G' and i >= 9:
+            chars[i] = '6'
+
+    result = "".join(chars[:12])
     return result
 
 # Table header patterns for precise section detection
@@ -200,7 +192,7 @@ def parse_equities(text: str) -> List[Dict]:
                 if abs(expected - value) / max(value, 1) > 0.15:
                     shares = round(value / price)
 
-            if value > 0:
+            if value > 0 or (shares == 0 and price > 0):
                 holdings.append({
                     "name": name, "ticker": isin, "asset_type": "equity",
                     "quantity": shares, "buy_price": round(price, 2),
@@ -253,12 +245,23 @@ def parse_mf_demat(text: str) -> List[Dict]:
                 nav = nums[-2]
                 value = nums[-1]
                 units = round(value / nav, 3) if nav > 0 else 0
+            elif len(nums) == 1:
+                # Only value found (units missing from OCR — e.g., "." instead of number)
+                value = nums[0]
 
             # Validate
             if units > 0 and nav > 0 and value > 0:
                 expected = units * nav
                 if abs(expected - value) / max(value, 1) > 0.2:
                     units = round(value / nav, 3) if nav > 0 else units
+
+            # If units missing but value exists, try to recover from masterdata
+            if value > 0 and units == 0 and isin:
+                from services.masterdata import lookup_isin
+                master = lookup_isin(isin)
+                if master and master.get("price", 0) > 0:
+                    nav = master["price"]
+                    units = round(value / nav, 4)
 
             if value > 0 and name:
                 holdings.append({
@@ -721,11 +724,15 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
     else:
         holdings = _parse_nsdl_cas(ordered_texts)
 
-    # ── Phase 5: Validate and enrich against masterdata ──
+    # ── Phase 5: Apply learned OCR corrections ──
+    from services.ocr_correction import apply_corrections
+    holdings = apply_corrections(holdings)
+
+    # ── Phase 6: Validate and enrich against masterdata ──
     from services.masterdata import validate_and_enrich_holdings
     holdings = validate_and_enrich_holdings(holdings)
 
-    # ── Phase 6: Log validation against summary ──
+    # ── Phase 7: Log validation against summary ──
     if summary:
         _validate_against_summary(holdings, summary)
 
