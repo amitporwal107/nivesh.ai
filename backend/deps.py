@@ -1,0 +1,91 @@
+"""Shared dependencies: DB, repos, config, auth helpers."""
+from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import HTTPException, Request
+from datetime import datetime, timezone
+import os
+import logging
+
+from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
+from services.ai_engine import AIEngine
+
+logger = logging.getLogger(__name__)
+
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+# Config
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "")
+ADMIN_EMAIL = "priyankamantri@gmail.com"
+
+# Repos & services
+user_repo = UserRepository(db)
+session_repo = SessionRepository(db)
+portfolio_repo = PortfolioRepository(db)
+holding_repo = HoldingRepository(db)
+ai_engine = AIEngine(OPENAI_API_KEY)
+
+
+async def get_current_user(request: Request) -> dict:
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user_doc
+
+
+async def require_admin(request: Request) -> dict:
+    """Get current user and verify they are an admin."""
+    user = await get_current_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+async def check_whitelist(email: str) -> dict:
+    """Check if email is in the whitelist. Returns the whitelist doc or None."""
+    normalized = email.strip().lower()
+    return await db.whitelisted_users.find_one({"email": normalized}, {"_id": 0})
+
+
+async def seed_admin_and_whitelist():
+    """Ensure admin email is whitelisted and marked as admin on startup."""
+    email = ADMIN_EMAIL.strip().lower()
+    existing = await db.whitelisted_users.find_one({"email": email})
+    if not existing:
+        await db.whitelisted_users.insert_one({
+            "email": email,
+            "status": "invited",
+            "is_admin": True,
+            "invited_at": datetime.now(timezone.utc).isoformat(),
+            "registered_at": None,
+            "invited_by": "system",
+        })
+        logger.info(f"Seeded admin whitelist: {email}")
+    elif not existing.get("is_admin"):
+        await db.whitelisted_users.update_one({"email": email}, {"$set": {"is_admin": True}})
+    await db.whitelisted_users.create_index("email", unique=True)
