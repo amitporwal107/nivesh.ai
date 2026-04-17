@@ -49,6 +49,9 @@ export default function CasConnectButton({ onSuccess, className = "", variant = 
           enableGenerator: true,   // MF email request via KFintech
           enableCdslFetch: true,   // CDSL OTP flow
           enableInbox: true,       // Gmail CAS auto-fetch
+          inbox: {
+            redirectUri: `${window.location.origin}/cas-callback`,
+          },
         },
       });
 

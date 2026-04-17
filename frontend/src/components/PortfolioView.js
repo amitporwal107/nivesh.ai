@@ -11,7 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import GmailImport from "@/components/GmailImport";
 import CasConnectButton from "@/components/CasConnectButton";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -251,7 +250,6 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{holdings.length} total holdings</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="file" ref={fileRef} accept=".csv,.xlsx,.xls,.pdf" onChange={handleFileUpload} className="hidden" />
           <CasConnectButton
             variant="outline"
             className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
@@ -259,9 +257,6 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             testId="header-cas-connect-btn"
             onSuccess={() => { if (onUploadSuccess) onUploadSuccess(); loadHoldings(); }}
           />
-          <Button data-testid="upload-portfolio-button" variant="outline" onClick={() => setShowUploadDialog(true)} disabled={uploading} className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
-            <Upload className="w-4 h-4 mr-2" strokeWidth={1.5} />{uploading ? "Processing..." : "Import CAS"}
-          </Button>
           <Button data-testid="add-holding-button" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
             <Plus className="w-4 h-4 mr-2" />Add Holding
           </Button>
@@ -311,8 +306,6 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       </div>
 
       {/* Asset Type Tabs */}
-      {/* Gmail Auto-Import */}
-      <GmailImport onRefresh={onRefresh} />
 
       {/* Latest CAS notice */}
       {holdings.length > 0 && (() => {
@@ -363,9 +356,6 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                   testId="empty-cas-connect-btn"
                   onSuccess={() => { if (onUploadSuccess) onUploadSuccess(); loadHoldings(); }}
                 />
-                <Button onClick={() => setShowUploadDialog(true)} variant="outline" className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-upload-btn">
-                  <Upload className="w-4 h-4 mr-2" /> Upload CAS PDF
-                </Button>
                 <Button variant="outline" onClick={() => setShowAddDialog(true)} className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-add-btn">
                   <Plus className="w-4 h-4 mr-2" /> Add Manually
                 </Button>

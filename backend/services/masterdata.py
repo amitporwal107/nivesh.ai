@@ -434,7 +434,15 @@ def validate_and_enrich_holdings(holdings: list) -> list:
 
             # Fix MF NAV/units using AMFI data
             if asset_type == "mutual_fund" and master["source"] == "amfi" and master_price > 0:
-                if parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.2:
+                has_real_cost = h.get("buy_price", 0) > 0 and abs(h.get("buy_price", 0) - parsed_price) > 0.01
+                if has_real_cost:
+                    # We have distinct cost data (avg_cost != NAV) — only update current_price,
+                    # do NOT recalculate quantity. The CAS-reported units are correct.
+                    if abs(master_price - parsed_price) / max(master_price, 1) > 0.05:
+                        old_price = parsed_price
+                        h["current_price"] = round(master_price, 4)
+                        logger.info(f"NAV updated (cost preserved): {name[:30]} nav={old_price}→{master_price} qty unchanged={qty}")
+                elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.2:
                     if qty > 0 and abs(qty - master_price) / max(master_price, 1) < 0.1:
                         old_qty, old_price = qty, parsed_price
                         h["current_price"] = round(master_price, 4)
@@ -449,7 +457,12 @@ def validate_and_enrich_holdings(holdings: list) -> list:
 
             # Fix equity price using NSE data
             if asset_type == "equity" and master["source"] == "nse" and master_price > 0:
-                if parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
+                has_real_cost = h.get("buy_price", 0) > 0 and abs(h.get("buy_price", 0) - parsed_price) > 0.01
+                if has_real_cost:
+                    # Cost data available — only update current_price, preserve buy_price and quantity
+                    h["current_price"] = round(master_price, 2)
+                    logger.info(f"Equity CMP updated (cost preserved): {name[:30]} cmp→{master_price} buy={h['buy_price']}")
+                elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
                     if parsed_value > 0:
                         new_qty = round(parsed_value / master_price)
                         h["quantity"] = new_qty

@@ -47,7 +47,7 @@ const ALLOC_COLORS = {
 };
 
 const NEW_STEPS = ["investor-type", "age", "goal", "risk", "horizon", "monthly", "starter-plan", "playbook"];
-const EXISTING_STEPS = ["investor-type", "data-source", "upload", "playbook"];
+const EXISTING_STEPS = ["investor-type", "data-source", "playbook"];
 
 const Disclaimer = () => (
   <div className="fixed bottom-0 left-0 right-0 bg-amber-50/95 dark:bg-amber-950/90 border-t border-amber-200 dark:border-amber-800 px-4 py-2.5 z-50 backdrop-blur-sm" data-testid="onboarding-disclaimer">
@@ -667,38 +667,6 @@ const OnboardingView = ({ onComplete, userProfile }) => {
           </div>
         </Card>
 
-        <Card
-          data-testid="source-upload-cas"
-          onClick={() => { setDataSource("upload"); goTo("upload"); }}
-          className="cursor-pointer p-5 rounded-xl border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-300 hover:-translate-y-0.5 transition-all"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-11 h-11 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center flex-shrink-0">
-              <Upload className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
-            </div>
-            <div className="flex-1">
-              <div className="font-medium text-slate-900 dark:text-white text-sm">Upload CAS Statement</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">NSDL/CDSL (full portfolio) or CAMS/KFintech (mutual funds)</div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-slate-400" />
-          </div>
-        </Card>
-        <Card
-          data-testid="source-gmail"
-          onClick={() => { setDataSource("gmail"); goTo("upload"); }}
-          className="cursor-pointer p-5 rounded-xl border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300 hover:-translate-y-0.5 transition-all"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-11 h-11 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
-              <Mail className="w-5 h-5 text-blue-600" strokeWidth={1.5} />
-            </div>
-            <div className="flex-1">
-              <div className="font-medium text-slate-900 dark:text-white text-sm">Fetch from Gmail</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Auto-detect CAS statements from your email</div>
-            </div>
-            <ArrowRight className="w-4 h-4 text-slate-400" />
-          </div>
-        </Card>
         <Card
           data-testid="source-aggregator"
           className="p-5 rounded-xl border-2 border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 opacity-60 cursor-not-allowed"

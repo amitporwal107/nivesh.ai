@@ -1,0 +1,65 @@
+{
+  "summary": "Iteration 17 testing complete. All CAS Connect SDK integration features verified. Backend: 18/18 tests passed (100%). Frontend: All UI elements verified via Playwright - CAS callback page works, legacy upload options removed from onboarding and portfolio views.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: GET /api/auth/google-client-id returns client_id",
+    "Backend: GET /api/auth/me with session token returns user data",
+    "Backend: POST /api/casparser/access-token endpoint exists and mints token",
+    "Backend: POST /api/portfolio/import-connect endpoint exists",
+    "Backend: GET /api/portfolio/holdings returns holdings list",
+    "Backend: GET /api/portfolio/analytics returns analytics data",
+    "Backend: GET /api/user/profile returns user profile",
+    "Backend: validate_and_enrich_holdings preserves quantity when cost data available",
+    "Backend: validate_and_enrich_holdings updates NAV while preserving cost data",
+    "Frontend: Landing page (/) loads correctly with nivesh.ai branding",
+    "Frontend: Dashboard page (/dashboard) loads correctly",
+    "Frontend: CAS Callback page (/cas-callback) loads correctly",
+    "Frontend: CAS Callback without params shows 'Invalid callback. Please close this window.'",
+    "Frontend: CasConnectButton.js has correct redirectUri configuration pointing to /cas-callback",
+    "Frontend: CasCallback.js page exists with handleInboxCallback and isInboxCallbackPage imports",
+    "Frontend: App.js includes /cas-callback route",
+    "Frontend: OnboardingView.js has CAS Connect as primary option (no legacy upload/gmail)",
+    "Frontend: PortfolioView.js has CAS Connect and Add Holding buttons (no GmailImport)"
+  ],
+  "features_verified": {
+    "cas_callback_page": "WORKING - /cas-callback route renders correctly, shows 'Invalid callback' without params",
+    "cas_connect_redirect_uri": "WORKING - CasConnectButton.js passes inbox.redirectUri pointing to /cas-callback",
+    "onboarding_data_source": "WORKING - Only 'CAS Connect' (recommended) and 'Account Aggregator (Coming Soon)' options visible",
+    "portfolio_view_header": "WORKING - Only 'CAS Connect' and 'Add Holding' buttons in header",
+    "portfolio_view_empty_state": "WORKING - Only 'Import via CAS Connect' and 'Add Manually' buttons",
+    "legacy_upload_removed": "VERIFIED - No 'Upload CAS Statement', 'Fetch from Gmail', or 'Upload CAS PDF' options",
+    "masterdata_enrichment": "WORKING - validate_and_enrich_holdings preserves quantity when buy_price differs from current_price"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cas_connect_iteration17.py",
+    "/app/test_reports/pytest/pytest_results_iteration17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_cas_connect_iteration17.py",
+    "/app/memory/test_credentials.md"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 tests passed)",
+    "frontend": "100% (all features working)"
+  },
+  "test_credentials": {
+    "user_id": "user_6a8206568b50",
+    "email": "aporwal107@gmail.com",
+    "session_token": "8dce0c5d-02df-4296-bf57-5671d7fccaa0"
+  },
+  "seed_data_creation": "Temporarily reset user_profiles for user_6a8206568b50 to test onboarding flow, then restored",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "CAS Connect SDK integration is fully functional. The /cas-callback page handles OAuth callbacks from the CAS Parser SDK Gmail inbox import. Legacy upload paths (Upload CAS Statement, Fetch from Gmail, Upload CAS PDF) have been removed from both onboarding and portfolio views. Only CAS Connect and Add Holding/Add Manually options are available. The masterdata enrichment correctly preserves quantity when cost data is available (buy_price != current_price).",
+  "rca_of_issue": {}
+}
