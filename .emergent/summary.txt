@@ -1,166 +1,149 @@
 <analysis>**original_problem_statement**: 
-Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus on the Indian market (NSE/BSE, MFs), Portfolio upload/parsing, Unified dashboard, actionable insights, and chat interface. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, actionable insights dashboard with quantified action plans, live equity/ETF pricing, scenario simulation, and enhancements including Onboarding flows, Risk Profile questionnaire, Chat Sessions (memory/context), and Markdown support for chat responses.
+Build an AI-powered autonomous financial advisor (Agentic Wealth System) for the Indian market. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, actionable insights dashboard, live equity/ETF pricing, scenario simulation, Onboarding flows, Risk Profile questionnaire, Chat Sessions, and Markdown support. Must ensure data security and compliance (DPDP Act).
 
 **User's preferred language**: 
 English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A full-stack financial dashboard named . It features Google OAuth, Admin Whitelist, multi-format portfolio upload with Gmail Auto-Fetch, live equity/ETF pricing, deep analytics, a Simulate Optimized Portfolio engine, and accurate SGB tracking. Newly added features include an Onboarding Flow for new users, a Risk Profile Questionnaire, Chat Sessions with conversation history, and Markdown rendering support for AI chat responses.
+A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk Profile questionnaire, and AI chat sessions. The CAS parsing logic has been completely revamped: instead of using purely local OCR, the app now uses the external  API and its React SDK () to handle PDF uploads and Gmail fetching. Master data (AMFI, NSE BhavCopy) is synced locally for cross-referencing. A data reset script is available to wipe portfolio states.
 
 **Last working item**: 
-    - Last item agent was working: Implementing 4 requested features from the user's uploaded document (): 1) Onboarding Flow, 2) Risk Profile Questionnaire, 3) Chat Sessions (History/Context), 4) Markdown support for Chat. 
-    - Status: IN PROGRESS (Implementation and testing are complete, but the agent failed to use the  tool to formally wrap up and update memory files).
-    - Agent Testing Done: Y
-    - Which testing method agent to use?: testing_agent_v3_fork (Report: )
+    - Last item agent was working: Fixing the Gmail import via CAS connect flow which is failing. The agent discovered that the CAS Parser SDK requires an OAuth callback page/route to handle the  logic.
+    - Status: IN PROGRESS
+    - Agent Testing Done: N
+    - Which testing method agent to use?: Frontend testing agent / manual testing (Screenshot tool)
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-  Issue 1: Google OAuth Login Broken () (P0)
-     - Attempted fixes: Investigated in a previous fork. Code is correct, but dynamic preview URL is rejected by Google due to missing CORS origin whitelisting. User previously replied not yet when asked to add it.
-     - Next debug checklist: Wait for the user to confirm they have added the new preview URL to their Google Cloud Console under Authorized JavaScript origins.
-     - Why fix this issue and what will be achieved with the fix?: Absolute blocker for fresh logins; users cannot access the app without it.
-     - Status: BLOCKED / USER VERIFICATION PENDING
-     - Is recurring issue? Y (Happens when the preview URL changes on a new fork/container).
+  Issue 1: Gmail import via CAS connect SDK is failing (P0)
+     - Attempted fixes: Investigated SDK documentation.
+     - Next debug checklist: Create a dedicated OAuth callback route in the React frontend (e.g., ) and implement the  logic from the  SDK so it successfully posts the token back to the widget.
+     - Why fix this issue and what will be achieved with the fix?: Required for end-to-end functionality of the user-requested SDK widget.
+     - Status: IN PROGRESS
+     - Is recurring issue? N
      - Should Test frontend/backend/both after fix?: Frontend
      - Blocked on other issue: None
+     
+  Issue 2: Legacy Google OAuth Login Broken () (P1)
+     - Attempted fixes: Investigated in previous forks. 
+     - Next debug checklist: Wait for user to add the generated preview URL to their Google Cloud Console Authorized JavaScript origins.
+     - Why fix this issue: Absolute blocker for non-whitelisted standard logins.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? Y
 
 **In progress Task List**: 
-  Task 1: Finalize the 4 new features (Onboarding, Risk Profile, Chat Sessions, Markdown)
-     - Where to resume: Read  to verify no remaining action items, then use the  tool. Ensure you update  with the newly completed features and ask the user to verify the changes.
-     - What will be achieved with this?: Proper closure of the current work batch and synchronization of the PRD.
+  Task 1: Complete SDK Integration for CAS Parser
+     - Where to resume: Implement the  callback page for the SDK's Gmail flow.
+     - What will be achieved with this?: Users can seamlessly pull CAS files directly from their Gmail using the widget.
      - Status: IN PROGRESS
-     - Should Test frontend/backend/both after fix?: NA (Testing already done).
-     - Blocked on something: No
+     - Should Test frontend/backend/both after fix?: Frontend
+     - Blocked on something: Nothing.
 
 **Upcoming and Future Tasks**
-  - P0:  refactoring — The file is critically bloated (>2300 lines). Routing logic (auth, portfolios, chat, whitelist, gmail) should be split into a  directory using .
-  - P1: Connect to a human advisor (Feature requested in the user's  file).
-  - P1: Finvu Account Aggregator integration (needs sandbox credentials from user).
+  - P0: Security Upgrades (DPDP Act Compliance) — Implement PAN field encryption (AES-256), robust Consent logging, and Audit trails.
+  - P0: Retire legacy upload path and old Gmail Import tab — Since the new SDK widget handles everything reliably, the old custom UI components should be removed to avoid confusing users.
+  - P0:  refactoring — File is critically bloated (>2800 lines). Break down routes into .
   - P1: Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs.
-  - P2: Portfolio versioning (Delta tracking between CAS uploads).
-  - P2: Agentic AI execution and scenario simulation (beyond the current 1-year basic simulation).
+  - P2: Portfolio versioning (Delta tracking).
+  - P2: PostgreSQL migration for relational structure.
 
 **Completed work in this session**
-- Built Onboarding View () for new users (DONE)
-- Built Risk Profile Questionnaire () and integrated it into the Sidebar/Dashboard (DONE)
-- Added Chat Sessions backend endpoints and conversation history UI in  (DONE)
-- Added Markdown CSS rendering support for AI chat responses (DONE)
-- Backend model updates for User Profile, Risk Analysis, and Chat Sessions (DONE)
-- Increased rate limits on  and  from 20 to 60 req/min based on testing agent feedback (DONE)
+- Swapped masterdata sources to use user-provided CSVs (AMFI, NSE BhavCopy, Equity List, SGB). (DONE)
+- Attempted local PaddleOCR & Tesseract+img2table refactoring, but eventually discarded it due to user pivot. (DONE)
+- Integrated  API () with  compression to handle the 1.8MB API limit for scanned PDFs. (DONE)
+- Added  React SDK to the frontend and wired up . (DONE)
+- Created  and wiped all existing users' holdings, insights, and onboarding flags to test the flow fresh. (DONE)
+- Fixed SDK named export bug ( vs ). (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-None.
+  None specific.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork:  gets uninstalled when the Kubernetes container restarts, breaking image-based CAS PDF parsing. 
-  - Recurrence count: 3
-  - Status: RESOLVED (Kept  inside FastAPI's  in . **DO NOT remove this.**)
-  - Issue recurrence in previous fork: Google OAuth failing due to preview URL changes.
-  - Recurrence count: 2
-  - Status: BLOCKED (User has not yet whitelisted the URL).
+  - Issue recurrence in previous fork: System packages (e.g. poppler-utils, tesseract) sometimes get uninstalled on container restart. 
+  - Recurrence count: 4
+  - Status: RESOLVED via startup scripts, but remain vigilant if PDF libraries fail.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- Frontend: React, Tailwind CSS, Shadcn UI, Context API, Markdown CSS.
-- Backend: FastAPI, Motor/MongoDB, .
-- Data Integrations: , usage: openai [-h] [-v] [-b API_BASE] [-k API_KEY] [-p PROXY [PROXY ...]]
-              [-o ORGANIZATION] [-t {openai,azure}]
-              [--api-version API_VERSION] [--azure-endpoint AZURE_ENDPOINT]
-              [--azure-ad-token AZURE_AD_TOKEN] [-V]
-              {api,tools,migrate,grit} ...
-
-positional arguments:
-  {api,tools,migrate,grit}
-    api                 Direct API calls
-    tools               Client side tools for convenience
-
-options:
-  -h, --help            show this help message and exit
-  -v, --verbose         Set verbosity.
-  -b API_BASE, --api-base API_BASE
-                        What API base url to use.
-  -k API_KEY, --api-key API_KEY
-                        What API key to use.
-  -p PROXY [PROXY ...], --proxy PROXY [PROXY ...]
-                        What proxy to use.
-  -o ORGANIZATION, --organization ORGANIZATION
-                        Which organization to run as (will use your default
-                        organization if not specified)
-  -t {openai,azure}, --api-type {openai,azure}
-                        The backend API to call, must be `openai` or `azure`
-  --api-version API_VERSION
-                        The Azure API version, e.g.
-                        'https://learn.microsoft.com/en-us/azure/ai-
-                        services/openai/reference#rest-api-versioning'
-  --azure-endpoint AZURE_ENDPOINT
-                        The Azure endpoint, e.g.
-                        'https://endpoint.openai.azure.com'
-  --azure-ad-token AZURE_AD_TOKEN
-                        A token from Azure Active Directory,
-                        https://www.microsoft.com/en-
-                        us/security/business/identity-access/microsoft-entra-
-                        id
-  -V, --version         show program's version number and exit SDK (User's API key).
+- Frontend: React, Tailwind CSS, Shadcn UI,  SDK.
+- Backend: FastAPI, MongoDB (Motor), ,  (for PDF compression).
 
 **key DB schema**
   - : 
-  - : 
-  -  / : Used for memory/context tracking.
+  - : Contains parsed CAS metadata.
+  - : Individual equity/MF holding data.
 
 **changes in tech stack**
-  - None this session, but Markdown styling added natively via CSS in .
+  - **MAJOR PIVOT**: The user opted to stop building local OCR logic (Tesseract/PaddleOCR) and instructed the use of the 3rd-party  API to handle all CAS parsing.
+  - Installed  and  to dynamically compress large PDFs down to the API's upload limit.
 
 **All files of reference** 
-  -  (Created): Handles initial user journey selection.
-  -  (Created): Questionnaire for risk assessment.
-  -  (Updated): Added sidebar for conversation history and updated UI layout.
-  -  (Updated): Integrated Onboarding and Risk Profile routing.
-  -  (Updated): Added , user profile updates, and risk profile endpoints.
-  -  (Updated): Added inputs/outputs for risk and journey state.
+  - 
+  - 
+  - 
+  - 
+  - 
 
 **Areas that need refactoring**
-  -  is critically bloated (~2300 lines). Route definitions must be decoupled to .
+  -  is critically bloated. Route definitions must be decoupled.
+  - Legacy custom portfolio upload components/tabs in  and  should be removed in favor of the new single SDK widget.
 
 **key api endpoints**
-  - : Retrieves chat history.
-  - : Creates/manages new conversation instances.
-  - : Sets the onboarding stage.
-  - : Submits the risk questionnaire score.
+  -  (Mints SDK tokens)
+  -  (Handles SDK parsing results)
 
 **Critical Info for New Agent** 
-  - **Task Completion Pending:** The previous agent finished all code implementation, manual testing (curl & screenshots), and  successfully. However, they ran out of turns before running the  tool. Your very first action should be to use the  tool (ensure you update ), inform the user that their 4 features are ready for testing, and ask what they would like to do next.
-  - **Login Blocking:** The user confirmed previously they have not yet added the preview URL to their Google Cloud Console. Do NOT try to debug or rewrite the Google Auth code if login fails in the browser. 
-  - Test accounts with active session cookies are still functioning correctly for e2e testing.
+  - The  SDK widget Gmail fetch is currently broken because the SDK expects an OAuth redirect URI configured on the frontend that implements its callback. You must read the  docs to build the callback route (e.g., import  from the SDK and run it on page load).
+  - The script  can be used to reset all user onboarding flags and delete holdings if you need a fresh start.
+  - API keys for CAS Parser are already configured in the  file.
 
 **documents and test reports created in this job** 
-  -  (New - 17/18 backend tests passed, frontend verified)
-  -  (Needs to be updated via finish tool)
+  - 
+  -  (Updated)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (Msg 7) User uploaded  and asked for an easy fix.
- - (Msg 12) User said: lets pick 2 items from each
- - (Msg 15) User clarified: lets fix easy and medium first
- - *(Pending Human Message)* The agent fully implemented the requested Onboarding, Risk Profile, Chat Sessions, and Markdown features, and tested them via subagent, but hasn't communicated the success back to the user.
+ - User: P0 Log in, confirm onboarding flow starts fresh, click Launch CAS Connect end-to-end with a real CAS.
+ - Agent: Fixed SDK modal display bug (xdg-open - opens a file or URL in the user's preferred application
+
+Synopsis
+
+xdg-open { file | URL }
+
+xdg-open { --help | --manual | --version }
+
+Use 'man xdg-open' or 'xdg-open --manual' for additional info. named export).
+ - User: Uploaded Excel artifacts & screenshot. GMAIL import via CAS connect is failing ...what needs to be done here
+ - Agent: Began investigating the SDK's  utility and crashed due to context length.
+ - (No Pending Human Message, proceed with resolving the SDK Gmail callback).
 
 **Project Health Check:**
-Broken (Login flow is failing due to external Google Cloud Console configuration. Rest of the app logic works perfectly).
+Broken (Gmail CAS Connect SDK flow fails due to missing callback page setup).
 
 **3rd Party Integrations** 
- - OpenAI GPT-4o / GPT-4o-mini — requires **User API Key** 
- - Google OAuth — requires **User API Key** (Blocked by user's GCP config).
- - Gmail API — requires **User API Key**
- - Yahoo Finance () — Free open-source integration.
+ - CAS Parser API (casparser.in) — requires **User API Key** (Implemented, keys in ).
+ - OpenAI GPT-4o — requires **User API Key**.
+ - Google OAuth / Gmail API — requires **User API Key** (Blocked by GCP).
 
 **Testing status**
-  - Testing agent used after significant changes: YES (iteration 15).
+  - Testing agent used after significant changes: NO 
   - Troubleshoot agent used after agent stuck in loop: NO
   - Test files created: 
-  - Known regressions: Login fails (External Config Issue).
+  - Known regressions: Legacy upload flow is partially redundant.
 
 **Credentials to test flow:**
-See . (Admin user is ).
+Check .
 
 **What agent forgot to execute**
-The agent completely forgot to call the  tool. The implementation and testing were successful, but the agent did not conclude the task, update , or formally notify the user.</analysis>
+The agent was in the middle of executing the fix for the Gmail CAS Connect SDK flow but ran out of context before writing the frontend callback page. 
+
+**Debugging checklist for current issue**
+    Issue: GMAIL import via CAS connect SDK is failing because of missing frontend OAuth callback.
+
+    Frontend files to check: 
+    - You must create a new React route/page (e.g., ).
+    - In this component, import  from  (or wherever it resides according to the SDK's definitions).
+    - Ensure this route is provided as the  configuration to the  method in .
+   
+    </analysis>
