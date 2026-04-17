@@ -113,13 +113,13 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
 
   if (loading) {
     return (
-      <div data-testid="insights-loading" className="space-y-6 bg-[#09090B] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen rounded-2xl">
+      <div data-testid="insights-loading" className="space-y-6 bg-[#F8FAFC] dark:bg-[#09090B] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen rounded-2xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
               Portfolio Analysis
             </h1>
-            <p className="text-sm text-zinc-500 mt-1">Loading analysis...</p>
+            <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">Loading analysis...</p>
           </div>
         </div>
         <InsightsSkeleton />
@@ -128,16 +128,16 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
   }
 
   return (
-    <div data-testid="insights-view" className="space-y-6 bg-[#09090B] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen rounded-2xl">
+    <div data-testid="insights-view" className="space-y-6 bg-[#F8FAFC] dark:bg-[#09090B] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen rounded-2xl">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1
-            className="text-2xl sm:text-3xl font-bold tracking-tight text-white"
+            className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white"
           >
             Portfolio Analysis
           </h1>
-          <p className="text-sm text-zinc-500 mt-1">
+          <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">
             AI-powered deep analysis & recommendations
           </p>
         </div>
@@ -145,7 +145,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
           data-testid="generate-insights-button"
           onClick={generate}
           disabled={generating}
-          className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl border-0"
+          className="bg-teal-600 hover:bg-teal-700 text-slate-900 dark:text-white rounded-xl border-0"
         >
           {generating ? (
             <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
@@ -157,7 +157,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
       </div>
 
       {/* Tab Navigation — Dark Theme */}
-      <div className="flex gap-1 bg-[#1A1A1A] rounded-xl p-1 border border-white/5" data-testid="insights-tabs">
+      <div className="flex gap-1 bg-slate-100 dark:bg-[#1A1A1A] rounded-xl p-1 border border-slate-200 dark:border-white/5" data-testid="insights-tabs">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -165,8 +165,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-all ${
               activeTab === tab.id
-                ? "bg-[#27272A] text-white shadow-sm"
-                : "text-zinc-500 hover:text-zinc-300"
+                ? "bg-[#27272A] text-slate-900 dark:text-white shadow-sm"
+                : "text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:text-zinc-300"
             }`}
           >
             {tab.label}
@@ -175,13 +175,13 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
       </div>
 
       {!analysis && ins.length === 0 && !deepAnalytics ? (
-        <Card className="bg-[#121212] border-white/5 rounded-2xl">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
           <CardContent className="p-12 text-center">
             <Sparkles className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-white mb-2">
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
               No analysis yet
             </h3>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-slate-500 dark:text-zinc-500">
               Click "Analyze Portfolio" to get AI-powered insights and recommendations.
             </p>
           </CardContent>
@@ -351,7 +351,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
         {/* Portfolio Health Score */}
         {gauge && gauge.current > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <Card className="bg-[#121212] border-white/5 rounded-2xl h-full" data-testid="health-score-card">
+            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full" data-testid="health-score-card">
               <CardContent className="p-6 text-center">
                 <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Portfolio Health</p>
                 <div className="relative w-24 h-24 mx-auto mb-3">
@@ -361,7 +361,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       stroke={gauge.current > 60 ? "#EF4444" : gauge.current > 35 ? "#F59E0B" : "#10B981"} />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-bold text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{100 - gauge.current}</span>
+                    <span className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{100 - gauge.current}</span>
                     <span className="text-[9px] text-slate-400">/100</span>
                   </div>
                 </div>
@@ -383,7 +383,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="mt-3 text-left p-3 bg-[#1A1A1A] rounded-lg text-[11px] text-zinc-400 space-y-1.5">
+                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1.5">
                         <p className="font-semibold text-slate-700 dark:text-slate-200">Health = inverse of risk score (100 - {gauge.current} = {100 - gauge.current})</p>
                         <p>Risk score factors:</p>
                         <ul className="list-disc pl-3 space-y-0.5">
@@ -405,7 +405,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
         {/* Risk Gauge Current → Target */}
         {gauge && gauge.current > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <Card className="bg-[#121212] border-white/5 rounded-2xl h-full">
+            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full">
               <CardContent className="p-6">
                 <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Risk Assessment</p>
                 <div className="space-y-4">
@@ -414,7 +414,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       <span className="text-slate-500">Now</span>
                       <span className="font-semibold text-red-500">{gauge.current_label} ({gauge.current})</span>
                     </div>
-                    <div className="w-full h-3 rounded-full bg-zinc-800/50 overflow-hidden">
+                    <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
                       <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
                     </div>
                   </div>
@@ -424,7 +424,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       <span className="text-slate-500">After Actions</span>
                       <span className="font-semibold text-emerald-600">{gauge.target_label} ({gauge.target})</span>
                     </div>
-                    <div className="w-full h-3 rounded-full bg-zinc-800/50 overflow-hidden">
+                    <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
                       <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${gauge.target}%` }} />
                     </div>
                   </div>
@@ -444,7 +444,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       exit={{ height: 0, opacity: 0 }}
                       className="overflow-hidden"
                     >
-                      <div className="mt-3 text-left p-3 bg-[#1A1A1A] rounded-lg text-[11px] text-zinc-400 space-y-1.5">
+                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1.5">
                         <p className="font-semibold text-red-600 dark:text-red-400">Current Risk: {gauge.current}/100 ({gauge.current_label})</p>
                         <p>Key risk drivers for your portfolio:</p>
                         <ul className="list-disc pl-3 space-y-0.5">
@@ -468,24 +468,24 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
 
         {/* Data Confidence */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl h-full" data-testid="confidence-card">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full" data-testid="confidence-card">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Data Confidence</p>
               <div className="text-center mb-3">
-                <span className="text-3xl font-bold text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{confidencePct}%</span>
+                <span className="text-3xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{confidencePct}%</span>
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${totalHoldings > 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
-                  <span className="text-zinc-500">{totalHoldings} holdings tracked</span>
+                  <span className="text-slate-500 dark:text-zinc-500">{totalHoldings} holdings tracked</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${navMatched > 0 ? "bg-emerald-500" : "bg-amber-500"}`} />
-                  <span className="text-zinc-500">{navMatched} MFs with live NAV</span>
+                  <span className="text-slate-500 dark:text-zinc-500">{navMatched} MFs with live NAV</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${confidencePct > 50 ? "bg-emerald-500" : "bg-amber-500"}`} />
-                  <span className="text-zinc-500">{confidencePct > 70 ? "High accuracy" : confidencePct > 40 ? "Some estimates" : "Limited data"}</span>
+                  <span className="text-slate-500 dark:text-zinc-500">{confidencePct > 70 ? "High accuracy" : confidencePct > 40 ? "Some estimates" : "Limited data"}</span>
                 </div>
               </div>
             </CardContent>
@@ -496,29 +496,29 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
       {/* ── Impact of Actions (expanded) ── */}
       {ba && ba.before && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="bg-gradient-to-r from-slate-50 to-emerald-50/30 dark:from-slate-800 dark:to-emerald-900/10 border-white/5 rounded-2xl" data-testid="impact-card">
+          <Card className="bg-gradient-to-r from-slate-50 to-emerald-50/30 dark:from-slate-800 dark:to-emerald-900/10 border-slate-200 dark:border-white/5 rounded-2xl" data-testid="impact-card">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-sm font-medium text-white mb-5" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-5" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 If You Apply These Changes
               </h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-white/5">
+                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                   <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Risk Score</p>
                   <p className="text-lg text-red-500 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.risk_score}</p>
                   <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.after.risk_score}</p>
                 </div>
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-white/5">
+                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                   <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Returns</p>
                   <p className="text-lg text-slate-400 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.return_pct}%</p>
                   <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>+{ba.after.return_pct}%</p>
                 </div>
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-white/5">
+                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                   <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Annual Cost</p>
                   <p className="text-lg text-red-500 line-through opacity-60">{ba.before.annual_cost ? fmt(ba.before.annual_cost) : `${ba.before.expense_ratio}%`}</p>
                   <p className="text-2xl font-bold text-emerald-600">{ba.after.annual_cost ? fmt(ba.after.annual_cost) : `${ba.after.expense_ratio}%`}</p>
                 </div>
                 {ba.after.wealth_10y_gain && (
-                  <div className="text-center p-4 bg-emerald-900/20 rounded-xl border border-emerald-500/20">
+                  <div className="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-500/20">
                     <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">10Y Wealth Gain</p>
                     <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>+{fmt(ba.after.wealth_10y_gain)}</p>
                     <p className="text-[10px] text-emerald-500 mt-1">additional wealth</p>
@@ -533,7 +533,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
       {/* ── "Do Nothing" Scenario ── */}
       {doNothing && doNothing.headline && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="bg-red-500/10 border-red-500/20 rounded-2xl" data-testid="do-nothing-card">
+          <Card className="bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 rounded-2xl" data-testid="do-nothing-card">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
@@ -566,7 +566,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
       {ins.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <div className="space-y-3" data-testid="actionable-insights">
-            <h3 className="text-sm font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
               Actionable Insights ({ins.length})
             </h3>
             {ins.map((insight, i) => {
@@ -592,12 +592,12 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       <SevIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: sev.color }} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-white">{insight.title}</p>
+                          <p className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</p>
                           <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${sev.color}15`, color: sev.color }}>
                             {sev.label}
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-500 mt-0.5">
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">
                           {insight.summary || insight.description?.slice(0, 80)}
                         </p>
                       </div>
@@ -614,18 +614,18 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
 
                   {/* Level 2: Expanded detail */}
                   {isExpanded && (
-                    <div className="p-4 bg-[#121212] border-t border-white/5 space-y-3">
+                    <div className="p-4 bg-[#121212] border-t border-slate-200 dark:border-white/5 space-y-3">
                       {/* Why it matters */}
                       {(insight.why_it_matters || insight.description) && (
                         <div>
                           <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Why It Matters</p>
-                          <p className="text-xs text-zinc-400 leading-relaxed">{insight.why_it_matters || insight.description}</p>
+                          <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.why_it_matters || insight.description}</p>
                         </div>
                       )}
 
                       {/* Recommended Action */}
                       {insight.action && (
-                        <div className="p-3 bg-emerald-900/15 rounded-lg border border-emerald-500/20">
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg border border-emerald-500/20">
                           <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Recommended Action</p>
                           <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{insight.action}</p>
                         </div>
@@ -637,10 +637,10 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                           <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Affected Holdings</p>
                           <div className="space-y-1 max-h-48 overflow-y-auto">
                             {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
-                              <div key={`affected-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-[#1A1A1A] rounded-lg text-xs">
+                              <div key={`affected-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-xs">
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${h.pct_return >= 0 ? "bg-emerald-500" : "bg-red-500"}`} />
-                                  <span className="text-zinc-300 truncate">{h.name}</span>
+                                  <span className="text-slate-700 dark:text-zinc-300 truncate">{h.name}</span>
                                 </div>
                                 <div className="flex items-center gap-3 flex-shrink-0 ml-2">
                                   <span className="text-slate-400">{h.sector}</span>
@@ -660,7 +660,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                         {insight.expected_impact && (
                           <div className="flex-1">
                             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Expected Impact</p>
-                            <p className="text-xs text-zinc-400">{insight.expected_impact}</p>
+                            <p className="text-xs text-slate-600 dark:text-zinc-400">{insight.expected_impact}</p>
                           </div>
                         )}
                         {insight.rupee_impact && (
@@ -689,10 +689,10 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   <Zap className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     Simulate Optimized Portfolio
                   </h3>
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-500">
                     See projected returns if all recommendations are implemented
                   </p>
                 </div>
@@ -701,7 +701,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 data-testid="simulate-button"
                 onClick={runSimulation}
                 disabled={simulating}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+                className="bg-emerald-600 hover:bg-emerald-700 text-slate-900 dark:text-white rounded-xl"
               >
                 {simulating ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
                 {simulating ? "Simulating..." : "Run Simulation"}
@@ -721,30 +721,30 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   <div className="border-t border-emerald-500/20 pt-4 mt-2">
                     {/* Key metrics row */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-white/5">
+                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                         <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Current Returns</p>
-                        <p className="text-lg font-bold text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           {simulation.current_returns_pct >= 0 ? "+" : ""}{simulation.current_returns_pct}%
                         </p>
                         <p className="text-[10px] text-slate-400">{fmt(simulation.current_returns)}</p>
                       </div>
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-white/5">
+                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                         <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Optimized (1Y)</p>
                         <p className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           +{simulation.optimized_returns_pct}%
                         </p>
                         <p className="text-[10px] text-emerald-500">{fmt(simulation.optimized_value_1yr)}</p>
                       </div>
-                      <div className="text-center p-3 bg-emerald-900/20 rounded-xl border border-emerald-500/20">
+                      <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-500/20">
                         <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Additional Returns</p>
                         <p className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>
                           +{fmt(simulation.additional_returns)}
                         </p>
                         <p className="text-[10px] text-emerald-500">+{simulation.additional_returns_pct}% extra p.a.</p>
                       </div>
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-white/5">
+                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
                         <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Actions</p>
-                        <p className="text-lg font-bold text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           {simulation.actions?.length || 0}
                         </p>
                         <p className="text-[10px] text-slate-400">to implement</p>
@@ -756,7 +756,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                       <div className="space-y-2">
                         <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Action Breakdown</p>
                         {simulation.actions.map((a, i) => (
-                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-[#121212] rounded-lg border border-white/5">
+                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-[#121212] rounded-lg border border-slate-200 dark:border-white/5">
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                               <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
                                 a.action === "sell" ? "bg-red-100 dark:bg-red-900/30" :
@@ -768,7 +768,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                                  a.action === "buy" ? <ArrowUpRight className="w-3 h-3 text-emerald-600" /> :
                                  <ArrowRight className="w-3 h-3 text-amber-600" />}
                               </div>
-                              <span className="text-xs text-zinc-300 truncate">{a.title}</span>
+                              <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{a.title}</span>
                             </div>
                             <span className="text-xs font-bold text-emerald-600 ml-2 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                               {a.savings_1yr > 0 ? `+${fmt(a.savings_1yr)}/yr` : "—"}
@@ -788,7 +788,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
       {/* ── Problem Distribution + Cost Leakage ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {pd.length > 0 && (
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Issue Breakdown</p>
               <div className="h-36 cursor-pointer">
@@ -811,15 +811,15 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 {pd.map(d => (
                   <div
                     key={d.name}
-                    className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-zinc-800/50" : "hover:bg-[#1A1A1A]"}`}
+                    className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-50 dark:bg-zinc-800/50" : "hover:bg-slate-100 dark:bg-[#1A1A1A]"}`}
                     onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)}
                     data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}
                   >
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-xs text-zinc-500">{d.name}</span>
+                      <span className="text-xs text-slate-500 dark:text-zinc-500">{d.name}</span>
                     </div>
-                    <span className="text-xs font-medium text-white">{d.value}%</span>
+                    <span className="text-xs font-medium text-slate-900 dark:text-white">{d.value}%</span>
                   </div>
                 ))}
               </div>
@@ -827,14 +827,14 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
               <AnimatePresence>
                 {activeIssueCategory && analytics?.performance_cards?.length > 0 && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                    <div className="mt-3 pt-3 border-t border-white/5">
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-white/5">
                       <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">
                         Holdings related to "{activeIssueCategory}"
                       </p>
                       <div className="space-y-1 max-h-40 overflow-y-auto">
                         {getHoldingsForIssue(activeIssueCategory, analytics.performance_cards, ins).map((h, idx) => (
-                          <div key={`drill-${idx}`} className="flex items-center justify-between py-1.5 px-2 bg-[#1A1A1A] rounded text-[11px]">
-                            <span className="text-zinc-300 truncate flex-1">{h.name}</span>
+                          <div key={`drill-${idx}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-100 dark:bg-[#1A1A1A] rounded text-[11px]">
+                            <span className="text-slate-700 dark:text-zinc-300 truncate flex-1">{h.name}</span>
                             <span className={`ml-2 font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                               {h.pct_return >= 0 ? "+" : ""}{h.pct_return}%
                             </span>
@@ -851,15 +851,15 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
         )}
 
         {cost && cost.annual_loss > 0 && (
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Cost Leakage</p>
               <div className="text-center mb-4">
                 <p className="text-3xl font-bold text-red-500" style={{ fontFamily: "'Outfit', sans-serif" }}>{fmt(cost.annual_loss)}</p>
                 <p className="text-xs text-red-400 mt-1">lost per year ({cost.loss_pct}% of portfolio)</p>
               </div>
-              <p className="text-xs text-zinc-500 text-center">{cost.detail}</p>
-              <div className="mt-4 p-3 bg-emerald-900/15 rounded-lg text-center">
+              <p className="text-xs text-slate-500 dark:text-zinc-500 text-center">{cost.detail}</p>
+              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg text-center">
                 <p className="text-xs text-emerald-600 font-medium">Switching to direct plans could save {fmt(cost.annual_loss)}/year</p>
               </div>
             </CardContent>
@@ -870,14 +870,14 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
       {/* ── Interactive Action Funnel ── */}
       {funnel.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl" data-testid="action-funnel">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl" data-testid="action-funnel">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   Action Plan
                 </h3>
                 <div className="flex items-center gap-2">
-                  <div className="w-20 h-2 rounded-full bg-zinc-800/50 overflow-hidden">
+                  <div className="w-20 h-2 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
                     <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${funnel.length > 0 ? (completedCount / funnel.length) * 100 : 0}%` }} />
                   </div>
                   <span className="text-xs text-slate-400">{completedCount}/{funnel.length}</span>
@@ -888,19 +888,19 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   const done = completedActions[step.step];
                   const statusColors = { critical: "#EF4444", important: "#F59E0B", moderate: "#3B82F6", recommended: "#10B981" };
                   return (
-                    <div key={i} className={`flex items-start gap-4 p-3 rounded-xl transition-all ${done ? "bg-emerald-900/20 opacity-70" : "hover:bg-[#1A1A1A]"}`}>
+                    <div key={i} className={`flex items-start gap-4 p-3 rounded-xl transition-all ${done ? "bg-emerald-50 dark:bg-emerald-900/20 opacity-70" : "hover:bg-slate-100 dark:bg-[#1A1A1A]"}`}>
                       <button
                         onClick={() => toggleAction(step.step)}
                         className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border-2 transition-all ${
-                          done ? "bg-emerald-500 border-emerald-500 text-white" : "border-zinc-700 hover:border-emerald-400"
+                          done ? "bg-emerald-500 border-emerald-500 text-slate-900 dark:text-white" : "border-slate-200 dark:border-zinc-700 hover:border-emerald-400"
                         }`}
                         data-testid={`action-check-${i}`}
                       >
                         {done ? <span className="text-xs font-bold">✓</span> : <span className="text-xs font-bold text-slate-400">{step.step}</span>}
                       </button>
                       <div className="flex-1">
-                        <p className={`text-sm font-medium ${done ? "line-through text-slate-400" : "text-white"}`}>{step.title}</p>
-                        <p className="text-xs text-zinc-500 mt-0.5">{step.detail}</p>
+                        <p className={`text-sm font-medium ${done ? "line-through text-slate-400" : "text-slate-900 dark:text-white"}`}>{step.title}</p>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{step.detail}</p>
                         {step.rupee_impact && <p className="text-[10px] text-emerald-600 font-medium mt-1">{step.rupee_impact}</p>}
                       </div>
                       <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${statusColors[step.status] || "#94A3B8"}15`, color: statusColors[step.status] || "#94A3B8" }}>
@@ -911,7 +911,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 })}
                 <div className="flex items-center gap-4 p-3">
                   <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                    <Target className="w-4 h-4 text-white" />
+                    <Target className="w-4 h-4 text-slate-900 dark:text-white" />
                   </div>
                   <p className="text-sm font-medium text-emerald-600">Optimized Portfolio</p>
                 </div>
@@ -919,6 +919,159 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
             </CardContent>
           </Card>
         </motion.div>
+      )}
+    </div>
+  );
+};
+
+// ════════════════════════════════════════
+// ALLOCATION ANALYSIS DISPLAY — MOS-style sector overexposure + company drill-down
+// ════════════════════════════════════════
+const AllocationAnalysisDisplay = ({ allocation, fmt }) => {
+  const [view, setView] = useState("sectors");
+  const [expandedSector, setExpandedSector] = useState(null);
+
+  const sectors = allocation.sector_allocation || allocation.top_5_sectors || [];
+  const companies = allocation.top_10_companies || allocation.company_allocation?.slice(0, 15) || [];
+  const flags = allocation.concentration_flags || [];
+  const topSector = sectors[0];
+  const hasOverexposure = topSector && topSector.weight > 0.25;
+
+  return (
+    <div className="space-y-5" data-testid="allocation-display">
+      {/* Alert Banner — MOS style */}
+      {hasOverexposure ? (
+        <div className="rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-red-100 dark:bg-red-500/20 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-4 h-4 text-red-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                {topSector.sector} Sector Overexposure
+              </p>
+              <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1">
+                Your portfolio is concentrated in <strong>{topSector.sector} ({(topSector.weight * 100).toFixed(1)}%)</strong>.
+                If this sector faces challenges, your entire portfolio suffers. Diversification is recommended.
+              </p>
+            </div>
+          </div>
+          {/* Stacked allocation bar */}
+          <div className="mt-3 flex h-7 rounded-lg overflow-hidden">
+            {sectors.slice(0, 5).map((sec, i) => {
+              const pct = sec.weight * 100;
+              const colors = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EC4899"];
+              return pct > 1 ? (
+                <div key={sec.sector} className="flex items-center justify-center text-[9px] font-bold text-white" style={{ width: `${pct}%`, backgroundColor: colors[i % colors.length], minWidth: pct > 5 ? 0 : 20 }}>
+                  {pct > 5 ? `${pct.toFixed(0)}%` : ""}
+                </div>
+              ) : null;
+            })}
+            <div className="flex-1 flex items-center justify-center text-[9px] font-bold text-slate-400 bg-slate-200 dark:bg-zinc-700">
+              Others
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4 text-emerald-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">Well-Balanced Sector Allocation</p>
+              <p className="text-xs text-slate-600 dark:text-zinc-400 mt-0.5">No single sector dominates your portfolio. Good diversification.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Concentration Flags */}
+      {flags.length > 0 && (
+        <div className="space-y-2">
+          {flags.slice(0, 3).map((flag, i) => (
+            <div key={`cflag-${i}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${flag.severity === "high" ? "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20" : "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20"}`}>
+              <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${flag.severity === "high" ? "text-red-500" : "text-amber-500"}`} />
+              <p className="text-xs text-slate-700 dark:text-zinc-300">
+                <span className="font-semibold">{flag.name}</span> — {flag.type} at <span className="font-bold">{(flag.weight * 100).toFixed(1)}%</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Toggle: Sectors / Companies */}
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-100 dark:bg-[#1A1A1A] rounded-xl p-1">
+        <button onClick={() => setView("sectors")} className={`flex-1 px-4 py-2 text-xs font-medium rounded-lg transition-all ${view === "sectors" ? "bg-white dark:bg-[#27272A] text-slate-900 dark:text-white shadow-sm" : "text-slate-500 dark:text-zinc-500"}`}>
+          Sector Allocation
+        </button>
+        <button onClick={() => setView("companies")} className={`flex-1 px-4 py-2 text-xs font-medium rounded-lg transition-all ${view === "companies" ? "bg-white dark:bg-[#27272A] text-slate-900 dark:text-white shadow-sm" : "text-slate-500 dark:text-zinc-500"}`}>
+          Company Exposure
+        </button>
+      </div>
+
+      {view === "sectors" ? (
+        <div className="space-y-2">
+          {sectors.map((sec, i) => {
+            const pct = sec.weight * 100;
+            const isExpanded = expandedSector === i;
+            const isHigh = pct > 25;
+            const relatedCompanies = companies.filter(c => c.sector === sec.sector);
+            return (
+              <div key={`sec-card-${sec.sector}`}>
+                <div
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all ${isHigh ? "border-red-200 dark:border-red-500/20 bg-red-50/50 dark:bg-red-500/5" : "border-slate-200 dark:border-white/5 bg-white dark:bg-[#121212]"}`}
+                  onClick={() => setExpandedSector(isExpanded ? null : i)}
+                >
+                  <div className="w-1 h-8 rounded-full" style={{ backgroundColor: ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EC4899", "#EF4444", "#06B6D4", "#D946EF"][i % 8] }} />
+                  <span className="text-sm text-slate-900 dark:text-white flex-1 font-medium">{sec.sector}</span>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{pct.toFixed(1)}%</span>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                </div>
+                <AnimatePresence>
+                  {isExpanded && relatedCompanies.length > 0 && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="ml-6 pl-4 border-l-2 border-slate-200 dark:border-zinc-700 py-2 space-y-1.5">
+                        {relatedCompanies.map((c, ci) => (
+                          <div key={`comp-drill-${ci}`} className="flex items-center justify-between">
+                            <span className="text-xs text-slate-600 dark:text-zinc-400">{c.name}</span>
+                            <span className="text-xs font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{(c.weight * 100).toFixed(2)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {companies.slice(0, 15).map((comp, i) => {
+            const pct = comp.weight * 100;
+            const isHigh = pct >= 10;
+            return (
+              <div key={`comp-card-${comp.name}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${isHigh ? "border-red-200 dark:border-red-500/20 bg-red-50/50 dark:bg-red-500/5" : "border-slate-100 dark:border-white/5"}`}>
+                <span className={`text-[10px] w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 font-bold ${isHigh ? "bg-red-100 dark:bg-red-900/30 text-red-500" : "bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400"}`}>{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{comp.name}</p>
+                  <p className="text-[10px] text-slate-400">{comp.sector}</p>
+                </div>
+                <span className={`text-sm font-bold flex-shrink-0 ${isHigh ? "text-red-500" : "text-slate-700 dark:text-zinc-300"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                  {pct.toFixed(1)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Data Quality */}
+      {allocation.data_quality && (
+        <p className="text-[10px] text-slate-400 text-center pt-2 border-t border-slate-200 dark:border-white/5">
+          AI-estimated. {allocation.data_quality.estimated_funds || 0} MF holdings estimated, {allocation.data_quality.direct_equity_count || 0} direct equities.
+        </p>
       )}
     </div>
   );
@@ -953,10 +1106,10 @@ const OverexposureTab = ({ overexposure, fmt }) => {
 
   if (!fundHouse.length && !sectors.length) {
     return (
-      <Card className="bg-[#121212] border-white/5 rounded-2xl">
+      <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
         <CardContent className="p-12 text-center">
           <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No overexposure data</h3>
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No overexposure data</h3>
           <p className="text-sm text-slate-500">Add holdings to see concentration analysis.</p>
         </CardContent>
       </Card>
@@ -968,17 +1121,17 @@ const OverexposureTab = ({ overexposure, fmt }) => {
       {/* Fund House / AMC Concentration */}
       {fundHouse.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-violet-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center">
                   <Building2 className="w-5 h-5 text-violet-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     Fund House Concentration
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
                     AMC-level exposure across your mutual fund portfolio
                   </p>
                 </div>
@@ -990,7 +1143,7 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                   {/* Current Allocation Bar */}
                   <div className="flex flex-col items-center">
                     <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Current</p>
-                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-zinc-800">
+                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-slate-200 dark:border-zinc-800">
                       {fundHouse.slice(0, 6).map((fh, i) => (
                         <div
                           key={`cur-${fh.name}`}
@@ -1000,7 +1153,7 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                           onClick={() => setExpandedFH(expandedFH === i ? null : i)}
                         >
                           {fh.pct >= 8 && (
-                            <span className="text-[10px] font-bold text-white drop-shadow-sm">{fh.pct}%</span>
+                            <span className="text-[10px] font-bold text-slate-900 dark:text-white drop-shadow-sm">{fh.pct}%</span>
                           )}
                         </div>
                       ))}
@@ -1016,7 +1169,7 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                   {/* Ideal Allocation Bar (balanced) */}
                   <div className="flex flex-col items-center">
                     <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Balanced</p>
-                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-zinc-800">
+                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-slate-200 dark:border-zinc-800">
                       {(() => {
                         const idealPct = Math.round(100 / Math.max(fundHouse.length, 1));
                         return fundHouse.slice(0, 6).map((fh, i) => (
@@ -1026,7 +1179,7 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                             style={{ height: `${idealPct}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length], opacity: 0.7 }}
                           >
                             {idealPct >= 8 && (
-                              <span className="text-[10px] font-bold text-white drop-shadow-sm">{idealPct}%</span>
+                              <span className="text-[10px] font-bold text-slate-900 dark:text-white drop-shadow-sm">{idealPct}%</span>
                             )}
                           </div>
                         ));
@@ -1056,7 +1209,7 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                         ? "border-red-500/20 bg-red-500/10"
                         : fh.risk_level === "medium"
                         ? "border-amber-500/20 bg-amber-500/10"
-                        : "border-slate-200 bg-[#1A1A1A]"
+                        : "border-slate-200 bg-slate-100 dark:bg-[#1A1A1A]"
                     }`}
                   >
                     <div
@@ -1064,11 +1217,11 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                       onClick={() => setExpandedFH(expandedFH === i ? null : i)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}>
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-slate-900 dark:text-white" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}>
                           {fh.name.charAt(0)}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-white">{fh.name}</p>
+                          <p className="text-sm font-medium text-slate-900 dark:text-white">{fh.name}</p>
                           <p className="text-xs text-slate-500">{fh.count} fund{fh.count > 1 ? "s" : ""} — {fmt(fh.value)}</p>
                         </div>
                       </div>
@@ -1085,11 +1238,11 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                       </div>
                     </div>
                     {expandedFH === i && fh.funds.length > 0 && (
-                      <div className="px-4 pb-4 border-t border-white/5 pt-3">
+                      <div className="px-4 pb-4 border-t border-slate-200 dark:border-white/5 pt-3">
                         <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Funds under {fh.name}</p>
                         <div className="space-y-1">
                           {fh.funds.map((f, fi) => (
-                            <p key={fi} className="text-xs text-zinc-400 flex items-center gap-2">
+                            <p key={fi} className="text-xs text-slate-600 dark:text-zinc-400 flex items-center gap-2">
                               <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
                               {f}
                             </p>
@@ -1107,20 +1260,16 @@ const OverexposureTab = ({ overexposure, fmt }) => {
 
       {/* AI-Powered True Sector & Company Allocation */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <Card className="bg-[#121212] border-white/5 rounded-2xl">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl">
           <CardContent className="p-6 md:p-8">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-blue-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    True Sector & Company Allocation
-                  </h3>
-                  <p className="text-xs text-zinc-500">
-                    AI look-through analysis — actual underlying sector exposure across all funds
-                  </p>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white">True Sector & Company Allocation</h3>
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">AI look-through across MFs + direct equity</p>
                 </div>
               </div>
               <Button variant="outline" size="sm" onClick={fetchAllocation} disabled={loadingAllocation} className="rounded-xl text-xs h-8">
@@ -1130,92 +1279,17 @@ const OverexposureTab = ({ overexposure, fmt }) => {
 
             {loadingAllocation && !allocation ? (
               <div className="space-y-4 py-4 animate-pulse">
-                <div className="h-6 bg-zinc-800/50 rounded w-48" />
+                <div className="h-10 bg-slate-100 dark:bg-zinc-800/50 rounded-xl" />
                 <div className="space-y-2">
-                  {[1,2,3,4,5].map(i => <div key={i} className="h-8 bg-zinc-800/50 rounded" />)}
+                  {[1,2,3,4,5].map(i => <div key={`skel-alloc-${i}`} className="h-8 bg-slate-100 dark:bg-zinc-800/50 rounded" />)}
                 </div>
               </div>
             ) : allocation ? (
-              <div className="space-y-6">
-                {/* Concentration Flags */}
-                {allocation.concentration_flags?.length > 0 && (
-                  <div className="space-y-2">
-                    {allocation.concentration_flags.map((flag, i) => (
-                      <div key={`flag-${i}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${
-                        flag.severity === "high" ? "bg-red-500/10 border-red-500/20" : "bg-amber-500/10 border-amber-500/20"
-                      }`}>
-                        <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${flag.severity === "high" ? "text-red-500" : "text-amber-500"}`} />
-                        <p className="text-xs text-zinc-300">
-                          <span className="font-semibold">{flag.name}</span> — {flag.type === "sector" ? "sector" : "company"} exposure at <span className="font-bold">{(flag.weight * 100).toFixed(1)}%</span>
-                          {flag.type === "sector" ? " (threshold: 30%)" : " (threshold: 10%)"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Two Column: Sectors + Companies */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Top Sectors */}
-                  <div>
-                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">True Sector Exposure</p>
-                    <div className="space-y-2">
-                      {(allocation.top_5_sectors || allocation.sector_allocation?.slice(0, 8) || []).map((sec, i) => {
-                        const pct = (sec.weight * 100);
-                        const maxPct = Math.max(...(allocation.top_5_sectors || allocation.sector_allocation?.slice(0, 1) || []).map(s => s.weight * 100), 1);
-                        return (
-                          <div key={`sec-${sec.sector}`} className="flex items-center gap-3">
-                            <span className="text-xs text-zinc-400 w-24 flex-shrink-0 truncate">{sec.sector}</span>
-                            <div className="flex-1 h-5 bg-zinc-800/50 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${(pct / maxPct) * 100}%` }} />
-                            </div>
-                            <span className="text-xs font-bold text-zinc-300 w-10 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                              {pct.toFixed(1)}%
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Top Companies */}
-                  <div>
-                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Top Company Exposure</p>
-                    <div className="space-y-1.5">
-                      {(allocation.top_10_companies || []).slice(0, 10).map((comp, i) => {
-                        const pct = comp.weight * 100;
-                        const isHigh = pct >= 10;
-                        return (
-                          <div key={`comp-${comp.name}`} className="flex items-center gap-2 py-1">
-                            <span className={`text-[10px] w-5 h-5 rounded flex items-center justify-center flex-shrink-0 font-bold ${isHigh ? "bg-red-900/30 text-red-500" : "bg-zinc-900/50 text-zinc-400"}`}>
-                              {i + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-zinc-300 truncate">{comp.name}</p>
-                              <p className="text-[9px] text-slate-400">{comp.sector}</p>
-                            </div>
-                            <span className={`text-xs font-bold flex-shrink-0 ${isHigh ? "text-red-500" : "text-zinc-400"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                              {pct.toFixed(1)}%
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Data Quality Note */}
-                {allocation.data_quality && (
-                  <p className="text-[10px] text-slate-400 text-center pt-2 border-t border-white/5">
-                    AI-estimated look-through analysis. {allocation.data_quality.estimated_funds || 0} fund holdings estimated.
-                    {allocation.data_quality.notes ? ` ${allocation.data_quality.notes.slice(0, 80)}` : ""}
-                  </p>
-                )}
-              </div>
+              <AllocationAnalysisDisplay allocation={allocation} fmt={fmt} />
             ) : (
               <div className="text-center py-8">
                 <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                <p className="text-sm text-slate-500">Add holdings to see allocation analysis.</p>
+                <p className="text-sm text-slate-500 dark:text-zinc-500">Click Refresh to run AI allocation analysis.</p>
               </div>
             )}
           </CardContent>
@@ -1239,10 +1313,10 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
 
   if (!overlaps.length && !categoryDetail.length) {
     return (
-      <Card className="bg-[#121212] border-white/5 rounded-2xl">
+      <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
         <CardContent className="p-12 text-center">
           <Layers className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
             No fund overlap detected
           </h3>
           <p className="text-sm text-slate-500">Add 2 or more mutual funds to see overlap analysis.</p>
@@ -1252,7 +1326,7 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
   }
 
   const scoreColor = level === "high" ? "text-red-500" : level === "moderate" ? "text-amber-500" : "text-emerald-600";
-  const scoreBg = level === "high" ? "bg-red-500/10 border-red-500/20" : level === "moderate" ? "bg-amber-500/10 border-amber-500/20" : "bg-emerald-900/15 border-emerald-500/20";
+  const scoreBg = level === "high" ? "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20" : level === "moderate" ? "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20" : "bg-emerald-50 dark:bg-emerald-900/15 border-emerald-500/20";
 
   return (
     <div className="space-y-6">
@@ -1281,12 +1355,12 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
 
               {/* Main Message */}
               <div className="flex-1 text-center md:text-left">
-                <h3 className="text-xl font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <h3 className="text-xl font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   {score > 25
                     ? `Your MF portfolio has ${score}% duplication`
                     : `Your portfolio is ${score < 10 ? "well" : "fairly"} diversified`}
                 </h3>
-                <p className="text-sm text-zinc-500 mt-1">
+                <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">
                   {fmt(dup.overlapping_value || 0)} of {fmt(dup.mf_total || 0)} is invested in overlapping categories
                 </p>
               </div>
@@ -1298,13 +1372,13 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
       {/* ── AI Insights with Action Buttons ── */}
       {insights.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-violet-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/20 flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-violet-600" strokeWidth={1.5} />
                 </div>
-                <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   Overlap Insights
                 </h3>
               </div>
@@ -1313,10 +1387,10 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                   <div
                     key={`ins-${i}`}
                     className={`rounded-xl p-4 border ${
-                      ins.type === "warning" ? "bg-amber-500/10 border-amber-500/20" :
-                      ins.type === "alert" ? "bg-red-500/10 border-red-500/20" :
-                      ins.type === "success" ? "bg-emerald-500/10 border-emerald-500/20" :
-                      "bg-[#1A1A1A]"
+                      ins.type === "warning" ? "bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/20" :
+                      ins.type === "alert" ? "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20" :
+                      ins.type === "success" ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20" :
+                      "bg-slate-100 dark:bg-[#1A1A1A]"
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -1327,8 +1401,8 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                         {ins.type === "info" && <Lightbulb className="w-4 h-4 text-blue-500" />}
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-white">{ins.text}</p>
-                        <p className="text-xs text-zinc-500 mt-1">{ins.detail}</p>
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{ins.text}</p>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">{ins.detail}</p>
                       </div>
                     </div>
                   </div>
@@ -1342,17 +1416,17 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
       {/* ── Screen 2: Category View — Stacked Bars (₹ overlap vs unique) ── */}
       {categoryDetail.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-amber-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
                   <Layers className="w-5 h-5 text-amber-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     Category-Level Overlap
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
                     Amount invested per category — unique vs overlapping allocation
                   </p>
                 </div>
@@ -1368,27 +1442,27 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                   return (
                     <div key={`cat-bar-${cat.category}`} className="group">
                       <div
-                        className="flex items-center gap-3 cursor-pointer py-1.5 hover:bg-[#1A1A1A] -mx-2 px-2 rounded-lg transition-colors"
+                        className="flex items-center gap-3 cursor-pointer py-1.5 hover:bg-slate-100 dark:bg-[#1A1A1A] -mx-2 px-2 rounded-lg transition-colors"
                         onClick={() => setExpandedCat(isExpanded ? null : i)}
                       >
-                        <span className="text-xs text-zinc-400 w-24 flex-shrink-0 truncate">{cat.category}</span>
-                        <div className="flex-1 h-7 rounded-lg overflow-hidden flex bg-zinc-800/50" style={{ width: `${barWidth}%` }}>
+                        <span className="text-xs text-slate-600 dark:text-zinc-400 w-24 flex-shrink-0 truncate">{cat.category}</span>
+                        <div className="flex-1 h-7 rounded-lg overflow-hidden flex bg-slate-50 dark:bg-zinc-800/50" style={{ width: `${barWidth}%` }}>
                           <div
                             className="h-full flex items-center justify-center transition-all"
                             style={{ width: `${uniquePct}%`, backgroundColor: "#10B981" }}
                           >
-                            {uniquePct > 20 && <span className="text-[9px] font-bold text-white">{fmt(cat.unique_value)}</span>}
+                            {uniquePct > 20 && <span className="text-[9px] font-bold text-slate-900 dark:text-white">{fmt(cat.unique_value)}</span>}
                           </div>
                           {cat.overlap_value > 0 && (
                             <div
                               className="h-full flex items-center justify-center transition-all"
                               style={{ width: `${100 - uniquePct}%`, backgroundColor: "#F59E0B" }}
                             >
-                              {(100 - uniquePct) > 20 && <span className="text-[9px] font-bold text-white">{fmt(cat.overlap_value)}</span>}
+                              {(100 - uniquePct) > 20 && <span className="text-[9px] font-bold text-slate-900 dark:text-white">{fmt(cat.overlap_value)}</span>}
                             </div>
                           )}
                         </div>
-                        <span className="text-xs font-bold text-zinc-300 w-8 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                        <span className="text-xs font-bold text-slate-700 dark:text-zinc-300 w-8 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                           {cat.fund_count}
                         </span>
                         {cat.is_overlapping ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <div className="w-3.5" />}
@@ -1398,9 +1472,9 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                       <AnimatePresence>
                         {isExpanded && cat.funds.length > 0 && (
                           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                            <div className="ml-28 pl-3 border-l-2 border-zinc-800 py-2 space-y-1">
+                            <div className="ml-28 pl-3 border-l-2 border-slate-200 dark:border-zinc-800 py-2 space-y-1">
                               {cat.funds.map((f, fi) => (
-                                <p key={fi} className="text-[11px] text-zinc-500">{f}</p>
+                                <p key={fi} className="text-[11px] text-slate-500 dark:text-zinc-500">{f}</p>
                               ))}
                             </div>
                           </motion.div>
@@ -1424,17 +1498,17 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
       {/* ── Screen 3: Sector Exposure ── */}
       {sectorOverlaps.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-indigo-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-indigo-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     Sector Exposure Across Funds
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
                     Categories where multiple funds concentrate — indicates hidden overlap
                   </p>
                 </div>
@@ -1444,7 +1518,7 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                 {sectorOverlaps.filter(s => s.fund_count >= 2).map((sec, i) => (
                   <div key={`sec-${sec.sector}`} className="flex items-center gap-3">
                     <span className="text-xs text-slate-500 w-28 flex-shrink-0 truncate">{sec.sector}</span>
-                    <div className="flex-1 h-5 bg-zinc-800/50 rounded-full overflow-hidden">
+                    <div className="flex-1 h-5 bg-slate-50 dark:bg-zinc-800/50 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all"
                         style={{
@@ -1468,17 +1542,17 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
       {/* ── Fund Overlap Heatmap (existing, cleaned up) ── */}
       {overlaps.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-indigo-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center">
                   <Layers className="w-5 h-5 text-indigo-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     Fund-to-Fund Overlap
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
                     Pairwise similarity between your mutual funds
                   </p>
                 </div>
@@ -1493,17 +1567,17 @@ const OverlapTab = ({ overlaps, duplication, fmt }) => {
                       className={`rounded-xl p-4 border flex items-center gap-4 ${
                         isHigh ? "border-red-500/20 bg-red-500/10"
                         : isMed ? "border-amber-500/20 bg-amber-500/10"
-                        : "border-white/5 bg-[#1A1A1A]"
+                        : "border-slate-200 dark:border-white/5 bg-slate-100 dark:bg-[#1A1A1A]"
                       }`}
                     >
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-white truncate">{o.fund_a}</p>
+                        <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{o.fund_a}</p>
                         <p className="text-[10px] text-slate-400 my-0.5">overlaps with</p>
-                        <p className="text-xs font-medium text-white truncate">{o.fund_b}</p>
+                        <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{o.fund_b}</p>
                         {o.reasons?.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
                             {o.reasons.map((r, ri) => (
-                              <span key={ri} className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-800/50 text-slate-500">{r}</span>
+                              <span key={ri} className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-50 dark:bg-zinc-800/50 text-slate-500">{r}</span>
                             ))}
                           </div>
                         )}
@@ -1558,10 +1632,10 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
 
   if (!cards.length && !allCards.length) {
     return (
-      <Card className="bg-[#121212] border-white/5 rounded-2xl">
+      <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
         <CardContent className="p-12 text-center">
           <BarChart3 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings</h3>
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings</h3>
           <p className="text-sm text-slate-500">Add holdings to see performance analysis.</p>
         </CardContent>
       </Card>
@@ -1572,19 +1646,19 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
     <div className="space-y-6">
       {/* Summary Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-[#121212] border-white/5 rounded-2xl">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
           <CardContent className="p-4">
             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Total Invested</p>
-            <p className="text-lg font-semibold text-white mt-1" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-total-invested">{fmt(totalInvested)}</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-white mt-1" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-total-invested">{fmt(totalInvested)}</p>
           </CardContent>
         </Card>
-        <Card className="bg-[#121212] border-white/5 rounded-2xl">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
           <CardContent className="p-4">
             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Current Value</p>
-            <p className="text-lg font-semibold text-white mt-1" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-total-current">{fmt(totalCurrent)}</p>
+            <p className="text-lg font-semibold text-slate-900 dark:text-white mt-1" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-total-current">{fmt(totalCurrent)}</p>
           </CardContent>
         </Card>
-        <Card className={`border rounded-2xl ${totalReturn >= 0 ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+        <Card className={`border rounded-2xl ${totalReturn >= 0 ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20" : "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20"}`}>
           <CardContent className="p-4">
             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Total P&L</p>
             <p className={`text-lg font-semibold mt-1 ${totalReturn >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-total-return">
@@ -1592,7 +1666,7 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
             </p>
           </CardContent>
         </Card>
-        <Card className={`border rounded-2xl ${totalReturnPct >= 0 ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+        <Card className={`border rounded-2xl ${totalReturnPct >= 0 ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20" : "bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20"}`}>
           <CardContent className="p-4">
             <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Return %</p>
             <p className={`text-lg font-semibold mt-1 flex items-center gap-1 ${totalReturnPct >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="perf-return-pct">
@@ -1612,8 +1686,8 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
             onClick={() => setFilter(at)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
               filter === at
-                ? "bg-emerald-600 text-white"
-                : "bg-zinc-800/50 text-zinc-400 hover:bg-slate-200 dark:hover:bg-slate-600"
+                ? "bg-emerald-600 text-slate-900 dark:text-white"
+                : "bg-slate-50 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-slate-600"
             }`}
             data-testid={`filter-${at}`}
           >
@@ -1624,12 +1698,12 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
 
       {/* Performance Cards Table */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-        <Card className="bg-[#121212] border-white/5 rounded-2xl overflow-hidden">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl overflow-hidden">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full" data-testid="performance-table">
                 <thead>
-                  <tr className="border-b border-white/5">
+                  <tr className="border-b border-slate-200 dark:border-white/5">
                     <th className="text-left p-4 text-[10px] font-bold tracking-wider uppercase text-slate-400">Holding</th>
                     <th className="text-right p-4 text-[10px] font-bold tracking-wider uppercase text-slate-400 cursor-pointer hover:text-slate-600 select-none" onClick={() => toggleSort("invested")}>
                       Invested <SortIcon col="invested" />
@@ -1654,7 +1728,7 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
                     return (
                       <tr
                         key={i}
-                        className="border-b border-slate-50 dark:border-zinc-800 hover:bg-zinc-800/50 transition-colors"
+                        className="border-b border-slate-50 dark:border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:bg-zinc-800/50 transition-colors"
                         data-testid={`perf-row-${i}`}
                       >
                         <td className="p-4">
@@ -1662,9 +1736,9 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
                             {/* Mini return indicator bar */}
                             <div className="w-1 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: isPos ? "#10B981" : "#EF4444", opacity: Math.min(0.3 + Math.abs(c.pct_return) / 100, 1) }} />
                             <div>
-                              <p className="text-sm font-medium text-white max-w-[250px] truncate">{c.name}</p>
+                              <p className="text-sm font-medium text-slate-900 dark:text-white max-w-[250px] truncate">{c.name}</p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/50 text-zinc-500 font-medium">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-50 dark:bg-zinc-800/50 text-slate-500 dark:text-zinc-500 font-medium">
                                   {ASSET_LABELS[c.asset_type] || c.asset_type}
                                 </span>
                                 <span className="text-[10px] text-slate-400">{c.sector}</span>
@@ -1676,11 +1750,11 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
                           </div>
                         </td>
                         <td className="p-4 text-right">
-                          <p className="text-sm text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(c.invested)}</p>
+                          <p className="text-sm text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(c.invested)}</p>
                           <p className="text-[10px] text-slate-400 mt-0.5">{c.quantity} × {fmt(c.buy_price)}</p>
                         </td>
                         <td className="p-4 text-right">
-                          <p className="text-sm font-medium text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(c.current_value)}</p>
+                          <p className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(c.current_value)}</p>
                           <p className="text-[10px] text-slate-400 mt-0.5">{fmt(c.current_price)}/unit</p>
                         </td>
                         <td className="p-4 text-right">
@@ -1696,10 +1770,10 @@ const PerformanceTab = ({ cards, allCards, sort, dir, filter, setSort, setDir, s
                         </td>
                         <td className="p-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <div className="w-16 h-1.5 rounded-full bg-zinc-800/50 overflow-hidden">
+                            <div className="w-16 h-1.5 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
                               <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(c.weight, 100)}%` }} />
                             </div>
-                            <span className="text-xs text-zinc-400 w-10 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{c.weight}%</span>
+                            <span className="text-xs text-slate-600 dark:text-zinc-400 w-10 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{c.weight}%</span>
                           </div>
                         </td>
                         <td className="p-4 text-right">
@@ -1783,18 +1857,18 @@ const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
       {amcGroups.map((amc) => {
         const isExpanded = expandedAmc === amc.name;
         return (
-          <div key={amc.name} className="rounded-xl border border-zinc-800 overflow-hidden">
+          <div key={amc.name} className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
             <button
               onClick={() => setExpandedAmc(isExpanded ? null : amc.name)}
-              className="w-full flex items-center justify-between p-4 hover:bg-zinc-800/30 transition-colors"
+              className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors"
               data-testid={`amc-group-${amc.name}`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-zinc-800/50 flex items-center justify-center text-sm font-bold text-zinc-400">
+                <div className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-zinc-800/50 flex items-center justify-center text-sm font-bold text-slate-600 dark:text-zinc-400">
                   {amc.name.charAt(0)}
                 </div>
                 <div className="text-left">
-                  <p className="text-sm font-medium text-white">{amc.name}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{amc.name}</p>
                   <p className="text-[10px] text-slate-500">{amc.funds.length} fund{amc.funds.length > 1 ? "s" : ""}</p>
                 </div>
               </div>
@@ -1826,7 +1900,7 @@ const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <div className="border-t border-white/5 p-4 space-y-3">
+                  <div className="border-t border-slate-200 dark:border-white/5 p-4 space-y-3">
                     {amc.funds.map((r, i) => {
                       const cfg = RATING_CONFIG[r.rating] || RATING_CONFIG.no_data;
                       const RIcon = cfg.icon;
@@ -1836,7 +1910,7 @@ const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-0.5">
                                 <RIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: cfg.color }} />
-                                <p className="text-xs font-medium text-white truncate">{r.name}</p>
+                                <p className="text-xs font-medium text-slate-900 dark:text-white truncate">{r.name}</p>
                               </div>
                               <p className="text-[10px] text-slate-500">{r.sector} {r.scheme_category ? `| ${r.scheme_category}` : ""}</p>
                             </div>
@@ -1853,7 +1927,7 @@ const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
                             </div>
                             <div>
                               <p className="text-[9px] text-slate-400">Benchmark</p>
-                              <p className="text-sm font-medium text-zinc-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                              <p className="text-sm font-medium text-slate-600 dark:text-zinc-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                                 {r.benchmark_return !== null ? `${r.benchmark_return >= 0 ? "+" : ""}${r.benchmark_return}%` : "—"}
                               </p>
                             </div>
@@ -1940,13 +2014,13 @@ const FundHeatmap = ({ ratings, fmt }) => {
                 opacity: selectedFund !== null && !isSelected ? 0.45 : 1,
               }}
             >
-              <p className="text-[10px] font-medium text-white/90 leading-tight truncate">{fund.name}</p>
-              <p className="text-lg font-bold text-white mt-1.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              <p className="text-[10px] font-medium text-slate-900 dark:text-white/90 leading-tight truncate">{fund.name}</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white mt-1.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                 {fund.pnlPct >= 0 ? "+" : ""}{fund.pnlPct.toFixed(1)}%
               </p>
               <div className="flex items-center justify-between mt-1.5">
-                <span className="text-[9px] text-white/60">{fmt(fund.invested)}</span>
-                <span className="text-[9px] text-white/80 font-medium">{fund.pnl >= 0 ? "+" : ""}{fmt(fund.pnl)}</span>
+                <span className="text-[9px] text-slate-900 dark:text-white/60">{fmt(fund.invested)}</span>
+                <span className="text-[9px] text-slate-900 dark:text-white/80 font-medium">{fund.pnl >= 0 ? "+" : ""}{fmt(fund.pnl)}</span>
               </div>
             </div>
           );
@@ -1957,10 +2031,10 @@ const FundHeatmap = ({ ratings, fmt }) => {
       <AnimatePresence>
         {selectedFund !== null && heatmapData[selectedFund] && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <div className="mt-4 p-5 bg-[#1A1A1A] rounded-xl border border-zinc-700">
+            <div className="mt-4 p-5 bg-slate-100 dark:bg-[#1A1A1A] rounded-xl border border-slate-200 dark:border-zinc-700">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <p className="text-sm font-medium text-white">{heatmapData[selectedFund].fullName}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{heatmapData[selectedFund].fullName}</p>
                   <p className="text-[10px] text-slate-500 mt-0.5">{heatmapData[selectedFund].sector}</p>
                 </div>
                 <button onClick={() => setSelectedFund(null)} className="text-xs text-slate-400 hover:text-slate-600 bg-slate-200 dark:bg-slate-600 px-2 py-1 rounded-lg">Close</button>
@@ -1974,11 +2048,11 @@ const FundHeatmap = ({ ratings, fmt }) => {
                 </div>
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Invested</p>
-                  <p className="text-base font-medium text-zinc-300 mt-1">{fmt(heatmapData[selectedFund].invested)}</p>
+                  <p className="text-base font-medium text-slate-700 dark:text-zinc-300 mt-1">{fmt(heatmapData[selectedFund].invested)}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Current</p>
-                  <p className="text-base font-medium text-zinc-300 mt-1">{fmt(heatmapData[selectedFund].current_value)}</p>
+                  <p className="text-base font-medium text-slate-700 dark:text-zinc-300 mt-1">{fmt(heatmapData[selectedFund].current_value)}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Gain/Loss</p>
@@ -2008,10 +2082,10 @@ const FundHeatmap = ({ ratings, fmt }) => {
 // BENCHMARK TAB - MF Benchmark Ratings, Performance Pie, Category Overlap Bar
 // ════════════════════════════════════════
 const RATING_CONFIG = {
-  overperforming: { label: "Outperforming", color: "#10B981", bg: "bg-emerald-900/15", border: "border-emerald-500/20", icon: TrendingUp },
+  overperforming: { label: "Outperforming", color: "#10B981", bg: "bg-emerald-50 dark:bg-emerald-900/15", border: "border-emerald-500/20", icon: TrendingUp },
   meeting: { label: "Meeting Benchmark", color: "#3B82F6", bg: "bg-blue-50 dark:bg-blue-900/15", border: "border-blue-200 dark:border-blue-800", icon: ArrowRight },
   underperforming: { label: "Underperforming", color: "#EF4444", bg: "bg-red-50 dark:bg-red-900/15", border: "border-red-200 dark:border-red-800", icon: TrendingDown },
-  no_data: { label: "No Benchmark Data", color: "#94A3B8", bg: "bg-zinc-800/50", border: "border-zinc-800", icon: BarChart3 },
+  no_data: { label: "No Benchmark Data", color: "#94A3B8", bg: "bg-slate-50 dark:bg-zinc-800/50", border: "border-slate-200 dark:border-zinc-800", icon: BarChart3 },
 };
 
 const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
@@ -2025,18 +2099,18 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
 
   if (loading) {
     return (
-      <Card className="bg-[#121212] border-white/5 rounded-2xl">
+      <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
         <CardContent className="p-12 text-center">
           <div className="relative w-16 h-16 mx-auto mb-4">
             <div className="w-16 h-16 border-3 border-emerald-100 dark:border-emerald-900/30 rounded-full" />
             <div className="absolute inset-0 w-16 h-16 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
           </div>
-          <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
             Fetching Benchmark Data...
           </h3>
-          <p className="text-sm text-zinc-500 mb-4">Fetching 1-year historical NAVs from AMFI for each mutual fund.</p>
+          <p className="text-sm text-slate-500 dark:text-zinc-500 mb-4">Fetching 1-year historical NAVs from AMFI for each mutual fund.</p>
           <div className="max-w-xs mx-auto">
-            <div className="w-full h-2 rounded-full bg-zinc-800/50 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
               <div className="h-full rounded-full bg-emerald-500 animate-pulse" style={{ width: "60%", transition: "width 2s ease" }} />
             </div>
             <p className="text-[10px] text-slate-400 mt-2">Processing up to 30 funds — typically takes 10-20 seconds</p>
@@ -2048,14 +2122,14 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
 
   if (!data || !data.fund_ratings?.length) {
     return (
-      <Card className="bg-[#121212] border-white/5 rounded-2xl">
+      <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
         <CardContent className="p-12 text-center">
           <BarChart3 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
             No mutual fund data
           </h3>
           <p className="text-sm text-slate-500 mb-4">Add mutual fund holdings to see benchmark analysis.</p>
-          <Button onClick={onLoad} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl" data-testid="load-benchmark-btn">
+          <Button onClick={onLoad} className="bg-emerald-600 hover:bg-emerald-700 text-slate-900 dark:text-white rounded-xl" data-testid="load-benchmark-btn">
             <RefreshCw className="w-4 h-4 mr-2" /> Load Benchmark Data
           </Button>
         </CardContent>
@@ -2093,10 +2167,10 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Performance Distribution Donut */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl h-full">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   MF Performance vs Benchmark
                 </h3>
                 <Button variant="ghost" size="sm" onClick={onLoad} className="h-7 text-xs text-slate-500" data-testid="refresh-benchmark">
@@ -2121,17 +2195,17 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                 </div>
                 <div className="flex-1 space-y-2.5">
                   {pieData.map(d => (
-                    <div key={d.name} className="flex items-center justify-between cursor-pointer hover:bg-[#1A1A1A] rounded-lg px-2 py-1 -mx-2 transition-colors"
+                    <div key={d.name} className="flex items-center justify-between cursor-pointer hover:bg-slate-100 dark:bg-[#1A1A1A] rounded-lg px-2 py-1 -mx-2 transition-colors"
                       onClick={() => setDrilldownRating(d.ratingKey)}
                     >
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
-                        <span className="text-xs text-zinc-400">{d.name}</span>
+                        <span className="text-xs text-slate-600 dark:text-zinc-400">{d.name}</span>
                       </div>
-                      <span className="text-sm font-bold text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{d.value}</span>
+                      <span className="text-sm font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{d.value}</span>
                     </div>
                   ))}
-                  <div className="pt-2 border-t border-white/5">
+                  <div className="pt-2 border-t border-slate-200 dark:border-white/5">
                     <p className="text-[10px] text-slate-400">
                       {summary.matched || 0} of {summary.total_mf || 0} funds matched with AMFI data
                     </p>
@@ -2146,17 +2220,17 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                 const ratingLabel = { overperforming: "Outperforming", meeting: "Meeting Benchmark", underperforming: "Underperforming", no_data: "No Data" };
                 const drillFunds = ratings.filter(r => r.rating === ratingMap[drilldownRating]);
                 return (
-                  <div className="mt-4 border-t border-white/5 pt-4">
+                  <div className="mt-4 border-t border-slate-200 dark:border-white/5 pt-4">
                     <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-medium text-white">
+                      <p className="text-xs font-medium text-slate-900 dark:text-white">
                         {ratingLabel[drilldownRating]} Funds ({drillFunds.length})
                       </p>
                       <button onClick={() => setDrilldownRating(null)} className="text-[10px] text-slate-400 hover:text-slate-600">Close</button>
                     </div>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
                       {drillFunds.length > 0 ? drillFunds.map((r, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg bg-[#1A1A1A]">
-                          <span className="text-zinc-300 truncate flex-1 mr-2">{r.name}</span>
+                        <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded-lg bg-slate-100 dark:bg-[#1A1A1A]">
+                          <span className="text-slate-700 dark:text-zinc-300 truncate flex-1 mr-2">{r.name}</span>
                           <div className="flex items-center gap-3 flex-shrink-0">
                             <span className={`font-bold ${(r.return_1y || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                               {r.return_1y !== null ? `${r.return_1y >= 0 ? "+" : ""}${r.return_1y}%` : "—"}
@@ -2179,9 +2253,9 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
 
         {/* Top & Bottom Performers */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl h-full">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full">
             <CardContent className="p-6">
-              <h3 className="text-sm font-medium text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 Best & Worst Performers (1Y Return)
               </h3>
               <div className="space-y-1">
@@ -2191,7 +2265,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                       <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
                         <TrendingUp className="w-3 h-3 text-emerald-600" />
                       </div>
-                      <span className="text-xs text-zinc-300 truncate">{p.name}</span>
+                      <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{p.name}</span>
                     </div>
                     <span className="text-xs font-bold text-emerald-600 ml-2" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                       +{p.return_1y?.toFixed(1)}%
@@ -2208,15 +2282,15 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                   </button>
                 )}
 
-                <div className="border-t border-white/5 my-2" />
+                <div className="border-t border-slate-200 dark:border-white/5 my-2" />
 
                 {(showAllBottom ? bottomPerf : bottomPerf.slice(0, 5)).map((p, i) => (
-                  <div key={`bottom-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors">
+                  <div key={`bottom-${i}`} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-red-50/50 dark:hover:bg-red-50 dark:bg-red-900/10 transition-colors">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                         <TrendingDown className="w-3 h-3 text-red-500" />
                       </div>
-                      <span className="text-xs text-zinc-300 truncate">{p.name}</span>
+                      <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{p.name}</span>
                     </div>
                     <span className="text-xs font-bold text-red-500 ml-2" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
                       {p.return_1y?.toFixed(1)}%
@@ -2241,17 +2315,17 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
       {/* MF Category Overlap — Visual Card Grid */}
       {overlapBarData.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-[#121212] border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-amber-900/20 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
                   <Layers className="w-5 h-5 text-amber-600" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-medium text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
                     MF Category Overlap
                   </h3>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-500">
                     Categories with 2+ funds indicate potential overlap and redundancy
                   </p>
                 </div>
@@ -2265,7 +2339,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                       key={`cat-${d.name}`}
                       className={`rounded-xl p-4 border transition-all hover:shadow-sm ${
                         isOverlapping
-                          ? "border-amber-200 bg-amber-50/50 dark:bg-amber-900/10 dark:border-amber-800"
+                          ? "border-amber-200 bg-amber-50/50 dark:bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800"
                           : "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-900/10 dark:border-emerald-800"
                       }`}
                     >
@@ -2277,7 +2351,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                           <AlertTriangle className="w-4 h-4 text-amber-500" strokeWidth={1.5} />
                         )}
                       </div>
-                      <p className="text-xs font-medium text-zinc-300">{d.fullName || d.name}</p>
+                      <p className="text-xs font-medium text-slate-700 dark:text-zinc-300">{d.fullName || d.name}</p>
                       <p className="text-[10px] text-slate-400 mt-0.5">
                         {isOverlapping ? "Potential overlap" : "Unique category"}
                       </p>
@@ -2297,12 +2371,12 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
 
       {/* Fund-by-Fund Benchmark Heatmap */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <Card className="bg-[#121212] border-white/5 rounded-2xl">
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
           <CardContent className="p-6 md:p-8">
-            <h3 className="text-lg font-medium text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
               Portfolio Performance Heatmap
             </h3>
-            <p className="text-xs text-zinc-500 mb-4">Size = invested value. Color = portfolio P&L (green = profit, red = loss). Click any fund to view details.</p>
+            <p className="text-xs text-slate-500 dark:text-zinc-500 mb-4">Size = invested value. Color = portfolio P&L (green = profit, red = loss). Click any fund to view details.</p>
             <FundHeatmap ratings={ratings} fmt={fmt} />
           </CardContent>
         </Card>
