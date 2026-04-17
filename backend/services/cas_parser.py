@@ -12,7 +12,7 @@ from PIL import Image, ImageEnhance
 logger = logging.getLogger("cas_parser")
 
 ISIN_RE = re.compile(r'\b(IN[A-Z0-9]{10})\b')
-SGB_ISIN_RE = re.compile(r'\b(IN\d{10,13})\b')
+SGB_ISIN_RE = re.compile(r'\b([I1]N\d{10,13})\b')  # OCR reads IN as 1N
 NUM_RE = re.compile(r'[\d,]+\.?\d*')
 
 # Table header patterns for precise section detection
@@ -223,17 +223,23 @@ def parse_sgb(text: str) -> List[Dict]:
         m = SGB_ISIN_RE.search(line)
         if m:
             isin = m.group(1)
+            # Fix OCR: 1N → IN
+            if isin.startswith("1N"):
+                isin = "IN" + isin[2:]
             block = line
             j = i + 1
             while j < len(lines):
                 nl = lines[j].strip()
-                if SGB_ISIN_RE.search(nl) or SUB_TOTAL_RE.search(nl) or 'Total' == nl.split()[0] if nl.split() else False:
+                if SGB_ISIN_RE.search(nl) or SUB_TOTAL_RE.search(nl):
                     break
                 block += " " + nl
                 j += 1
 
             nums = extract_all_numbers(block)
-            # Remove coupon rate (2.50)
+            # Remove numbers that are part of the ISIN and coupon rate (2.50)
+            # Get numbers only from text AFTER the ISIN
+            after_isin = block[block.index(m.group(0)) + len(m.group(0)):]
+            nums = extract_all_numbers(after_isin)
             nums = [n for n in nums if not (2.49 <= n <= 2.51)]
 
             units = 0
@@ -406,6 +412,166 @@ def parse_mf_folios(text: str) -> List[Dict]:
     return holdings
 
 
+# ═══════════════════════════════════════════════════════════════
+# CDSL-specific parsers
+# ═══════════════════════════════════════════════════════════════
+
+CDSL_EQUITY_HEADER = re.compile(r'ISIN\s+Security\s+Current', re.IGNORECASE)
+CDSL_MF_HEADER = re.compile(r'Scheme\s+Name\s+Folio\s+No.*?Bal\s+NAV', re.IGNORECASE)
+CDSL_HOLDING_RE = re.compile(r'HOLDING\s+STATEMENT', re.IGNORECASE)
+
+
+def parse_cdsl_equities(text: str) -> List[Dict]:
+    """Parse CDSL equity holdings: ISIN Security Current Frozen Pledge Free_Bal Price Value"""
+    holdings = []
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        m = ISIN_RE.search(line)
+        if m:
+            isin = m.group(1)
+            block = line
+            j = i + 1
+            while j < len(lines):
+                nl = lines[j].strip()
+                if ISIN_RE.search(nl) or 'Page' in nl or CDSL_EQUITY_HEADER.search(nl):
+                    break
+                block += " " + nl
+                j += 1
+
+            # Extract name and numbers
+            after = block[block.index(isin) + len(isin):]
+            # Remove stock exchange codes and noise
+            after = re.sub(r'#\s*EQUITY\s+SHARES?.*?(?=\d)', ' ', after, flags=re.IGNORECASE)
+            after = re.sub(r'EQUITY\s+SHARES?\s+OF\s+R[SE]\.?\s*\d+/?-?\s*(?:AFTER|EACH|WITH)?.*?(?=\d)', ' ', after, flags=re.IGNORECASE)
+            after = re.sub(r'LIMITED|NEW|AFTER|SUB.?DIVISION|SPLIT|CAPITAL\s+REDUCTION', ' ', after, flags=re.IGNORECASE)
+
+            nums = extract_all_numbers(after)
+            first_num = NUM_RE.search(after)
+            name_raw = after[:first_num.start()].strip() if first_num else after.strip()
+            name = re.sub(r'[^\w\s&\-\(\)]', '', name_raw).strip()
+            name = re.sub(r'\s+', ' ', name).strip()
+
+            # CDSL format: qty, frozen, pledge, pledge_setup, free_bal, price, value
+            # Typically: qty ... free_bal price value (last 2 numbers are price and value)
+            qty = 0
+            price = 0.0
+            value = 0.0
+
+            if len(nums) >= 2:
+                value = nums[-1]
+                price = nums[-2]
+                # Qty is typically the first number or free_bal
+                if len(nums) >= 3:
+                    qty = int(nums[0]) if nums[0] == int(nums[0]) else nums[0]
+                if price > 0 and value > 0 and qty > 0:
+                    expected = qty * price
+                    if abs(expected - value) / max(value, 1) > 0.15:
+                        qty = round(value / price) if price > 0 else 0
+
+            asset_type = "etf" if any(k in name.lower() for k in ["etf", "bees"]) else "equity"
+            if value > 0 and name and len(name) > 2:
+                holdings.append({
+                    "name": name, "ticker": isin, "asset_type": asset_type,
+                    "quantity": qty, "buy_price": round(price, 2),
+                    "current_price": round(price, 2), "sector": _classify_sector(name) if asset_type != "equity" else "Other",
+                })
+            i = j
+        else:
+            i += 1
+
+    logger.info(f"CDSL Equities: parsed {len(holdings)} holdings")
+    return holdings
+
+
+def parse_cdsl_mf_folios(text: str) -> List[Dict]:
+    """Parse CDSL MF Folios: Scheme Folio Balance NAV Amount Valuation Unrealised"""
+    holdings = []
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        m = ISIN_RE.search(line)
+        if m:
+            isin = m.group(1)
+            block = line
+            j = i + 1
+            while j < len(lines):
+                nl = lines[j].strip()
+                nm = ISIN_RE.search(nl)
+                if nm and nm.start() < 5:
+                    break
+                if 'Grand Total' in nl or 'Load Structure' in nl:
+                    break
+                block += " " + nl
+                j += 1
+
+            after = block[block.index(isin) + len(isin):]
+            # Find folio number
+            folio_match = re.search(r'\b(\d{6,12}(?:/\d+)?)\b', after)
+            if folio_match:
+                name = after[:folio_match.start()].strip()
+                numbers_text = after[folio_match.end():]
+            else:
+                first_num = NUM_RE.search(after)
+                name = after[:first_num.start()].strip() if first_num else after.strip()
+                numbers_text = after[first_num.start():] if first_num else ""
+
+            name = re.sub(r'[^\w\s&\-\(\)/]', '', name).strip()
+            name = re.sub(r'\s+', ' ', name).strip()
+
+            nums = extract_all_numbers(numbers_text)
+            # CDSL MF: balance, NAV, amount_invested, valuation, unrealised, unrealised%
+            units = 0.0
+            nav = 0.0
+            value = 0.0
+            avg_cost = 0.0
+
+            if len(nums) >= 4:
+                units = nums[0]
+                nav = nums[1]
+                invested = nums[2]
+                value = nums[3]
+                avg_cost = invested / units if units > 0 else nav
+                # Validate
+                if units > 0 and nav > 0:
+                    expected = units * nav
+                    if abs(expected - value) / max(value, 1) > 0.1:
+                        # Try different mapping
+                        for vi in range(2, min(len(nums), 6)):
+                            for ni in range(min(len(nums), 6)):
+                                if ni == vi: continue
+                                if nums[ni] < 1 or nums[ni] > 100000: continue
+                                for ui in range(min(len(nums), 6)):
+                                    if ui in (vi, ni): continue
+                                    for u in [nums[ui], nums[ui] / 1000]:
+                                        if u <= 0: continue
+                                        err = abs(u * nums[ni] - nums[vi]) / max(nums[vi], 1)
+                                        if err < 0.05:
+                                            units, nav, value = u, nums[ni], nums[vi]
+                                            break
+            elif len(nums) >= 2:
+                nav = nums[0]
+                value = nums[1]
+                units = value / nav if nav > 0 else 0
+
+            if value > 0 and name and len(name) > 3:
+                holdings.append({
+                    "name": name, "ticker": isin, "asset_type": "mutual_fund",
+                    "quantity": round(units, 4),
+                    "buy_price": round(avg_cost, 4) if avg_cost > 0 else round(nav, 4),
+                    "current_price": round(nav, 4),
+                    "sector": _classify_sector(name),
+                })
+            i = j
+        else:
+            i += 1
+
+    logger.info(f"CDSL MF Folios: parsed {len(holdings)} holdings")
+    return holdings
+
+
 def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
     """Parse image-based NSDL/CDSL CAS PDF using local Tesseract OCR."""
     from pdf2image import convert_from_bytes
@@ -422,30 +588,52 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
 
     logger.info(f"CAS local OCR: {len(images)} pages")
 
-    # OCR pages and find where transactions start
+    # OCR all pages
     page_texts = []
-    holdings_end_page = len(images)
     for i, img in enumerate(images):
         text = ocr_page(img)
         page_texts.append(text)
-        # Transactions section has "ISIN : INE..." pattern
+
+    full_text = "\n".join(page_texts)
+
+    # Detect CAS type
+    is_cdsl = bool(re.search(r'CDSL|Central\s+Depository\s+Services', full_text, re.IGNORECASE))
+    is_nsdl = bool(re.search(r'NSDL|National\s+Securities\s+Depository', full_text, re.IGNORECASE))
+    cas_type = "CDSL" if is_cdsl and not is_nsdl else "NSDL" if is_nsdl else "UNKNOWN"
+    # If both NSDL and CDSL mentioned, check which is the issuer
+    if is_cdsl and is_nsdl:
+        # CDSL CAS has "CDSL" in header of every page
+        cdsl_count = len(re.findall(r'C\s*D\s*S\s*L', full_text))
+        nsdl_count = len(re.findall(r'National Securities Depository', full_text))
+        cas_type = "CDSL" if cdsl_count > nsdl_count else "NSDL"
+
+    logger.info(f"Detected CAS type: {cas_type}")
+
+    if cas_type == "CDSL":
+        return _parse_cdsl_cas(page_texts)
+    else:
+        return _parse_nsdl_cas(page_texts)
+
+
+def _parse_nsdl_cas(page_texts: list) -> List[Dict]:
+    """Parse NSDL CAS format."""
+    # Find where transactions start
+    holdings_end_page = len(page_texts)
+    for i, text in enumerate(page_texts):
         if TRANSACTION_MARKER.search(text) and i > 3:
             holdings_end_page = i
-            logger.info(f"Transaction section starts at page {i+1}, stopping holdings parse")
+            logger.info(f"NSDL transaction section at page {i+1}")
             break
 
-    # Combine holdings pages only (skip page 0 = cover letter)
     combined = "\n".join(page_texts[1:holdings_end_page])
-
     all_holdings = []
 
-    # 1. Parse Equities
+    # 1. Equities
     eq_section = _extract_section(combined, EQUITY_HEADER, [MF_M_HEADER, SGB_HEADER, MF_FOLIO_HEADER])
     if eq_section:
         all_holdings.extend(parse_equities(eq_section))
 
-    # 2. Parse Mutual Funds (M) — demat ETFs
-    # May appear multiple times (different demat accounts)
+    # 2. Mutual Funds (M) — demat ETFs
     for mm in MF_M_HEADER.finditer(combined):
         start = mm.end()
         end = len(combined)
@@ -456,32 +644,61 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         sub = SUB_TOTAL_RE.search(combined[start:end])
         if sub:
             end = start + sub.end()
-        section = combined[start:end]
-        all_holdings.extend(parse_mf_demat(section))
+        all_holdings.extend(parse_mf_demat(combined[start:end]))
 
-    # 3. Parse Sovereign Gold Bonds — find the one after "Sub Total" of MF(M), not the composition
-    sgb_section = ""
+    # 3. Sovereign Gold Bonds
     for sm in SGB_HEADER.finditer(combined):
         candidate = combined[sm.end():sm.end() + 3000]
-        # Real SGB section has ISIN-like numbers (IN00...) within first 500 chars
         if SGB_ISIN_RE.search(candidate[:500]):
             sub = SUB_TOTAL_RE.search(candidate)
             sgb_section = candidate[:sub.start()] if sub else candidate[:2000]
+            all_holdings.extend(parse_sgb(sgb_section))
             break
-    if sgb_section:
-        all_holdings.extend(parse_sgb(sgb_section))
 
-    # 4. Parse MF Folios
+    # 4. MF Folios
     for mf in MF_FOLIO_HEADER.finditer(combined):
         start = mf.end()
         end = len(combined)
         sub = SUB_TOTAL_RE.search(combined[start:])
         if sub:
             end = start + sub.start()
-        section = combined[start:end]
-        all_holdings.extend(parse_mf_folios(section))
+        all_holdings.extend(parse_mf_folios(combined[start:end]))
 
-    # Deduplicate by ISIN
+    return _deduplicate(all_holdings)
+
+
+def _parse_cdsl_cas(page_texts: list) -> List[Dict]:
+    """Parse CDSL CAS format."""
+    combined = "\n".join(page_texts)
+    all_holdings = []
+
+    # Find CDSL equity holding pages (have "HOLDING STATEMENT" or CDSL equity header)
+    for header_match in CDSL_EQUITY_HEADER.finditer(combined):
+        start = header_match.end()
+        end = len(combined)
+        # Find end: next page header or MF section
+        next_header = CDSL_EQUITY_HEADER.search(combined[start:])
+        if next_header:
+            end = start + next_header.start()
+        cdsl_mf = CDSL_MF_HEADER.search(combined[start:])
+        if cdsl_mf:
+            end = min(end, start + cdsl_mf.start())
+        all_holdings.extend(parse_cdsl_equities(combined[start:end]))
+
+    # Find CDSL MF folio pages
+    for mf_match in CDSL_MF_HEADER.finditer(combined):
+        start = mf_match.end()
+        end = len(combined)
+        grand_total = re.search(r'Grand\s+Total', combined[start:])
+        if grand_total:
+            end = start + grand_total.start()
+        all_holdings.extend(parse_cdsl_mf_folios(combined[start:end]))
+
+    return _deduplicate(all_holdings)
+
+
+def _deduplicate(all_holdings: list) -> list:
+    """Deduplicate holdings by ISIN."""
     seen = set()
     unique = []
     for h in all_holdings:
@@ -491,6 +708,5 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         if key:
             seen.add(key)
         unique.append(h)
-
     logger.info(f"CAS local OCR: {len(all_holdings)} total → {len(unique)} unique holdings")
     return unique

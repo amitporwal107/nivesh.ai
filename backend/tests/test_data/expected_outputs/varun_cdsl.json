@@ -1,0 +1,62 @@
+{
+  "source": "CDSL",
+  "file": "varun_cdsl.pdf",
+  "investor": "VARUN AGARWAL",
+  "period": "01-02-2026 to 28-02-2026",
+  "summary": {
+    "total_portfolio": 2844998.46,
+    "cdsl_demat": 1459999.04,
+    "mutual_fund_folios": 1384999.42
+  },
+  "equities": [
+    {"isin": "INE14LE01019", "name": "ADITYA BIRLA LIFESTYLE BRANDS LIMITED", "quantity": 173, "price": 102.10, "value": 17663.30},
+    {"isin": "INE901L01018", "name": "ALEMBIC PHARMACEUTICALS LIMITED", "quantity": 27, "price": 711.55, "value": 19211.85},
+    {"isin": "INE397D01024", "name": "BHARTI AIRTEL LIMITED", "quantity": 20, "price": 1879.75, "value": 37595.00},
+    {"isin": "INE836A01035", "name": "BIRLASOFT LIMITED", "quantity": 150, "price": 390.10, "value": 58515.00},
+    {"isin": "INE491A01021", "name": "CITY UNION BANK LIMITED", "quantity": 158, "price": 283.30, "value": 44761.40},
+    {"isin": "INE299U01018", "name": "CROMPTON GREAVES CONSUMER ELECTRICALS", "quantity": 83, "price": 257.55, "value": 21376.65},
+    {"isin": "INE171A01029", "name": "THE FEDERAL BANK LIMITED", "quantity": 147, "price": 299.95, "value": 44092.65},
+    {"isin": "INE364U01010", "name": "GODREJ CONSUMER PRODUCTS LIMITED", "quantity": 25, "price": 948.20, "value": 23705.00},
+    {"isin": "INE102D01028", "name": "HDFC BANK LIMITED", "quantity": 45, "price": 1217.60, "value": 54792.00},
+    {"isin": "INE040A01034", "name": "HDFC BANK LIMITED (2nd demat)", "quantity": 90, "price": 887.40, "value": 79866.00},
+    {"isin": "INE531E01026", "name": "HINDUSTAN COPPER LIMITED", "quantity": 100, "price": 567.55, "value": 56755.00},
+    {"isin": "INE090A01021", "name": "ICICI BANK LIMITED", "quantity": 41, "price": 1379.00, "value": 56539.00},
+    {"isin": "INE346A01027", "name": "ICICI PRUDENTIAL AMC LIMITED", "quantity": 6, "price": 3104.35, "value": 18626.10},
+    {"isin": "INE022Q01020", "name": "INDIAN ENERGY EXCHANGE LIMITED", "quantity": 30, "price": 125.15, "value": 3754.50},
+    {"isin": "INE202E01016", "name": "IREDA LIMITED", "quantity": 292, "price": 122.30, "value": 35711.60},
+    {"isin": "INE009A01021", "name": "INFOSYS LIMITED", "quantity": 35, "price": 1299.95, "value": 45498.25},
+    {"isin": "INE018A01030", "name": "LARSEN AND TOUBRO LIMITED", "quantity": 10, "price": 4280.55, "value": 42805.50},
+    {"isin": "INE774D01024", "name": "L&T FINANCE LIMITED", "quantity": 105, "price": 374.95, "value": 39369.75},
+    {"isin": "INE312K01010", "name": "METROPOLITAN STOCK EXCHANGE LIMITED", "quantity": 20000, "price": 1.00, "value": 20000.00},
+    {"isin": "INE663F01032", "name": "POWER GRID CORPORATION", "quantity": 31, "price": 1031.70, "value": 31982.70},
+    {"isin": "INE237A01036", "name": "STAR HEALTH INSURANCE", "quantity": 87, "price": 415.30, "value": 36131.10},
+    {"isin": "INE982J01020", "name": "RBL BANK LIMITED", "quantity": 52, "price": 1096.15, "value": 56999.80},
+    {"isin": "INE020B01018", "name": "REC LIMITED", "quantity": 154, "price": 350.10, "value": 53915.40},
+    {"isin": "INE002A01018", "name": "RELIANCE INDUSTRIES LIMITED", "quantity": 30, "price": 1394.30, "value": 41829.00},
+    {"isin": "INE665A01038", "name": "SWAN CORP LIMITED", "quantity": 36, "price": 382.80, "value": 13780.80},
+    {"isin": "INE00H001014", "name": "SWIGGY LIMITED", "quantity": 101, "price": 302.10, "value": 30512.10},
+    {"isin": "INE398R01022", "name": "SYNGENE INTERNATIONAL LIMITED", "quantity": 35, "price": 422.35, "value": 14782.25},
+    {"isin": "INE669C01036", "name": "TECH MAHINDRA LIMITED", "quantity": 43, "price": 1357.25, "value": 58361.75},
+    {"isin": "INE854D01024", "name": "UNITED SPIRITS LIMITED", "quantity": 31, "price": 1383.20, "value": 42879.20},
+    {"isin": "INE665L01035", "name": "VARROC ENGINEERING LIMITED", "quantity": 60, "price": 541.10, "value": 32466.00},
+    {"isin": "INE377N01017", "name": "WAAREE ENERGIES LIMITED", "quantity": 9, "price": 2709.60, "value": 24386.40},
+    {"isin": "INE716O01013", "name": "WHIRLPOOL OF INDIA LIMITED", "quantity": 26, "price": 922.15, "value": 23975.90},
+    {"isin": "INE572E01012", "name": "PNB HOUSING FINANCE LIMITED", "quantity": 29, "price": 828.80, "value": 24035.20}
+  ],
+  "etfs_demat": [
+    {"isin": "INF204KB1715", "name": "NIPPON INDIA ETF GOLD BeES", "quantity": 100, "nav": 131.64, "value": 13164.00},
+    {"isin": "INF732E01037", "name": "NIPPON INDIA ETF NIFTY 1D RATE LIQUID BeES", "quantity": 0.613, "nav": 999.99, "value": 612.99},
+    {"isin": "INF204KC1402", "name": "NIPPON INDIA SILVER ETF", "quantity": 600, "nav": 252.81, "value": 151686.00},
+    {"isin": "INF078F01034", "name": "ZERODHA NIFTY 1D RATE LIQUID ETF", "quantity": 588, "nav": 112.95, "value": 66414.60}
+  ],
+  "mf_folios": [
+    {"isin": "INF209K01BR9", "name": "Aditya Birla Sun Life Large Cap Fund", "units": 41.576, "nav": 525.98, "value": 21868.14},
+    {"isin": "INF179K01CR2", "name": "HDFC Mid Cap Fund - Growth", "units": 1995.624, "nav": 202.575, "value": 404263.53},
+    {"isin": "INF179K01CT8", "name": "HDFC Mid Cap Fund - IDCW", "units": 3519.313, "nav": 50.824, "value": 178865.56},
+    {"isin": "INF109K01AF8", "name": "ICICI Prudential Value Fund", "units": 900.619, "nav": 484.35, "value": 436214.81},
+    {"isin": "INF174K01187", "name": "Kotak Large & Midcap Fund", "units": 162.485, "nav": 355.699, "value": 57795.75},
+    {"isin": "INF769K01EY2", "name": "Mirae Asset Midcap Fund", "units": 2864.292, "nav": 37.049, "value": 106119.15},
+    {"isin": "INF204K01HY3", "name": "NIPPON INDIA SMALL CAP FUND", "units": 719.911, "nav": 162.1622, "value": 116742.35},
+    {"isin": "INF879001019", "name": "Parag Parikh Flexi Cap Fund", "units": 751.145, "nav": 84.0452, "value": 63130.13}
+  ]
+}

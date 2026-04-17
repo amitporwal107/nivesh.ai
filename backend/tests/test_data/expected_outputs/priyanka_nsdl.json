@@ -1,0 +1,57 @@
+{
+  "source": "NSDL",
+  "file": "priyanka_nsdl.pdf",
+  "investor": "PRIYANKA PORWAL",
+  "period": "01-Feb-2026 to 28-Feb-2026",
+  "summary": {
+    "total_portfolio": 14133535.20,
+    "equities": 1279628.34,
+    "mutual_funds_demat": 2022520.38,
+    "sovereign_gold_bonds": 3689886.85,
+    "mutual_fund_folios": 6816165.90
+  },
+  "equities": [
+    {"isin": "INE079A01024", "name": "AMBUJA CEMENTS LIMITED", "quantity": 30, "price": 500.40, "value": 15012.00},
+    {"isin": "INE259A01022", "name": "COLGATE-PALMOLIVE (INDIA) LIMITED", "quantity": 22, "price": 2254.50, "value": 49599.00},
+    {"isin": "INE524A01029", "name": "GABRIEL INDIA LIMITED", "quantity": 204, "price": 998.80, "value": 203755.20},
+    {"isin": "INE066P01011", "name": "INOX WIND LIMITED", "quantity": 500, "price": 92.13, "value": 46065.00},
+    {"isin": "INE220G01021", "name": "JINDAL STAINLESS LIMITED", "quantity": 84, "price": 776.35, "value": 65213.40},
+    {"isin": "INE389H01022", "name": "KEC INTERNATIONAL LIMITED", "quantity": 50, "price": 585.30, "value": 29265.00},
+    {"isin": "INE356A01018", "name": "MPHASIS LIMITED", "quantity": 1, "price": 2296.50, "value": 2296.50},
+    {"isin": "INE733E01010", "name": "NTPC GREEN ENERGY LIMITED", "quantity": 750, "price": 90.14, "value": 67605.00},
+    {"isin": "INE876N01018", "name": "ORIENT CEMENT LIMITED", "quantity": 66, "price": 154.12, "value": 10171.92},
+    {"isin": "INE855B01025", "name": "RAIN INDUSTRIES LIMITED", "quantity": 100, "price": 148.64, "value": 14864.00},
+    {"isin": "INE775A01035", "name": "SAMVARDHANA MOTHERSON INTERNATIONAL", "quantity": 0, "price": 133.34, "value": 0.00},
+    {"isin": "INE062A01020", "name": "STATE BANK OF INDIA", "quantity": 8, "price": 1201.70, "value": 9613.60},
+    {"isin": "INE669C01036", "name": "TECH MAHINDRA LIMITED", "quantity": 12, "price": 1357.80, "value": 16293.60},
+    {"isin": "INE053A01029", "name": "THE INDIAN HOTELS COMPANY LIMITED", "quantity": 200, "price": 667.05, "value": 133410.00}
+  ],
+  "etfs_demat": [
+    {"isin": "INF754K01LE1", "name": "BHARAT BOND ETF - APRIL 2031", "quantity": 4, "nav": 1402.08, "value": 5608.31},
+    {"isin": "INF666MO1NI0", "name": "GROWW NIFTY METAL ETF", "quantity": 9999, "nav": 11.61, "value": 116101.38},
+    {"isin": "INF204KB1715", "name": "NIPPON INDIA ETF GOLD BeES", "quantity": 1300, "nav": 130.90, "value": 1701745.50},
+    {"isin": "INF769K01HF4", "name": "MIRAE ASSET NYSE FANG+ ETF", "quantity": 5, "nav": 769.77, "value": 3848.85}
+  ],
+  "sgb": [
+    {"isin": "IN0020220110", "name": "SGB 2022-23 SERIES III", "quantity": 10, "face_value": 5409.00, "market_price": 15924.50, "value": 159245.00},
+    {"isin": "IN0020230168", "name": "SGB 2023-24 SERIES I", "quantity": 35, "face_value": 6199.00, "market_price": 16233.91, "value": 568186.85},
+    {"isin": "IN0020200146", "name": "SGB 2020-21 SERIES IX", "quantity": 50, "face_value": 4852.00, "market_price": 15709.64, "value": 785482.00}
+  ],
+  "mf_folios": [
+    {"isin": "INF209K01YW1", "name": "Aditya Birla Sun Life Large Cap Fund", "units": 7626.250, "avg_cost": 58.7393, "nav": 93.87, "value": 715876.09},
+    {"isin": "INF090I01569", "name": "Franklin India Small Cap Fund", "units": 49.960, "avg_cost": 120.0961, "nav": 160.4360, "value": 8015.38},
+    {"isin": "INF179K01830", "name": "HDFC Balanced Advantage Fund", "units": 164.627, "avg_cost": 535.0146, "nav": 528.1470, "value": 86947.26},
+    {"isin": "INF179K01UT0", "name": "HDFC Flexi Cap Fund - Direct", "units": 161.424, "avg_cost": 2096.3575, "nav": 2261.5280, "value": 365064.90},
+    {"isin": "INF179K01VX0", "name": "HDFC Gold ETF Fund of Fund", "units": 6936.416, "avg_cost": 40.3085, "nav": 49.6981, "value": 344726.70},
+    {"isin": "INF179KA1RZ8", "name": "HDFC Small Cap Fund - Regular", "units": 154.911, "avg_cost": 103.2851, "nav": 133.8630, "value": 20736.85},
+    {"isin": "INF109K016L0", "name": "ICICI Prudential Large Cap Fund", "units": 5479.803, "avg_cost": 84.1742, "nav": 123.6000, "value": 677303.65},
+    {"isin": "INF109K01AF8", "name": "ICICI Prudential Value Fund", "units": 430.350, "avg_cost": 139.4214, "nav": 484.3500, "value": 208440.02},
+    {"isin": "INF769K01IR7", "name": "Mirae Asset AI & Technology ETF FoF", "units": 2879.147, "avg_cost": 14.5877, "nav": 26.7260, "value": 76948.08},
+    {"isin": "INF204K01HY3", "name": "NIPPON INDIA SMALL CAP FUND", "units": 855.803, "avg_cost": 151.9041, "nav": 162.1622, "value": 138778.90},
+    {"isin": "INF879001019", "name": "Parag Parikh Flexi Cap Fund - Regular", "units": 1010.803, "avg_cost": 84.0916, "nav": 84.0452, "value": 84953.14},
+    {"isin": "INF200K01RA0", "name": "SBI Contra Fund - Direct", "units": 569.777, "avg_cost": 386.1160, "nav": 428.9918, "value": 244429.66},
+    {"isin": "INF789F1AYT7", "name": "UTI Balanced Advantage Fund", "units": 3943.623, "avg_cost": 10.3965, "nav": 12.6994, "value": 50081.65},
+    {"isin": "INF966L01580", "name": "quant Multi Asset Allocation Fund", "units": 784.802, "avg_cost": 127.4207, "nav": 175.2572, "value": 137542.20},
+    {"isin": "INF903J01538", "name": "Sundaram Mid Cap Fund", "units": 450.105, "avg_cost": 44.43, "nav": 222.42, "value": 100114.47}
+  ]
+}

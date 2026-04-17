@@ -1,0 +1,20 @@
+{
+  "nsdl": {
+    "equities": {
+      "isin_match_rate": "78.6%",
+      "value_accuracy": "78.6%",
+      "name_similarity": "100%",
+      "total_parsed": "\u20b9585,387",
+      "total_expected": "\u20b9663,164",
+      "coverage": "88.3%"
+    },
+    "mf_folios": {
+      "isin_match_rate": "80.0%",
+      "value_accuracy": "80.0%",
+      "name_similarity": "99%",
+      "total_parsed": "\u20b93,259,959",
+      "total_expected": "\u20b93,259,959",
+      "coverage": "100.0%"
+    }
+  }
+}
