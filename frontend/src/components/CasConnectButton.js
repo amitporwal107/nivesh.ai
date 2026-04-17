@@ -35,11 +35,15 @@ export default function CasConnectButton({ onSuccess, className = "", variant = 
 
       // 2. Dynamically import the SDK (keeps initial bundle small)
       const mod = await import("@cas-parser/connect");
-      const PortfolioConnect = mod.PortfolioConnect || mod.default;
-      if (!PortfolioConnect?.open) throw new Error("SDK did not expose .open()");
+      // The npm package exposes `open` as a named export; the `PortfolioConnect`
+      // export is a React component, not a class with static methods.
+      const openWidget = mod.open || mod.PortfolioConnect?.open || mod.default?.open;
+      if (typeof openWidget !== "function") {
+        throw new Error("SDK did not expose .open()");
+      }
 
       // 3. Launch the widget modal
-      const result = await PortfolioConnect.open({
+      const result = await openWidget({
         accessToken,
         config: {
           enableGenerator: true,   // MF email request via KFintech
