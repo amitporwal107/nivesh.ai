@@ -72,7 +72,8 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - S3 encrypted storage for raw CAS PDFs
 
 ## Technical Notes
-- **CAS parsing (Apr 2026)**: Primary path is CAS Parser API (casparser.in). Secondary is `casparser` library (digital PDFs). Tertiary is local Tesseract OCR + img2table (for scanned PDFs up to 10MB).
+- **CAS parsing (Apr 2026)**: Primary path is **CAS Parser Portfolio Connect SDK** (@cas-parser/connect) — widget handles PDF upload, Gmail import, and CDSL OTP directly in the browser, bypassing backend size limits. Backend mints short-lived `at_` access tokens via `POST /api/casparser/access-token` so the production `sk_` key never leaves the server. Widget's `onSuccess` posts parsed data to `POST /api/portfolio/import-connect` which enriches via masterdata and saves holdings.
+- Secondary paths (fallback): direct API call → `casparser` library → local Tesseract OCR + img2table + masterdata fuzzy lookup.
 - Keys: `CASPARSER_API_KEY`, `CASPARSER_SANDBOX_KEY`, `CASPARSER_USE_SANDBOX` in `/app/backend/.env`
 - Sandbox mode returns deterministic sample data (no credits, no real PDF required)
 - Masterdata (Apr 2026): `/app/backend/data/amfi_data.csv` (17,588 MFs with plan/option classification), `bhav_copy.csv` (3,365 NSE), `equity_list.csv` (2,256), `sgb_data.csv` (46 SGBs w/ LTP)

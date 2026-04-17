@@ -1638,6 +1638,68 @@ async def get_latest_upload_task(request: Request):
 async def upload_csv_legacy(request: Request, file: UploadFile = File(...)):
     return await upload_portfolio(request, file)
 
+# ── CAS Parser: Portfolio Connect SDK integration ──────────────────────
+
+@api_router.post("/casparser/access-token")
+async def casparser_access_token(request: Request):
+    """
+    Mint a short-lived CAS Parser `at_` access token for the frontend widget.
+    The production `sk_` key never leaves the backend.
+    """
+    user = await get_current_user(request)  # authn required
+    from services.cas_api_client import generate_access_token, is_configured
+    if not is_configured():
+        raise HTTPException(status_code=503, detail="CAS Parser not configured")
+    token_payload = generate_access_token(expiry_minutes=60)
+    if not token_payload:
+        raise HTTPException(status_code=502, detail="Failed to mint CAS Parser access token")
+    logger.info(f"Minted CAS Parser access token for user={user['user_id']}")
+    return token_payload
+
+
+@api_router.post("/portfolio/import-connect")
+async def portfolio_import_from_connect(request: Request):
+    """
+    Ingest the parsed portfolio payload that the Portfolio Connect widget
+    delivers via `onSuccess`. Body: the full CAS Parser ParsedData object
+    (optionally wrapped in `{ "data": { ... }, "metadata": { ... } }`).
+    """
+    user = await get_current_user(request)
+    body = await request.json()
+    # Widget's onSuccess gives { data, metadata } — unwrap if present.
+    parsed_data = body.get("data") if isinstance(body, dict) and "data" in body else body
+    if not isinstance(parsed_data, dict):
+        raise HTTPException(status_code=400, detail="Invalid payload: expected parsed CAS JSON")
+
+    from services.cas_api_client import map_api_response_to_holdings
+    holdings = map_api_response_to_holdings(parsed_data)
+    if not holdings:
+        raise HTTPException(status_code=422, detail="No holdings found in parsed data")
+
+    # Enrich with masterdata (live NAV/prices, plan/option, fuzzy names)
+    try:
+        from services.masterdata import validate_and_enrich_holdings
+        holdings = validate_and_enrich_holdings(holdings)
+    except Exception as e:
+        logger.info(f"Masterdata enrichment skipped: {e}")
+
+    saved = await _save_holdings(user["user_id"], holdings, "CAS Connect")
+    cas_type = (parsed_data.get("meta") or {}).get("cas_type", "")
+    investor_name = (parsed_data.get("investor") or {}).get("name", "")
+    logger.info(
+        f"CAS Connect: saved {len(saved)} holdings for user={user['user_id']} "
+        f"cas_type={cas_type} investor={investor_name}"
+    )
+    return {
+        "message": f"{len(saved)} holdings imported via Portfolio Connect",
+        "count": len(saved),
+        "holdings": saved,
+        "cas_type": cas_type,
+        "investor": investor_name,
+    }
+
+
+
 @api_router.get("/portfolio/analytics")
 async def get_analytics(request: Request, portfolio_id: str = ""):
     user = await get_current_user(request)

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
+import CasConnectButton from "@/components/CasConnectButton";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -637,6 +638,35 @@ const OnboardingView = ({ onComplete, userProfile }) => {
         <p className="text-sm text-slate-500 dark:text-slate-400">Choose a data source to get your personalized analysis.</p>
       </div>
       <div className="space-y-3 mb-6">
+        <Card
+          data-testid="source-cas-connect"
+          className="cursor-default p-5 rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50/80 to-teal-50/50 dark:from-emerald-900/20 dark:to-teal-900/10 hover:border-emerald-400 transition-all"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="font-medium text-slate-900 dark:text-white text-sm">Import via CAS Connect</div>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded">Recommended</span>
+              </div>
+              <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">One-click PDF upload, Gmail auto-fetch, or CDSL OTP — all in one widget</div>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <CasConnectButton
+              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+              label="Launch CAS Connect"
+              testId="onboarding-cas-connect-btn"
+              onSuccess={(data) => {
+                if (onComplete) onComplete({ imported: data?.count || 0, source: "cas_connect" });
+                goTo("playbook");
+              }}
+            />
+          </div>
+        </Card>
+
         <Card
           data-testid="source-upload-cas"
           onClick={() => { setDataSource("upload"); goTo("upload"); }}

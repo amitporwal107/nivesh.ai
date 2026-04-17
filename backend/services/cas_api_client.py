@@ -46,6 +46,53 @@ def is_configured() -> bool:
     return bool(_active_key())
 
 
+def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
+    """
+    Mint a short-lived `at_` token from the production API key. Returned to the
+    frontend so the Portfolio Connect widget can call CAS Parser without ever
+    seeing the raw production key.
+
+    Returns {"access_token": "at_...", "expires_in": seconds} or None on failure.
+    Sandbox mode: returns the sandbox key as a pseudo-token (widget accepts it).
+    """
+    api_key = _active_key()
+    if not api_key:
+        return None
+
+    # Sandbox key doubles as a fake access token — the widget accepts sandbox
+    # tokens directly without a /v1/token call.
+    if USE_SANDBOX or api_key.startswith("sandbox-"):
+        return {"access_token": api_key, "expires_in": expiry_minutes * 60}
+
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(
+                f"{BASE_URL}/v1/token",
+                headers={"x-api-key": api_key},
+                json={"expiry_minutes": max(5, min(expiry_minutes, 60))},
+            )
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.warning(f"CAS Parser token mint failed: {e}")
+        return None
+
+    if resp.status_code >= 400:
+        logger.warning(f"CAS Parser token mint HTTP {resp.status_code}: {resp.text[:200]}")
+        return None
+
+    try:
+        data = resp.json()
+    except Exception:
+        return None
+
+    token = data.get("access_token")
+    if not token:
+        return None
+    return {
+        "access_token": token,
+        "expires_in": expiry_minutes * 60,
+    }
+
+
 # ══════════════════════════════════════════════════════════════
 # HTTP calls
 # ══════════════════════════════════════════════════════════════
