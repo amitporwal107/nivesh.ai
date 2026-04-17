@@ -470,6 +470,104 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
 
     performance_cards.sort(key=lambda x: x["pct_return"], reverse=True)
 
+    # ── Duplication Score & Overlap Insights ──
+    # Compute category-level duplication
+    mf_by_category = {}
+    for h in mf_holdings:
+        cat = h.get("sector", "Other")
+        val = h["quantity"] * h["current_price"]
+        mf_by_category.setdefault(cat, {"funds": [], "total_value": 0})
+        mf_by_category[cat]["funds"].append({"name": h["name"][:50], "value": round(val, 2)})
+        mf_by_category[cat]["total_value"] += val
+
+    mf_total = sum(h["quantity"] * h["current_price"] for h in mf_holdings) if mf_holdings else 0
+    overlapping_value = sum(d["total_value"] for d in mf_by_category.values() if len(d["funds"]) >= 2)
+    duplication_pct = round((overlapping_value / mf_total * 100) if mf_total > 0 else 0, 1)
+    duplication_level = "high" if duplication_pct > 25 else "moderate" if duplication_pct > 10 else "low"
+
+    # Category overlap with ₹ values for stacked bars
+    category_overlap_detail = []
+    for cat, data in sorted(mf_by_category.items(), key=lambda x: -x[1]["total_value"]):
+        fund_count = len(data["funds"])
+        is_overlapping = fund_count >= 2
+        # Estimate: unique portion = 1 fund's share; overlap = rest
+        unique_value = data["total_value"] / fund_count if fund_count > 0 else 0
+        overlap_value = data["total_value"] - unique_value if is_overlapping else 0
+        category_overlap_detail.append({
+            "category": cat,
+            "fund_count": fund_count,
+            "total_value": round(data["total_value"], 2),
+            "unique_value": round(unique_value, 2),
+            "overlap_value": round(overlap_value, 2),
+            "is_overlapping": is_overlapping,
+            "funds": [f["name"] for f in data["funds"][:6]],
+            "pct_of_mf": round(data["total_value"] / mf_total * 100, 1) if mf_total > 0 else 0,
+        })
+
+    # Sector exposure across ALL funds (estimate stock-level overlap)
+    sector_across_funds = {}
+    for h in mf_holdings:
+        sector = h.get("sector", "Other")
+        val = h["quantity"] * h["current_price"]
+        sector_across_funds.setdefault(sector, {"value": 0, "fund_count": 0, "fund_names": set()})
+        sector_across_funds[sector]["value"] += val
+        sector_across_funds[sector]["fund_count"] += 1
+        sector_across_funds[sector]["fund_names"].add(extract_fund_house(h["name"]))
+
+    top_sector_overlaps = []
+    for sec, data in sorted(sector_across_funds.items(), key=lambda x: -x[1]["value"]):
+        pct = round(data["value"] / mf_total * 100, 1) if mf_total > 0 else 0
+        top_sector_overlaps.append({
+            "sector": sec,
+            "value": round(data["value"], 2),
+            "pct": pct,
+            "fund_count": data["fund_count"],
+            "amc_count": len(data["fund_names"]),
+            "risk_level": "high" if pct > 25 else "moderate" if pct > 15 else "low",
+        })
+
+    # Generate AI-like insights
+    overlap_insights = []
+    # High-overlap categories
+    for cat_data in category_overlap_detail:
+        if cat_data["fund_count"] >= 3 and cat_data["is_overlapping"]:
+            overlap_insights.append({
+                "type": "warning",
+                "text": f"You have {cat_data['fund_count']} {cat_data['category']} funds with significant overlap",
+                "detail": f"₹{cat_data['total_value']/100000:.1f}L invested across {cat_data['fund_count']} funds in the same category. Consider consolidating to 1-2 best performers.",
+                "category": cat_data["category"],
+                "impact": "high" if cat_data["fund_count"] >= 5 else "medium",
+            })
+    # Sector concentration
+    for sec_data in top_sector_overlaps[:3]:
+        if sec_data["pct"] > 20:
+            overlap_insights.append({
+                "type": "alert",
+                "text": f"Overexposed to {sec_data['sector']} sector ({sec_data['pct']}% of MF portfolio)",
+                "detail": f"Spread across {sec_data['fund_count']} funds from {sec_data['amc_count']} AMCs. High sector concentration increases risk.",
+                "category": sec_data["sector"],
+                "impact": "high" if sec_data["pct"] > 30 else "medium",
+            })
+    # Fund house concentration
+    for fh_data in fund_house_data[:2]:
+        if fh_data["pct"] > 25:
+            overlap_insights.append({
+                "type": "info",
+                "text": f"{fh_data['name']} dominates your MF portfolio ({fh_data['pct']}%)",
+                "detail": f"{fh_data['count']} funds worth ₹{fh_data['value']/100000:.1f}L. Diversify across AMCs to reduce single-AMC risk.",
+                "category": fh_data["name"],
+                "impact": "medium",
+            })
+    # Positive insight if low duplication
+    if duplication_pct < 15:
+        overlap_insights.append({
+            "type": "success",
+            "text": f"Good diversification — only {duplication_pct}% overlap detected",
+            "detail": "Your fund selection is well-diversified across categories.",
+            "category": "overall",
+            "impact": "low",
+        })
+
     return {
         "overexposure": {
             "fund_house": fund_house_data,
@@ -478,4 +576,13 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
         },
         "overlap_matrix": overlap_matrix,
         "performance_cards": performance_cards,
+        "duplication": {
+            "score": duplication_pct,
+            "level": duplication_level,
+            "overlapping_value": round(overlapping_value, 2),
+            "mf_total": round(mf_total, 2),
+            "category_detail": category_overlap_detail,
+            "sector_overlaps": top_sector_overlaps[:10],
+            "insights": overlap_insights[:6],
+        },
     }
