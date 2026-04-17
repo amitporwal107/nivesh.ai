@@ -2858,7 +2858,7 @@ app.add_middleware(RateLimitMiddleware)
 
 _cors_env = os.environ.get('CORS_ORIGINS', '')
 if _cors_env == '*':
-    _cors_origins = ["https://autonomous-advisor.preview.emergentagent.com", "http://localhost:3000"]
+    _cors_origins = ["https://portfolio-parser.preview.emergentagent.com", "http://localhost:3000"]
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
 
