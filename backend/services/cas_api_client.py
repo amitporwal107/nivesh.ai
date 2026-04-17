@@ -28,7 +28,11 @@ BASE_URL = os.environ.get("CASPARSER_BASE_URL", "https://api.casparser.in")
 PROD_KEY = os.environ.get("CASPARSER_API_KEY", "")
 SANDBOX_KEY = os.environ.get("CASPARSER_SANDBOX_KEY", "sandbox-with-json-responses")
 USE_SANDBOX = os.environ.get("CASPARSER_USE_SANDBOX", "false").lower() == "true"
-TIMEOUT_S = float(os.environ.get("CASPARSER_TIMEOUT", "60"))
+TIMEOUT_S = float(os.environ.get("CASPARSER_TIMEOUT", "120"))
+# nginx (fronting the CAS Parser API) rejects uploads > ~1.9 MiB with 413
+# despite the documented 10 MiB cap. Oversize PDFs skip the API entirely and
+# fall through to the local OCR path in the caller.
+API_SIZE_LIMIT = 1_800_000
 
 
 def _active_key() -> str:
@@ -50,12 +54,22 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
     """
     Parse CAS PDF via CAS Parser API. Returns raw API JSON dict or None on failure.
 
-    Sync wrapper (httpx.Client) — safe to call from FastAPI sync endpoints and
-    from within `run_in_threadpool` contexts.
+    The CAS Parser API only handles text-based digital CAS PDFs (nginx caps
+    upload at ~1.9 MiB and the parser rejects image-only PDFs). Scanned/large
+    PDFs must fall through to the local OCR path in the caller.
     """
     api_key = _active_key()
     if not api_key:
         logger.warning("CAS Parser API key not configured")
+        return None
+
+    # Skip API for oversized PDFs — its backend only parses text-based CAS.
+    # Sandbox mode bypasses the size gate since it returns sample data regardless.
+    if not USE_SANDBOX and len(content) > API_SIZE_LIMIT:
+        logger.info(
+            f"PDF {len(content)/1e6:.1f}MB exceeds CAS Parser API cap "
+            f"({API_SIZE_LIMIT/1e6:.1f}MB); skipping API, caller will use local OCR"
+        )
         return None
 
     try:
