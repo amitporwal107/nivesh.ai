@@ -266,9 +266,69 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
   const [completedActions, setCompletedActions] = useState({});
   const [simulation, setSimulation] = useState(null);
   const [simulating, setSimulating] = useState(false);
+  const [showHealthExplain, setShowHealthExplain] = useState(false);
+  const [showRiskExplain, setShowRiskExplain] = useState(false);
+  const [activeIssueCategory, setActiveIssueCategory] = useState(null);
 
   const toggleAction = (step) => setCompletedActions(prev => ({ ...prev, [step]: !prev[step] }));
   const completedCount = Object.values(completedActions).filter(Boolean).length;
+
+  // Helper: find holdings affected by an insight
+  const getAffectedHoldings = (insight, perfCards) => {
+    if (!perfCards || perfCards.length === 0) return [];
+    const title = (insight.title || "").toLowerCase();
+    const summary = (insight.summary || insight.description || "").toLowerCase();
+    const action = (insight.action || "").toLowerCase();
+    const allText = `${title} ${summary} ${action}`;
+
+    return perfCards.filter(h => {
+      const name = h.name.toLowerCase();
+      const sector = (h.sector || "").toLowerCase();
+      const type = (h.asset_type || "").toLowerCase();
+
+      // Direct name mention
+      if (allText.includes(name.slice(0, 15))) return true;
+
+      // Category-based matching
+      if (allText.includes("gold") && (sector.includes("gold") || type === "gold")) return true;
+      if (allText.includes("debt") && (type.includes("debt") || sector.includes("debt"))) return true;
+      if (allText.includes("small cap") && sector.includes("small cap")) return true;
+      if (allText.includes("expense") && type === "mutual_fund") return true;
+      if (allText.includes("equity") && type === "equity") return true;
+      if (allText.includes("mutual fund") && type === "mutual_fund") return true;
+      if (allText.includes("concentration") && type === "mutual_fund") return true;
+      if (allText.includes("regular") && name.includes("regular")) return true;
+      return false;
+    }).slice(0, 15);
+  };
+
+  // Helper: find holdings for an issue category from the donut chart
+  const getHoldingsForIssue = (category, perfCards, insights) => {
+    if (!perfCards || perfCards.length === 0) return [];
+    const cat = category.toLowerCase();
+
+    if (cat.includes("risk")) {
+      return perfCards.filter(h => h.pct_return < -5 || (h.sector || "").toLowerCase().includes("small")).slice(0, 10);
+    }
+    if (cat.includes("allocation")) {
+      return perfCards.filter(h => h.weight > 5).sort((a, b) => b.weight - a.weight).slice(0, 10);
+    }
+    if (cat.includes("cost")) {
+      return perfCards.filter(h => h.asset_type === "mutual_fund" && h.name.toLowerCase().includes("regular")).slice(0, 10);
+    }
+    if (cat.includes("redundancy")) {
+      const sectorMap = {};
+      perfCards.forEach(h => {
+        const s = h.sector || "Other";
+        if (!sectorMap[s]) sectorMap[s] = [];
+        sectorMap[s].push(h);
+      });
+      const dupes = [];
+      Object.values(sectorMap).forEach(arr => { if (arr.length > 2) dupes.push(...arr); });
+      return dupes.slice(0, 10);
+    }
+    return perfCards.slice(0, 8);
+  };
 
   // Compute confidence score from analytics data
   const totalHoldings = analytics?.performance_cards?.length || 0;
@@ -312,6 +372,35 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 <p className={`text-sm font-semibold ${gauge.current > 60 ? "text-red-500" : gauge.current > 35 ? "text-amber-500" : "text-emerald-600"}`}>
                   {gauge.current > 60 ? "Needs Attention" : gauge.current > 35 ? "Moderate" : "Healthy"}
                 </p>
+                <button
+                  onClick={() => setShowHealthExplain(!showHealthExplain)}
+                  className="mt-2 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors"
+                  data-testid="health-explain-toggle"
+                >
+                  <HelpCircle className="w-3 h-3" /> {showHealthExplain ? "Hide" : "How is this calculated?"}
+                </button>
+                <AnimatePresence>
+                  {showHealthExplain && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 text-left p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">Health = inverse of risk score (100 - {gauge.current} = {100 - gauge.current})</p>
+                        <p>Risk score factors:</p>
+                        <ul className="list-disc pl-3 space-y-0.5">
+                          <li><strong>Concentration risk:</strong> Single asset class &gt;80% of portfolio = +30 points</li>
+                          <li><strong>Low diversification:</strong> Fewer than 5 holdings = +15-30 points</li>
+                          <li><strong>Sector concentration:</strong> One sector &gt;50% = +25 points</li>
+                          <li><strong>Equity overweight:</strong> Equity &gt;80% = +15 points</li>
+                        </ul>
+                        <p className="text-emerald-600 dark:text-emerald-400 font-medium">Lower risk score = higher health score</p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </CardContent>
             </Card>
           </motion.div>
@@ -344,6 +433,38 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                     </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => setShowRiskExplain(!showRiskExplain)}
+                  className="mt-3 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors"
+                  data-testid="risk-explain-toggle"
+                >
+                  <HelpCircle className="w-3 h-3" /> {showRiskExplain ? "Hide details" : "Why is this high?"}
+                </button>
+                <AnimatePresence>
+                  {showRiskExplain && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 text-left p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
+                        <p className="font-semibold text-red-600 dark:text-red-400">Current Risk: {gauge.current}/100 ({gauge.current_label})</p>
+                        <p>Key risk drivers for your portfolio:</p>
+                        <ul className="list-disc pl-3 space-y-0.5">
+                          {analytics?.overexposure?.fund_house?.filter(f => f.risk_level === "high").map(f => (
+                            <li key={f.name}><strong>{f.name}</strong> concentration: {f.pct}% ({f.count} funds)</li>
+                          ))}
+                          {analytics?.overexposure?.sector?.filter(s => s.risk_level === "high").map(s => (
+                            <li key={s.name}><strong>{s.name}</strong> sector: {s.pct}% of portfolio</li>
+                          ))}
+                          <li>100% equity exposure with no debt/gold buffer</li>
+                        </ul>
+                        <p className="text-emerald-600 dark:text-emerald-400 font-medium mt-1">Target: {gauge.target}/100 ({gauge.target_label}) — achievable by diversifying</p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </CardContent>
             </Card>
           </motion.div>
@@ -514,6 +635,30 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                         </div>
                       )}
 
+                      {/* Affected Holdings */}
+                      {analytics?.performance_cards?.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Affected Holdings</p>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
+                              <div key={`affected-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-slate-700/30 rounded-lg text-xs">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${h.pct_return >= 0 ? "bg-emerald-500" : "bg-red-500"}`} />
+                                  <span className="text-slate-700 dark:text-slate-300 truncate">{h.name}</span>
+                                </div>
+                                <div className="flex items-center gap-3 flex-shrink-0 ml-2">
+                                  <span className="text-slate-400">{h.sector}</span>
+                                  <span className={`font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                                    {h.pct_return >= 0 ? "+" : ""}{h.pct_return}%
+                                  </span>
+                                  <span className="text-slate-500" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(h.current_value)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Expected Impact */}
                       <div className="flex gap-4">
                         {insight.expected_impact && (
@@ -650,11 +795,17 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Issue Breakdown</p>
-              <div className="h-36">
+              <div className="h-36 cursor-pointer">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={pd} cx="50%" cy="50%" innerRadius={32} outerRadius={55} paddingAngle={2} dataKey="value">
-                      {pd.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    <Pie data={pd} cx="50%" cy="50%" innerRadius={32} outerRadius={55} paddingAngle={2} dataKey="value"
+                      onClick={(_, idx) => setActiveIssueCategory(activeIssueCategory === pd[idx]?.name ? null : pd[idx]?.name)}
+                    >
+                      {pd.map((d, i) => (
+                        <Cell key={`pie-${d.name}`} fill={d.color} stroke={activeIssueCategory === d.name ? "#1E293B" : "transparent"} strokeWidth={activeIssueCategory === d.name ? 2 : 0}
+                          style={{ cursor: "pointer", opacity: activeIssueCategory && activeIssueCategory !== d.name ? 0.4 : 1 }}
+                        />
+                      ))}
                     </Pie>
                     <Tooltip formatter={v => `${v}%`} />
                   </PieChart>
@@ -662,7 +813,12 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
               </div>
               <div className="space-y-1 mt-2">
                 {pd.map(d => (
-                  <div key={d.name} className="flex items-center justify-between">
+                  <div
+                    key={d.name}
+                    className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-100 dark:bg-slate-700" : "hover:bg-slate-50 dark:hover:bg-slate-700/50"}`}
+                    onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)}
+                    data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}
+                  >
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
                       <span className="text-xs text-slate-500 dark:text-slate-400">{d.name}</span>
@@ -671,6 +827,29 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   </div>
                 ))}
               </div>
+              {/* Drill-down: show related holdings when a category is clicked */}
+              <AnimatePresence>
+                {activeIssueCategory && analytics?.performance_cards?.length > 0 && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">
+                        Holdings related to "{activeIssueCategory}"
+                      </p>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {getHoldingsForIssue(activeIssueCategory, analytics.performance_cards, ins).map((h, idx) => (
+                          <div key={`drill-${idx}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-slate-700/30 rounded text-[11px]">
+                            <span className="text-slate-700 dark:text-slate-300 truncate flex-1">{h.name}</span>
+                            <span className={`ml-2 font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                              {h.pct_return >= 0 ? "+" : ""}{h.pct_return}%
+                            </span>
+                            <span className="ml-2 text-slate-400">{fmt(h.current_value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </CardContent>
           </Card>
         )}

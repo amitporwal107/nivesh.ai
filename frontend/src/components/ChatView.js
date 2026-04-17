@@ -271,6 +271,21 @@ const ChatView = () => {
       let accumulated = "";
       let metaReceived = false;
       let aiMsgId = "";
+      let tokenQueue = [];
+      let rendering = false;
+
+      const renderTokens = () => {
+        if (rendering || tokenQueue.length === 0) return;
+        rendering = true;
+        const renderNext = () => {
+          if (tokenQueue.length === 0) { rendering = false; return; }
+          const tk = tokenQueue.shift();
+          accumulated += tk;
+          setStreamingContent(accumulated);
+          setTimeout(renderNext, 18);
+        };
+        renderNext();
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -287,7 +302,6 @@ const ChatView = () => {
             if (data.type === "meta") {
               metaReceived = true;
               aiMsgId = data.ai_msg_id;
-              // Replace temp user msg with confirmed
               setMessages((prev) =>
                 prev.map((m) => m.message_id === "temp_user"
                   ? { ...m, message_id: data.user_msg_id }
@@ -295,10 +309,15 @@ const ChatView = () => {
                 )
               );
             } else if (data.type === "token") {
-              accumulated += data.content;
-              setStreamingContent(accumulated);
+              tokenQueue.push(data.content);
+              renderTokens();
             } else if (data.type === "done" || data.type === "error") {
-              const finalContent = data.content || accumulated;
+              // Flush remaining tokens
+              const remaining = tokenQueue.join("");
+              tokenQueue = [];
+              const finalContent = data.content || (accumulated + remaining);
+              // Small delay to let last tokens render
+              await new Promise(r => setTimeout(r, 200));
               setMessages((prev) => [
                 ...prev,
                 { message_id: aiMsgId || `msg_stream_${Date.now()}`, role: "assistant", content: finalContent, created_at: new Date().toISOString() },

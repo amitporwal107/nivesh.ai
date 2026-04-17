@@ -1,0 +1,107 @@
+{
+  "summary": "Phase 2 UX Enhancements testing complete. Backend: 13/13 tests passed (100%). Frontend: All new explainability and drillable features working correctly. Portfolio Health 'How is this calculated?' toggle expands to show formula and risk factors. Risk Assessment 'Why is this high?' toggle shows risk drivers. Actionable Insight cards expand to show 'Affected Holdings' with actual holding names, returns, and values. Issue Breakdown donut chart categories are clickable and show related holdings. Chat streaming with 18ms token delay working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Recharts", "issues": ["Console warnings about chart width/height being -1 during initial render - cosmetic only, charts render correctly after data loads"]}
+    ]
+  },
+  "passed_tests": [
+    "GET /api/insights/analysis - returns risk_gauge data for health/risk explainability",
+    "GET /api/insights/analysis - returns problem_distribution for Issue Breakdown chart",
+    "GET /api/insights/analysis - returns insights for Actionable Insights section",
+    "GET /api/insights/analysis - returns before_after for Impact section",
+    "GET /api/insights/analysis - returns do_nothing_scenario",
+    "GET /api/portfolio/deep-analytics - returns performance_cards for affected holdings",
+    "GET /api/portfolio/deep-analytics - returns overexposure data for risk drivers",
+    "POST /api/chat/stream - returns SSE events with meta, token, done types",
+    "POST /api/chat/send - returns user_message and ai_message",
+    "GET /api/auth/me - returns user info with valid session",
+    "GET /api/auth/me - returns 401 without session",
+    "GET /api/portfolio/holdings - returns 110 holdings",
+    "GET /api/portfolio/analytics - returns analytics data",
+    "Frontend: Portfolio Health card shows 'How is this calculated?' toggle",
+    "Frontend: Health explanation expands to show formula (Health = 100 - risk_score)",
+    "Frontend: Health explanation shows risk factors (concentration, diversification, sector, equity)",
+    "Frontend: Risk Assessment card shows 'Why is this high?' toggle",
+    "Frontend: Risk explanation expands to show current risk and drivers",
+    "Frontend: Risk explanation shows target achievable by diversifying",
+    "Frontend: Actionable Insight cards are clickable and expand",
+    "Frontend: Expanded insights show 'Affected Holdings' section",
+    "Frontend: Affected Holdings shows holding names, returns (%), and values",
+    "Frontend: Issue Breakdown donut chart is clickable",
+    "Frontend: Clicking chart category shows 'Holdings related to' section",
+    "Frontend: Chat streaming works with 18ms token delay",
+    "Frontend: Quick action buttons appear after AI responses"
+  ],
+  "phase2_features_verified": {
+    "health_explainability": {
+      "status": "WORKING",
+      "toggle_testid": "health-explain-toggle",
+      "content": [
+        "Health = inverse of risk score (100 - current = health)",
+        "Concentration risk: Single asset class >80% = +30 points",
+        "Low diversification: Fewer than 5 holdings = +15-30 points",
+        "Sector concentration: One sector >50% = +25 points",
+        "Equity overweight: Equity >80% = +15 points"
+      ]
+    },
+    "risk_explainability": {
+      "status": "WORKING",
+      "toggle_testid": "risk-explain-toggle",
+      "content": [
+        "Current Risk: 75/100 (High)",
+        "Key risk drivers from overexposure data",
+        "Target: 45/100 (Moderate) — achievable by diversifying"
+      ]
+    },
+    "drillable_insights": {
+      "status": "WORKING",
+      "card_testid_pattern": "insight-card-{N}",
+      "expanded_sections": [
+        "Affected Holdings - shows holding names, returns, values",
+        "Why It Matters (if available)",
+        "Recommended Action (if available)"
+      ]
+    },
+    "clickable_issue_breakdown": {
+      "status": "WORKING",
+      "chart_type": "PieChart (donut)",
+      "categories": ["High Risk", "Allocation Issues", "Cost Inefficiency", "Redundancy"],
+      "drilldown": "Shows 'Holdings related to {category}' with holding list"
+    },
+    "chat_streaming_delay": {
+      "status": "WORKING",
+      "delay_ms": 18,
+      "implementation": "Token queue with setTimeout(renderNext, 18) in ChatView.js"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2_explainability.py",
+    "/app/test_reports/pytest/pytest_results_iteration20.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_phase2_explainability.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "100% (all Phase 2 features working)"
+  },
+  "test_credentials": {
+    "test_user_email": "aporwal107@gmail.com",
+    "test_user_session": "5770bebb-8a9a-41f7-a7b9-e8152ac25daa",
+    "holdings_count": 110
+  },
+  "seed_data_creation": "None - used existing test user with 110 holdings and pre-existing analysis data",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase 2 UX enhancements are complete and verified. InsightsView.js has been updated with: (1) Portfolio Health card with 'How is this calculated?' toggle (data-testid='health-explain-toggle') that expands to show formula and risk factors, (2) Risk Assessment card with 'Why is this high?' toggle (data-testid='risk-explain-toggle') that shows risk drivers from overexposure data, (3) Actionable Insight cards (data-testid='insight-card-{N}') that expand to show 'Affected Holdings' section using performance_cards data, (4) Issue Breakdown donut chart with clickable categories that show related holdings. ChatView.js has token queue rendering with 18ms delay for slower streaming. All existing APIs continue to work (no regression). Test user has 110 holdings with portfolio value ~₹1.03 Cr.",
+  "rca_of_issue": {}
+}
