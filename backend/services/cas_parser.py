@@ -12,8 +12,68 @@ from PIL import Image, ImageEnhance
 logger = logging.getLogger("cas_parser")
 
 ISIN_RE = re.compile(r'\b(IN[A-Z0-9]{10})\b')
+# Broader pattern to catch OCR-garbled ISINs (O/0, I/1, S/5 confusion)
+ISIN_BROAD_RE = re.compile(r'\b([I1][NM][A-Z0-9OoSs]{10,11})\b')
 SGB_ISIN_RE = re.compile(r'\b([I1]N\d{10,13})\b')  # OCR reads IN as 1N
 NUM_RE = re.compile(r'[\d,]+\.?\d*')
+
+# OCR character correction map for ISINs
+# Position-aware: ISIN format is IN + F/E + 3 chars (AMC) + 2 digits + 4 chars + check
+ISIN_OCR_MAP = str.maketrans({
+    'O': '0', 'o': '0',  # O → 0 (most common in digit positions)
+    'S': '5',             # S → 5
+    'l': '1',             # l → 1
+    'I': '1',             # I → 1 (only in digit positions, handled carefully)
+    'B': '8',             # B → 8
+    'Z': '2',             # Z → 2
+    'G': '6',             # G → 6
+})
+
+
+def fix_isin_ocr(raw: str) -> str:
+    """Fix common OCR errors in ISINs. Preserves IN prefix + E/F type indicator."""
+    if len(raw) < 12:
+        return raw
+    # Prefix must be "IN"
+    prefix = "IN"
+    if raw[0] in ('1', 'I', 'i', '|'):
+        prefix = "IN"
+    # 3rd char: E (equity) or F (MF) — preserve as-is
+    type_char = raw[2] if len(raw) > 2 else ""
+    if type_char in ('e', 'E', 'F', 'f'):
+        type_char = type_char.upper()
+    # Rest: fix digit positions (positions 5-11 are typically alphanumeric)
+    rest = raw[3:]
+    # Positions 3-5 are AMC code (letters), 6-7 digits, 8-11 mixed, 12 check digit
+    fixed = ""
+    for idx, ch in enumerate(rest):
+        pos = idx + 3  # position in full ISIN
+        if pos >= 9:  # last 3 chars are usually digits
+            if ch == 'O' or ch == 'o':
+                fixed += '0'
+            elif ch == 'S' or ch == 's':
+                fixed += '5'
+            elif ch == 'l':
+                fixed += '1'
+            elif ch == 'B' and idx > 4:  # B→8 only in digit positions
+                fixed += '8'
+            else:
+                fixed += ch
+        elif pos >= 6 and pos <= 8:  # middle positions — could be letter or digit
+            if ch == 'O' and (idx > 0 and rest[idx-1].isdigit()):
+                fixed += '0'  # O after digit → likely 0
+            elif ch == 'o':
+                fixed += '0'
+            else:
+                fixed += ch
+        else:
+            fixed += ch
+
+    result = prefix + type_char + fixed
+    # Ensure exactly 12 chars
+    if len(result) > 12:
+        result = result[:12]
+    return result
 
 # Table header patterns for precise section detection
 EQUITY_HEADER = re.compile(r'ISIN\s+Company\s+Name\s+Face\s+Value', re.IGNORECASE)
@@ -83,7 +143,8 @@ def parse_equities(text: str) -> List[Dict]:
         line = lines[i].strip()
         m = ISIN_RE.search(line)
         if m and m.group(1).startswith("INE"):
-            isin = m.group(1)
+            isin = fix_isin_ocr(m.group(1))
+            raw_match = m.group(1)
             # Collect lines until next ISIN, Sub Total, or Mutual Funds
             block = line
             j = i + 1
@@ -99,7 +160,7 @@ def parse_equities(text: str) -> List[Dict]:
             block_clean = re.sub(r'[A-Z]{3,}\.(NSE|BSE)', '', block_clean)
             block_clean = re.sub(r'Pledge\b', '', block_clean, flags=re.IGNORECASE)
 
-            after = block_clean[block_clean.index(isin) + len(isin):]
+            after = block_clean[block_clean.index(raw_match) + len(raw_match):]
             nums = extract_all_numbers(after)
 
             # Name: text before first number
@@ -162,7 +223,8 @@ def parse_mf_demat(text: str) -> List[Dict]:
         line = lines[i].strip()
         m = ISIN_RE.search(line)
         if m and m.group(1).startswith("INF"):
-            isin = m.group(1)
+            isin = fix_isin_ocr(m.group(1))
+            raw_match = m.group(1)
             block = line
             j = i + 1
             while j < len(lines):
@@ -173,7 +235,7 @@ def parse_mf_demat(text: str) -> List[Dict]:
                 j += 1
 
             block_clean = re.sub(r'of which Pledged.*', '', block, flags=re.IGNORECASE)
-            after = block_clean[block_clean.index(isin) + len(isin):]
+            after = block_clean[block_clean.index(raw_match) + len(raw_match):]
             nums = extract_all_numbers(after)
 
             first_num = NUM_RE.search(after)
@@ -303,19 +365,20 @@ def parse_mf_folios(text: str) -> List[Dict]:
                     # Only include standalone numbers (not part of text)
                     if pn and len(prev) < 30:
                         pre_nums.extend(pn)
-            isin_blocks.append({"isin": m.group(1), "start": i, "lines": [line], "pre_nums": pre_nums})
+            isin_blocks.append({"isin": fix_isin_ocr(m.group(1)), "raw_isin": m.group(1), "start": i, "lines": [line], "pre_nums": pre_nums})
         elif isin_blocks:
             isin_blocks[-1]["lines"].append(line)
         i += 1
 
     for block in isin_blocks:
         isin = block["isin"]
+        raw_isin = block.get("raw_isin", isin)
         full_text = " ".join(l for l in block["lines"] if l.strip())
         # Remove MF UCC codes and noise
         full_text = re.sub(r'MF[A-Z0-9]{5,}', '', full_text)
         full_text = re.sub(r'NOT AVAILABLE', '', full_text)
 
-        after = full_text[full_text.index(isin) + len(isin):]
+        after = full_text[full_text.index(raw_isin) + len(raw_isin):]
 
         # Find folio number (8-12 digits)
         folio_match = re.search(r'\b(\d{8,12})\b', after)
@@ -430,7 +493,7 @@ def parse_cdsl_equities(text: str) -> List[Dict]:
         line = lines[i].strip()
         m = ISIN_RE.search(line)
         if m:
-            isin = m.group(1)
+            isin = fix_isin_ocr(m.group(1))
             block = line
             j = i + 1
             while j < len(lines):
@@ -440,7 +503,7 @@ def parse_cdsl_equities(text: str) -> List[Dict]:
                 block += " " + nl
                 j += 1
 
-            after = block[block.index(isin) + len(isin):]
+            after = block[block.index(m.group(1)) + len(m.group(1)):]
             # Strip security description noise: "EQUITY SHARES OF RE/RS.1/- EACH" etc
             after_clean = re.sub(r'#?\s*EQUITY\s+SHARES?\s+(?:OF\s+)?R[SE]\.?\s*[\d/\-]+\s*(?:EACH|AFTER|WITH|NEW|SUB|SPLIT|CAPITAL|REDUCTION|HAVING|PREMIUM)?[^0-9]*', ' ', after, flags=re.IGNORECASE)
             after_clean = re.sub(r'LIMITED|FORMERLY|PRIVATE|FV', ' ', after_clean, flags=re.IGNORECASE)
@@ -503,9 +566,9 @@ def parse_cdsl_mf_folios(text: str) -> List[Dict]:
         m = cdsl_isin_re.search(line)
         if m:
             raw_isin = m.group(1)
-            # Fix OCR: ensure starts with INF, fix O→0
+            # Fix OCR: ensure starts with INF, fix common OCR errors
             isin = raw_isin if raw_isin.startswith("INF") else "I" + raw_isin
-            isin = isin[:3] + isin[3:].replace("O", "0").replace("o", "0")
+            isin = fix_isin_ocr(isin)
 
             # Collect lines for this entry
             block = line
