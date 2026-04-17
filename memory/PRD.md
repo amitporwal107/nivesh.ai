@@ -6,9 +6,29 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Google OAuth
 - **Backend**: FastAPI + Motor/MongoDB + casparser + Tesseract OCR
-- **CAS Parsing**: Primary: CAS Parser Portfolio Connect SDK (@cas-parser/connect). Secondary fallback: casparser API → local OCR.
+- **CAS Parsing**: Primary: CAS Parser Portfolio Connect SDK (@cas-parser/connect). Secondary fallback: casparser API -> local OCR.
 - **Masterdata**: AMFI NAV (17K+ ISINs) + NSE Bhav Copy (3.3K equities)
 - **Live Prices**: yfinance (Yahoo Finance) for equity/ETF, AMFI for MF NAV
+
+## Backend Structure (Refactored Apr 2026)
+```text
+/app/backend/
+  server.py           (89 lines - thin entry point)
+  deps.py             (shared: DB, repos, config, auth helpers)
+  helpers/
+    parsing.py         (CSV, Excel, CAS PDF parsing, save_holdings)
+    portfolio_utils.py (extract_fund_house, compute_fund_overlap)
+  routes/
+    auth.py            (Google OAuth, session management)
+    admin.py           (Whitelist CRUD, stats, OCR corrections)
+    gmail.py           (Gmail OAuth, scan, import CAS from email)
+    portfolio.py       (Portfolio CRUD, Holdings CRUD, instrument search)
+    upload.py          (File upload, CAS PDF processing, CAS Connect SDK)
+    analytics.py       (Portfolio analytics, deep analytics, fund performance)
+    chat.py            (AI chat sessions)
+    user.py            (Profile, onboarding, risk profile, quick setup)
+    insights.py        (AI-powered portfolio insights)
+```
 
 ## Implemented Features
 - [x] Google OAuth with invite-only whitelist
@@ -28,7 +48,8 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - [x] Portfolio analytics, health score, risk analysis
 - [x] AI-powered chat with portfolio context
 - [x] Legacy upload paths disabled (CAS Connect only)
-- [x] Masterdata enrichment preserves cost data (quantity not recalculated when avg_cost available)
+- [x] Masterdata enrichment preserves cost data
+- [x] **server.py refactored** into modular routes (2882 -> 89 lines)
 
 ## Key DB Collections
 - `whitelisted_users`, `users`, `user_profiles`
@@ -36,14 +57,17 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - `chat_sessions`, `chat_messages`, `ai_insights`
 
 ## Key Technical Notes
-- **CAS parsing (Apr 2026)**: Primary path is CAS Parser Portfolio Connect SDK widget. Backend mints short-lived `at_` access tokens via `POST /api/casparser/access-token`. Widget's `onSuccess` posts parsed data to `POST /api/portfolio/import-connect`. Gmail OAuth callback at `/cas-callback` handles `handleInboxCallback()`.
+- CAS parsing (Apr 2026): Primary path is CAS Parser Portfolio Connect SDK widget.
 - Keys: `CASPARSER_API_KEY`, `CASPARSER_SANDBOX_KEY`, `CASPARSER_USE_SANDBOX` in `/app/backend/.env`
 - Masterdata: `/app/backend/data/amfi_data.csv`, `bhav_copy.csv`, `equity_list.csv`, `sgb_data.csv`
 - Admin user: priyankamantri@gmail.com
 
 ## Backlog (Prioritized)
-### P0
-- server.py refactoring into /routes directory (2800+ lines)
+### P0 (Next)
+- Fund & Stock Rating System (Morningstar-style star ratings, AI-powered analysis)
+  - MF performance ratings + star ratings using GPT
+  - Stock ratings with fundamentals (P/E, PEG, dividend yield via yfinance)
+  - Both: rate user's holdings + discovery/screener tool
 - Security: PAN encryption (AES-256), consent logging, audit trails (DPDP Act)
 
 ### P1
