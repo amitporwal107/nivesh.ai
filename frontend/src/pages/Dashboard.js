@@ -10,6 +10,7 @@ import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
 import OnboardingView from "@/components/OnboardingView";
 import RiskProfileView from "@/components/RiskProfileView";
+import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -82,8 +83,13 @@ const Dashboard = () => {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] dark:bg-slate-950">
-        <div className="w-10 h-10 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex" data-testid="dashboard-loading">
+        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={{}} />
+        <main className="flex-1 ml-0 md:ml-64 min-h-screen">
+          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+            <DashboardSkeleton />
+          </div>
+        </main>
       </div>
     );
   }

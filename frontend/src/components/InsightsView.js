@@ -4,6 +4,7 @@ import {
   Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
   BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,6 +15,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
 import { useNumberFormat } from "@/context/NumberFormatContext";
+import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -111,8 +113,16 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+      <div data-testid="insights-loading" className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+              AI Portfolio Analysis
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Loading analysis...</p>
+          </div>
+        </div>
+        <InsightsSkeleton />
       </div>
     );
   }

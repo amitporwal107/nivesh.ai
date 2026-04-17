@@ -2,11 +2,16 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Send, Trash2, Bot, User, Plus, MessageSquare, ChevronLeft, Clock } from "lucide-react";
+import {
+  Send, Trash2, Bot, User, Plus, MessageSquare, ChevronLeft,
+  Clock, TrendingUp, Shield, BarChart3, Lightbulb, ArrowRight,
+  Zap, RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
+import { ChatMessageSkeleton } from "@/components/ui/skeleton-loaders";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -46,6 +51,75 @@ const MarkdownMessage = ({ content }) => (
   </ReactMarkdown>
 );
 
+/* ── Quick Action Buttons shown after AI response ── */
+const QuickActions = ({ content, onAction }) => {
+  const actions = detectActions(content);
+  if (actions.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 }}
+      className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50"
+    >
+      {actions.map((action) => (
+        <button
+          key={action.label}
+          data-testid={`quick-action-${action.id}`}
+          onClick={() => onAction(action.prompt)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-300 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+        >
+          <action.icon className="w-3.5 h-3.5" strokeWidth={1.5} />
+          {action.label}
+        </button>
+      ))}
+    </motion.div>
+  );
+};
+
+function detectActions(content) {
+  if (!content) return [];
+  const lower = content.toLowerCase();
+  const actions = [];
+
+  if (lower.includes("risk") || lower.includes("volatile") || lower.includes("concentration"))
+    actions.push({ id: "simulate-risk", label: "Simulate lower risk", icon: Shield, prompt: "Simulate a lower risk portfolio for me. Show before vs after." });
+
+  if (lower.includes("rebalance") || lower.includes("allocation") || lower.includes("diversif"))
+    actions.push({ id: "show-rebalance", label: "Show rebalance plan", icon: RefreshCw, prompt: "Show me a detailed rebalance plan with specific actions." });
+
+  if (lower.includes("invest") || lower.includes("recommend") || lower.includes("sip") || lower.includes("mutual fund"))
+    actions.push({ id: "compare-funds", label: "Compare options", icon: BarChart3, prompt: "Compare the top 3 options you mentioned with pros, cons, and expected returns." });
+
+  if (lower.includes("tax") || lower.includes("ltcg") || lower.includes("stcg") || lower.includes("80c"))
+    actions.push({ id: "tax-strategy", label: "Tax saving strategy", icon: Lightbulb, prompt: "Give me a detailed tax saving strategy based on my portfolio." });
+
+  if (lower.includes("performance") || lower.includes("return") || lower.includes("growth"))
+    actions.push({ id: "deep-analysis", label: "Deep analysis", icon: TrendingUp, prompt: "Give me a deep performance analysis of my portfolio holdings." });
+
+  return actions.slice(0, 3);
+}
+
+/* ── Streaming "thinking" indicator ── */
+const StreamingIndicator = () => (
+  <div className="flex gap-3 justify-start">
+    <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
+      <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
+    </div>
+    <div className="chat-ai-bubble px-4 py-3">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+        <span className="text-xs text-slate-400 ml-1">Analyzing your portfolio...</span>
+      </div>
+    </div>
+  </div>
+);
+
 const SessionItem = ({ session, isActive, onClick, onDelete }) => (
   <button
     data-testid={`chat-session-${session.session_id}`}
@@ -72,12 +146,15 @@ const ChatView = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [streamingContent, setStreamingContent] = useState("");
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const abortRef = useRef(null);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -120,7 +197,7 @@ const ChatView = () => {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingContent]);
 
   const handleNewSession = async () => {
     try {
@@ -159,34 +236,118 @@ const ChatView = () => {
   };
 
   const handleSend = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || streaming) return;
 
     setInput("");
     setSending(true);
+    setStreaming(true);
+    setStreamingContent("");
 
     const tempUserMsg = { message_id: "temp_user", role: "user", content: text, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, tempUserMsg]);
 
     try {
-      const res = await axios.post(
-        `${API}/chat/send`,
-        { message: text, session_id: activeSessionId },
-        { withCredentials: true }
-      );
-      setMessages((prev) => {
-        const filtered = prev.filter((m) => m.message_id !== "temp_user");
-        return [...filtered, res.data.user_message, res.data.ai_message];
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const response = await fetch(`${API}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, session_id: activeSessionId }),
+        credentials: "include",
+        signal: controller.signal,
       });
-      // Refresh sessions to get updated title
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let metaReceived = false;
+      let aiMsgId = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text_chunk = decoder.decode(value, { stream: true });
+        const lines = text_chunk.split("\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === "meta") {
+              metaReceived = true;
+              aiMsgId = data.ai_msg_id;
+              // Replace temp user msg with confirmed
+              setMessages((prev) =>
+                prev.map((m) => m.message_id === "temp_user"
+                  ? { ...m, message_id: data.user_msg_id }
+                  : m
+                )
+              );
+            } else if (data.type === "token") {
+              accumulated += data.content;
+              setStreamingContent(accumulated);
+            } else if (data.type === "done" || data.type === "error") {
+              const finalContent = data.content || accumulated;
+              setMessages((prev) => [
+                ...prev,
+                { message_id: aiMsgId || `msg_stream_${Date.now()}`, role: "assistant", content: finalContent, created_at: new Date().toISOString() },
+              ]);
+              setStreamingContent("");
+              setStreaming(false);
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
+      }
+
       fetchSessions();
-    } catch {
-      setMessages((prev) => prev.filter((m) => m.message_id !== "temp_user"));
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error("Stream failed, falling back to batch", err);
+      // Fallback to non-streaming
+      try {
+        const res = await axios.post(
+          `${API}/chat/send`,
+          { message: text, session_id: activeSessionId },
+          { withCredentials: true }
+        );
+        setMessages((prev) => {
+          const filtered = prev.filter((m) => m.message_id !== "temp_user");
+          return [...filtered, res.data.user_message, res.data.ai_message];
+        });
+        fetchSessions();
+      } catch {
+        setMessages((prev) => prev.filter((m) => m.message_id !== "temp_user"));
+      }
     } finally {
       setSending(false);
+      setStreaming(false);
+      setStreamingContent("");
+      abortRef.current = null;
       inputRef.current?.focus();
     }
+  };
+
+  const handleQuickAction = (prompt) => {
+    setInput(prompt);
+    setTimeout(() => {
+      const fakeEvent = { preventDefault: () => {} };
+      setInput(prompt);
+      // Use a callback to send after state update
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }, 0);
   };
 
   const handleClear = async () => {
@@ -207,11 +368,11 @@ const ChatView = () => {
     }
   };
 
-  const suggestedQuestions = [
-    "Is my portfolio well-diversified?",
-    "Where should I invest ₹1L?",
-    "What's my risk profile?",
-    "Should I rebalance my portfolio?",
+  const intentQuestions = [
+    { text: "How can I reduce my portfolio risk?", icon: Shield, color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20" },
+    { text: "Where should I invest \u20b91 lakh?", icon: TrendingUp, color: "text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" },
+    { text: "Analyze my portfolio performance", icon: BarChart3, color: "text-violet-600 bg-violet-50 dark:bg-violet-900/20" },
+    { text: "What changes will improve my returns?", icon: Zap, color: "text-amber-600 bg-amber-50 dark:bg-amber-900/20" },
   ];
 
   const formatTime = (dateStr) => {
@@ -225,7 +386,7 @@ const ChatView = () => {
 
   return (
     <div data-testid="chat-view" className="h-[calc(100vh-6rem)] flex gap-4">
-      {/* Conversation History Sidebar */}
+      {/* Session Sidebar */}
       <AnimatePresence>
         {showSidebar && (
           <motion.div
@@ -307,29 +468,33 @@ const ChatView = () => {
         <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
           <ScrollArea className="flex-1 p-6">
             {loadingMessages ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+              <div className="space-y-6 py-4">
+                <ChatMessageSkeleton />
+                <ChatMessageSkeleton />
               </div>
-            ) : messages.length === 0 ? (
+            ) : messages.length === 0 && !streaming ? (
               <div className="flex flex-col items-center justify-center h-full text-center py-16">
                 <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-6">
                   <Bot className="w-7 h-7 text-emerald-600" strokeWidth={1.5} />
                 </div>
                 <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Your AI Financial Advisor
+                  What would you like to improve?
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 max-w-md">
-                  I can analyze your portfolio, suggest investment strategies, help with tax planning, and answer any financial question.
+                  Tell me your intent and I'll analyze your portfolio with actionable recommendations.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-                  {suggestedQuestions.map((q) => (
+                  {intentQuestions.map((q) => (
                     <button
-                      key={q}
-                      data-testid={`suggested-question-${q.slice(0, 10).replace(/\s/g, '-').toLowerCase()}`}
-                      onClick={() => { setInput(q); inputRef.current?.focus(); }}
-                      className="text-left text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-700 dark:hover:text-emerald-400 p-3 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all duration-200"
+                      key={q.text}
+                      data-testid={`intent-${q.text.slice(0, 15).replace(/\s/g, '-').toLowerCase()}`}
+                      onClick={() => { setInput(q.text); inputRef.current?.focus(); }}
+                      className="flex items-center gap-3 text-left text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all duration-200 group"
                     >
-                      {q}
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${q.color}`}>
+                        <q.icon className="w-4 h-4" strokeWidth={1.5} />
+                      </div>
+                      <span className="group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{q.text}</span>
                     </button>
                   ))}
                 </div>
@@ -350,17 +515,23 @@ const ChatView = () => {
                           <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
                         </div>
                       )}
-                      <div
-                        className={`max-w-[75%] px-4 py-3 text-sm leading-relaxed ${
-                          msg.role === "user"
-                            ? "chat-user-bubble whitespace-pre-wrap"
-                            : "chat-ai-bubble chat-markdown"
-                        }`}
-                      >
-                        {msg.role === "assistant" ? (
-                          <MarkdownMessage content={msg.content} />
-                        ) : (
-                          msg.content
+                      <div className={`max-w-[75%] ${msg.role === "user" ? "" : ""}`}>
+                        <div
+                          className={`px-4 py-3 text-sm leading-relaxed ${
+                            msg.role === "user"
+                              ? "chat-user-bubble whitespace-pre-wrap"
+                              : "chat-ai-bubble chat-markdown"
+                          }`}
+                        >
+                          {msg.role === "assistant" ? (
+                            <MarkdownMessage content={msg.content} />
+                          ) : (
+                            msg.content
+                          )}
+                        </div>
+                        {/* Action buttons for AI messages */}
+                        {msg.role === "assistant" && msg.message_id !== "temp_ai" && (
+                          <QuickActions content={msg.content} onAction={handleQuickAction} />
                         )}
                       </div>
                       {msg.role === "user" && (
@@ -371,18 +542,27 @@ const ChatView = () => {
                     </motion.div>
                   ))}
                 </AnimatePresence>
-                {sending && (
-                  <div className="flex gap-3 justify-start">
+
+                {/* Streaming response */}
+                {streaming && streamingContent && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex gap-3 justify-start"
+                  >
                     <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
-                      <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
+                      <Bot className="w-4 h-4 text-emerald-600 animate-pulse" strokeWidth={1.5} />
                     </div>
-                    <div className="chat-ai-bubble px-4 py-3 flex items-center gap-1">
-                      <span className="w-2 h-2 bg-slate-400 rounded-full loading-dot" />
-                      <span className="w-2 h-2 bg-slate-400 rounded-full loading-dot" />
-                      <span className="w-2 h-2 bg-slate-400 rounded-full loading-dot" />
+                    <div className="max-w-[75%] chat-ai-bubble chat-markdown px-4 py-3 text-sm leading-relaxed">
+                      <MarkdownMessage content={streamingContent} />
+                      <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 rounded-sm" />
                     </div>
-                  </div>
+                  </motion.div>
                 )}
+
+                {/* Thinking indicator (before first token arrives) */}
+                {streaming && !streamingContent && <StreamingIndicator />}
+
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -396,14 +576,14 @@ const ChatView = () => {
                 data-testid="chat-input"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about your investments..."
-                disabled={sending}
+                placeholder="What would you like to improve about your portfolio?"
+                disabled={sending && streaming}
                 className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
               />
               <Button
                 data-testid="send-message-button"
                 type="submit"
-                disabled={!input.trim() || sending}
+                disabled={!input.trim() || (sending && streaming)}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-11 w-11 p-0 flex-shrink-0"
               >
                 <Send className="w-4 h-4" strokeWidth={2} />

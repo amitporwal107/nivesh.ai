@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNumberFormat } from "@/context/NumberFormatContext";
+import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import DrilldownModal from "@/components/DrilldownModal";
 
 // ── Collapsible Section Wrapper ──
@@ -145,20 +146,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
   }, [analytics]);
 
   if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-10 bg-white dark:bg-slate-800 rounded-xl w-64 animate-pulse" />
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-5 h-28 animate-pulse">
-              <div className="h-3 bg-slate-100 dark:bg-slate-700 rounded w-20 mb-3" />
-              <div className="h-7 bg-slate-100 dark:bg-slate-700 rounded w-28" />
-            </div>
-          ))}
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 h-72 animate-pulse" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const isEmpty = !analytics || analytics.holdings_count === 0;

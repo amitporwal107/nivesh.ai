@@ -152,6 +152,31 @@ class AIEngine:
             logger.error(f"OpenAI chat failed: {e}")
             raise
 
+    async def chat_stream(self, message: str, portfolio_context: str, history: list, session_id: str):
+        """Stream chat response token-by-token via async generator. Uses gpt-4o-mini."""
+        system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
+
+        messages = [{"role": "system", "content": system}]
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"][:1000]})
+        messages.append({"role": "user", "content": message})
+
+        try:
+            stream = await self.client.chat.completions.create(
+                model=MODEL_CHEAP,
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.7,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    yield delta.content
+        except Exception as e:
+            logger.error(f"OpenAI chat stream failed: {e}")
+            raise
+
     async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
         """Generate comprehensive portfolio analysis. Uses gpt-4o-mini (cheap)."""
         try:

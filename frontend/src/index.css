@@ -120,3 +120,35 @@ code {
 html {
     scroll-behavior: smooth;
 }
+
+/* Shimmer animation for skeleton loaders */
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Chat bubble styles */
+.chat-user-bubble {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    color: white;
+    border-radius: 1.25rem 1.25rem 0.25rem 1.25rem;
+}
+
+.chat-ai-bubble {
+    background: #F8FAFC;
+    color: #1E293B;
+    border-radius: 1.25rem 1.25rem 1.25rem 0.25rem;
+    border: 1px solid #E2E8F0;
+}
+
+.dark .chat-ai-bubble {
+    background: #1E293B;
+    color: #E2E8F0;
+    border-color: #334155;
+}
+
+/* Streaming cursor */
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}

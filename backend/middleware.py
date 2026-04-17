@@ -42,10 +42,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key = session or auth or request.client.host if request.client else "unknown"
 
         # Higher limit for AI endpoints (they're slower)
-        if "/chat/" in request.url.path or "/insights/" in request.url.path:
-            max_req = 60  # Increased from 20 for better UX
+        if "/chat/stream" in request.url.path:
+            max_req = 30  # SSE streams are long-lived, fewer needed
+        elif "/chat/" in request.url.path or "/insights/" in request.url.path:
+            max_req = 60
         else:
-            max_req = 120
+            max_req = 200
 
         if not rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60):
             return JSONResponse(
