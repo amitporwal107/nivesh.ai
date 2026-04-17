@@ -104,6 +104,7 @@ const OnboardingView = ({ onComplete, userProfile }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [dataSource, setDataSource] = useState(null);
+  const [uploadPassword, setUploadPassword] = useState("");
   const fileRef = useRef(null);
 
   const steps = investorType === "new_investor" ? NEW_STEPS : EXISTING_STEPS;
@@ -188,13 +189,14 @@ const OnboardingView = ({ onComplete, userProfile }) => {
       if (file.size > 4 * 1024 * 1024) {
         res = await axios.post(`${API}/portfolio/upload-raw`, file, {
           withCredentials: true,
-          headers: { "Content-Type": "application/octet-stream", "X-Filename": file.name, "X-Portfolio-Id": "", "X-Password": "" },
-          timeout: 30000,
+          headers: { "Content-Type": "application/octet-stream", "X-Filename": file.name, "X-Portfolio-Id": "", "X-Password": uploadPassword || "" },
+          timeout: 120000,
         });
       } else {
         const form = new FormData();
         form.append("file", file);
-        res = await axios.post(`${API}/portfolio/upload`, form, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 30000 });
+        form.append("password", uploadPassword || "");
+        res = await axios.post(`${API}/portfolio/upload`, form, { withCredentials: true, headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 });
       }
       if (res.data?.task_id) {
         setUploadResult({ status: "processing", message: "AI is analyzing your portfolio..." });
@@ -645,8 +647,8 @@ const OnboardingView = ({ onComplete, userProfile }) => {
               <Upload className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
             </div>
             <div className="flex-1">
-              <div className="font-medium text-slate-900 dark:text-white text-sm">Upload CAS (CDSL / NSDL)</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Upload your Consolidated Account Statement PDF, CSV, or Excel</div>
+              <div className="font-medium text-slate-900 dark:text-white text-sm">Upload CAS Statement</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">NSDL/CDSL (full portfolio) or CAMS/KFintech (mutual funds)</div>
             </div>
             <ArrowRight className="w-4 h-4 text-slate-400" />
           </div>
@@ -699,21 +701,45 @@ const OnboardingView = ({ onComplete, userProfile }) => {
       <StepProgress current={currentIndex} total={totalSteps} />
       {dataSource === "upload" ? (
         <>
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <FileText className="w-6 h-6 text-emerald-600" strokeWidth={1.5} />
             </div>
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }} data-testid="step-title-upload">
-              Upload Your Portfolio
+              Upload Your CAS
             </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Drop your CAS PDF, CSV, or Excel file below.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Supports NSDL/CDSL, CAMS, and KFintech CAS PDFs</p>
           </div>
+
+          {/* CAS Tip */}
+          <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/50 rounded-xl p-3 mb-4" data-testid="cas-tip">
+            <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
+              <strong>Tip:</strong> For best results, download a <strong>text-based CAS</strong> from <a href="https://www.camsonline.com/Investors/Statements/Consolidated-Account-Statement" target="_blank" rel="noreferrer" className="underline">MyCams</a> or <a href="https://mfs.kfintech.com/investor/General/ConsolidatedAccountStatement" target="_blank" rel="noreferrer" className="underline">KFintech</a>. Scanned/image PDFs may have lower accuracy.
+            </p>
+          </div>
+
+          {/* Password Field */}
+          <div className="mb-4">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 block">
+              PDF Password <span className="text-slate-400 font-normal">(usually your PAN number)</span>
+            </label>
+            <Input
+              data-testid="upload-password-input"
+              type="password"
+              value={uploadPassword}
+              onChange={(e) => setUploadPassword(e.target.value)}
+              placeholder="e.g. ABCPA1234X"
+              className="rounded-xl h-10 text-sm"
+              disabled={uploading}
+            />
+          </div>
+
           <input ref={fileRef} type="file" accept=".pdf,.csv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
           <div
             onClick={() => !uploading && fileRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
             onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files?.[0]; if (f) { const dt = new DataTransfer(); dt.items.add(f); fileRef.current.files = dt.files; handleFileUpload({ target: { files: [f] } }); } }}
-            className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer mb-4 ${
+            className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer mb-4 ${
               uploading ? "border-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10" : "border-slate-200 dark:border-slate-700 hover:border-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800"
             }`}
             data-testid="upload-drop-zone"
@@ -722,13 +748,14 @@ const OnboardingView = ({ onComplete, userProfile }) => {
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">{uploadResult?.message || "Processing your file..."}</p>
+                <p className="text-xs text-slate-400">This may take 1-2 minutes for large PDFs</p>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-3">
                 <Upload className="w-8 h-8 text-slate-400" strokeWidth={1.5} />
                 <div>
                   <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Click or drag file here</p>
-                  <p className="text-xs text-slate-400 mt-1">Supports PDF (CAS), CSV, Excel</p>
+                  <p className="text-xs text-slate-400 mt-1">CAS PDF (NSDL/CDSL/CAMS/KFintech), CSV, or Excel</p>
                 </div>
               </div>
             )}
