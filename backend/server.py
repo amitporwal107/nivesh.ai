@@ -2572,6 +2572,96 @@ async def complete_onboarding(request: Request):
     return {"status": "ok", "onboarding_completed": True}
 
 
+
+# ==================== OCR CORRECTION API (Admin) ====================
+
+@api_router.post("/admin/ocr-correction/isin")
+async def add_ocr_isin_correction(request: Request):
+    """Admin endpoint: teach the OCR engine a garbled ISIN → correct ISIN mapping."""
+    user = await get_current_user(request)
+    whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
+    if not whitelist or not whitelist.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    body = await request.json()
+    garbled = body.get("garbled_isin", "").strip()
+    correct = body.get("correct_isin", "").strip()
+    context = body.get("context", "")
+    if not garbled or not correct or len(correct) != 12:
+        raise HTTPException(status_code=400, detail="Both garbled_isin and correct_isin (12 chars) required")
+    from services.ocr_correction import add_isin_correction
+    add_isin_correction(garbled, correct, context)
+    return {"status": "ok", "message": f"Learned: {garbled} → {correct}"}
+
+
+@api_router.post("/admin/ocr-correction/name")
+async def add_ocr_name_correction(request: Request):
+    """Admin endpoint: teach the OCR engine a garbled name → correct name + ISIN."""
+    user = await get_current_user(request)
+    whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
+    if not whitelist or not whitelist.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    body = await request.json()
+    garbled = body.get("garbled_name", "").strip()
+    correct = body.get("correct_name", "").strip()
+    isin = body.get("isin", "").strip()
+    if not garbled or not correct:
+        raise HTTPException(status_code=400, detail="Both garbled_name and correct_name required")
+    from services.ocr_correction import add_name_correction
+    add_name_correction(garbled, correct, isin)
+    return {"status": "ok", "message": f"Learned: '{garbled}' → '{correct}'"}
+
+
+@api_router.post("/admin/ocr-correction/holding")
+async def correct_holding(request: Request):
+    """Admin endpoint: correct a parsed holding's ISIN/name/qty/price. Feeds into ML engine."""
+    user = await get_current_user(request)
+    whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
+    if not whitelist or not whitelist.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    body = await request.json()
+    holding_id = body.get("holding_id", "")
+    corrections = body.get("corrections", {})
+    if not holding_id or not corrections:
+        raise HTTPException(status_code=400, detail="holding_id and corrections required")
+    # Get original holding
+    holding = await db.holdings.find_one({"holding_id": holding_id}, {"_id": 0})
+    if not holding:
+        raise HTTPException(status_code=404, detail="Holding not found")
+    # Apply corrections
+    update_fields = {}
+    if "isin" in corrections and corrections["isin"] != holding.get("ticker"):
+        from services.ocr_correction import add_isin_correction
+        add_isin_correction(holding.get("ticker", ""), corrections["isin"], f"Manual fix for {holding.get('name', '')}")
+        update_fields["ticker"] = corrections["isin"]
+    if "name" in corrections and corrections["name"] != holding.get("name"):
+        from services.ocr_correction import add_name_correction
+        add_name_correction(holding.get("name", ""), corrections["name"], corrections.get("isin", holding.get("ticker", "")))
+        update_fields["name"] = corrections["name"]
+    if "quantity" in corrections:
+        update_fields["quantity"] = float(corrections["quantity"])
+    if "buy_price" in corrections:
+        update_fields["buy_price"] = float(corrections["buy_price"])
+    if "current_price" in corrections:
+        update_fields["current_price"] = float(corrections["current_price"])
+    if update_fields:
+        now = datetime.now(timezone.utc).isoformat()
+        update_fields["corrected_at"] = now
+        update_fields["corrected_by"] = user["user_id"]
+        await db.holdings.update_one({"holding_id": holding_id}, {"$set": update_fields})
+    return {"status": "ok", "updated_fields": list(update_fields.keys())}
+
+
+@api_router.get("/admin/ocr-correction/stats")
+async def get_ocr_correction_stats(request: Request):
+    """Get OCR correction engine statistics."""
+    user = await get_current_user(request)
+    whitelist = await db.whitelisted_users.find_one({"email": user["email"]}, {"_id": 0})
+    if not whitelist or not whitelist.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from services.ocr_correction import get_correction_stats
+    return get_correction_stats()
+
+
 # ==================== AI INSIGHTS ROUTES ====================
 
 @api_router.get("/insights")

@@ -187,7 +187,7 @@ def find_isin_by_name(name: str, asset_type: str = "") -> Optional[Tuple[str, di
 
 
 def validate_and_enrich_holdings(holdings: list) -> list:
-    """Validate parsed holdings against masterdata. Fix ISINs and enrich with correct names/prices."""
+    """Validate parsed holdings against masterdata. Fix ISINs, names, prices, and quantities."""
     amfi = _load_amfi()
     nse = _load_nse()
     enriched = []
@@ -196,24 +196,53 @@ def validate_and_enrich_holdings(holdings: list) -> list:
         isin = h.get("ticker", "")
         name = h.get("name", "")
         asset_type = h.get("asset_type", "")
+        qty = h.get("quantity", 0)
+        parsed_price = h.get("current_price", 0)
+        parsed_value = qty * parsed_price
 
         # 1. Check if ISIN exists in masterdata
         master = lookup_isin(isin)
         if master:
-            # ISIN validated — enrich with masterdata name if current name is short/garbled
+            # Enrich garbled names
             if len(name) < 5 or not any(c.isalpha() for c in name):
                 h["name"] = master["name"]
-            # Cross-reference price (NAV for MFs)
-            if asset_type == "mutual_fund" and master["source"] == "amfi":
-                master_nav = master["price"]
-                parsed_nav = h.get("current_price", 0)
-                if master_nav > 0 and parsed_nav > 0:
-                    # If parsed NAV is way off from AMFI NAV, use AMFI NAV
-                    if abs(master_nav - parsed_nav) / max(master_nav, 1) > 0.1:
-                        # Recalculate using AMFI NAV
-                        old_val = h["quantity"] * parsed_nav
-                        h["current_price"] = round(master_nav, 4)
-                        logger.info(f"NAV corrected: {name[:30]} OCR={parsed_nav} → AMFI={master_nav}")
+
+            master_price = master["price"]
+
+            # Fix MF NAV/units using AMFI data
+            if asset_type == "mutual_fund" and master["source"] == "amfi" and master_price > 0:
+                # If parsed price is way off from AMFI NAV, the parser likely swapped units/NAV
+                if parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.2:
+                    # Check if the parsed "units" is actually the NAV and vice versa
+                    if qty > 0 and abs(qty - master_price) / max(master_price, 1) < 0.1:
+                        # Swap: what parser called "units" is actually the NAV
+                        old_qty, old_price = qty, parsed_price
+                        h["current_price"] = round(master_price, 4)
+                        h["quantity"] = round(parsed_value / master_price, 4) if master_price > 0 else 0
+                        logger.info(f"Fixed swap: {name[:30]} qty={old_qty}→{h['quantity']:.3f} nav={old_price}→{master_price}")
+                    else:
+                        # Just correct the NAV and recalc units from the parsed value
+                        old_price = parsed_price
+                        h["current_price"] = round(master_price, 4)
+                        if parsed_value > 0:
+                            h["quantity"] = round(parsed_value / master_price, 4)
+                        logger.info(f"NAV corrected: {name[:30]} nav={old_price}→{master_price}")
+
+            # Fix equity price using NSE data
+            if asset_type == "equity" and master["source"] == "nse" and master_price > 0:
+                if parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
+                    # Price is wrong — recalculate qty from value/nse_price
+                    if parsed_value > 0:
+                        new_qty = round(parsed_value / master_price)
+                        h["quantity"] = new_qty
+                        h["current_price"] = round(master_price, 2)
+                        h["buy_price"] = round(master_price, 2)
+                        logger.info(f"Equity price fix: {name[:30]} price→{master_price}, qty→{new_qty}")
+                elif parsed_price == 0 and parsed_value == 0 and qty == 0:
+                    # Holding with no value — just set the price
+                    h["current_price"] = round(master_price, 2)
+                    h["buy_price"] = round(master_price, 2)
+
             enriched.append(h)
             continue
 
@@ -225,10 +254,16 @@ def validate_and_enrich_holdings(holdings: list) -> list:
                 logger.info(f"Name match: '{name[:30]}' → {new_isin} ({info['name'][:30]}) score={info['score']}")
                 h["ticker"] = new_isin
                 h["name"] = info["name"]
-                # Use masterdata price if parsed price is 0 or way off
-                if info["price"] > 0 and (h["current_price"] == 0 or h["buy_price"] == 0):
-                    h["current_price"] = round(info["price"], 4)
-                    h["buy_price"] = round(info["price"], 4)
+                if info["price"] > 0:
+                    master_price = info["price"]
+                    # Fix price and recalculate qty
+                    if parsed_value > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
+                        h["current_price"] = round(master_price, 4)
+                        h["buy_price"] = round(master_price, 4)
+                        h["quantity"] = round(parsed_value / master_price, 4) if master_price > 0 else qty
+                    elif parsed_price == 0:
+                        h["current_price"] = round(master_price, 4)
+                        h["buy_price"] = round(master_price, 4)
                 enriched.append(h)
                 continue
 

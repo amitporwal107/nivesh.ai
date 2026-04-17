@@ -77,6 +77,12 @@
       "context": "Nippon Small Cap - O\u21920",
       "added_at": "2026-04-17T04:35:16.742242+00:00",
       "times_applied": 0
+    },
+    "TEST12345678": {
+      "correct": "INE123456789",
+      "context": "API test",
+      "added_at": "2026-04-17T05:10:37.357790+00:00",
+      "times_applied": 0
     }
   },
   "name_map": {
@@ -126,10 +132,82 @@
       "ocr_char": "1",
       "correct_char": "I",
       "count": 1
+    },
+    {
+      "position": 0,
+      "ocr_char": "T",
+      "correct_char": "I",
+      "count": 1
+    },
+    {
+      "position": 1,
+      "ocr_char": "E",
+      "correct_char": "N",
+      "count": 1
+    },
+    {
+      "position": 2,
+      "ocr_char": "S",
+      "correct_char": "E",
+      "count": 1
+    },
+    {
+      "position": 3,
+      "ocr_char": "T",
+      "correct_char": "1",
+      "count": 1
+    },
+    {
+      "position": 4,
+      "ocr_char": "1",
+      "correct_char": "2",
+      "count": 1
+    },
+    {
+      "position": 5,
+      "ocr_char": "2",
+      "correct_char": "3",
+      "count": 1
+    },
+    {
+      "position": 6,
+      "ocr_char": "3",
+      "correct_char": "4",
+      "count": 1
+    },
+    {
+      "position": 7,
+      "ocr_char": "4",
+      "correct_char": "5",
+      "count": 1
+    },
+    {
+      "position": 8,
+      "ocr_char": "5",
+      "correct_char": "6",
+      "count": 1
+    },
+    {
+      "position": 9,
+      "ocr_char": "6",
+      "correct_char": "7",
+      "count": 1
+    },
+    {
+      "position": 10,
+      "ocr_char": "7",
+      "correct_char": "8",
+      "count": 1
+    },
+    {
+      "position": 11,
+      "ocr_char": "8",
+      "correct_char": "9",
+      "count": 1
     }
   ],
   "stats": {
-    "total_corrections": 17,
+    "total_corrections": 18,
     "auto_applied": 0
   }
 }

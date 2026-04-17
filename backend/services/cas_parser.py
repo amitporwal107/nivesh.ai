@@ -560,8 +560,8 @@ def parse_cdsl_equities(text: str) -> List[Dict]:
 def parse_cdsl_mf_folios(text: str) -> List[Dict]:
     """Parse CDSL MF Folios. ISINs may be garbled (NF instead of INF, O instead of 0)."""
     holdings = []
-    # CDSL MF ISINs: sometimes missing leading 'I', 'O' instead of '0'
-    cdsl_isin_re = re.compile(r'\b[I|]?(NF[A-Z0-9O]{8,11})\b')
+    # CDSL MF ISINs: sometimes missing leading 'I', 'O' instead of '0', pipe prefix
+    cdsl_isin_re = re.compile(r'[|]?\s*[I1|]?(NF[A-Z0-9O]{8,11})\b')
     lines = text.split('\n')
     i = 0
     while i < len(lines):
