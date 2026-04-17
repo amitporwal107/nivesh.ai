@@ -456,9 +456,14 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
               </div>
               <div className="space-y-1 mt-2">
                 {pd.map(d => (
-                  <div key={d.name} className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-100 dark:bg-zinc-800/50" : "hover:bg-slate-50 dark:hover:bg-zinc-800/30"}`} onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)} data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}>
-                    <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span className="text-xs text-slate-500 dark:text-zinc-500">{d.name}</span></div>
-                    <span className="text-xs font-medium text-slate-900 dark:text-white">{d.value}%</span>
+                  <div key={d.name}>
+                    <div className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-100 dark:bg-zinc-800/50" : "hover:bg-slate-50 dark:hover:bg-zinc-800/30"}`} onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)} data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}>
+                      <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span className="text-xs text-slate-500 dark:text-zinc-500">{d.name}</span></div>
+                      <span className="text-xs font-medium text-slate-900 dark:text-white">{d.value}%</span>
+                    </div>
+                    {d.reason && (
+                      <p className="text-[10px] text-slate-400 dark:text-zinc-500 pl-5 -mt-0.5 mb-1">{d.reason}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -526,8 +531,36 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   {isExpanded && (
                     <div className="p-4 bg-white dark:bg-[#121212] border-t border-slate-100 dark:border-white/5 space-y-3">
                       {insight.description && (<div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Details</p><p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.description}</p></div>)}
+                      {insight.action && (
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg border border-emerald-200 dark:border-emerald-500/20">
+                          <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Recommended Action</p>
+                          <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{insight.action}</p>
+                        </div>
+                      )}
+                      {insight.current_value && insight.target_value && (
+                        <div className="flex gap-4">
+                          <div className="flex-1 p-2 rounded-lg bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20">
+                            <p className="text-[9px] font-bold uppercase text-red-500">Current</p>
+                            <p className="text-xs font-medium text-slate-700 dark:text-zinc-300 mt-0.5">{insight.current_value}</p>
+                          </div>
+                          <div className="flex-1 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/5 border border-emerald-200 dark:border-emerald-500/20">
+                            <p className="text-[9px] font-bold uppercase text-emerald-600">Target</p>
+                            <p className="text-xs font-medium text-slate-700 dark:text-zinc-300 mt-0.5">{insight.target_value}</p>
+                          </div>
+                        </div>
+                      )}
+                      {insight.affected_funds?.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Affected Funds</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {insight.affected_funds.map((f, fi) => (
+                              <span key={`af-${fi}`} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-400">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {analytics?.performance_cards?.length > 0 && getAffectedHoldings(insight, analytics.performance_cards).length > 0 && (
-                        <div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Affected Holdings</p>
+                        <div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Holdings Impact</p>
                           <div className="space-y-1 max-h-48 overflow-y-auto">
                             {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
                               <div key={`aff-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-[#1A1A1A] rounded-lg text-xs">

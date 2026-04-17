@@ -1,27 +1,14 @@
 # nivesh.ai - Product Requirements Document
 
-## Original Problem Statement
-Build an AI-powered autonomous financial advisor for Indian market.
-
-## Architecture
-- React + Tailwind + Shadcn | FastAPI + MongoDB + OpenAI gpt-4o-mini
-- CAS Parser SDK, AMFI NAV, NSE Bhav Copy, yfinance
-
-## Implemented Features
-- [x] Google OAuth + whitelist + Admin, CAS Parser SDK
-- [x] Onboarding, Risk Profile, Quick Setup
-- [x] SSE streaming chat + intent UX + quick actions + skeleton loaders
-- [x] MF benchmark + Portfolio P&L Heatmap + Fund House stacked chart
-- [x] Fund Overlap v2 (duplication score, AI insights, stacked bars)
-- [x] AI Look-Through Allocation Analysis (OpenAI, no PII)
-- [x] Dual-mode theme (Light + Dark MOS-inspired)
-- [x] MOS-style allocation display (alert + stacked bar + drillable sectors)
-- [x] **AI Overview page restructured**:
-  - Flow: Health → Risk → Confidence → Issue Breakdown → Cost Leakage → Insights → Action Plan → Simulate
-  - Data Confidence capped at 100% (was 105%)
-  - Removed "Optimized Portfolio" label and "Do Nothing" standalone section
-  - Simulate shows Before/After only after button click
-  - "Data missing" shown when data unavailable (no hallucination)
+## Implemented Features (Latest)
+- [x] **Enhanced AI Insights Engine** (Apr 2026):
+  - Full portfolio context sent to OpenAI: overexposure, overlap, allocation, cost data
+  - Every insight cites specific ₹ amounts, %, fund names, ideal ranges
+  - Issue Breakdown shows "reason" for each category (e.g., "High concentration in HDFC")
+  - Insights cover: AMC concentration, sector exposure, cost leakage, debt gap, equity underperformance
+  - Expanded insights show: Details, Recommended Action, Current vs Target, Affected Funds, Holdings Impact
+  - Action Plan with ₹ impact (e.g., "Switch ₹12L to direct plans → save ₹60K/year")
+  - No hallucinated data — all calculations backed by portfolio/pricing data
 
 ## Backlog
 ### P0
