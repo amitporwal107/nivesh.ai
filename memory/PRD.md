@@ -20,11 +20,16 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - [x] Actionable Insights drill-down (affected holdings)
 - [x] Issue Breakdown chart clickable (drill into holdings)
 - [x] MF benchmark ratings with drilldown
-- [x] **Stacked allocation chart** (Current vs Balanced) for Fund House Concentration
-- [x] **Portfolio Performance Heatmap** (P&L-driven, not benchmark)
-- [x] **MF Category Overlap card grid** (replacing bar chart)
+- [x] Stacked allocation chart (Current vs Balanced) for Fund House
+- [x] Portfolio Performance Heatmap (P&L-driven)
+- [x] MF Category Overlap card grid
 - [x] Equity sector classification (Banking, IT, Pharma, etc.)
-- [x] Fund House/Sector cards expanded by default
+- [x] **Fund Overlap Tab v2** (AI-first UX):
+  - [x] Duplication Score circular gauge (89.4% → High Duplication)
+  - [x] AI Overlap Insights (category warnings, sector alerts, AMC info)
+  - [x] Category-Level Overlap stacked bars (₹ unique vs ₹ overlapping)
+  - [x] Sector Exposure Across Funds (multi-fund sector concentration)
+  - [x] Fund-to-Fund Overlap matrix (pairwise similarity)
 - [x] server.py refactored into modular routes
 
 ## Backlog
@@ -33,6 +38,7 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - Security: PAN encryption, consent logging, audit trails (DPDP Act)
 
 ### P1
+- Stock-level overlap (actual underlying holdings of MFs via AMFI portfolio disclosure data)
 - Mobile-first layout, enhanced simulation UX, goal-based planning
 
 ### P2
