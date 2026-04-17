@@ -1,0 +1,82 @@
+{
+  "summary": "Iteration 22 testing complete. All 3 visualization fixes verified working: (1) Fund House Concentration stacked bar chart showing Current vs Balanced allocation with color-coded AMC segments, (2) Portfolio Performance Heatmap showing P&L% and Gain/Loss (not benchmark returns), (3) MF Category Overlap card grid replacing bar chart. Backend: 11/11 tests passed. Frontend: All features working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend: GET /api/auth/me - returns user info with valid session",
+    "Backend: GET /api/portfolio/holdings - returns 110 holdings",
+    "Backend: GET /api/portfolio/deep-analytics - returns overexposure with fund_house data",
+    "Backend: HDFC is top fund house with 35.5% allocation (expanded by default)",
+    "Backend: Sector data exists for sector composition chart",
+    "Backend: GET /api/portfolio/fund-performance - returns fund_ratings with invested/current_value for P&L",
+    "Backend: Fund ratings have P&L calculation fields (invested, current_value)",
+    "Backend: category_overlap data returned with is_overlapping flag for card grid",
+    "Backend: performance_distribution has all rating categories",
+    "Backend: GET /api/insights/analysis - returns analysis data",
+    "Backend: GET /api/portfolio/analytics - returns analytics data",
+    "Frontend: Overexposure tab - Fund House Concentration shows stacked bar chart (Current vs Balanced)",
+    "Frontend: Overexposure tab - HDFC card expanded by default showing 35.5% allocation and 5 funds",
+    "Frontend: Benchmark tab - Portfolio Performance Heatmap shows 60 color-coded cells",
+    "Frontend: Benchmark tab - Heatmap cells show P&L%, invested amount, and gain/loss amount",
+    "Frontend: Benchmark tab - Clicking heatmap cell shows detail with P&L, Invested, Current, Gain/Loss",
+    "Frontend: Benchmark tab - MF Category Overlap shows card grid (13 Other, 11 Small Cap, 9 Mid Cap, etc.)",
+    "Frontend: Benchmark tab - Category cards show count, name, and overlap/unique label"
+  ],
+  "fixes_verified": {
+    "fix_1_fund_house_stacked_chart": {
+      "status": "VERIFIED",
+      "description": "Fund House Concentration bar chart replaced with stacked allocation chart showing Current vs Balanced",
+      "evidence": "Screenshot shows two stacked bars - 'Current' with HDFC 35.5%, ICICI 12.8%, SBI 9.3% etc. and 'Balanced' with equal distribution"
+    },
+    "fix_2_hdfc_expanded_default": {
+      "status": "VERIFIED",
+      "description": "HDFC card expanded by default showing 35.5% allocation",
+      "evidence": "Screenshot shows 'FUNDS UNDER HDFC' section expanded with 5 fund names listed"
+    },
+    "fix_3_portfolio_heatmap_pnl": {
+      "status": "VERIFIED",
+      "description": "Heatmap changed from benchmark-driven to portfolio-driven (showing P&L% and Gain/Loss)",
+      "evidence": "60 heatmap cells showing P&L% (e.g., +46.9%, +94.4%, -3.9%) with invested amount and gain/loss. Color legend shows P&L ranges: >30%, 5-30%, 0-5%, -10 to 0%, <-10%"
+    },
+    "fix_4_heatmap_cell_detail": {
+      "status": "VERIFIED",
+      "description": "Clicking heatmap cell shows portfolio detail (P&L, Invested, Current, Gain/Loss)",
+      "evidence": "Detail panel shows: P&L +46.9%, Invested ₹9.98 L, Current ₹14.67 L, Gain/Loss +₹4.69 L"
+    },
+    "fix_5_category_overlap_card_grid": {
+      "status": "VERIFIED",
+      "description": "MF Category Overlap bar chart replaced with visual card grid",
+      "evidence": "Card grid shows: 13 Other, 11 Small Cap, 9 Mid Cap, 7 Balanced, 6 Large Cap, 5 Flexi Cap, 3 Debt, 3 Index, 2 Value, 1 Gold, 1 ELSS with 'Potential overlap' or 'Unique category' labels"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22_visualization.py",
+    "/app/test_reports/pytest/pytest_results_iteration22.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22_visualization.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)",
+    "frontend": "100% (all 5 visualization fixes verified working)"
+  },
+  "test_credentials": {
+    "test_user_email": "aporwal107@gmail.com",
+    "test_user_session": "5770bebb-8a9a-41f7-a7b9-e8152ac25daa",
+    "holdings_count": 110
+  },
+  "seed_data_creation": "None - used existing test user with 110 holdings",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 22 tested 3 visualization fixes: (1) Fund House Concentration now shows stacked bar chart with Current vs Balanced allocation - HDFC at 35.5% is expanded by default, (2) Portfolio Performance Heatmap now shows P&L% and Gain/Loss instead of benchmark returns - 60 color-coded cells with detail panel showing P&L, Invested, Current, Gain/Loss, (3) MF Category Overlap now shows card grid instead of bar chart with overlap/unique labels. All features working. Test user has 110 holdings with portfolio value ~₹1.03 Cr. Backend APIs: /api/portfolio/deep-analytics returns fund_house data for stacked chart, /api/portfolio/fund-performance returns fund_ratings with invested/current_value for P&L calculation and category_overlap for card grid.",
+  "rca_of_issue": {}
+}

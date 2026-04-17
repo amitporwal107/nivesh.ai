@@ -970,24 +970,66 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                 </div>
               </div>
 
-              {/* Bar Chart */}
-              <div className="h-56 mb-6" data-testid="fund-house-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={fundHouse.slice(0, 8)} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={v => `${v}%`} domain={[0, "auto"]} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={120} />
-                    <Tooltip
-                      formatter={(v, name, { payload }) => [`${v}% (${payload.count} funds)`, "Allocation"]}
-                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }}
-                    />
-                    <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={20}>
-                      {fundHouse.slice(0, 8).map((fh, i) => (
-                        <Cell key={i} fill={RISK_COLORS[fh.risk_level] || CHART_COLORS[i % CHART_COLORS.length]} />
+              {/* Stacked Allocation Chart — Current vs Ideal */}
+              <div className="mb-6" data-testid="fund-house-chart">
+                <div className="flex gap-6 items-end justify-center">
+                  {/* Current Allocation Bar */}
+                  <div className="flex flex-col items-center">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Current</p>
+                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-slate-200 dark:border-slate-700">
+                      {fundHouse.slice(0, 6).map((fh, i) => (
+                        <div
+                          key={`cur-${fh.name}`}
+                          className="relative flex items-center justify-center transition-all hover:opacity-90 cursor-pointer"
+                          style={{ height: `${Math.max(fh.pct, 3)}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
+                          title={`${fh.name}: ${fh.pct}%`}
+                          onClick={() => setExpandedFH(expandedFH === i ? null : i)}
+                        >
+                          {fh.pct >= 8 && (
+                            <span className="text-[10px] font-bold text-white drop-shadow-sm">{fh.pct}%</span>
+                          )}
+                        </div>
                       ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Arrow */}
+                  <div className="flex flex-col items-center gap-2 pb-24">
+                    <ArrowRight className="w-5 h-5 text-slate-300" />
+                    <p className="text-[9px] text-slate-400 font-medium">Ideal</p>
+                  </div>
+
+                  {/* Ideal Allocation Bar (balanced) */}
+                  <div className="flex flex-col items-center">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Balanced</p>
+                    <div className="w-24 h-64 rounded-xl overflow-hidden flex flex-col-reverse border border-slate-200 dark:border-slate-700">
+                      {(() => {
+                        const idealPct = Math.round(100 / Math.max(fundHouse.length, 1));
+                        return fundHouse.slice(0, 6).map((fh, i) => (
+                          <div
+                            key={`ideal-${fh.name}`}
+                            className="relative flex items-center justify-center"
+                            style={{ height: `${idealPct}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length], opacity: 0.7 }}
+                          >
+                            {idealPct >= 8 && (
+                              <span className="text-[10px] font-bold text-white drop-shadow-sm">{idealPct}%</span>
+                            )}
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Legend */}
+                <div className="flex flex-wrap gap-3 mt-4 justify-center">
+                  {fundHouse.slice(0, 6).map((fh, i) => (
+                    <div key={fh.name} className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                      <div className="w-2.5 h-2.5 rounded" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                      {fh.name}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Fund House Detail Cards */}
@@ -1652,57 +1694,63 @@ const FundHeatmap = ({ ratings, fmt }) => {
     if (!ratings?.length) return [];
     return ratings
       .filter(r => r.invested > 0)
-      .map(r => ({
-        name: r.name.length > 25 ? r.name.slice(0, 25) + ".." : r.name,
-        fullName: r.name,
-        size: Math.max(r.invested, 1000),
-        return_1y: r.return_1y || r.simple_return_pct || 0,
-        rating: r.rating,
-        invested: r.invested,
-        current_value: r.current_value,
-        sector: r.sector,
-        alpha: r.alpha,
-        benchmark_return: r.benchmark_return,
-      }))
+      .map(r => {
+        const pnl = (r.current_value || 0) - (r.invested || 0);
+        const pnlPct = r.invested > 0 ? (pnl / r.invested * 100) : 0;
+        return {
+          name: r.name.length > 22 ? r.name.slice(0, 22) + ".." : r.name,
+          fullName: r.name,
+          size: Math.max(r.invested, 1000),
+          pnl,
+          pnlPct,
+          invested: r.invested,
+          current_value: r.current_value,
+          sector: r.sector,
+        };
+      })
       .sort((a, b) => b.size - a.size);
   }, [ratings]);
 
-  const getColor = (ret) => {
-    if (ret > 20) return "#059669";
-    if (ret > 10) return "#10B981";
-    if (ret > 0) return "#6EE7B7";
-    if (ret > -10) return "#FCA5A5";
-    if (ret > -20) return "#EF4444";
-    return "#DC2626";
+  const getColor = (pnlPct) => {
+    if (pnlPct > 30) return "#047857";
+    if (pnlPct > 15) return "#059669";
+    if (pnlPct > 5) return "#10B981";
+    if (pnlPct > 0) return "#6EE7B7";
+    if (pnlPct > -10) return "#FCA5A5";
+    return "#EF4444";
   };
 
   if (!heatmapData.length) return <p className="text-sm text-slate-400 text-center py-6">No fund data</p>;
 
+  const maxSize = heatmapData[0]?.size || 1;
+
   return (
     <div data-testid="fund-heatmap">
-      <div className="grid gap-1.5" style={{
-        gridTemplateColumns: `repeat(auto-fill, minmax(120px, 1fr))`,
-      }}>
+      <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(140px, 1fr))` }}>
         {heatmapData.map((fund, i) => {
           const isSelected = selectedFund === i;
-          const bgColor = getColor(fund.return_1y);
+          const bgColor = getColor(fund.pnlPct);
+          const sizeRatio = fund.size / maxSize;
           return (
             <div
               key={`heatmap-${i}`}
               data-testid={`heatmap-cell-${i}`}
               onClick={() => setSelectedFund(isSelected ? null : i)}
-              className="cursor-pointer rounded-lg p-2.5 transition-all hover:ring-2 hover:ring-white/50 relative overflow-hidden"
+              className={`cursor-pointer rounded-lg p-3 transition-all hover:ring-2 hover:ring-white/30 ${isSelected ? "ring-2 ring-slate-900 dark:ring-white" : ""}`}
               style={{
                 backgroundColor: bgColor,
-                minHeight: Math.max(60, Math.min(120, fund.size / (heatmapData[0]?.size || 1) * 120)),
-                opacity: selectedFund !== null && !isSelected ? 0.5 : 1,
+                minHeight: Math.max(72, Math.min(100, sizeRatio * 100)),
+                opacity: selectedFund !== null && !isSelected ? 0.45 : 1,
               }}
             >
-              <p className="text-[10px] font-medium text-white leading-tight truncate">{fund.name}</p>
-              <p className="text-sm font-bold text-white mt-1" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                {fund.return_1y >= 0 ? "+" : ""}{fund.return_1y.toFixed(1)}%
+              <p className="text-[10px] font-medium text-white/90 leading-tight truncate">{fund.name}</p>
+              <p className="text-lg font-bold text-white mt-1.5" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                {fund.pnlPct >= 0 ? "+" : ""}{fund.pnlPct.toFixed(1)}%
               </p>
-              <p className="text-[9px] text-white/70 mt-0.5">{fmt(fund.invested)}</p>
+              <div className="flex items-center justify-between mt-1.5">
+                <span className="text-[9px] text-white/60">{fmt(fund.invested)}</span>
+                <span className="text-[9px] text-white/80 font-medium">{fund.pnl >= 0 ? "+" : ""}{fmt(fund.pnl)}</span>
+              </div>
             </div>
           );
         })}
@@ -1712,33 +1760,33 @@ const FundHeatmap = ({ ratings, fmt }) => {
       <AnimatePresence>
         {selectedFund !== null && heatmapData[selectedFund] && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-            <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl border border-slate-200 dark:border-slate-600">
-              <div className="flex justify-between items-start mb-3">
+            <div className="mt-4 p-5 bg-slate-50 dark:bg-slate-700/50 rounded-xl border border-slate-200 dark:border-slate-600">
+              <div className="flex justify-between items-start mb-4">
                 <div>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">{heatmapData[selectedFund].fullName}</p>
-                  <p className="text-[10px] text-slate-500">{heatmapData[selectedFund].sector}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{heatmapData[selectedFund].sector}</p>
                 </div>
-                <button onClick={() => setSelectedFund(null)} className="text-[10px] text-slate-400 hover:text-slate-600">Close</button>
+                <button onClick={() => setSelectedFund(null)} className="text-xs text-slate-400 hover:text-slate-600 bg-slate-200 dark:bg-slate-600 px-2 py-1 rounded-lg">Close</button>
               </div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-4 gap-4">
                 <div>
-                  <p className="text-[9px] text-slate-400">1Y Return</p>
-                  <p className={`text-sm font-bold ${heatmapData[selectedFund].return_1y >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {heatmapData[selectedFund].return_1y >= 0 ? "+" : ""}{heatmapData[selectedFund].return_1y.toFixed(1)}%
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">P&L</p>
+                  <p className={`text-base font-bold mt-1 ${heatmapData[selectedFund].pnlPct >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                    {heatmapData[selectedFund].pnlPct >= 0 ? "+" : ""}{heatmapData[selectedFund].pnlPct.toFixed(1)}%
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] text-slate-400">Invested</p>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{fmt(heatmapData[selectedFund].invested)}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Invested</p>
+                  <p className="text-base font-medium text-slate-700 dark:text-slate-300 mt-1">{fmt(heatmapData[selectedFund].invested)}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] text-slate-400">Current</p>
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{fmt(heatmapData[selectedFund].current_value)}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Current</p>
+                  <p className="text-base font-medium text-slate-700 dark:text-slate-300 mt-1">{fmt(heatmapData[selectedFund].current_value)}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] text-slate-400">Alpha</p>
-                  <p className={`text-sm font-bold ${(heatmapData[selectedFund].alpha || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {heatmapData[selectedFund].alpha != null ? `${heatmapData[selectedFund].alpha >= 0 ? "+" : ""}${heatmapData[selectedFund].alpha}%` : "—"}
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Gain/Loss</p>
+                  <p className={`text-base font-bold mt-1 ${heatmapData[selectedFund].pnl >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                    {heatmapData[selectedFund].pnl >= 0 ? "+" : ""}{fmt(heatmapData[selectedFund].pnl)}
                   </p>
                 </div>
               </div>
@@ -1748,10 +1796,11 @@ const FundHeatmap = ({ ratings, fmt }) => {
       </AnimatePresence>
 
       <div className="flex items-center gap-3 mt-3 text-[10px] text-slate-400">
-        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#059669"}} /> &gt;20%</div>
-        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#10B981"}} /> 10-20%</div>
-        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#6EE7B7"}} /> 0-10%</div>
-        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#FCA5A5"}} /> 0 to -10%</div>
+        <span className="font-medium">Color = Portfolio P&L:</span>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#047857"}} /> &gt;30%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#10B981"}} /> 5-30%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#6EE7B7"}} /> 0-5%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#FCA5A5"}} /> -10 to 0%</div>
         <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#EF4444"}} /> &lt;-10%</div>
       </div>
     </div>
@@ -1992,7 +2041,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
         </motion.div>
       </div>
 
-      {/* Category Overlap Bar Graph — MF Categories only */}
+      {/* MF Category Overlap — Visual Card Grid */}
       {overlapBarData.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
@@ -2006,29 +2055,41 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                     MF Category Overlap
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Number of mutual funds per category — 2+ funds in same category = potential overlap
+                    Categories with 2+ funds indicate potential overlap and redundancy
                   </p>
                 </div>
               </div>
-              <div className="h-64" data-testid="category-overlap-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={overlapBarData} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={140} />
-                    <Tooltip
-                      formatter={(v, name, { payload }) => [`${v} fund${v > 1 ? "s" : ""}${payload.overlapping ? " (overlapping)" : ""}`, "Funds"]}
-                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }}
-                    />
-                    <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={20}>
-                      {overlapBarData.map((d, i) => (
-                        <Cell key={i} fill={d.overlapping ? "#F59E0B" : "#10B981"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" data-testid="category-overlap-chart">
+                {overlapBarData.map((d, i) => {
+                  const isOverlapping = d.overlapping;
+                  return (
+                    <div
+                      key={`cat-${d.name}`}
+                      className={`rounded-xl p-4 border transition-all hover:shadow-sm ${
+                        isOverlapping
+                          ? "border-amber-200 bg-amber-50/50 dark:bg-amber-900/10 dark:border-amber-800"
+                          : "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-900/10 dark:border-emerald-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-2xl font-bold ${isOverlapping ? "text-amber-600" : "text-emerald-600"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {d.count}
+                        </span>
+                        {isOverlapping && (
+                          <AlertTriangle className="w-4 h-4 text-amber-500" strokeWidth={1.5} />
+                        )}
+                      </div>
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-300">{d.fullName || d.name}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {isOverlapping ? "Potential overlap" : "Unique category"}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex items-center gap-4 mt-3 text-[10px] font-bold tracking-wider uppercase">
+
+              <div className="flex items-center gap-4 mt-4 text-[10px] font-bold tracking-wider uppercase">
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-500" />Overlapping (2+ funds)</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500" />Unique</div>
               </div>
@@ -2042,9 +2103,9 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
         <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
           <CardContent className="p-6 md:p-8">
             <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-              Fund Performance Heatmap
+              Portfolio Performance Heatmap
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Size = invested value. Color = 1Y return (green = positive, red = negative). Click to expand AMC details.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Size = invested value. Color = portfolio P&L (green = profit, red = loss). Click any fund to view details.</p>
             <FundHeatmap ratings={ratings} fmt={fmt} />
           </CardContent>
         </Card>
