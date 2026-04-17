@@ -936,6 +936,24 @@ const OverexposureTab = ({ overexposure, fmt }) => {
   const sectors = overexposure?.sector || [];
   const [expandedFH, setExpandedFH] = useState(0);
   const [expandedSec, setExpandedSec] = useState(0);
+  const [allocation, setAllocation] = useState(null);
+  const [loadingAllocation, setLoadingAllocation] = useState(false);
+
+  const fetchAllocation = async () => {
+    setLoadingAllocation(true);
+    try {
+      const res = await axios.get(`${API}/portfolio/allocation-analysis`, { withCredentials: true });
+      if (!res.data.error) setAllocation(res.data);
+    } catch (err) {
+      console.error("Allocation analysis failed", err);
+    } finally {
+      setLoadingAllocation(false);
+    }
+  };
+
+  useEffect(() => {
+    if (fundHouse.length > 0 && !allocation) fetchAllocation();
+  }, [fundHouse.length]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!fundHouse.length && !sectors.length) {
     return (
@@ -1091,93 +1109,122 @@ const OverexposureTab = ({ overexposure, fmt }) => {
         </motion.div>
       )}
 
-      {/* Sector Concentration */}
-      {sectors.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
-            <CardContent className="p-6 md:p-8">
-              <div className="flex items-center gap-3 mb-6">
+      {/* AI-Powered True Sector & Company Allocation */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+          <CardContent className="p-6 md:p-8">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
                   <BarChart3 className="w-5 h-5 text-blue-600" strokeWidth={1.5} />
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Sector Composition
+                    True Sector & Company Allocation
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Equity sector exposure + MF category distribution across your holdings
+                    AI look-through analysis — actual underlying sector exposure across all funds
                   </p>
                 </div>
               </div>
+              <Button variant="outline" size="sm" onClick={fetchAllocation} disabled={loadingAllocation} className="rounded-xl text-xs h-8">
+                <RefreshCw className={`w-3 h-3 mr-1 ${loadingAllocation ? "animate-spin" : ""}`} /> {loadingAllocation ? "Analyzing..." : "Refresh"}
+              </Button>
+            </div>
 
-              <div className="h-56 mb-6" data-testid="sector-concentration-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={sectors.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#94A3B8" }} tickFormatter={v => `${v}%`} domain={[0, "auto"]} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={120} />
-                    <Tooltip
-                      formatter={(v, name, { payload }) => [`${v}% (${payload.count} holdings)`, "Allocation"]}
-                      contentStyle={{ borderRadius: 12, border: "1px solid #E2E8F0", fontSize: 12 }}
-                    />
-                    <Bar dataKey="pct" radius={[0, 6, 6, 0]} barSize={20}>
-                      {sectors.slice(0, 10).map((sec, i) => (
-                        <Cell key={i} fill={RISK_COLORS[sec.risk_level] || CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+            {loadingAllocation && !allocation ? (
+              <div className="space-y-4 py-4 animate-pulse">
+                <div className="h-6 bg-slate-100 dark:bg-slate-700 rounded w-48" />
+                <div className="space-y-2">
+                  {[1,2,3,4,5].map(i => <div key={i} className="h-8 bg-slate-100 dark:bg-slate-700 rounded" />)}
+                </div>
               </div>
-
-              <div className="space-y-2" data-testid="sector-details">
-                {sectors.slice(0, 10).map((sec, i) => (
-                  <div
-                    key={sec.name}
-                    className={`rounded-xl border transition-all ${
-                      sec.risk_level === "high"
-                        ? "border-red-200 bg-red-50/40 dark:bg-red-900/10 dark:border-red-800"
-                        : sec.risk_level === "medium"
-                        ? "border-amber-200 bg-amber-50/40 dark:bg-amber-900/10 dark:border-amber-800"
-                        : "border-slate-200 bg-slate-50/40 dark:bg-slate-800/50 dark:border-slate-700"
-                    }`}
-                  >
-                    <div
-                      className="flex items-center justify-between p-4 cursor-pointer"
-                      onClick={() => setExpandedSec(expandedSec === i ? null : i)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-3 h-8 rounded-sm" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <div>
-                          <p className="text-sm font-medium text-slate-900 dark:text-white">{sec.name}</p>
-                          <p className="text-xs text-slate-500">{sec.count} holding{sec.count > 1 ? "s" : ""} — {fmt(sec.value)}</p>
-                        </div>
+            ) : allocation ? (
+              <div className="space-y-6">
+                {/* Concentration Flags */}
+                {allocation.concentration_flags?.length > 0 && (
+                  <div className="space-y-2">
+                    {allocation.concentration_flags.map((flag, i) => (
+                      <div key={`flag-${i}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border ${
+                        flag.severity === "high" ? "bg-red-50/50 border-red-200 dark:bg-red-900/10 dark:border-red-800" : "bg-amber-50/50 border-amber-200 dark:bg-amber-900/10 dark:border-amber-800"
+                      }`}>
+                        <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${flag.severity === "high" ? "text-red-500" : "text-amber-500"}`} />
+                        <p className="text-xs text-slate-700 dark:text-slate-300">
+                          <span className="font-semibold">{flag.name}</span> — {flag.type === "sector" ? "sector" : "company"} exposure at <span className="font-bold">{(flag.weight * 100).toFixed(1)}%</span>
+                          {flag.type === "sector" ? " (threshold: 30%)" : " (threshold: 10%)"}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-base font-bold ${sec.risk_level === "high" ? "text-red-500" : sec.risk_level === "medium" ? "text-amber-500" : "text-emerald-600"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {sec.pct}%
-                        </span>
-                        {expandedSec === i ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                      </div>
-                    </div>
-                    {expandedSec === i && sec.holdings.length > 0 && (
-                      <div className="px-4 pb-4 border-t border-slate-100 dark:border-slate-700 pt-3">
-                        <div className="space-y-1">
-                          {sec.holdings.map((h, hi) => (
-                            <p key={hi} className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                              {h}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {/* Two Column: Sectors + Companies */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Top Sectors */}
+                  <div>
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">True Sector Exposure</p>
+                    <div className="space-y-2">
+                      {(allocation.top_5_sectors || allocation.sector_allocation?.slice(0, 8) || []).map((sec, i) => {
+                        const pct = (sec.weight * 100);
+                        const maxPct = Math.max(...(allocation.top_5_sectors || allocation.sector_allocation?.slice(0, 1) || []).map(s => s.weight * 100), 1);
+                        return (
+                          <div key={`sec-${sec.sector}`} className="flex items-center gap-3">
+                            <span className="text-xs text-slate-600 dark:text-slate-400 w-24 flex-shrink-0 truncate">{sec.sector}</span>
+                            <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${(pct / maxPct) * 100}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 w-10 text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                              {pct.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Top Companies */}
+                  <div>
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Top Company Exposure</p>
+                    <div className="space-y-1.5">
+                      {(allocation.top_10_companies || []).slice(0, 10).map((comp, i) => {
+                        const pct = comp.weight * 100;
+                        const isHigh = pct >= 10;
+                        return (
+                          <div key={`comp-${comp.name}`} className="flex items-center gap-2 py-1">
+                            <span className={`text-[10px] w-5 h-5 rounded flex items-center justify-center flex-shrink-0 font-bold ${isHigh ? "bg-red-100 text-red-600 dark:bg-red-900/30" : "bg-slate-100 text-slate-500 dark:bg-slate-700"}`}>
+                              {i + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{comp.name}</p>
+                              <p className="text-[9px] text-slate-400">{comp.sector}</p>
+                            </div>
+                            <span className={`text-xs font-bold flex-shrink-0 ${isHigh ? "text-red-500" : "text-slate-600 dark:text-slate-400"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                              {pct.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Data Quality Note */}
+                {allocation.data_quality && (
+                  <p className="text-[10px] text-slate-400 text-center pt-2 border-t border-slate-100 dark:border-slate-700">
+                    AI-estimated look-through analysis. {allocation.data_quality.estimated_funds || 0} fund holdings estimated.
+                    {allocation.data_quality.notes ? ` ${allocation.data_quality.notes.slice(0, 80)}` : ""}
+                  </p>
+                )}
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+            ) : (
+              <div className="text-center py-8">
+                <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <p className="text-sm text-slate-500">Add holdings to see allocation analysis.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 };

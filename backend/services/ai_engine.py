@@ -177,6 +177,81 @@ class AIEngine:
             logger.error(f"OpenAI chat stream failed: {e}")
             raise
 
+    async def analyze_allocation(self, holdings_data: str) -> dict:
+        """Analyze company and sector allocation using GPT-4o-mini."""
+        system = """You are a financial portfolio analytics engine.
+
+Your job is to compute accurate portfolio exposures across:
+1) Company level
+2) Sector level
+
+You MUST:
+- Perform deterministic calculations only
+- NEVER guess missing data for direct equity
+- For mutual funds WITHOUT provided holdings, use your knowledge of the fund's typical top holdings and allocation
+- Aggregate exposures across mutual funds (look-through basis) and direct equity holdings
+
+Calculation Logic:
+1) For mutual funds: effective_stock_weight = mf_weight_in_portfolio * stock_weight_in_mf
+2) For direct equity: use weight directly
+3) Aggregate: Sum exposures for same stock across all sources, Sum exposures by sector
+
+Additional flags:
+4) Flag if any sector > 30%
+5) Flag if any company > 10%
+6) Identify duplicated exposure via multiple funds
+
+Output constraints:
+- Output STRICT JSON only
+- No explanations outside JSON
+- All percentages rounded to 2 decimals
+- Use Indian market sector classifications (Financials, IT, Energy, FMCG, Healthcare, Auto, Metals, Telecom, etc.)
+
+Schema:
+{
+  "company_allocation": [
+    { "name": "Company Name", "weight": 0.00, "sector": "Sector", "sources": ["Fund1", "Direct"] }
+  ],
+  "sector_allocation": [
+    { "sector": "Sector Name", "weight": 0.00 }
+  ],
+  "top_10_companies": [
+    { "name": "Company", "weight": 0.00, "sector": "Sector" }
+  ],
+  "top_5_sectors": [
+    { "sector": "Sector", "weight": 0.00 }
+  ],
+  "concentration_flags": [
+    { "type": "sector|company", "name": "Name", "weight": 0.00, "threshold": 0.30, "severity": "high|medium" }
+  ],
+  "data_quality": {
+    "estimated_funds": 0,
+    "direct_equity_count": 0,
+    "notes": ""
+  }
+}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=MODEL_CHEAP,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": holdings_data}
+                ],
+                max_tokens=4000,
+                temperature=0.1,
+                response_format={"type": "json_object"},
+            )
+            text = response.choices[0].message.content
+            result = json.loads(text)
+            return result
+        except json.JSONDecodeError:
+            logger.error("Allocation analysis returned non-JSON")
+            return {"error": "Failed to parse allocation response"}
+        except Exception as e:
+            logger.error(f"Allocation analysis failed: {e}")
+            raise
+
     async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
         """Generate comprehensive portfolio analysis. Uses gpt-4o-mini (cheap)."""
         try:

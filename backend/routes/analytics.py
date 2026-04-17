@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime, timezone, timedelta
 import hashlib
+import json
 import logging
 
 from deps import db, get_current_user
@@ -12,6 +13,7 @@ from services.live_price import fetch_live_prices
 from services.sgb_prices import apply_sgb_issue_prices
 from services.equity_sectors import enrich_holdings_with_sectors
 from helpers.portfolio_utils import extract_fund_house, compute_fund_overlap
+from deps import ai_engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -586,3 +588,102 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
             "insights": overlap_insights[:6],
         },
     }
+
+
+@router.get("/portfolio/allocation-analysis")
+async def get_allocation_analysis(request: Request, force: str = ""):
+    """AI-powered look-through company and sector allocation analysis."""
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    # Check cache (valid for 6 hours)
+    if not force:
+        cached = await db.allocation_analysis_cache.find_one({"user_id": user_id}, {"_id": 0})
+        if cached and cached.get("cached_at"):
+            try:
+                from dateutil.parser import parse as parse_date
+                age = (datetime.now(timezone.utc) - parse_date(cached["cached_at"]).replace(tzinfo=timezone.utc)).total_seconds()
+                if age < 21600:
+                    return cached.get("data", {})
+            except Exception:
+                pass
+
+    # SECURITY: Only send fund names, weights, sectors to OpenAI. NO PII (no user_id, email, PAN, address).
+    holdings = await db.holdings.find(
+        {"user_id": user_id},
+        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1, "quantity": 1, "current_price": 1, "sector": 1}
+    ).to_list(2000)
+    if not holdings:
+        return {"error": "No holdings found. Upload your portfolio first."}
+
+    holdings = enrich_holdings_with_sectors(holdings)
+    total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
+    if total_value == 0:
+        return {"error": "Portfolio value is zero."}
+
+    # Build prompt data
+    direct_equity = []
+    mutual_funds = []
+
+    for h in holdings:
+        val = h["quantity"] * h["current_price"]
+        weight = round(val / total_value, 4) if total_value > 0 else 0
+
+        if h.get("asset_type") == "equity":
+            direct_equity.append({
+                "name": h["name"],
+                "weight": weight,
+                "sector": h.get("sector", "Other"),
+                "value": round(val, 0),
+            })
+        elif h.get("asset_type") in ("mutual_fund", "etf"):
+            mutual_funds.append({
+                "name": h["name"],
+                "weight": weight,
+                "category": h.get("sector", "Other"),
+                "value": round(val, 0),
+            })
+
+    prompt = f"""Here is my portfolio data.
+
+Total portfolio value: ₹{total_value:,.0f}
+
+Direct Equity Holdings ({len(direct_equity)} stocks):
+{json.dumps(direct_equity, indent=2)}
+
+Mutual Funds ({len(mutual_funds)} funds):
+{json.dumps(mutual_funds, indent=2)}
+
+Note: Mutual fund underlying holdings are NOT provided. Use your knowledge of these Indian mutual fund schemes to estimate their typical top 10-15 holdings and sector allocation. Mark estimated data in data_quality.
+
+Tasks:
+1) Calculate total company exposure across mutual funds (look-through) + direct equity
+2) Calculate true sector allocation (not MF categories — actual underlying sectors like Financials, IT, Energy, FMCG, etc.)
+3) Identify top 10 companies and top 5 sectors
+4) Flag concentration risks (sector > 30%, company > 10%)
+
+Return STRICT JSON only."""
+
+    try:
+        result = await ai_engine.analyze_allocation(prompt)
+
+        if "error" in result:
+            return result
+
+        # Cache the result
+        await db.allocation_analysis_cache.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "user_id": user_id,
+                "data": result,
+                "cached_at": datetime.now(timezone.utc).isoformat(),
+                "holdings_count": len(holdings),
+                "total_value": round(total_value, 2),
+            }},
+            upsert=True,
+        )
+
+        return result
+    except Exception as e:
+        logger.error(f"Allocation analysis failed: {e}")
+        return {"error": f"Analysis failed: {str(e)}"}
