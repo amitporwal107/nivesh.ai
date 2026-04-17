@@ -213,6 +213,7 @@ def _holding_from_equity(row: dict) -> Optional[Dict]:
         "buy_price": round(price, 4),
         "current_price": round(price, 4),
         "sector": _classify_sector(name) if is_etf else "Other",
+        "parsed_by": "api",
     }
 
 
@@ -238,6 +239,7 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
+        "parsed_by": "api",
     }
 
 
@@ -295,6 +297,7 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
+        "parsed_by": "api",
     }
 
 

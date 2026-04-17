@@ -405,7 +405,11 @@ def find_isin_by_name(name: str, asset_type: str = "") -> Optional[Tuple[str, di
 
 
 def validate_and_enrich_holdings(holdings: list) -> list:
-    """Validate parsed holdings against masterdata. Fix ISINs, names, prices, and quantities."""
+    """Validate parsed holdings against masterdata. Fix ISINs, names, prices, and quantities.
+    
+    For API-parsed holdings (parsed_by='api'), only update current_price with latest
+    masterdata; never recalculate quantity (the API provides accurate units).
+    """
     enriched = []
 
     for h in holdings:
@@ -415,6 +419,7 @@ def validate_and_enrich_holdings(holdings: list) -> list:
         qty = h.get("quantity", 0)
         parsed_price = h.get("current_price", 0)
         parsed_value = qty * parsed_price
+        is_api_parsed = h.get("parsed_by") == "api"
 
         # 1. Check if ISIN exists in masterdata
         master = lookup_isin(isin)
@@ -434,14 +439,12 @@ def validate_and_enrich_holdings(holdings: list) -> list:
 
             # Fix MF NAV/units using AMFI data
             if asset_type == "mutual_fund" and master["source"] == "amfi" and master_price > 0:
-                has_real_cost = h.get("buy_price", 0) > 0 and abs(h.get("buy_price", 0) - parsed_price) > 0.01
-                if has_real_cost:
-                    # We have distinct cost data (avg_cost != NAV) — only update current_price,
-                    # do NOT recalculate quantity. The CAS-reported units are correct.
-                    if abs(master_price - parsed_price) / max(master_price, 1) > 0.05:
+                if is_api_parsed:
+                    # API data is reliable — only update current_price, NEVER touch quantity
+                    if abs(master_price - parsed_price) / max(master_price, 1) > 0.01:
                         old_price = parsed_price
                         h["current_price"] = round(master_price, 4)
-                        logger.info(f"NAV updated (cost preserved): {name[:30]} nav={old_price}→{master_price} qty unchanged={qty}")
+                        logger.info(f"NAV updated (API, qty preserved): {name[:30]} nav={old_price}→{master_price} qty={qty}")
                 elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.2:
                     if qty > 0 and abs(qty - master_price) / max(master_price, 1) < 0.1:
                         old_qty, old_price = qty, parsed_price
@@ -457,11 +460,10 @@ def validate_and_enrich_holdings(holdings: list) -> list:
 
             # Fix equity price using NSE data
             if asset_type == "equity" and master["source"] == "nse" and master_price > 0:
-                has_real_cost = h.get("buy_price", 0) > 0 and abs(h.get("buy_price", 0) - parsed_price) > 0.01
-                if has_real_cost:
-                    # Cost data available — only update current_price, preserve buy_price and quantity
+                if is_api_parsed:
+                    # API data is reliable — only update current_price, preserve quantity
                     h["current_price"] = round(master_price, 2)
-                    logger.info(f"Equity CMP updated (cost preserved): {name[:30]} cmp→{master_price} buy={h['buy_price']}")
+                    logger.info(f"Equity CMP updated (API): {name[:30]} cmp→{master_price}")
                 elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
                     if parsed_value > 0:
                         new_qty = round(parsed_value / master_price)
@@ -491,7 +493,10 @@ def validate_and_enrich_holdings(holdings: list) -> list:
                 h["name"] = info["name"]
                 if info["price"] > 0:
                     master_price = info["price"]
-                    if parsed_value > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
+                    if is_api_parsed:
+                        # API data — only update current_price, keep quantity and buy_price
+                        h["current_price"] = round(master_price, 4)
+                    elif parsed_value > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
                         h["current_price"] = round(master_price, 4)
                         h["buy_price"] = round(master_price, 4)
                         h["quantity"] = round(parsed_value / master_price, 4) if master_price > 0 else qty
