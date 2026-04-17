@@ -376,7 +376,12 @@ def parse_mf_folio_table(df: pd.DataFrame) -> List[Dict]:
     """
     NSDL MF Folios columns (10):
       ISIN | Description | Folio | Units | Avg Cost | Total Cost | NAV | Current Value | Unrealised | Return%
+
+    Uses AMFI masterdata NAV as an anchor when available: identifies the NAV
+    column by proximity to the real-world NAV, which unambiguously locates
+    units, total_cost, and current_value.
     """
+    from services.masterdata import lookup_isin
     holdings = []
     for r in range(len(df)):
         row_vals = _row_values(df, r)
@@ -393,7 +398,6 @@ def parse_mf_folio_table(df: pd.DataFrame) -> List[Dict]:
             if re.match(r'^[\d,\.\s/]+$', cell):
                 continue
             candidate = _clean_name(cell)
-            # Skip folio-only cells
             if re.match(r'^\d+$', candidate):
                 continue
             if len(candidate) > len(name):
@@ -402,35 +406,82 @@ def parse_mf_folio_table(df: pd.DataFrame) -> List[Dict]:
         nums = _all_numbers_in_row(row_vals)
         # Filter folio-like large integers (7+ digit pure ints)
         filtered = [n for n in nums if not (n == int(n) and n > 10000000)]
+        if len(filtered) < 3:
+            continue
+
+        # Masterdata NAV anchor
+        master = lookup_isin(isin)
+        master_nav = master.get("price", 0) if master else 0
 
         units = avg_cost = nav = value = 0.0
-        if len(filtered) >= 5:
-            # Typical: units, avg_cost, total_cost, nav, current_value, [pnl, return%]
-            units = filtered[0]
-            avg_cost = filtered[1]
-            # total_cost = filtered[2]  # unused directly
-            nav = filtered[3]
-            value = filtered[4]
 
-            # Validate: units * nav ≈ value, else try /1000 fix
-            if units > 0 and nav > 0:
-                expected = units * nav
-                if abs(expected - value) / max(value, 1) > 0.1:
-                    # Try /1000 on units (OCR comma→decimal confusion)
-                    for u_c in [units, units / 1000]:
-                        if abs(u_c * nav - value) / max(value, 1) < 0.05:
-                            units = u_c
+        if master_nav > 0:
+            # Find the filtered number closest to master_nav — that's the NAV column.
+            nav_idx = min(
+                range(len(filtered)),
+                key=lambda i: abs(filtered[i] - master_nav) / max(master_nav, 1)
+            )
+            candidate_nav = filtered[nav_idx]
+            # Only accept if within 20% of master
+            if abs(candidate_nav - master_nav) / max(master_nav, 1) < 0.20:
+                nav = candidate_nav
+                # Current Value is typically the column right after NAV, and is the
+                # largest number in the row (units * nav).
+                # Pick the number after nav_idx with (value / nav) giving a sane units count.
+                best_val = 0
+                best_units = 0
+                for i in range(len(filtered)):
+                    if i == nav_idx:
+                        continue
+                    v = filtered[i]
+                    if v < nav * 0.5:  # too small to be current_value
+                        continue
+                    u = v / nav
+                    # Sane units range: 0.001 to 10,000,000
+                    if 0.001 < u < 10_000_000 and v > best_val:
+                        best_val = v
+                        best_units = u
+                if best_val > 0:
+                    value = best_val
+                    units = best_units
+                    # avg_cost: smallest remaining number > 1 and < nav*3
+                    for v in filtered:
+                        if v == nav or v == value:
+                            continue
+                        if 1 < v < nav * 3:
+                            avg_cost = v
                             break
-                    else:
-                        # Last resort: recalc units from value/nav
-                        units = value / nav
-        elif len(filtered) >= 3:
-            units = filtered[0]
-            nav = filtered[-2] if len(filtered) >= 2 else 0
-            value = filtered[-1]
-            avg_cost = nav
 
-        if value > 0 and name and len(name) >= 3:
+        # Fallback: positional parsing (original logic)
+        if value == 0:
+            if len(filtered) >= 5:
+                units = filtered[0]
+                avg_cost = filtered[1]
+                nav = filtered[3]
+                value = filtered[4]
+                if units > 0 and nav > 0:
+                    expected = units * nav
+                    if abs(expected - value) / max(value, 1) > 0.1:
+                        for u_c in [units, units / 1000]:
+                            if abs(u_c * nav - value) / max(value, 1) < 0.05:
+                                units = u_c
+                                break
+                        else:
+                            units = value / nav if nav > 0 else units
+            elif len(filtered) >= 3:
+                units = filtered[0]
+                nav = filtered[-2]
+                value = filtered[-1]
+                avg_cost = nav
+
+        # Final sanity check: NAV must be reasonable (< 100k for any real MF)
+        if nav <= 0 or nav > 100_000 or value <= 0:
+            continue
+        # Reject clearly broken rows where master_nav is known and parsed NAV is far off
+        if master_nav > 0 and abs(nav - master_nav) / master_nav > 0.25:
+            continue
+
+        if name and len(name) >= 3:
             holdings.append({
                 "name": name, "ticker": isin, "asset_type": "mutual_fund",
                 "quantity": round(units, 4),

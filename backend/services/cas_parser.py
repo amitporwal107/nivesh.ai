@@ -138,6 +138,11 @@ def _extract_section(full_text: str, start_pattern, end_patterns: list) -> str:
     return full_text[start:end]
 
 
+# Relaxed ISIN-like pattern for equity rows: matches INE + 8-13 alphanumeric.
+# Greedy to capture full OCR'd token, then we trim to 12 chars in fix_isin_ocr.
+ISIN_EQ_LOOSE = re.compile(r'(?<!\w)(INE[A-Z0-9O]{8,13})(?!\w)')
+
+
 def parse_equities(text: str) -> List[Dict]:
     """Parse equities: ISIN COMPANY FACE_VAL SHARES MARKET_PRICE VALUE"""
     holdings = []
@@ -146,6 +151,21 @@ def parse_equities(text: str) -> List[Dict]:
     while i < len(lines):
         line = lines[i].strip()
         m = ISIN_RE.search(line)
+        # Fallback: accept 11-16 char INE* token (OCR may insert/miss a character)
+        if not m:
+            mm = ISIN_EQ_LOOSE.search(line)
+            if mm:
+                raw = mm.group(1)
+                # Pad to 12 chars if needed (take first 12)
+                if len(raw) >= 12:
+                    raw = raw[:12]
+                else:
+                    raw = raw.ljust(12, '0')
+                # Create a stand-in match object with group(1)
+                class _M:  # pragma: no cover
+                    def __init__(self, s): self._s = s
+                    def group(self, _i=0): return self._s
+                m = _M(raw)
         if m and m.group(1).startswith("INE"):
             isin = fix_isin_ocr(m.group(1))
             raw_match = m.group(1)
@@ -779,20 +799,25 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         f"→ {len(holdings_txt)} unique"
     )
 
-    # ── Phase 4b: Supplementary parser — img2table (recovers missed rows) ──
+    # ── Phase 4b: Supplementary parser — img2table (recovers missed rows).
+    # Use 200 DPI images for img2table — its OpenCV line detection is more reliable
+    # at moderate resolutions; 300 DPI often makes borderless tables undetectable.
     holdings_tbl: List[Dict] = []
     try:
         from services.cas_parser_tables import parse_pages_via_tables
-        # Use hi-res images for img2table (better table detection)
-        holdings_page_imgs = [hires_images.get(i) or images[i] for i in holdings_pages]
+        holdings_page_imgs = [images[i] for i in holdings_pages]
         holdings_tbl = parse_pages_via_tables(holdings_page_imgs)
         logger.info(f"img2table pass: {len(holdings_tbl)} holdings")
     except Exception as e:
         logger.warning(f"img2table pass failed ({e}); using text-only result")
 
-    # ── Phase 4c: Merge — pick the better entry per ISIN between text & table parses
-    # Rule: prefer the row with non-zero (qty × price); if both non-zero, prefer the
-    # row with a non-zero quantity (text parser sometimes gets value but loses qty).
+    # ── Phase 4c: Merge text + table parses. A single ISIN can appear multiple
+    # times (different folios of the same fund = distinct holdings), so we key
+    # on (ticker, rounded_quantity) to preserve multi-folio cases while still
+    # deduping identical rows produced by both parsers.
+    def _key(h: Dict) -> tuple:
+        return (h.get("ticker", ""), round(h.get("quantity", 0), 3))
+
     def _best(a: dict, b: dict) -> dict:
         va = a.get("quantity", 0) * a.get("current_price", 0)
         vb = b.get("quantity", 0) * b.get("current_price", 0)
@@ -800,38 +825,64 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
             return b
         if vb == 0 and va > 0:
             return a
-        # Both non-zero: prefer one with a non-zero quantity
         qa, qb = a.get("quantity", 0), b.get("quantity", 0)
         if qa == 0 and qb > 0:
             return b
         if qb == 0 and qa > 0:
             return a
-        # Otherwise keep the text-parsed one (safer default)
         return a
 
-    merged: Dict[str, Dict] = {}
+    merged: Dict[tuple, Dict] = {}
     for h in holdings_txt:
-        tk = h.get("ticker")
-        if tk:
-            merged[tk] = h
+        if h.get("ticker"):
+            merged[_key(h)] = h
     replaced = added_from_tbl = 0
+    # Also track text-parsed ISINs to know when img2table adds a net-new fund
+    txt_isins = {h.get("ticker") for h in holdings_txt if h.get("ticker")}
     for h in holdings_tbl:
         tk = h.get("ticker")
         if not tk:
             continue
-        if tk in merged:
-            best = _best(merged[tk], h)
-            if best is not merged[tk]:
-                merged[tk] = best
+        k = _key(h)
+        if k in merged:
+            best = _best(merged[k], h)
+            if best is not merged[k]:
+                merged[k] = best
                 replaced += 1
         else:
-            merged[tk] = h
-            added_from_tbl += 1
+            merged[k] = h
+            if tk not in txt_isins:
+                added_from_tbl += 1
+            txt_isins.add(tk)
     holdings = list(merged.values())
     logger.info(
         f"Merged: text={len(holdings_txt)} + table={len(holdings_tbl)} → "
         f"{len(holdings)} unique (added {added_from_tbl}, replaced {replaced})"
     )
+
+    # ── Phase 4d: Keep at most one entry per ISIN (consumers assume ISIN is primary key).
+    # Multi-folio rows produced by img2table are summed into a single holding for
+    # the same ISIN, since NAV is identical across folios of the same fund.
+    collapsed: Dict[str, Dict] = {}
+    for h in holdings:
+        tk = h.get("ticker", "")
+        if not tk:
+            collapsed[id(h)] = h
+            continue
+        if tk in collapsed:
+            existing = collapsed[tk]
+            # Only sum quantities if NAVs agree (within 5%) — same fund, multi-folio.
+            p_e = existing.get("current_price", 0)
+            p_h = h.get("current_price", 0)
+            if p_e > 0 and p_h > 0 and abs(p_e - p_h) / max(p_e, p_h) < 0.05:
+                existing["quantity"] = round(
+                    existing.get("quantity", 0) + h.get("quantity", 0), 4
+                )
+            # Else keep the existing entry (trust whichever got here first)
+        else:
+            collapsed[tk] = dict(h)
+    holdings = list(collapsed.values())
+    logger.info(f"After ISIN-dedup: {len(holdings)} unique ISINs")
 
     # ── Phase 5: Apply learned OCR corrections ──
     from services.ocr_correction import apply_corrections
@@ -1037,14 +1088,15 @@ def _parse_cdsl_cas(page_texts: list) -> List[Dict]:
 
 
 def _deduplicate(all_holdings: list) -> list:
-    """Deduplicate holdings by ISIN."""
+    """Deduplicate holdings by (ISIN, quantity) — different folios of the same fund
+    have different quantities and are legitimately distinct holdings."""
     seen = set()
     unique = []
     for h in all_holdings:
-        key = h["ticker"]
-        if key and key in seen:
+        key = (h.get("ticker", ""), round(h.get("quantity", 0), 3))
+        if key[0] and key in seen:
             continue
-        if key:
+        if key[0]:
             seen.add(key)
         unique.append(h)
     logger.info(f"CAS local OCR: {len(all_holdings)} total → {len(unique)} unique holdings")

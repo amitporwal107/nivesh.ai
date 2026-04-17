@@ -62,22 +62,20 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - server.py refactoring into /routes directory
 
 ### P1
-- CDSL equity value accuracy improvement (38% → target 70%)
-- PaddleOCR evaluation for higher OCR ceiling
 - Security: consent screen, PAN encryption, "Delete My Data", audit logging
 - Connect to Human Advisor feature
 - Goal-based planning module
 
 ### P2
-- CAMS/KFintech text CAS testing (casparser path)
 - Portfolio versioning (delta tracking between uploads)
 - Postgres migration for structured financial data
 - S3 encrypted storage for raw CAS PDFs
 
 ## Technical Notes
-- Poppler-utils installed via server.py startup event (DO NOT REMOVE)
-- Tesseract OCR installed (tesseract-ocr + pytesseract)
-- AMFI NAV data: /app/backend/data/NAVAll.txt
-- NSE Bhav data: /app/backend/data/bhav_copy.csv
+- **CAS parsing (Apr 2026)**: Primary path is CAS Parser API (casparser.in). Secondary is `casparser` library (digital PDFs). Tertiary is local Tesseract OCR + img2table (for scanned PDFs up to 10MB).
+- Keys: `CASPARSER_API_KEY`, `CASPARSER_SANDBOX_KEY`, `CASPARSER_USE_SANDBOX` in `/app/backend/.env`
+- Sandbox mode returns deterministic sample data (no credits, no real PDF required)
+- Masterdata (Apr 2026): `/app/backend/data/amfi_data.csv` (17,588 MFs with plan/option classification), `bhav_copy.csv` (3,365 NSE), `equity_list.csv` (2,256), `sgb_data.csv` (46 SGBs w/ LTP)
+- Poppler-utils + Tesseract installed via server.py startup event
 - OCR corrections: /app/backend/data/ocr_corrections.json
 - Admin user: priyankamantri@gmail.com

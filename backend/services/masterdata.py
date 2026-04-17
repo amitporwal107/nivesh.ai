@@ -385,7 +385,7 @@ def find_isin_by_name(name: str, asset_type: str = "") -> Optional[Tuple[str, di
     best_match = None
     best_score = 0
     results = process.extract(normalized, choices, scorer=fuzz.token_sort_ratio, limit=3)
-    for key, score, _ in results:
+    for matched_text, score, key in results:
         if score >= 70:
             parts = key.split("|", 1)
             if len(parts) != 2:

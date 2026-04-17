@@ -1087,7 +1087,25 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     """Parse CAS (Consolidated Account Statement) PDF.
     Uses casparser library first (accurate, structured), falls back to AI if needed."""
     
-    # ── Try casparser first (dedicated CAS parsing library) ──
+    # ── 1st: CAS Parser API (casparser.in) — fast, accurate, no local OCR ──
+    try:
+        from services.cas_api_client import parse_cas_via_api, is_configured
+        if is_configured():
+            api_holdings = parse_cas_via_api(content, password or "")
+            if api_holdings:
+                logger.info(f"CAS Parser API extracted {len(api_holdings)} holdings")
+                # Enrich with masterdata (live prices, name cleanup, plan/option)
+                try:
+                    from services.masterdata import validate_and_enrich_holdings
+                    api_holdings = validate_and_enrich_holdings(api_holdings)
+                except Exception as e:
+                    logger.info(f"Masterdata enrichment skipped: {e}")
+                return api_holdings
+            logger.info("CAS Parser API returned no holdings, falling back")
+    except Exception as e:
+        logger.info(f"CAS Parser API failed: {e}, falling back to casparser library")
+
+    # ── 2nd: casparser library (text-based, for digital PDFs) ──
     try:
         import casparser
         cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
