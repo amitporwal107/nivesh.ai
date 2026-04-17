@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 class NiveshAPITester:
-    def __init__(self, base_url="https://financial-agentic.preview.emergentagent.com"):
+    def __init__(self, base_url="https://wealth-parse.preview.emergentagent.com"):
         self.base_url = base_url
         self.session_token = "test_session_wealth001"
         self.user_id = "test-user-wealth001"
