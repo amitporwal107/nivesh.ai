@@ -121,10 +121,12 @@ const StreamingIndicator = () => (
 );
 
 const SessionItem = ({ session, isActive, onClick, onDelete }) => (
-  <button
+  <div
     data-testid={`chat-session-${session.session_id}`}
     onClick={() => onClick(session.session_id)}
-    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group flex items-center gap-2 ${
+    role="button"
+    tabIndex={0}
+    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group flex items-center gap-2 cursor-pointer ${
       isActive
         ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
         : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -139,7 +141,7 @@ const SessionItem = ({ session, isActive, onClick, onDelete }) => (
     >
       <Trash2 className="w-3 h-3" />
     </button>
-  </button>
+  </div>
 );
 
 const ChatView = () => {
