@@ -330,7 +330,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
   const totalHoldings = analytics?.performance_cards?.length || 0;
   const navMatched = analytics?.performance_cards?.filter(c => c.nav_source === "AMFI").length || 0;
   const livePriced = analytics?.performance_cards?.filter(c => c.nav_source === "yahoo_finance" || c.nav_source === "AMFI").length || 0;
-  const confidencePct = totalHoldings > 0 ? Math.round(((navMatched + livePriced) / totalHoldings) * 50 + 50) : 0;
+  const confidencePct = totalHoldings > 0 ? Math.min(100, Math.round(((navMatched + livePriced) / totalHoldings) * 50 + 50)) : 0;
 
   const runSimulation = async () => {
     setSimulating(true);
@@ -346,12 +346,11 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
 
   return (
     <div className="space-y-6">
-      {/* ── Row 1: Health Score + Risk Gauge + Data Confidence ── */}
+      {/* Section 1: Portfolio Health + Risk Assessment + Data Confidence */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Portfolio Health Score */}
         {gauge && gauge.current > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full" data-testid="health-score-card">
+            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full" data-testid="health-score-card">
               <CardContent className="p-6 text-center">
                 <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-3">Portfolio Health</p>
                 <div className="relative w-24 h-24 mx-auto mb-3">
@@ -368,31 +367,15 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 <p className={`text-sm font-semibold ${gauge.current > 60 ? "text-red-500" : gauge.current > 35 ? "text-amber-500" : "text-emerald-600"}`}>
                   {gauge.current > 60 ? "Needs Attention" : gauge.current > 35 ? "Moderate" : "Healthy"}
                 </p>
-                <button
-                  onClick={() => setShowHealthExplain(!showHealthExplain)}
-                  className="mt-2 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors"
-                  data-testid="health-explain-toggle"
-                >
+                <button onClick={() => setShowHealthExplain(!showHealthExplain)} className="mt-2 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors" data-testid="health-explain-toggle">
                   <HelpCircle className="w-3 h-3" /> {showHealthExplain ? "Hide" : "How is this calculated?"}
                 </button>
                 <AnimatePresence>
                   {showHealthExplain && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1.5">
-                        <p className="font-semibold text-slate-700 dark:text-slate-200">Health = inverse of risk score (100 - {gauge.current} = {100 - gauge.current})</p>
-                        <p>Risk score factors:</p>
-                        <ul className="list-disc pl-3 space-y-0.5">
-                          <li><strong>Concentration risk:</strong> Single asset class &gt;80% of portfolio = +30 points</li>
-                          <li><strong>Low diversification:</strong> Fewer than 5 holdings = +15-30 points</li>
-                          <li><strong>Sector concentration:</strong> One sector &gt;50% = +25 points</li>
-                          <li><strong>Equity overweight:</strong> Equity &gt;80% = +15 points</li>
-                        </ul>
-                        <p className="text-emerald-600 dark:text-emerald-400 font-medium">Lower risk score = higher health score</p>
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">Health = 30% Diversification + 25% Risk + 20% Cost + 25% Performance</p>
+                        <p>Based on HHI concentration, asset types, sector spread, plan types, and returns.</p>
                       </div>
                     </motion.div>
                   )}
@@ -402,61 +385,36 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           </motion.div>
         )}
 
-        {/* Risk Gauge Current → Target */}
         {gauge && gauge.current > 0 && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full">
+            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full">
               <CardContent className="p-6">
                 <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Risk Assessment</p>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-500">Now</span>
-                      <span className="font-semibold text-red-500">{gauge.current_label} ({gauge.current})</span>
-                    </div>
-                    <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
-                    </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-slate-500">Current</span>
+                    <span className="font-semibold text-red-500">{gauge.current_label} ({gauge.current})</span>
                   </div>
-                  <div className="flex justify-center"><ArrowRight className="w-4 h-4 text-slate-300" /></div>
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-500">After Actions</span>
-                      <span className="font-semibold text-emerald-600">{gauge.target_label} ({gauge.target})</span>
-                    </div>
-                    <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
-                      <div className="h-full rounded-full bg-emerald-500 transition-all duration-700" style={{ width: `${gauge.target}%` }} />
-                    </div>
+                  <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowRiskExplain(!showRiskExplain)}
-                  className="mt-3 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors"
-                  data-testid="risk-explain-toggle"
-                >
-                  <HelpCircle className="w-3 h-3" /> {showRiskExplain ? "Hide details" : "Why is this high?"}
+                <button onClick={() => setShowRiskExplain(!showRiskExplain)} className="mt-3 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors" data-testid="risk-explain-toggle">
+                  <HelpCircle className="w-3 h-3" /> {showRiskExplain ? "Hide" : "Why is this high?"}
                 </button>
                 <AnimatePresence>
                   {showRiskExplain && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1.5">
-                        <p className="font-semibold text-red-600 dark:text-red-400">Current Risk: {gauge.current}/100 ({gauge.current_label})</p>
-                        <p>Key risk drivers for your portfolio:</p>
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1">
+                        <p className="font-semibold text-red-600 dark:text-red-400">Risk: {gauge.current}/100</p>
                         <ul className="list-disc pl-3 space-y-0.5">
                           {analytics?.overexposure?.fund_house?.filter(f => f.risk_level === "high").map(f => (
-                            <li key={f.name}><strong>{f.name}</strong> concentration: {f.pct}% ({f.count} funds)</li>
+                            <li key={f.name}><strong>{f.name}</strong> AMC: {f.pct}%</li>
                           ))}
                           {analytics?.overexposure?.sector?.filter(s => s.risk_level === "high").map(s => (
-                            <li key={s.name}><strong>{s.name}</strong> sector: {s.pct}% of portfolio</li>
+                            <li key={s.name}><strong>{s.name}</strong>: {s.pct}%</li>
                           ))}
-                          <li>100% equity exposure with no debt/gold buffer</li>
                         </ul>
-                        <p className="text-emerald-600 dark:text-emerald-400 font-medium mt-1">Target: {gauge.target}/100 ({gauge.target_label}) — achievable by diversifying</p>
                       </div>
                     </motion.div>
                   )}
@@ -466,381 +424,58 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           </motion.div>
         )}
 
-        {/* Data Confidence */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl h-full" data-testid="confidence-card">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full" data-testid="confidence-card">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Data Confidence</p>
               <div className="text-center mb-3">
                 <span className="text-3xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{confidencePct}%</span>
               </div>
               <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${totalHoldings > 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
-                  <span className="text-slate-500 dark:text-zinc-500">{totalHoldings} holdings tracked</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${navMatched > 0 ? "bg-emerald-500" : "bg-amber-500"}`} />
-                  <span className="text-slate-500 dark:text-zinc-500">{navMatched} MFs with live NAV</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${confidencePct > 50 ? "bg-emerald-500" : "bg-amber-500"}`} />
-                  <span className="text-slate-500 dark:text-zinc-500">{confidencePct > 70 ? "High accuracy" : confidencePct > 40 ? "Some estimates" : "Limited data"}</span>
-                </div>
+                <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${totalHoldings > 0 ? "bg-emerald-500" : "bg-slate-300"}`} /><span className="text-slate-500 dark:text-zinc-500">{totalHoldings} holdings tracked</span></div>
+                <div className="flex items-center gap-2"><div className={`w-2 h-2 rounded-full ${navMatched > 0 ? "bg-emerald-500" : "bg-amber-500"}`} /><span className="text-slate-500 dark:text-zinc-500">{navMatched} MFs with live NAV</span></div>
+                {confidencePct < 70 && <p className="text-[10px] text-amber-500 mt-1">Some holdings use estimated prices.</p>}
               </div>
             </CardContent>
           </Card>
         </motion.div>
       </div>
 
-      {/* ── Impact of Actions (expanded) ── */}
-      {ba && ba.before && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <Card className="bg-gradient-to-r from-slate-50 to-emerald-50/30 dark:from-slate-800 dark:to-emerald-900/10 border-slate-200 dark:border-white/5 rounded-2xl" data-testid="impact-card">
-            <CardContent className="p-6 md:p-8">
-              <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-5" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                If You Apply These Changes
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Risk Score</p>
-                  <p className="text-lg text-red-500 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.risk_score}</p>
-                  <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.after.risk_score}</p>
-                </div>
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Returns</p>
-                  <p className="text-lg text-slate-400 line-through opacity-60" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ba.before.return_pct}%</p>
-                  <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>+{ba.after.return_pct}%</p>
-                </div>
-                <div className="text-center p-4 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                  <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Annual Cost</p>
-                  <p className="text-lg text-red-500 line-through opacity-60">{ba.before.annual_cost ? fmt(ba.before.annual_cost) : `${ba.before.expense_ratio}%`}</p>
-                  <p className="text-2xl font-bold text-emerald-600">{ba.after.annual_cost ? fmt(ba.after.annual_cost) : `${ba.after.expense_ratio}%`}</p>
-                </div>
-                {ba.after.wealth_10y_gain && (
-                  <div className="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-500/20">
-                    <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">10Y Wealth Gain</p>
-                    <p className="text-2xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>+{fmt(ba.after.wealth_10y_gain)}</p>
-                    <p className="text-[10px] text-emerald-500 mt-1">additional wealth</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* ── "Do Nothing" Scenario ── */}
-      {doNothing && doNothing.headline && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-          <Card className="bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 rounded-2xl" data-testid="do-nothing-card">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-red-500" strokeWidth={1.5} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    What Happens If You Do Nothing?
-                  </h3>
-                  <p className="text-sm text-red-600 dark:text-red-300 font-medium">{doNothing.headline}</p>
-                  <div className="flex flex-wrap gap-4 mt-3 text-xs">
-                    {doNothing.annual_cost_leak > 0 && (
-                      <span className="text-red-500">Annual leak: <strong>{fmt(doNothing.annual_cost_leak)}</strong></span>
-                    )}
-                    {doNothing.risk_remains && (
-                      <span className="text-red-500">Risk: <strong>{doNothing.risk_remains}</strong></span>
-                    )}
-                    {doNothing.ten_year_loss && (
-                      <span className="text-red-500">10Y cost: <strong>{doNothing.ten_year_loss}</strong></span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* ── Actionable Insight Cards (Collapsible) ── */}
-      {ins.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <div className="space-y-3" data-testid="actionable-insights">
-            <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-              Actionable Insights ({ins.length})
-            </h3>
-            {ins.map((insight, i) => {
-              const sev = SEVERITY_CONFIG[insight.severity] || SEVERITY_CONFIG[insight.type === "warning" ? "critical" : insight.type === "opportunity" ? "optimization" : "important"] || SEVERITY_CONFIG.important;
-              const SevIcon = sev.icon;
-              const isExpanded = expandedInsight === i;
-
-              return (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.03 }}
-                  className={`rounded-xl border ${sev.border} overflow-hidden`}
-                  data-testid={`insight-card-${i}`}
-                >
-                  {/* Level 1: Scannable */}
-                  <div
-                    className={`p-4 cursor-pointer ${sev.bg} hover:opacity-90 transition-opacity`}
-                    onClick={() => setExpandedInsight(isExpanded ? null : i)}
-                  >
-                    <div className="flex items-start gap-3">
-                      <SevIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: sev.color }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</p>
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${sev.color}15`, color: sev.color }}>
-                            {sev.label}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">
-                          {insight.summary || insight.description?.slice(0, 80)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {insight.current_value && (
-                          <span className="text-xs text-slate-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                            {insight.current_value} → {insight.target_value}
-                          </span>
-                        )}
-                        {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Level 2: Expanded detail */}
-                  {isExpanded && (
-                    <div className="p-4 bg-[#121212] border-t border-slate-200 dark:border-white/5 space-y-3">
-                      {/* Why it matters */}
-                      {(insight.why_it_matters || insight.description) && (
-                        <div>
-                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Why It Matters</p>
-                          <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.why_it_matters || insight.description}</p>
-                        </div>
-                      )}
-
-                      {/* Recommended Action */}
-                      {insight.action && (
-                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg border border-emerald-500/20">
-                          <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Recommended Action</p>
-                          <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{insight.action}</p>
-                        </div>
-                      )}
-
-                      {/* Affected Holdings */}
-                      {analytics?.performance_cards?.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Affected Holdings</p>
-                          <div className="space-y-1 max-h-48 overflow-y-auto">
-                            {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
-                              <div key={`affected-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-xs">
-                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${h.pct_return >= 0 ? "bg-emerald-500" : "bg-red-500"}`} />
-                                  <span className="text-slate-700 dark:text-zinc-300 truncate">{h.name}</span>
-                                </div>
-                                <div className="flex items-center gap-3 flex-shrink-0 ml-2">
-                                  <span className="text-slate-400">{h.sector}</span>
-                                  <span className={`font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                                    {h.pct_return >= 0 ? "+" : ""}{h.pct_return}%
-                                  </span>
-                                  <span className="text-slate-500" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(h.current_value)}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Expected Impact */}
-                      <div className="flex gap-4">
-                        {insight.expected_impact && (
-                          <div className="flex-1">
-                            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Expected Impact</p>
-                            <p className="text-xs text-slate-600 dark:text-zinc-400">{insight.expected_impact}</p>
-                          </div>
-                        )}
-                        {insight.rupee_impact && (
-                          <div className="flex-shrink-0 text-right">
-                            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Value</p>
-                            <p className="text-sm font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{insight.rupee_impact}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </div>
-        </motion.div>
-      )}
-
-      {/* ── Simulate Optimized Portfolio Button ── */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-        <Card className="bg-gradient-to-r from-emerald-50 to-blue-50 dark:from-emerald-900/15 dark:to-blue-900/15 border-emerald-500/20 rounded-2xl" data-testid="simulate-card">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-emerald-600" strokeWidth={1.5} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Simulate Optimized Portfolio
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-500">
-                    See projected returns if all recommendations are implemented
-                  </p>
-                </div>
-              </div>
-              <Button
-                data-testid="simulate-button"
-                onClick={runSimulation}
-                disabled={simulating}
-                className="bg-emerald-600 hover:bg-emerald-700 text-slate-900 dark:text-white rounded-xl"
-              >
-                {simulating ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
-                {simulating ? "Simulating..." : "Run Simulation"}
-              </Button>
-            </div>
-
-            {/* Simulation Results */}
-            <AnimatePresence>
-              {simulation && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="overflow-hidden"
-                >
-                  <div className="border-t border-emerald-500/20 pt-4 mt-2">
-                    {/* Key metrics row */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Current Returns</p>
-                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {simulation.current_returns_pct >= 0 ? "+" : ""}{simulation.current_returns_pct}%
-                        </p>
-                        <p className="text-[10px] text-slate-400">{fmt(simulation.current_returns)}</p>
-                      </div>
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Optimized (1Y)</p>
-                        <p className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          +{simulation.optimized_returns_pct}%
-                        </p>
-                        <p className="text-[10px] text-emerald-500">{fmt(simulation.optimized_value_1yr)}</p>
-                      </div>
-                      <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-500/20">
-                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Additional Returns</p>
-                        <p className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                          +{fmt(simulation.additional_returns)}
-                        </p>
-                        <p className="text-[10px] text-emerald-500">+{simulation.additional_returns_pct}% extra p.a.</p>
-                      </div>
-                      <div className="text-center p-3 bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
-                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Actions</p>
-                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {simulation.actions?.length || 0}
-                        </p>
-                        <p className="text-[10px] text-slate-400">to implement</p>
-                      </div>
-                    </div>
-
-                    {/* Action breakdown */}
-                    {simulation.actions?.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Action Breakdown</p>
-                        {simulation.actions.map((a, i) => (
-                          <div key={i} className="flex items-center justify-between py-2 px-3 bg-[#121212] rounded-lg border border-slate-200 dark:border-white/5">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                a.action === "sell" ? "bg-red-100 dark:bg-red-900/30" :
-                                a.action === "buy" ? "bg-emerald-100 dark:bg-emerald-900/30" :
-                                a.action === "switch" ? "bg-blue-100 dark:bg-blue-900/30" :
-                                "bg-amber-100 dark:bg-amber-900/30"
-                              }`}>
-                                {a.action === "sell" ? <ArrowDownRight className="w-3 h-3 text-red-500" /> :
-                                 a.action === "buy" ? <ArrowUpRight className="w-3 h-3 text-emerald-600" /> :
-                                 <ArrowRight className="w-3 h-3 text-amber-600" />}
-                              </div>
-                              <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{a.title}</span>
-                            </div>
-                            <span className="text-xs font-bold text-emerald-600 ml-2 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                              {a.savings_1yr > 0 ? `+${fmt(a.savings_1yr)}/yr` : "—"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* ── Problem Distribution + Cost Leakage ── */}
+      {/* Section 2: Issue Breakdown + Cost Leakage */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {pd.length > 0 && (
-          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl">
             <CardContent className="p-6">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Issue Breakdown</p>
               <div className="h-36 cursor-pointer">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pd} cx="50%" cy="50%" innerRadius={32} outerRadius={55} paddingAngle={2} dataKey="value"
-                      onClick={(_, idx) => setActiveIssueCategory(activeIssueCategory === pd[idx]?.name ? null : pd[idx]?.name)}
-                    >
-                      {pd.map((d, i) => (
-                        <Cell key={`pie-${d.name}`} fill={d.color} stroke={activeIssueCategory === d.name ? "#1E293B" : "transparent"} strokeWidth={activeIssueCategory === d.name ? 2 : 0}
-                          style={{ cursor: "pointer", opacity: activeIssueCategory && activeIssueCategory !== d.name ? 0.4 : 1 }}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={v => `${v}%`} />
-                  </PieChart>
+                  <PieChart><Pie data={pd} cx="50%" cy="50%" innerRadius={32} outerRadius={55} paddingAngle={2} dataKey="value" onClick={(_, idx) => setActiveIssueCategory(activeIssueCategory === pd[idx]?.name ? null : pd[idx]?.name)}>
+                    {pd.map((d) => (<Cell key={`pie-${d.name}`} fill={d.color} stroke={activeIssueCategory === d.name ? "#1E293B" : "transparent"} strokeWidth={activeIssueCategory === d.name ? 2 : 0} style={{ cursor: "pointer", opacity: activeIssueCategory && activeIssueCategory !== d.name ? 0.4 : 1 }} />))}
+                  </Pie><Tooltip formatter={v => `${v}%`} /></PieChart>
                 </ResponsiveContainer>
               </div>
               <div className="space-y-1 mt-2">
                 {pd.map(d => (
-                  <div
-                    key={d.name}
-                    className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-50 dark:bg-zinc-800/50" : "hover:bg-slate-100 dark:bg-[#1A1A1A]"}`}
-                    onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)}
-                    data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-                      <span className="text-xs text-slate-500 dark:text-zinc-500">{d.name}</span>
-                    </div>
+                  <div key={d.name} className={`flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 transition-colors ${activeIssueCategory === d.name ? "bg-slate-100 dark:bg-zinc-800/50" : "hover:bg-slate-50 dark:hover:bg-zinc-800/30"}`} onClick={() => setActiveIssueCategory(activeIssueCategory === d.name ? null : d.name)} data-testid={`issue-${d.name.replace(/\s/g, '-').toLowerCase()}`}>
+                    <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span className="text-xs text-slate-500 dark:text-zinc-500">{d.name}</span></div>
                     <span className="text-xs font-medium text-slate-900 dark:text-white">{d.value}%</span>
                   </div>
                 ))}
               </div>
-              {/* Drill-down: show related holdings when a category is clicked */}
               <AnimatePresence>
                 {activeIssueCategory && analytics?.performance_cards?.length > 0 && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                     <div className="mt-3 pt-3 border-t border-slate-200 dark:border-white/5">
-                      <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">
-                        Holdings related to "{activeIssueCategory}"
-                      </p>
+                      <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Why \"{activeIssueCategory}\" \u2014 Affected Holdings</p>
                       <div className="space-y-1 max-h-40 overflow-y-auto">
                         {getHoldingsForIssue(activeIssueCategory, analytics.performance_cards, ins).map((h, idx) => (
-                          <div key={`drill-${idx}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-100 dark:bg-[#1A1A1A] rounded text-[11px]">
+                          <div key={`drill-${idx}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-[#1A1A1A] rounded text-[11px]">
                             <span className="text-slate-700 dark:text-zinc-300 truncate flex-1">{h.name}</span>
-                            <span className={`ml-2 font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                              {h.pct_return >= 0 ? "+" : ""}{h.pct_return}%
-                            </span>
+                            <span className={`ml-2 font-medium ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>{h.pct_return >= 0 ? "+" : ""}{h.pct_return}%</span>
                             <span className="ml-2 text-slate-400">{fmt(h.current_value)}</span>
                           </div>
                         ))}
+                        {getHoldingsForIssue(activeIssueCategory, analytics.performance_cards, ins).length === 0 && (<p className="text-[10px] text-slate-400 py-2">No holdings data for this category.</p>)}
                       </div>
                     </div>
                   </motion.div>
@@ -850,36 +485,78 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           </Card>
         )}
 
-        {cost && cost.annual_loss > 0 && (
-          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
-            <CardContent className="p-6">
-              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Cost Leakage</p>
+        <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl">
+          <CardContent className="p-6">
+            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Cost Leakage</p>
+            {cost && cost.annual_loss > 0 ? (<>
               <div className="text-center mb-4">
                 <p className="text-3xl font-bold text-red-500" style={{ fontFamily: "'Outfit', sans-serif" }}>{fmt(cost.annual_loss)}</p>
                 <p className="text-xs text-red-400 mt-1">lost per year ({cost.loss_pct}% of portfolio)</p>
               </div>
               <p className="text-xs text-slate-500 dark:text-zinc-500 text-center">{cost.detail}</p>
-              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg text-center">
-                <p className="text-xs text-emerald-600 font-medium">Switching to direct plans could save {fmt(cost.annual_loss)}/year</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg text-center"><p className="text-xs text-emerald-600 font-medium">Switching to direct plans could save {fmt(cost.annual_loss)}/year</p></div>
+            </>) : (
+              <div className="text-center py-4"><p className="text-emerald-600 font-medium text-sm">No significant cost leakage</p><p className="text-xs text-slate-400 mt-1">All funds appear to be direct plans or data unavailable</p></div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
-      {/* ── Interactive Action Funnel ── */}
+      {/* Section 3: Actionable Insights */}
+      {ins.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <div className="space-y-3" data-testid="actionable-insights">
+            <h3 className="text-sm font-medium text-slate-900 dark:text-white">Actionable Insights ({ins.length})</h3>
+            {ins.map((insight, i) => {
+              const sev = SEVERITY_CONFIG[insight.severity] || SEVERITY_CONFIG[insight.type === "warning" ? "critical" : "important"] || SEVERITY_CONFIG.important;
+              const SevIcon = sev.icon;
+              const isExpanded = expandedInsight === i;
+              return (
+                <motion.div key={`insight-${insight.insight_id || i}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }} className={`rounded-xl border ${sev.border} overflow-hidden`} data-testid={`insight-card-${i}`}>
+                  <div className={`p-4 cursor-pointer ${sev.bg} hover:opacity-90 transition-opacity`} onClick={() => setExpandedInsight(isExpanded ? null : i)}>
+                    <div className="flex items-start gap-3">
+                      <SevIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: sev.color }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2"><p className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</p><span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${sev.color}15`, color: sev.color }}>{sev.label}</span></div>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{insight.description?.slice(0, 100)}{insight.description?.length > 100 ? "..." : ""}</p>
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="p-4 bg-white dark:bg-[#121212] border-t border-slate-100 dark:border-white/5 space-y-3">
+                      {insight.description && (<div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Details</p><p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.description}</p></div>)}
+                      {analytics?.performance_cards?.length > 0 && getAffectedHoldings(insight, analytics.performance_cards).length > 0 && (
+                        <div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Affected Holdings</p>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
+                              <div key={`aff-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-[#1A1A1A] rounded-lg text-xs">
+                                <span className="text-slate-700 dark:text-zinc-300 truncate flex-1">{h.name}</span>
+                                <span className={`font-medium ml-2 ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>{h.pct_return >= 0 ? "+" : ""}{h.pct_return}%</span>
+                                <span className="text-slate-500 ml-2">{fmt(h.current_value)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Section 4: Action Plan */}
       {funnel.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl" data-testid="action-funnel">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl" data-testid="action-funnel">
             <CardContent className="p-6 md:p-8">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Action Plan
-                </h3>
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white">Action Plan</h3>
                 <div className="flex items-center gap-2">
-                  <div className="w-20 h-2 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
-                    <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${funnel.length > 0 ? (completedCount / funnel.length) * 100 : 0}%` }} />
-                  </div>
+                  <div className="w-20 h-2 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${funnel.length > 0 ? (completedCount / funnel.length) * 100 : 0}%` }} /></div>
                   <span className="text-xs text-slate-400">{completedCount}/{funnel.length}</span>
                 </div>
               </div>
@@ -888,38 +565,73 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                   const done = completedActions[step.step];
                   const statusColors = { critical: "#EF4444", important: "#F59E0B", moderate: "#3B82F6", recommended: "#10B981" };
                   return (
-                    <div key={i} className={`flex items-start gap-4 p-3 rounded-xl transition-all ${done ? "bg-emerald-50 dark:bg-emerald-900/20 opacity-70" : "hover:bg-slate-100 dark:bg-[#1A1A1A]"}`}>
-                      <button
-                        onClick={() => toggleAction(step.step)}
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border-2 transition-all ${
-                          done ? "bg-emerald-500 border-emerald-500 text-slate-900 dark:text-white" : "border-slate-200 dark:border-zinc-700 hover:border-emerald-400"
-                        }`}
-                        data-testid={`action-check-${i}`}
-                      >
-                        {done ? <span className="text-xs font-bold">✓</span> : <span className="text-xs font-bold text-slate-400">{step.step}</span>}
+                    <div key={`action-${i}`} className={`flex items-start gap-4 p-3 rounded-xl transition-all ${done ? "bg-emerald-50 dark:bg-emerald-900/20 opacity-70" : "hover:bg-slate-50 dark:hover:bg-zinc-800/30"}`}>
+                      <button onClick={() => toggleAction(step.step)} className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border-2 transition-all ${done ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-200 dark:border-zinc-700"}`} data-testid={`action-check-${i}`}>
+                        {done ? <span className="text-xs font-bold">\u2713</span> : <span className="text-xs font-bold text-slate-400">{step.step}</span>}
                       </button>
-                      <div className="flex-1">
-                        <p className={`text-sm font-medium ${done ? "line-through text-slate-400" : "text-slate-900 dark:text-white"}`}>{step.title}</p>
-                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{step.detail}</p>
-                        {step.rupee_impact && <p className="text-[10px] text-emerald-600 font-medium mt-1">{step.rupee_impact}</p>}
-                      </div>
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${statusColors[step.status] || "#94A3B8"}15`, color: statusColors[step.status] || "#94A3B8" }}>
-                        {step.status}
-                      </span>
+                      <div className="flex-1"><p className={`text-sm font-medium ${done ? "line-through text-slate-400" : "text-slate-900 dark:text-white"}`}>{step.title}</p><p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{step.detail}</p>{step.rupee_impact && <p className="text-[10px] text-emerald-600 font-medium mt-1">{step.rupee_impact}</p>}</div>
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${statusColors[step.status] || "#94A3B8"}15`, color: statusColors[step.status] || "#94A3B8" }}>{step.status}</span>
                     </div>
                   );
                 })}
-                <div className="flex items-center gap-4 p-3">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                    <Target className="w-4 h-4 text-slate-900 dark:text-white" />
-                  </div>
-                  <p className="text-sm font-medium text-emerald-600">Optimized Portfolio</p>
-                </div>
               </div>
             </CardContent>
           </Card>
         </motion.div>
       )}
+
+      {/* Section 5: Simulate + Before/After */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+        <Card className="bg-gradient-to-r from-emerald-50 to-blue-50 dark:from-emerald-900/15 dark:to-blue-900/15 border-emerald-500/20 rounded-2xl" data-testid="simulate-card">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center"><Zap className="w-5 h-5 text-emerald-600" strokeWidth={1.5} /></div>
+                <div><h3 className="text-sm font-semibold text-slate-900 dark:text-white">Simulate Impact</h3><p className="text-[11px] text-slate-500 dark:text-zinc-500">See projected returns if action plan is implemented</p></div>
+              </div>
+              <Button data-testid="simulate-button" onClick={runSimulation} disabled={simulating} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
+                {simulating ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}{simulating ? "Simulating..." : "Run Simulation"}
+              </Button>
+            </div>
+            <AnimatePresence>
+              {simulation && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="border-t border-emerald-500/20 pt-4 mt-2 space-y-4">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">If You Apply These Changes</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="text-center p-3 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Current</p>
+                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{simulation.current_returns_pct >= 0 ? "+" : ""}{simulation.current_returns_pct}%</p>
+                      </div>
+                      <div className="text-center p-3 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">After (1Y)</p>
+                        <p className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'JetBrains Mono', monospace" }}>+{simulation.optimized_returns_pct}%</p>
+                      </div>
+                      <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-500/20">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Extra Returns</p>
+                        <p className="text-xl font-bold text-emerald-600">+{fmt(simulation.additional_returns)}</p>
+                      </div>
+                      <div className="text-center p-3 bg-white dark:bg-[#121212] rounded-xl border border-slate-200 dark:border-white/5">
+                        <p className="text-[9px] font-bold tracking-wider uppercase text-slate-400 mb-1">Actions</p>
+                        <p className="text-lg font-bold text-slate-700 dark:text-zinc-300">{simulation.actions?.length || 0}</p>
+                      </div>
+                    </div>
+                    {simulation.actions?.length > 0 && (<div className="space-y-2"><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Breakdown</p>
+                      {simulation.actions.map((a, i) => (
+                        <div key={`sim-${i}`} className="flex items-center justify-between py-2 px-3 bg-white dark:bg-[#121212] rounded-lg border border-slate-200 dark:border-white/5">
+                          <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{a.title}</span>
+                          <span className="text-xs font-bold text-emerald-600 ml-2" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{a.savings_1yr > 0 ? `+${fmt(a.savings_1yr)}/yr` : "\u2014"}</span>
+                        </div>
+                      ))}
+                    </div>)}
+                    <p className="text-[10px] text-slate-400 text-center pt-2 border-t border-emerald-500/10">Based on rule-based recommendations from portfolio data. Actual returns may vary.</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 };

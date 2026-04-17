@@ -8,28 +8,25 @@ Build an AI-powered autonomous financial advisor for Indian market.
 - CAS Parser SDK, AMFI NAV, NSE Bhav Copy, yfinance
 
 ## Implemented Features
-- [x] Google OAuth + whitelist + Admin
-- [x] CAS Parser SDK + fallbacks, onboarding, risk profile
+- [x] Google OAuth + whitelist + Admin, CAS Parser SDK
+- [x] Onboarding, Risk Profile, Quick Setup
 - [x] SSE streaming chat + intent UX + quick actions + skeleton loaders
-- [x] Explainability panels (health, risk)
-- [x] Insights drill-down, issue breakdown clickable
-- [x] MF benchmark + Portfolio P&L Heatmap
-- [x] Fund House stacked allocation (Current vs Balanced)
+- [x] MF benchmark + Portfolio P&L Heatmap + Fund House stacked chart
 - [x] Fund Overlap v2 (duplication score, AI insights, stacked bars)
-- [x] AI Look-Through Allocation (OpenAI, no PII)
-- [x] **Dual-mode theme** (Light + Dark, MOS-inspired dark design)
-- [x] **MOS-style allocation display**: Alert banners, stacked sector bars, Sector/Company toggle, drillable cards
-- [x] Equity sector classification (Banking, IT, Pharma, etc.)
-- [x] server.py refactored into modular routes
+- [x] AI Look-Through Allocation Analysis (OpenAI, no PII)
+- [x] Dual-mode theme (Light + Dark MOS-inspired)
+- [x] MOS-style allocation display (alert + stacked bar + drillable sectors)
+- [x] **AI Overview page restructured**:
+  - Flow: Health → Risk → Confidence → Issue Breakdown → Cost Leakage → Insights → Action Plan → Simulate
+  - Data Confidence capped at 100% (was 105%)
+  - Removed "Optimized Portfolio" label and "Do Nothing" standalone section
+  - Simulate shows Before/After only after button click
+  - "Data missing" shown when data unavailable (no hallucination)
 
 ## Backlog
 ### P0
-- Fund & Stock Rating System (Morningstar-style)
-- Security: PAN encryption, consent logging (DPDP Act)
-
+- Fund & Stock Rating System, Security (DPDP Act)
 ### P1
-- Stock-level overlap via AMFI disclosure data
-- Mobile-first layout, simulation UX, goal-based planning
-
+- Stock-level overlap, mobile-first layout, goal-based planning
 ### P2
 - Broker integrations, agent-based backend, offline support
