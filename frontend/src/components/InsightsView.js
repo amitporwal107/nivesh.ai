@@ -934,8 +934,8 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
 const OverexposureTab = ({ overexposure, fmt }) => {
   const fundHouse = overexposure?.fund_house || [];
   const sectors = overexposure?.sector || [];
-  const [expandedFH, setExpandedFH] = useState(null);
-  const [expandedSec, setExpandedSec] = useState(null);
+  const [expandedFH, setExpandedFH] = useState(0);
+  const [expandedSec, setExpandedSec] = useState(0);
 
   if (!fundHouse.length && !sectors.length) {
     return (
@@ -1060,10 +1060,10 @@ const OverexposureTab = ({ overexposure, fmt }) => {
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Sector Concentration
+                    Sector Composition
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Category-level exposure across all holdings
+                    Equity sector exposure + MF category distribution across your holdings
                   </p>
                 </div>
               </div>
@@ -1643,6 +1643,122 @@ const FundBenchmarkDrilldown = ({ ratings, fmt }) => {
 };
 
 // ════════════════════════════════════════
+// FUND HEATMAP — treemap visualization of fund performance
+// ════════════════════════════════════════
+const FundHeatmap = ({ ratings, fmt }) => {
+  const [selectedFund, setSelectedFund] = useState(null);
+
+  const heatmapData = useMemo(() => {
+    if (!ratings?.length) return [];
+    return ratings
+      .filter(r => r.invested > 0)
+      .map(r => ({
+        name: r.name.length > 25 ? r.name.slice(0, 25) + ".." : r.name,
+        fullName: r.name,
+        size: Math.max(r.invested, 1000),
+        return_1y: r.return_1y || r.simple_return_pct || 0,
+        rating: r.rating,
+        invested: r.invested,
+        current_value: r.current_value,
+        sector: r.sector,
+        alpha: r.alpha,
+        benchmark_return: r.benchmark_return,
+      }))
+      .sort((a, b) => b.size - a.size);
+  }, [ratings]);
+
+  const getColor = (ret) => {
+    if (ret > 20) return "#059669";
+    if (ret > 10) return "#10B981";
+    if (ret > 0) return "#6EE7B7";
+    if (ret > -10) return "#FCA5A5";
+    if (ret > -20) return "#EF4444";
+    return "#DC2626";
+  };
+
+  if (!heatmapData.length) return <p className="text-sm text-slate-400 text-center py-6">No fund data</p>;
+
+  return (
+    <div data-testid="fund-heatmap">
+      <div className="grid gap-1.5" style={{
+        gridTemplateColumns: `repeat(auto-fill, minmax(120px, 1fr))`,
+      }}>
+        {heatmapData.map((fund, i) => {
+          const isSelected = selectedFund === i;
+          const bgColor = getColor(fund.return_1y);
+          return (
+            <div
+              key={`heatmap-${i}`}
+              data-testid={`heatmap-cell-${i}`}
+              onClick={() => setSelectedFund(isSelected ? null : i)}
+              className="cursor-pointer rounded-lg p-2.5 transition-all hover:ring-2 hover:ring-white/50 relative overflow-hidden"
+              style={{
+                backgroundColor: bgColor,
+                minHeight: Math.max(60, Math.min(120, fund.size / (heatmapData[0]?.size || 1) * 120)),
+                opacity: selectedFund !== null && !isSelected ? 0.5 : 1,
+              }}
+            >
+              <p className="text-[10px] font-medium text-white leading-tight truncate">{fund.name}</p>
+              <p className="text-sm font-bold text-white mt-1" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                {fund.return_1y >= 0 ? "+" : ""}{fund.return_1y.toFixed(1)}%
+              </p>
+              <p className="text-[9px] text-white/70 mt-0.5">{fmt(fund.invested)}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected fund detail */}
+      <AnimatePresence>
+        {selectedFund !== null && heatmapData[selectedFund] && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+            <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl border border-slate-200 dark:border-slate-600">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{heatmapData[selectedFund].fullName}</p>
+                  <p className="text-[10px] text-slate-500">{heatmapData[selectedFund].sector}</p>
+                </div>
+                <button onClick={() => setSelectedFund(null)} className="text-[10px] text-slate-400 hover:text-slate-600">Close</button>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <p className="text-[9px] text-slate-400">1Y Return</p>
+                  <p className={`text-sm font-bold ${heatmapData[selectedFund].return_1y >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {heatmapData[selectedFund].return_1y >= 0 ? "+" : ""}{heatmapData[selectedFund].return_1y.toFixed(1)}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-slate-400">Invested</p>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{fmt(heatmapData[selectedFund].invested)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-slate-400">Current</p>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{fmt(heatmapData[selectedFund].current_value)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-slate-400">Alpha</p>
+                  <p className={`text-sm font-bold ${(heatmapData[selectedFund].alpha || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {heatmapData[selectedFund].alpha != null ? `${heatmapData[selectedFund].alpha >= 0 ? "+" : ""}${heatmapData[selectedFund].alpha}%` : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex items-center gap-3 mt-3 text-[10px] text-slate-400">
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#059669"}} /> &gt;20%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#10B981"}} /> 10-20%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#6EE7B7"}} /> 0-10%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#FCA5A5"}} /> 0 to -10%</div>
+        <div className="flex items-center gap-1"><div className="w-3 h-3 rounded" style={{backgroundColor:"#EF4444"}} /> &lt;-10%</div>
+      </div>
+    </div>
+  );
+};
+
+// ════════════════════════════════════════
 // BENCHMARK TAB - MF Benchmark Ratings, Performance Pie, Category Overlap Bar
 // ════════════════════════════════════════
 const RATING_CONFIG = {
@@ -1709,7 +1825,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
   const summary = data.summary || {};
 
   const pieData = [
-    { name: "Outperforming", value: dist.overperforming || 0, color: "#10B981", ratingKey: "outperforming" },
+    { name: "Outperforming", value: dist.overperforming || 0, color: "#10B981", ratingKey: "overperforming" },
     { name: "Meeting Benchmark", value: dist.meeting || 0, color: "#3B82F6", ratingKey: "meeting" },
     { name: "Underperforming", value: dist.underperforming || 0, color: "#EF4444", ratingKey: "underperforming" },
     { name: "No Data", value: dist.no_data || 0, color: "#CBD5E1", ratingKey: "no_data" },
@@ -1780,8 +1896,8 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
 
               {/* Drilldown: show funds for clicked rating */}
               {drilldownRating && (() => {
-                const ratingMap = { outperforming: "outperforming", meeting: "meeting", underperforming: "underperforming", no_data: "no_data" };
-                const ratingLabel = { outperforming: "Outperforming", meeting: "Meeting Benchmark", underperforming: "Underperforming", no_data: "No Data" };
+                const ratingMap = { overperforming: "overperforming", meeting: "meeting", underperforming: "underperforming", no_data: "no_data" };
+                const ratingLabel = { overperforming: "Outperforming", meeting: "Meeting Benchmark", underperforming: "Underperforming", no_data: "No Data" };
                 const drillFunds = ratings.filter(r => r.rating === ratingMap[drilldownRating]);
                 return (
                   <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-4">
@@ -1876,7 +1992,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
         </motion.div>
       </div>
 
-      {/* Category Overlap Bar Graph */}
+      {/* Category Overlap Bar Graph — MF Categories only */}
       {overlapBarData.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
@@ -1887,10 +2003,10 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                 </div>
                 <div>
                   <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    Category Overlap
+                    MF Category Overlap
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Number of funds per sector/category — multiple funds in the same category indicates overlap
+                    Number of mutual funds per category — 2+ funds in same category = potential overlap
                   </p>
                 </div>
               </div>
@@ -1921,15 +2037,15 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
         </motion.div>
       )}
 
-      {/* Fund-by-Fund Benchmark Ratings - Grouped by AMC */}
+      {/* Fund-by-Fund Benchmark Heatmap */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
           <CardContent className="p-6 md:p-8">
             <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-              Fund-by-Fund Benchmark Comparison
+              Fund Performance Heatmap
             </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Click on an AMC group to expand and view individual fund details</p>
-            <FundBenchmarkDrilldown ratings={ratings} fmt={fmt} />
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Size = invested value. Color = 1Y return (green = positive, red = negative). Click to expand AMC details.</p>
+            <FundHeatmap ratings={ratings} fmt={fmt} />
           </CardContent>
         </Card>
       </motion.div>

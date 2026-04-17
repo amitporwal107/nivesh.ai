@@ -10,6 +10,7 @@ from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from services.fund_performance import compute_benchmark_ratings
 from services.live_price import fetch_live_prices
 from services.sgb_prices import apply_sgb_issue_prices
+from services.equity_sectors import enrich_holdings_with_sectors
 from helpers.portfolio_utils import extract_fund_house, compute_fund_overlap
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,15 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
                     "sgb_issue_date": h.get("sgb_issue_date", ""),
                     "price_source_buy": "rbi_sgb_mapping",
                 }}
+            )
+
+    # Enrich equity holdings with proper sectors
+    holdings = enrich_holdings_with_sectors(holdings)
+    for h in holdings:
+        if h.get("sector") != "Other" and h.get("holding_id"):
+            await db.holdings.update_one(
+                {"holding_id": h["holding_id"]},
+                {"$set": {"sector": h["sector"]}}
             )
 
     if not holdings:
@@ -351,6 +361,7 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
 
     holdings, _ = await fetch_live_prices(holdings)
     holdings, _ = apply_sgb_issue_prices(holdings)
+    holdings = enrich_holdings_with_sectors(holdings)
 
     total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
     if total_value == 0:

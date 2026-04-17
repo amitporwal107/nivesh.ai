@@ -1,0 +1,84 @@
+{
+  "summary": "Iteration 21 testing complete. All 5 fixes verified working: (1) Outperforming fund drilldown shows 9 funds when clicked, (2) Category Overlap renamed to 'MF Category Overlap', (3) Fund Performance Heatmap with 60 color-coded cells replacing fund-by-fund list, (4) Fund House Concentration first card (HDFC) expanded by default, (5) Equity sectors enriched from 'Other' to proper sectors (Banking, IT, Financial Services, etc.). Backend: 12/12 tests passed. Frontend: All features working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Recharts", "issues": ["Console warnings about chart width/height being -1 during initial render - cosmetic only, charts render correctly after data loads"]}
+    ]
+  },
+  "passed_tests": [
+    "Backend: GET /api/auth/me - returns user info with valid session",
+    "Backend: GET /api/portfolio/holdings - returns 110 holdings",
+    "Backend: GET /api/portfolio/analytics - returns sector_exposure with proper equity sectors (Banking, IT, Pharma, etc.)",
+    "Backend: GET /api/portfolio/deep-analytics - returns overexposure with enriched sectors",
+    "Backend: GET /api/portfolio/fund-performance - returns fund_ratings with 'rating' field",
+    "Backend: performance_distribution has 'overperforming' key with 9 funds",
+    "Backend: fund_ratings have correct rating values (overperforming, meeting, underperforming, no_data)",
+    "Backend: category_overlap data returned correctly",
+    "Backend: fund_ratings have heatmap fields (invested, current_value, return_1y)",
+    "Backend: GET /api/insights/analysis - returns analysis data",
+    "Backend: All existing endpoints still work (no regression)",
+    "Frontend: Benchmark tab loads with pie chart showing Outperforming (9), Meeting (33), Underperforming (5), No Data (14)",
+    "Frontend: Clicking 'Outperforming' label shows drilldown with 9 funds and their returns",
+    "Frontend: Fund Performance Heatmap displays 60 color-coded cells (green=positive, red=negative)",
+    "Frontend: Clicking heatmap cell shows fund detail with 1Y Return, Invested, Current, Alpha",
+    "Frontend: Category overlap chart title says 'MF Category Overlap'",
+    "Frontend: Overexposure tab - Fund House Concentration first card (HDFC) expanded by default",
+    "Frontend: Sector Composition shows proper equity sectors (Banking & Financial, Financial Services, IT)"
+  ],
+  "fixes_verified": {
+    "fix_1_outperforming_drilldown": {
+      "status": "VERIFIED",
+      "description": "Clicking 'Outperforming' in pie chart shows list of 9 overperforming funds with returns",
+      "evidence": "Drilldown shows: NIPPON INDIA SMALL CAP (+8.01% vs +3.75%), HDFC NIFTY50 (+7.58% vs +3.89%), etc."
+    },
+    "fix_2_mf_category_overlap_rename": {
+      "status": "VERIFIED",
+      "description": "Category Overlap renamed to 'MF Category Overlap' for clarity",
+      "evidence": "Chart title shows 'MF Category Overlap' with subtitle about mutual funds per category"
+    },
+    "fix_3_fund_heatmap": {
+      "status": "VERIFIED",
+      "description": "Fund-by-Fund list replaced with color-coded heatmap/treemap visualization",
+      "evidence": "60 heatmap cells with green (positive) and red (negative) colors, showing returns and invested amounts"
+    },
+    "fix_4_expanded_fund_house": {
+      "status": "VERIFIED",
+      "description": "Fund House/Sector cards expanded by default (expandedFH=0)",
+      "evidence": "HDFC card shows 'FUNDS UNDER HDFC' with 5 fund names listed by default"
+    },
+    "fix_5_equity_sectors": {
+      "status": "VERIFIED",
+      "description": "Equity sectors enriched from 'Other' to proper sectors via equity_sectors.py",
+      "evidence": "Sector Composition shows Banking & Financial (4.8%), Financial Services (3.8%), IT visible in API response"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration21_fixes.py",
+    "/app/test_reports/pytest/pytest_results_iteration21.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_iteration21_fixes.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend": "100% (all 5 fixes verified working)"
+  },
+  "test_credentials": {
+    "test_user_email": "aporwal107@gmail.com",
+    "test_user_session": "5770bebb-8a9a-41f7-a7b9-e8152ac25daa",
+    "holdings_count": 110
+  },
+  "seed_data_creation": "None - used existing test user with 110 holdings",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 21 tested 5 fixes for nivesh.ai insights: (1) Outperforming drilldown now works - clicking pie chart segment shows fund list, (2) 'MF Category Overlap' title, (3) Fund Performance Heatmap with 60 color-coded cells, (4) Fund House cards expanded by default (expandedFH=0), (5) Equity sectors enriched (Banking, IT, Financial Services instead of 'Other'). All features working. Test user has 110 holdings with portfolio value ~₹1.03 Cr. Backend APIs: /api/portfolio/analytics, /api/portfolio/deep-analytics, /api/portfolio/fund-performance all return proper sector data.",
+  "rca_of_issue": {}
+}

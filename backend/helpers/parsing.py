@@ -26,11 +26,12 @@ def classify_mf_sector(scheme_name: str) -> str:
     if any(k in name for k in ["debt", "bond", "gilt", "liquid", "money market", "overnight", "short", "credit", "duration", "arbitrage"]): return "Debt"
     if any(k in name for k in ["gold", "sgb", "sovereign"]): return "Gold"
     if any(k in name for k in ["international", "global", "us ", "nasdaq", "fang", "nyse"]): return "International"
-    if any(k in name for k in ["banking", "financial"]): return "Banking"
+    if any(k in name for k in ["banking", "financial"]): return "Banking & Financial"
     if any(k in name for k in ["pharma", "health"]): return "Healthcare"
-    if any(k in name for k in ["technology", "digital", "it "]): return "IT"
+    if any(k in name for k in ["technology", "digital", "it "]): return "IT / Technology"
     if any(k in name for k in ["contra", "value"]): return "Value"
     if any(k in name for k in ["focused", "opportunities"]): return "Focused"
+    if any(k in name for k in ["multi asset"]): return "Multi Asset"
     return "Other"
 
 
