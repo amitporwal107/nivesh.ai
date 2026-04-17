@@ -6,35 +6,18 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Google OAuth
 - **Backend**: FastAPI + Motor/MongoDB + casparser + Tesseract OCR
-- **CAS Parsing**: casparser (text PDFs) → Tesseract OCR + ML correction (image PDFs) → OpenAI Vision (fallback, disabled by default for security)
+- **CAS Parsing**: Primary: CAS Parser Portfolio Connect SDK (@cas-parser/connect). Secondary fallback: casparser API → local OCR.
 - **Masterdata**: AMFI NAV (17K+ ISINs) + NSE Bhav Copy (3.3K equities)
 - **Live Prices**: yfinance (Yahoo Finance) for equity/ETF, AMFI for MF NAV
-
-## CAS Parsing Pipeline (7-Phase)
-1. Quick scan first pages → detect CAS type (NSDL/CDSL) + extract summary totals
-2. Smart page selection → OCR only holdings pages (skip transactions/KYC/disclaimers)
-3. Full Tesseract OCR on selected pages (DPI=200, PSM=4)
-4. Section-aware parsing (Equities/ETFs/SGBs/MF Folios — different for NSDL vs CDSL)
-5. ML OCR correction engine (learned patterns from manual corrections)
-6. Masterdata validation + enrichment (AMFI NAV / NSE Bhav)
-7. Summary validation
-
-## Current CAS Parsing Accuracy
-| Metric | NSDL | CDSL |
-|---|---|---|
-| ISIN match | 81% | 62% |
-| Value match | 78% | 38% |
-| Speed | 30s | 32s |
 
 ## Implemented Features
 - [x] Google OAuth with invite-only whitelist
 - [x] Admin dashboard for email whitelisting
-- [x] Multi-format CAS upload (NSDL/CDSL image PDFs, CAMS/KFintech text PDFs, CSV, Excel)
-- [x] casparser integration for text-based CAS (100% accuracy)
-- [x] Local Tesseract OCR for image-based CAS (no cloud dependency)
-- [x] ML OCR correction engine (learns from manual corrections)
-- [x] AMFI NAV + NSE Bhav masterdata for ISIN validation and price correction
-- [x] Admin API for manual corrections (ISIN, name, holding values)
+- [x] CAS Parser Portfolio Connect SDK widget (PDF upload, Gmail inbox import, CDSL OTP)
+- [x] OAuth callback page (/cas-callback) for SDK Gmail flow
+- [x] casparser API integration for text-based CAS (100% accuracy)
+- [x] Local Tesseract OCR for image-based CAS (fallback)
+- [x] AMFI NAV + NSE Bhav masterdata for ISIN validation and price enrichment
 - [x] Complete onboarding flow (Existing/New investor paths)
 - [x] Quick Setup + Starter Plan for new investors
 - [x] Password field for encrypted CAS PDFs
@@ -44,39 +27,30 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System). Focus 
 - [x] Live equity/ETF prices, AMFI MF NAV, SGB tracking
 - [x] Portfolio analytics, health score, risk analysis
 - [x] AI-powered chat with portfolio context
-
-## Admin OCR Correction API Endpoints
-- `POST /api/admin/ocr-correction/isin` — Teach garbled ISIN → correct ISIN
-- `POST /api/admin/ocr-correction/name` — Teach garbled name → correct name + ISIN
-- `POST /api/admin/ocr-correction/holding` — Fix a specific holding (updates DB + teaches engine)
-- `GET /api/admin/ocr-correction/stats` — Get correction engine statistics
+- [x] Legacy upload paths disabled (CAS Connect only)
+- [x] Masterdata enrichment preserves cost data (quantity not recalculated when avg_cost available)
 
 ## Key DB Collections
 - `whitelisted_users`, `users`, `user_profiles`
 - `portfolios`, `holdings`, `upload_tasks`
 - `chat_sessions`, `chat_messages`, `ai_insights`
 
+## Key Technical Notes
+- **CAS parsing (Apr 2026)**: Primary path is CAS Parser Portfolio Connect SDK widget. Backend mints short-lived `at_` access tokens via `POST /api/casparser/access-token`. Widget's `onSuccess` posts parsed data to `POST /api/portfolio/import-connect`. Gmail OAuth callback at `/cas-callback` handles `handleInboxCallback()`.
+- Keys: `CASPARSER_API_KEY`, `CASPARSER_SANDBOX_KEY`, `CASPARSER_USE_SANDBOX` in `/app/backend/.env`
+- Masterdata: `/app/backend/data/amfi_data.csv`, `bhav_copy.csv`, `equity_list.csv`, `sgb_data.csv`
+- Admin user: priyankamantri@gmail.com
+
 ## Backlog (Prioritized)
 ### P0
-- Google OAuth URL whitelisting (blocked on user GCP config)
-- server.py refactoring into /routes directory
+- server.py refactoring into /routes directory (2800+ lines)
+- Security: PAN encryption (AES-256), consent logging, audit trails (DPDP Act)
 
 ### P1
-- Security: consent screen, PAN encryption, "Delete My Data", audit logging
+- Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs
 - Connect to Human Advisor feature
-- Goal-based planning module
 
 ### P2
 - Portfolio versioning (delta tracking between uploads)
-- Postgres migration for structured financial data
+- PostgreSQL migration for structured financial data
 - S3 encrypted storage for raw CAS PDFs
-
-## Technical Notes
-- **CAS parsing (Apr 2026)**: Primary path is **CAS Parser Portfolio Connect SDK** (@cas-parser/connect) — widget handles PDF upload, Gmail import, and CDSL OTP directly in the browser, bypassing backend size limits. Backend mints short-lived `at_` access tokens via `POST /api/casparser/access-token` so the production `sk_` key never leaves the server. Widget's `onSuccess` posts parsed data to `POST /api/portfolio/import-connect` which enriches via masterdata and saves holdings.
-- Secondary paths (fallback): direct API call → `casparser` library → local Tesseract OCR + img2table + masterdata fuzzy lookup.
-- Keys: `CASPARSER_API_KEY`, `CASPARSER_SANDBOX_KEY`, `CASPARSER_USE_SANDBOX` in `/app/backend/.env`
-- Sandbox mode returns deterministic sample data (no credits, no real PDF required)
-- Masterdata (Apr 2026): `/app/backend/data/amfi_data.csv` (17,588 MFs with plan/option classification), `bhav_copy.csv` (3,365 NSE), `equity_list.csv` (2,256), `sgb_data.csv` (46 SGBs w/ LTP)
-- Poppler-utils + Tesseract installed via server.py startup event
-- OCR corrections: /app/backend/data/ocr_corrections.json
-- Admin user: priyankamantri@gmail.com
