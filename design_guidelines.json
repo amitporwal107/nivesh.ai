@@ -1,156 +1,86 @@
 {
-  "project_name": "Agentic Wealth System",
-  "theme": "LIGHT",
-  "archetype": "Hybrid: Archetype 1 (Organic & Earthy) + Archetype 4 (Swiss & High-Contrast)",
-  "design_philosophy": "Clean, frictionless, minimalist wealth management. 'Do less but better'. Inspired by Kuvera: predominant white space, subtle borders over drop shadows, premium typography, and soothing green accents to signify growth and calm.",
+  "theme": "dark",
+  "archetype": "Swiss & High-Contrast (Fintech Dark Mode)",
   "colors": {
-    "backgrounds": {
-      "app_base": "#F8FAFC",
-      "surface_card": "#FFFFFF",
-      "surface_elevated": "#FFFFFF"
-    },
-    "text": {
-      "primary": "#0F172A",
-      "secondary": "#64748B",
-      "tertiary": "#94A3B8",
-      "inverse": "#FFFFFF"
-    },
-    "brand": {
-      "primary": "#059669",
-      "primary_hover": "#047857",
-      "primary_light": "#D1FAE5",
-      "accent": "#F59E0B"
-    },
-    "semantic": {
-      "success": "#10B981",
-      "success_bg": "#ECFDF5",
-      "danger": "#EF4444",
-      "danger_bg": "#FEF2F2",
-      "warning": "#F59E0B",
-      "warning_bg": "#FFFBEB",
-      "info": "#3B82F6",
-      "info_bg": "#EFF6FF"
-    },
-    "borders": {
-      "default": "#F1F5F9",
-      "active": "#E2E8F0"
-    }
+    "background": "#09090B",
+    "surface": "#121212",
+    "surface_hover": "#1A1A1A",
+    "border": "#27272A",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#71717A",
+    "portfolio_gradient_start": "#0F766E",
+    "portfolio_gradient_end": "#042F2E",
+    "alert_red_bg": "rgba(239, 68, 68, 0.1)",
+    "alert_red_border": "rgba(239, 68, 68, 0.2)",
+    "alert_red_text": "#EF4444",
+    "success_green_bg": "rgba(16, 185, 129, 0.1)",
+    "success_green_border": "rgba(16, 185, 129, 0.2)",
+    "success_green_text": "#10B981"
   },
   "typography": {
-    "fonts": {
-      "headings": "'Outfit', sans-serif",
-      "body": "'Figtree', sans-serif",
-      "mono": "'JetBrains Mono', monospace"
-    },
-    "scales": {
-      "h1": "text-4xl sm:text-5xl font-medium tracking-tight text-slate-900",
-      "h2": "text-2xl sm:text-3xl font-medium tracking-tight text-slate-900",
-      "h3": "text-xl sm:text-2xl font-medium tracking-tight text-slate-900",
-      "h4": "text-lg font-medium text-slate-900",
-      "body_large": "text-base sm:text-lg font-normal text-slate-600 leading-relaxed",
-      "body": "text-sm sm:text-base font-normal text-slate-600 leading-relaxed",
-      "small": "text-sm font-medium text-slate-500",
-      "overline": "text-xs font-bold tracking-[0.15em] uppercase text-slate-500"
-    },
-    "rules": [
-      "No generic sans-serif (Inter, Roboto) for headings.",
-      "Headlines MUST use tracking-tight.",
-      "Overlines/Labels MUST use uppercase and wide tracking.",
-      "Values in charts/metrics should use proportional lining figures."
-    ]
+    "font_family_heading": "Cabinet Grotesk, sans-serif",
+    "font_family_body": "IBM Plex Sans, sans-serif",
+    "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+    "h2": "text-2xl md:text-3xl font-semibold tracking-tight",
+    "h3": "text-xl font-medium",
+    "body": "text-sm text-zinc-400 leading-relaxed",
+    "numbers": "font-mono font-medium tracking-tight"
   },
-  "spacing_and_layout": {
-    "philosophy": "Generous Spacing Philosophy. Use 2-3x more spacing than typical apps. The layout should feel open and breathable.",
-    "grids": {
-      "dashboard_control_room": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
-      "bento_marketing": "grid grid-cols-1 md:grid-cols-8 lg:grid-cols-12 gap-8"
-    },
-    "padding": {
-      "section": "py-16 md:py-24",
-      "card": "p-6 md:p-8",
-      "container": "px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto"
-    },
-    "radius": {
-      "card": "rounded-2xl",
-      "button": "rounded-xl",
-      "input": "rounded-xl",
-      "badge": "rounded-full"
-    }
+  "layout": {
+    "container": "max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8",
+    "grid_bento": "grid grid-cols-1 md:grid-cols-12 gap-6",
+    "card": "bg-[#121212] border border-white/5 rounded-xl p-6 shadow-sm",
+    "card_dense": "bg-[#121212] border border-white/5 rounded-xl p-4 shadow-sm"
   },
   "components": {
-    "cards": {
-      "style": "Flat Solid. bg-white, border border-slate-100, no shadow by default.",
-      "hover": "hover:shadow-lg hover:border-slate-200 transition-all duration-300 hover:-translate-y-1"
+    "portfolio_value_card": {
+      "classes": "col-span-1 md:col-span-12 lg:col-span-4 bg-gradient-to-br from-teal-900/50 to-slate-900 border border-teal-500/20 rounded-2xl p-6 relative overflow-hidden",
+      "description": "Large display of portfolio value (e.g., ₹76.5L). Use a subtle grain or noise overlay if possible. The gradient must be dark-theme compatible."
     },
-    "buttons": {
-      "primary": "bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 transition-colors",
-      "secondary": "bg-slate-50 text-slate-900 border border-slate-200 hover:bg-slate-100 transition-colors",
-      "ghost": "bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+    "risk_alert_banner": {
+      "classes": "flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 mb-6",
+      "description": "Top level alert. Icon on left, title and description on right. 'Your portfolio needs attention'."
     },
-    "inputs": {
-      "style": "bg-slate-50 border-slate-200 focus:border-emerald-500 focus:ring-emerald-500 rounded-xl"
+    "risk_cards_grid": {
+      "classes": "grid grid-cols-1 md:grid-cols-3 gap-4 mt-4",
+      "description": "Small cards showing specific risks: AMC Dominance, Large Cap Overweight, Asset Class Balance. Each card has a red icon, title, and a small badge or stat."
     },
-    "charts": {
-      "library": "Recharts (wrapped in Shadcn Chart components)",
-      "styling": "Use brand colors. Remove grid lines for a cleaner look. Use smooth lines (type='monotone') for line charts."
+    "performance_chart_card": {
+      "classes": "col-span-1 md:col-span-12 lg:col-span-8 bg-[#121212] border border-white/5 rounded-2xl p-6",
+      "description": "Contains Recharts AreaChart. X-axis: months. Y-axis: hidden or minimal. Two areas: Portfolio (Teal) and Benchmark Nifty 500 (Gray). Needs a top-right time toggle (1M/3M/6M/1Y/3Y/5Y)."
     },
-    "navigation": {
-      "style": "Crystal Glass or Solid White. Sticky top nav with subtle bottom border. Left sidebar (if used) should have bg-slate-50."
+    "tabs": {
+      "classes": "w-full bg-[#1A1A1A] p-1 rounded-lg border border-white/5",
+      "description": "Use Shadcn Tabs. Triggers should be data-[state=active]:bg-[#27272A] data-[state=active]:text-white."
+    },
+    "fund_list_item": {
+      "classes": "flex items-center justify-between py-4 border-b border-white/5 last:border-0",
+      "description": "Left: AMC Avatar (use Fallback text like 'HD', 'SB' with bg-slate-800) + Fund Name + Category badge. Right: 3Y Return % (green text) + Category Rank (e.g., 39/40)."
+    },
+    "progress_bar": {
+      "classes": "h-2 w-full bg-slate-800 rounded-full overflow-hidden",
+      "indicator": "h-full bg-teal-500 rounded-full",
+      "description": "Used in MF Concentration tab. Show the % text above it."
+    },
+    "horizontal_stacked_bar": {
+      "classes": "flex w-full h-4 rounded-full overflow-hidden mb-6",
+      "description": "A single bar with multiple colored segments representing AMC allocation (e.g., 50% red, 24% blue, etc). Use inline styles for width %."
     }
   },
-  "motion": {
-    "library": "framer-motion",
-    "rules": [
-      "Use subtle micro-interactions for feedback.",
-      "Stagger list items on entrance (0.05s delay).",
-      "Tab switching should use AnimatePresence for smooth crossfades.",
-      "Respect prefers-reduced-motion."
-    ]
+  "animations": {
+    "hover_card": "transition-all duration-200 hover:-translate-y-1 hover:border-white/10 hover:shadow-lg hover:shadow-black/50",
+    "chart_entrance": "animate-in fade-in slide-in-from-bottom-4 duration-500"
   },
-  "icons": {
-    "library": "lucide-react",
-    "style": "Stroke width 1.5, simple and minimal.",
-    "installation": "Already installed in the system"
-  },
-  "media": {
-    "images": [
-      {
-        "category": "landing_page_background",
-        "url": "https://images.unsplash.com/photo-1521202850558-0110494d0457?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwyfHx3aGl0ZSUyMGdlb21ldHJpYyUyMGFic3RyYWN0fGVufDB8fHx8MTc3NjE1MTUzNHww&ixlib=rb-4.1.0&q=85",
-        "description": "White geometric abstract texture for subtle background layering in the marketing/login page."
-      },
-      {
-        "category": "onboarding_lifestyle",
-        "url": "https://images.unsplash.com/photo-1538357624903-5a3be334d0cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwyfHx3ZWFsdGglMjBtYW5hZ2VtZW50JTIwbGlmZXN0eWxlJTIwY2xlYW58ZW58MHx8fHwxNzc2MTUxNTE3fDA&ixlib=rb-4.1.0&q=85",
-        "description": "Clean modern lifestyle image featuring a phone and financial elements, good for side-panel in OAuth Login."
-      },
-      {
-        "category": "dashboard_empty_state_or_ai_feed",
-        "url": "https://images.unsplash.com/photo-1618375569876-572bae91060c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwZ3JlZW4lMjBwbGFudCUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3NzYxNTE1MzR8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Minimalist green plant on white background. To be used in AI Insights feed header or empty states to bring organic calm."
-      },
-      {
-        "category": "analytics_placeholder",
-        "url": "https://images.unsplash.com/photo-1643962579745-bcaa05ffc573?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwzfHxpbmRpYW4lMjBzdG9jayUyMG1hcmtldCUyMGNoYXJ0JTIwYWJzdHJhY3R8ZW58MHx8fHwxNzc2MTUxNTE3fDA&ixlib=rb-4.1.0&q=85",
-        "description": "Abstract stock chart image, useful for decorative banners within the portfolio sections."
-      }
-    ],
-    "logos": []
-  },
-  "testing": {
-    "attributes": [
-      "All interactive and key informational elements MUST include a `data-testid` attribute.",
-      "Convention: kebab-case, role-based (NOT appearance-based).",
-      "Example: `data-testid=\"portfolio-upload-button\"`"
-    ]
-  },
-  "instructions_to_main_agent": {
-    "1": "Use pure HTML/Tailwind classes for structural layouts, and customize Shadcn components to remove the default dark/heavy borders.",
-    "2": "Apply the 'Generous Spacing Philosophy'. Do not cram data. Let charts and metrics breathe with p-6 or p-8 inside cards.",
-    "3": "Load 'Outfit' and 'Figtree' fonts via Google Fonts in index.css. Map them properly in tailwind.config.js.",
-    "4": "The AI Chat Interface should feel integrated and calm, not like a separate clunky widget. Use subtle shadows and rounded-2xl corners.",
-    "5": "For the Dashboard, use the 'Control Room' bento grid pattern: high density but logically grouped with consistent heights (h-full).",
-    "6": "Use the provided media URLs for all imagery. DO NOT use placeholder services (e.g., via.placeholder.com).",
-    "7": "Ensure all text color contrasts strictly follow accessibility guidelines, especially light gray texts."
-  }
+  "instructions_to_main_agent": [
+    "You are building the 'Insights' or 'Portfolio Analysis' page for a dark-theme fintech app.",
+    "MUST use 'lucide-react' for all icons (AlertTriangle, TrendingUp, TrendingDown, Info, ShieldAlert, CheckCircle).",
+    "MUST use 'recharts' for the Performance Trend chart. Use AreaChart with gradients (`<defs><linearGradient>`).",
+    "MUST use Shadcn components: Card, Tabs, Progress, Badge, Avatar.",
+    "For the AMC Concentration stacked bar, manually create a flex container with colored divs for the percentages.",
+    "Implement the layout as a Dashboard pattern: Sidebar on left (optional or just a top nav), main content area with max-w-7xl.",
+    "Add 'data-testid' to all interactive elements like Tabs, Toggles, and Alert Banners.",
+    "Ensure the Portfolio Value card has the specific Teal gradient 'bg-gradient-to-br from-teal-900/40 to-slate-900'.",
+    "Do not use generic placeholder images. Use Avatar with initials for AMC logos (e.g., 'HD' for HDFC, 'SB' for SBI)."
+  ]
 }
