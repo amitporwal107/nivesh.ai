@@ -721,7 +721,11 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
     else:
         holdings = _parse_nsdl_cas(ordered_texts)
 
-    # ── Phase 5: Validate against summary ──
+    # ── Phase 5: Validate and enrich against masterdata ──
+    from services.masterdata import validate_and_enrich_holdings
+    holdings = validate_and_enrich_holdings(holdings)
+
+    # ── Phase 6: Log validation against summary ──
     if summary:
         _validate_against_summary(holdings, summary)
 
