@@ -255,7 +255,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
             label="CAS Connect"
             testId="header-cas-connect-btn"
-            onSuccess={() => { if (onUploadSuccess) onUploadSuccess(); loadHoldings(); }}
+            onSuccess={onRefresh}
           />
           <Button data-testid="add-holding-button" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
             <Plus className="w-4 h-4 mr-2" />Add Holding
@@ -354,7 +354,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                   className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
                   label="Import via CAS Connect"
                   testId="empty-cas-connect-btn"
-                  onSuccess={() => { if (onUploadSuccess) onUploadSuccess(); loadHoldings(); }}
+                  onSuccess={onRefresh}
                 />
                 <Button variant="outline" onClick={() => setShowAddDialog(true)} className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-add-btn">
                   <Plus className="w-4 h-4 mr-2" /> Add Manually
