@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
+import AICopilotView from "@/components/copilot/AICopilotView";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -23,7 +24,7 @@ const API = `${BACKEND_URL}/api`;
 const RISK_COLORS = { high: "#EF4444", medium: "#F59E0B", low: "#10B981" };
 const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
-const InsightsView = ({ insights: basicInsights, onRefresh }) => {
+const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile }) => {
   const { fmt } = useNumberFormat();
   const [analysis, setAnalysis] = useState(null);
   const [deepAnalytics, setDeepAnalytics] = useState(null);
@@ -188,19 +189,9 @@ const InsightsView = ({ insights: basicInsights, onRefresh }) => {
         </Card>
       ) : (
         <>
-          {/* ══════════════ TAB: AI OVERVIEW ══════════════ */}
+          {/* ══════════════ TAB: AI COPILOT (replaces old Overview) ══════════════ */}
           {activeTab === "overview" && (
-            <OverviewTab
-              pd={pd}
-              gauge={gauge}
-              ba={ba}
-              cost={cost}
-              ins={ins}
-              funnel={funnel}
-              doNothing={doNothing}
-              fmt={fmt}
-              analytics={deepAnalytics}
-            />
+            <AICopilotView riskProfile={riskProfile} />
           )}
 
           {/* ══════════════ TAB: BENCHMARK ══════════════ */}
