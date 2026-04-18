@@ -249,15 +249,14 @@ async def get_ocr_correction_stats(request: Request):
 
 
 
-# ─── CAS Parser API key management ──────────────────────────────────────
+# ─── CAS Parser API key management (legacy — kept for backward compat) ──
 @router.get("/admin/cas-config")
 async def get_cas_config(request: Request):
     """Return current CAS Parser config (prod key masked). Admin only."""
     await require_admin(request)
     from services import cas_api_client
     cfg = cas_api_client.get_effective_config()
-    # Include DB-persisted values (for display — same as effective but makes source explicit)
-    persisted = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0}) or {}
+    persisted = await db.system_config.find_one({"key": "secrets"}, {"_id": 0}) or {}
     cfg["persisted_at"] = persisted.get("updated_at")
     cfg["persisted_by"] = persisted.get("updated_by")
     return cfg
@@ -265,31 +264,27 @@ async def get_cas_config(request: Request):
 
 @router.put("/admin/cas-config")
 async def update_cas_config(request: Request):
-    """Persist CAS Parser key + sandbox toggle. Empty prod_key clears the override."""
+    """Persist CAS Parser key + sandbox toggle (routes through unified secrets)."""
     user = await require_admin(request)
     body = await request.json()
-    prod_key = body.get("prod_key")  # str (empty string clears override) or None (don't change)
-    use_sandbox = body.get("use_sandbox")  # bool or None
+    prod_key = body.get("prod_key")
+    use_sandbox = body.get("use_sandbox")
 
     from services import cas_api_client
+    from helpers import secrets as _secrets
 
     if prod_key is not None:
-        cas_api_client.set_override(prod_key=prod_key if prod_key.strip() else "", use_sandbox=None)
+        await _secrets.persist_to_db(db, "CASPARSER_API_KEY", prod_key.strip() or None, updated_by=user.get("email", ""))
     if use_sandbox is not None:
-        cas_api_client.set_override(prod_key=None, use_sandbox=bool(use_sandbox))
-
-    now = datetime.now(timezone.utc).isoformat()
-    update_doc = {"updated_at": now, "updated_by": user.get("email", "")}
-    if prod_key is not None:
-        update_doc["prod_key"] = prod_key.strip()
-    if use_sandbox is not None:
-        update_doc["use_sandbox"] = bool(use_sandbox)
-
-    await db.system_config.update_one(
-        {"key": "cas_parser"},
-        {"$set": update_doc, "$setOnInsert": {"key": "cas_parser"}},
-        upsert=True,
-    )
+        cas_api_client.set_override(use_sandbox=bool(use_sandbox))
+        # also track sandbox toggle in system_config.cas so it survives restart
+        from datetime import datetime, timezone
+        await db.system_config.update_one(
+            {"key": "cas_parser"},
+            {"$set": {"use_sandbox": bool(use_sandbox), "updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": user.get("email", "")},
+             "$setOnInsert": {"key": "cas_parser"}},
+            upsert=True,
+        )
     return {"status": "ok", "config": cas_api_client.get_effective_config()}
 
 
@@ -308,3 +303,138 @@ async def test_cas_connection(request: Request):
         "expires_in": token_res.get("expires_in"),
         "mode": "sandbox" if tok.startswith("sandbox-") else "production",
     }
+
+
+# ═══ Secrets Management (generic CRUD) ═══════════════════════════════════
+@router.get("/admin/secrets")
+async def list_secrets(request: Request):
+    """List all known + custom secrets with masked values. Admin only."""
+    await require_admin(request)
+    from helpers import secrets as _secrets
+    persisted = await db.system_config.find_one({"key": "secrets"}, {"_id": 0}) or {}
+    return {
+        "secrets": _secrets.list_all(),
+        "updated_at": persisted.get("updated_at"),
+        "updated_by": persisted.get("updated_by"),
+    }
+
+
+@router.put("/admin/secrets/{key}")
+async def upsert_secret(key: str, request: Request):
+    """Set or update a secret value. Admin only."""
+    user = await require_admin(request)
+    body = await request.json()
+    value = body.get("value")
+    if value is None:
+        raise HTTPException(status_code=400, detail="value is required")
+    if not value or not value.strip():
+        raise HTTPException(status_code=400, detail="value must not be empty")
+    from helpers import secrets as _secrets
+    await _secrets.persist_to_db(db, key, value.strip(), updated_by=user.get("email", ""))
+    return {"status": "ok", "key": key, "masked_value": _secrets.mask(value.strip())}
+
+
+@router.delete("/admin/secrets/{key}")
+async def delete_secret(key: str, request: Request):
+    """Remove DB override for a secret. Falls back to env. Admin only."""
+    user = await require_admin(request)
+    from helpers import secrets as _secrets
+    await _secrets.persist_to_db(db, key, None, updated_by=user.get("email", ""))
+    return {"status": "ok", "key": key, "deleted": True}
+
+
+@router.post("/admin/secrets/{key}/test")
+async def test_secret(key: str, request: Request):
+    """Invoke the registered test handler for a known secret. Admin only."""
+    await require_admin(request)
+    from helpers import secrets as _secrets
+    meta = _secrets.KNOWN_SECRETS.get(key)
+    if not meta or not meta.get("test_fn"):
+        raise HTTPException(status_code=400, detail="No test available for this secret")
+    test_fn = meta["test_fn"]
+
+    if test_fn == "cas_parser":
+        from services import cas_api_client
+        res = cas_api_client.generate_access_token(expiry_minutes=5)
+        if not res:
+            return {"ok": False, "error": "Token mint failed"}
+        tok = res.get("access_token", "")
+        return {
+            "ok": True,
+            "detail": f"{'sandbox' if tok.startswith('sandbox-') else 'production'} mode — token expires in {res.get('expires_in')}s",
+        }
+
+    if test_fn in ("llm", "openai"):
+        # Lightweight ping — 1-token completion
+        try:
+            from openai import OpenAI
+            k = _secrets.get("OPENAI_API_KEY") if test_fn == "openai" else _secrets.get("EMERGENT_LLM_KEY")
+            if not k:
+                return {"ok": False, "error": "Key not configured"}
+            base_url = "https://integrations.emergentagent.com/openai" if test_fn == "llm" else None
+            client = OpenAI(api_key=k, base_url=base_url) if base_url else OpenAI(api_key=k)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+                temperature=0,
+            )
+            return {"ok": True, "detail": f"Response received (model: {resp.model})"}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+
+    return {"ok": False, "error": f"Unknown test_fn: {test_fn}"}
+
+
+# ═══ Feature Flags Management ════════════════════════════════════════════
+@router.get("/admin/feature-flags")
+async def list_feature_flags(request: Request):
+    """List all feature flags with modes + allowlists. Admin only."""
+    await require_admin(request)
+    import feature_flags
+    persisted = await db.system_config.find_one({"key": "feature_flags"}, {"_id": 0}) or {}
+    return {
+        "flags": feature_flags.list_all(),
+        "updated_at": persisted.get("updated_at"),
+        "updated_by": persisted.get("updated_by"),
+    }
+
+
+@router.put("/admin/feature-flags/{flag}")
+async def update_feature_flag(flag: str, request: Request):
+    """Update mode and/or allowlist for a flag. Admin only."""
+    user = await require_admin(request)
+    body = await request.json()
+    mode = body.get("mode")
+    allowlist = body.get("allowlist")
+    import feature_flags
+    try:
+        feature_flags.set_flag(flag, mode=mode, allowlist=allowlist)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
+    return {"status": "ok", "flag": flag}
+
+
+@router.post("/admin/feature-flags/{flag}/users")
+async def add_feature_user(flag: str, request: Request):
+    """Add an email to a flag's allowlist. Admin only."""
+    user = await require_admin(request)
+    body = await request.json()
+    email = (body.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+    import feature_flags
+    feature_flags.add_user(flag, email)
+    await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
+    return {"status": "ok", "flag": flag, "email": email}
+
+
+@router.delete("/admin/feature-flags/{flag}/users/{email}")
+async def remove_feature_user(flag: str, email: str, request: Request):
+    """Remove an email from a flag's allowlist. Admin only."""
+    user = await require_admin(request)
+    import feature_flags
+    feature_flags.remove_user(flag, email)
+    await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
+    return {"status": "ok", "flag": flag, "email": email}

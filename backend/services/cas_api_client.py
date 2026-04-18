@@ -24,56 +24,52 @@ import httpx
 logger = logging.getLogger("cas_api_client")
 
 # ── Env ────────────────────────────────────────────────────────
-BASE_URL = os.environ.get("CASPARSER_BASE_URL", "https://api.casparser.in")
-PROD_KEY = os.environ.get("CASPARSER_API_KEY", "")
+# Secrets (CASPARSER_API_KEY, CASPARSER_BASE_URL) resolved via helpers.secrets
+# which checks DB overrides first then env. Other config stays as env-only.
+from helpers import secrets as _secrets
+
 SANDBOX_KEY = os.environ.get("CASPARSER_SANDBOX_KEY", "sandbox-with-json-responses")
 USE_SANDBOX = os.environ.get("CASPARSER_USE_SANDBOX", "false").lower() == "true"
 TIMEOUT_S = float(os.environ.get("CASPARSER_TIMEOUT", "120"))
-# nginx (fronting the CAS Parser API) rejects uploads > ~1.9 MiB with 413
-# despite the documented 10 MiB cap. Oversize PDFs skip the API entirely and
-# fall through to the local OCR path in the caller.
 API_SIZE_LIMIT = 1_800_000
 
-# Admin overrides — set via /admin/cas-config endpoint, persisted to db.system_config.
-# Overrides take precedence over env variables.
-_override_prod_key: Optional[str] = None
+# Admin overrides for sandbox toggle (legacy — key override now goes via helpers.secrets)
 _override_sandbox: Optional[bool] = None
 
 
+def _base_url() -> str:
+    return _secrets.get("CASPARSER_BASE_URL") or "https://api.casparser.in"
+
+
+# Legacy shim — kept so existing admin endpoint call sites still work.
 def set_override(prod_key: Optional[str] = None, use_sandbox: Optional[bool] = None) -> None:
-    """Admin-controlled override for API key + sandbox toggle."""
-    global _override_prod_key, _override_sandbox
+    global _override_sandbox
     if prod_key is not None:
-        _override_prod_key = prod_key.strip() or None
+        _secrets.set_override("CASPARSER_API_KEY", prod_key.strip() or None)
     if use_sandbox is not None:
         _override_sandbox = bool(use_sandbox)
 
 
 def get_effective_config() -> Dict:
-    """Return effective config (masked key) — for admin UI display."""
-    prod = _override_prod_key if _override_prod_key is not None else PROD_KEY
+    prod = _secrets.get("CASPARSER_API_KEY")
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
     active_key = SANDBOX_KEY if use_sb or not prod else prod
     return {
-        "prod_key_masked": _mask(prod),
+        "prod_key_masked": _secrets.mask(prod),
         "prod_key_configured": bool(prod),
         "use_sandbox": use_sb,
-        "active_key_masked": _mask(active_key),
-        "source_override": _override_prod_key is not None or _override_sandbox is not None,
-        "base_url": BASE_URL,
+        "active_key_masked": _secrets.mask(active_key),
+        "source_override": "CASPARSER_API_KEY" in _secrets._cache or _override_sandbox is not None,
+        "base_url": _base_url(),
     }
 
 
 def _mask(s: Optional[str]) -> str:
-    if not s:
-        return ""
-    if len(s) <= 8:
-        return "••••"
-    return f"{s[:4]}••••••{s[-4:]}"
+    return _secrets.mask(s)
 
 
 def _active_key() -> str:
-    prod = _override_prod_key if _override_prod_key is not None else PROD_KEY
+    prod = _secrets.get("CASPARSER_API_KEY")
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
     if use_sb or not prod:
         return SANDBOX_KEY
@@ -107,7 +103,7 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
     try:
         with httpx.Client(timeout=30) as client:
             resp = client.post(
-                f"{BASE_URL}/v1/token",
+                f"{_base_url()}/v1/token",
                 headers={"x-api-key": api_key},
                 json={"expiry_minutes": max(5, min(expiry_minutes, 60))},
             )
@@ -163,7 +159,7 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
     try:
         with httpx.Client(timeout=TIMEOUT_S) as client:
             resp = client.post(
-                f"{BASE_URL}{endpoint}",
+                f"{_base_url()}{endpoint}",
                 headers={"x-api-key": api_key},
                 files={"file": ("cas.pdf", io.BytesIO(content), "application/pdf")},
                 data={"password": password or ""},
