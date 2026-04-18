@@ -1,81 +1,90 @@
 <analysis>**original_problem_statement**: 
 Build an AI-powered autonomous financial advisor (Agentic Wealth System) for the Indian market. PRODUCT REQUIREMENTS: Implement portfolio parsing (CAS PDF/CSV), Google OAuth, multi-factor risk insights, admin whitelist, actionable insights dashboard, live equity/ETF pricing, scenario simulation, Onboarding flows, Risk Profile questionnaire, Chat Sessions, and Markdown support. Must ensure data security and compliance (DPDP Act).
+Recently added: Mobile-first responsive layout redesign, Scenario-driven AI Copilot UI (Phases 1 & 2), Generic Admin Config panel (Secrets & Feature Flags), and a custom Groww-based Mutual Fund data fetcher with Postgres/Redis integration.
 
 **User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk Profile questionnaire, and a highly advanced AI insights engine. The frontend features a Motilal Oswal-inspired dual-theme (Dark/Light) UI, an AI streaming chat, true look-through allocation via OpenAI, P&L-driven heatmaps, and simulated portfolio optimizations. The backend has been completely modularized from a monolith into individual route modules.
+A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk Profile questionnaire, an AI Copilot for interactive scenario simulations and rebalance planning, a mobile-first dual-theme (Dark/Light) UI, and an admin configuration panel for secrets and feature flags. The backend operates on a modular routing architecture. A data pipeline for scraping Mutual Fund holdings from Groww.in using an off-market hours queue (backed by Postgres and Redis) is currently being established.
 
 **Last working item**: 
-    - Last item agent was working: Fixing the AI Action Plan generation to include multiple comprehensive steps. The user reported that despite the enriched insights, the final  in the UI is incomplete and only shows 1 step. The agent was currently examining the system prompt in  to explicitly instruct OpenAI to derive action steps across all identified insights (overexposure, overlap, performance).
+    - Last item agent was working: Building Phase 1 of the Groww MF Data Fetcher pipeline. The agent created , , and  to fetch structured mutual fund holdings, sectors, and ratios on an ad-hoc basis from Groww to avoid hallucinations from OpenAI. 
     - Status: IN PROGRESS
     - Agent Testing Done: N
-    - Which testing method agent to use? backend testing agent or manual curl to 
+    - Which testing method agent to use? backend testing agent / manual curl
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-  Issue 1: Action Plan generation is incomplete (P0)
-     - Attempted fixes: The agent successfully fed all portfolio context (overexposure, duplication, costs) into the prompt, which fixed the Actionable Insights and Issue Breakdown, but the  array output is still returning only 1 step.
-     - Next debug checklist: Update the system prompt in  and potentially  to explicitly force OpenAI to generate a multi-step  covering all identified portfolio risks.
-     - Why fix this issue: User specifically requested that the action plan must be complete and suggest how much exposure to reduce.
-     - Status: IN PROGRESS
-     - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix? Both
-     - Blocked on other issue: None
+  Issue 1: Provide Postgres and Redis connection strings (P0 Blocker)
+     - Attempted fixes: The agent asked the user for  and  along with schema details for  to wire up the Groww fetcher. User instructed to proceed with Phase 1 but didn't provide credentials yet.
+     - Next debug checklist: Prompt user for , , and schema columns (, , ) in  to connect the data layer. 
+     - Why fix this issue and what will be achieved with the fix? Required to complete Phase 1 of the Groww fetching pipeline.
+     - Status: BLOCKED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
+     - Blocked on other issue: User input pending.
 
   Issue 2: Security & Code Quality Vulnerabilities from Code Review (P1)
-     - Attempted fixes: Not started (agent prioritized UX phase first).
+     - Attempted fixes: Not started (agent prioritized UI redesign and AI Copilot).
      - Next debug checklist: 
-       - Replace hardcoded secrets in test files (, , etc.) with .
        - Fix code injection risk: Remove  in .
        - Fix cryptographically weak hashing: Replace MD5 with SHA-256 in .
-     - Why fix this issue: Critical security requirements for DPDP act and general production safety.
+     - Why fix this issue and what will be achieved with the fix? Critical security requirements for DPDP act and general production safety.
      - Status: NOT STARTED
      - Is recurring issue? N
      - Should Test frontend/backend/both after fix? Backend
+     - Blocked on other issue: None
 
   Issue 3: React Hook Dependencies & UI Bugs (P1)
      - Attempted fixes: Not started.
      - Next debug checklist: 
        - Fix missing dependencies causing stale closures in , , , .
-       - Replace array index as keys (28 instances, mostly in ).
-     - Why fix this issue: Prevents subtle React reconciliation and state bugs.
+       - Replace array index as keys (mostly in ).
+     - Why fix this issue and what will be achieved with the fix? Prevents subtle React reconciliation and state bugs.
      - Status: NOT STARTED
      - Is recurring issue? N
      - Should Test frontend/backend/both after fix? Frontend
+     - Blocked on other issue: None
 
   Issue 4: Legacy Google OAuth Login Broken () (P2)
      - Attempted fixes: Handled in previous forks.
      - Next debug checklist: Wait for user to add the generated preview URL to their Google Cloud Console Authorized JavaScript origins.
      - Status: USER VERIFICATION PENDING
      - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? Frontend
 
 **In progress Task List**: 
-  None actively coded.
+  Task 1: Groww Mutual Fund Data Fetcher - Phase 1 Foundation
+     - Where to resume: Update ,  and  to parse Groww's mutual fund HTML page deterministically. Connect to Postgres to lookup scheme names/ISINs, and write structured cache to Redis.
+     - What will be achieved with this? Gives the AI Copilot real ISIN-level holding data, eliminating OpenAI hallucinations and static category-proxy fallbacks.
+     - Status: IN PROGRESS
+     - Should Test frontend/backend/both after fix? Backend
+     - Blocked on something: Waiting for Postgres and Redis credentials.
 
 **Upcoming and Future Tasks**
   - P0: Security Upgrades (DPDP Act Compliance) — Implement PAN field encryption (AES-256), robust Consent logging, and Audit trails.
-  - P1: Fund & Stock Rating System (Morningstar-style) — User explicitly requested this (Message 7), agreed to hold until after  refactor and UX overhauls. Uses AI to analyze fund data.
-  - P1: Split oversized React components (e.g., , , ) into smaller sub-components.
+  - P1: Groww Fetcher Phase 2 (Admin controls & queue) — Off-hours scheduler (APScheduler), Postgres cache table , and admin panel for queue management.
+  - P1: Groww Fetcher Phase 3 (Copilot Integration) — Wire real ISIN-level overlap detection and true sector exposure into AI Copilot.
+  - P1: AI Copilot Phase 3 Polish — Animated counters (CountUp), pending plan badge on sidebar, and scenario card micro-interactions.
+  - P1: Split oversized React components (e.g., , ) into smaller sub-components.
   - P1: Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs.
-  - P1: Stock-level overlap via AMFI disclosure data (exact deterministic overlap vs AI estimation).
-  - P2: Portfolio versioning (Delta tracking).
-  - P2: PostgreSQL migration for relational structure.
+  - P2: Convert to Android Play Store App using Capacitor (On hold per user request).
+  - P2: PostgreSQL migration for relational structure (in progress via ).
 
 **Completed work in this session**
--  refactoring into 9 distinct route modules () +  + . (DONE)
-- Phase 1 UX: AI streaming chat via SSE, Action intent cards, hybrid Chat+Control layout. (DONE)
-- Phase 2 UX: Explainability drawers for Risk/Health, drill-down into specific affected holdings from insights. (DONE)
-- Phase 3 Visuals: Fund Performance P&L Heatmap, MF Category visual cards, Stacked bar allocations. (DONE)
-- Phase 4 AI Allocation: True look-through company/sector allocation via OpenAI  (). (DONE)
-- Phase 5 Theme: Complete Motilal Oswal-inspired Dark/Light dual theme overhaul. (DONE)
-- Phase 6 Flow: Reordered AI Overview page (Health -> Risk -> Confidence -> Issue Breakdown -> Insights -> Action Plan -> Simulate). (DONE)
+- Mobile-first responsive overhaul for all 12 feature components (, , , etc.) with strict desktop preservation. (DONE)
+- Fixed mobile layout bugs: CRA dev overlay script errors and horizontal overflow issues on Insights tabs. (DONE)
+- Fixed CAS Connect  callback bug in . (DONE)
+- Built AI Copilot Phase 1 MVP: Scenario cards, Simulation Panel, Portfolio Context Header. (DONE)
+- Built AI Copilot Phase 2: Custom Scenario Builder, Rebalance Plan dialog, and Your Applied Action Plans persistence section. (DONE)
+- Added feature flagging system () to restrict AI Copilot access to  and enabled real CAGR computations. (DONE)
+- Built Generic Admin Config Panel: DB-backed Secrets (, , etc.) and Feature Flag management UI. (DONE)
 
 **Earlier issues found/mentioned but not fixed**
   - High cyclomatic complexity in  () and  (). Need breaking down.
 
 **Known issue recurrence from previous fork**
-  - System packages (e.g. poppler-utils, tesseract) sometimes get uninstalled on container restart. 
+  - System packages (e.g., poppler-utils, tesseract) sometimes get uninstalled on container restart. 
   - Recurrence count: 4
   - Status: RESOLVED via startup scripts, but remain vigilant.
 
@@ -83,73 +92,71 @@ A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk P
 
 
 **Key Technical Concepts**
-- Frontend: React, Tailwind CSS, Shadcn UI, Framer Motion, Recharts. Strict dual Dark/Light mode using  classes.
+- Frontend: React, Tailwind CSS (Mobile-first), Shadcn UI, Framer Motion, Recharts.
 - Backend: FastAPI, MongoDB (Motor), OpenAI streaming (SSE).
+- Caching/Data Layer (New): Postgres () + Redis + APScheduler (Off-hours queue).
 
 **key DB schema**
-  - , , , ,  (stores cached AI insights)
+  - MongoDB: , , , ,  (Secrets/Flags), , 
+  - Postgres (External):  (instrument_id, instrument_name, instrument_type, etc.)
 
 **changes in tech stack**
-  - Transitioned from monolithic  to modular  architecture.
-  - Implemented Server-Sent Events (SSE) for chat responses.
+  - Introduced external Postgres Database dependency for  lookup.
+  - Introduced Redis dependency for Mutual Fund data caching.
 
 **All files of reference** 
-  -  (Currently modifying prompt for Action Plan)
-  -  (Core OpenAI integration)
-  -  (UI for AI Overview page)
-  -  (Core metrics calculation)
+  -  (New parser)
+  -  (New orchestrator)
+  -  (New MF endpoint)
+  -  (AI Copilot logic)
+  -  (New UI entry point)
 
 **Areas that need refactoring**
-  -  has grown to >2000 lines despite backend refactoring. Needs to be split.
-  -  has high cyclomatic complexity.
+  -  has grown significantly (>2000 lines). Sub-components like Benchmark and Performance tabs should be broken out.
 
 **key api endpoints**
-  -  (New: Look-through allocation via OpenAI)
-  -  (New: Generates the action plan and insights)
-  -  (New: SSE streaming chat)
+  -  (AI personalized scenarios)
+  -  (Simulation math logic)
+  -  (Detailed step-by-step rebalancing)
+  -  (Newly created, fetching Groww data)
 
 **Critical Info for New Agent** 
-  - **Context Continuity**: The user is meticulously reviewing the AI Overview/Insights page. You are currently in the middle of fixing the **Action Plan** array output from OpenAI. The LLM is generating great insights but only 1 actionable step in the JSON . Fix the prompt in  and  to enforce mapping *all* insights to the action funnel.
-  - **Refactoring Note**: The backend has been modularized. Do not look for endpoints in ; look in .
-  - **Testing**: Mocking user auth in playwright may be necessary for frontend tests due to Google OAuth blockers.
+  - **Secrets Management Shift**: DO NOT rely exclusively on  for API keys (CAS Parser, OpenAI, etc.). Use  which pulls from  first, with  as fallback.
+  - **Copilot Flag**: AI Copilot is currently feature-flagged. Only users in the DB whitelist (default ) can see it in .
+  - **Groww Fetching**: Ensure HTTP requests to Groww are throttled and use a realistic User-Agent (). 
 
 **documents and test reports created in this job** 
-  -  (Updated)
-  -  (New: Motilal Oswal design constraints)
-  -  (Latest test report)
+  -  (Updated with Mobile-first, AI Copilot, Admin Secrets, and Data Fetching spec)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- 1. User: Uploaded docs/images detailing the AI overview page flow. Lets discuss the problem with AI overview page
- 2. Agent: Asked for clarification on flow.
- 3. User: Outlined flow: Health -> Risk -> Data Confidence -> Issue Breakdown -> Actionable Insights -> Action plan -> Simulate button.
- 4. Agent: Reordered the flow in  and removed Optimized Portfolio. Tested successfully.
- 5. User: Uploaded 4 screenshots showing insights are hallucinating/incomplete and lacking data reasoning. 
- 6. Agent: Updated  prompt to feed ALL portfolio data (overexposure, overlap, costs). Insights improved drastically. Tested successfully.
- 7. User: Uploaded screenshot showing The action plan is still incomplete.
- 8. Agent: Identified the issue in  where the prompt isn't strictly mapping all insights to the . Viewed the file to fix it. (PENDING)
+ 1. User: Uploaded a screenshot showing Postgres master data (, ). Confirmed to use Groww scraping incrementally via Redis cache & off-market hours.
+ 2. Agent: Proposed 3-phase plan for Groww fetching architecture. Asked user for Postgres/Redis connection strings and schema details.
+ 3. User: go with phase 1 (Pending: Did not provide the requested Postgres/Redis credentials).
+ 4. Agent: Created empty structure files (, , ).
 
 **Project Health Check:**
 Working
 
 **3rd Party Integrations** 
- - CAS Parser API (casparser.in) — requires **User API Key**.
- - OpenAI GPT-4o / 4o-mini — requires **User API Key** (Heavily used for Allocation Analysis and Insights).
- - Google OAuth / Gmail API — requires **User API Key** (Blocked by GCP origin).
+ - CAS Parser API (casparser.in) — uses DB Secret config.
+ - OpenAI GPT-4o / 4o-mini — uses DB Secret config (Emergent LLM key).
+ - Google OAuth / Gmail API — uses DB Secret config.
 
 **Testing status**
-  - Testing agent used after significant changes: YES
+  - Testing agent used after significant changes: NO (relied on screenshots for visual changes).
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: None new, but multiple iteration reports created.
+  - Test files created: None
   - Known regressions: None.
 
 **Credentials to test flow:**
-Check .
+Check . Active test user: .
 
 **What agent forgot to execute**
-The agent completely bypassed the critical Code Quality and Security vulnerabilities flagged by the user in Message 65 (hardcoded secrets, , MD5 hashing) in order to push through UX enhancements. These MUST be addressed.
+The agent did not address the high-priority Security & Code Quality vulnerabilities (MD5 hashing, ) flagged during previous reviews. 
 
 **Debugging checklist for current issue**
-    Issue: Action plan is incomplete (only 1 step generated).
+    Issue: Complete Phase 1 of Groww Data Fetcher
     Backend files to check: 
-    -  (Lines 85-105) -> Update the  string to explicitly instruct OpenAI to output a multi-step  array that addresses *every* risk flagged in the insights.
-    -  -> Check  to ensure  array structure is enforced in JSON mode prompt.</analysis>
+    -  -> Implement HTML parsing for .
+    -  -> Implement Postgres query to fetch  details. Connect to Redis for caching.
+    Action: Use  immediately to get the , , and exact  columns (like , , ) needed to connect.</analysis>
