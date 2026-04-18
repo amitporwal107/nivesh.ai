@@ -383,6 +383,23 @@ async def test_secret(key: str, request: Request):
         except Exception as e:
             return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
 
+    if test_fn == "postgres":
+        from services import pg_client
+        # Force pool rebuild against latest URL
+        await pg_client.close_pool()
+        res = await pg_client.ping()
+        if res.get("ok"):
+            return {"ok": True, "detail": f"Connected — {res.get('version', '')[:60]}"}
+        return {"ok": False, "error": res.get("reason", "unknown")}
+
+    if test_fn == "redis":
+        from services import redis_client
+        await redis_client.close_client()
+        res = await redis_client.ping()
+        if res.get("ok"):
+            return {"ok": True, "detail": f"Connected — redis {res.get('version', '')}"}
+        return {"ok": False, "error": res.get("reason", "unknown")}
+
     return {"ok": False, "error": f"Unknown test_fn: {test_fn}"}
 
 

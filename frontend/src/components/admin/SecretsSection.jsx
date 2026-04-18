@@ -13,6 +13,7 @@ const CATEGORY_LABELS = {
   parsing: "Parsing",
   ai: "AI / LLM",
   auth: "Authentication",
+  data: "Data Layer",
   custom: "Custom",
 };
 

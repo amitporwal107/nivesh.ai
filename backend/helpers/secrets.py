@@ -48,6 +48,18 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "parsing",
     },
+    "POSTGRES_URL": {
+        "display_name": "Postgres URL",
+        "description": "Connection string for instrument_master / MF NAV lookups (postgresql://user:pw@host:5432/nivesh)",
+        "test_fn": "postgres",
+        "category": "data",
+    },
+    "REDIS_URL": {
+        "display_name": "Redis URL",
+        "description": "Connection string for MF holdings cache (redis://host:6379/0)",
+        "test_fn": "redis",
+        "category": "data",
+    },
 }
 
 # Module-level cache: DB overrides. Populated at startup + on update.
