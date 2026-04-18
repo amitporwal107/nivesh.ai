@@ -610,6 +610,24 @@ async def list_pending(request: Request):
     return {"pending": items}
 
 
+@router.delete("/scenarios/pending/{plan_id}")
+async def delete_pending(plan_id: str, request: Request):
+    user = await _require_copilot(request)
+    r = await db.pending_actions.delete_one({"plan_id": plan_id, "user_id": user["user_id"]})
+    return {"deleted": r.deleted_count}
+
+
+@router.post("/scenarios/pending/{plan_id}/complete")
+async def complete_pending(plan_id: str, request: Request):
+    """Mark plan as done (user executed it manually)."""
+    user = await _require_copilot(request)
+    r = await db.pending_actions.update_one(
+        {"plan_id": plan_id, "user_id": user["user_id"]},
+        {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"updated": r.modified_count}
+
+
 def _build_top_changes(payload: SimulateRequest, before: Dict, after: Dict, cost_saving: int) -> List[str]:
     changes: List[str] = []
     if payload.target_debt is not None and payload.target_debt != before["debt_pct"]:

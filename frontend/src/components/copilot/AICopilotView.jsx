@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Sparkles, Lightbulb, AlertTriangle, Sliders, Bookmark, Trash2 } from "lucide-react";
+import { Sparkles, Lightbulb, AlertTriangle, Sliders, Bookmark, Trash2, ClipboardList, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,8 @@ const AICopilotView = ({ riskProfile }) => {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [savedList, setSavedList] = useState([]);
+  const [pendingPlans, setPendingPlans] = useState([]);
+  const [expandedPlan, setExpandedPlan] = useState(null);
 
   const loadScenarios = useCallback(async () => {
     setLoading(true);
@@ -64,10 +66,20 @@ const AICopilotView = ({ riskProfile }) => {
     }
   }, []);
 
+  const loadPending = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/scenarios/pending`, { withCredentials: true });
+      setPendingPlans(res.data.pending || []);
+    } catch (err) {
+      // non-fatal
+    }
+  }, []);
+
   useEffect(() => {
     loadScenarios();
     loadSaved();
-  }, [loadScenarios, loadSaved]);
+    loadPending();
+  }, [loadScenarios, loadSaved, loadPending]);
 
   const buildSimulatePayload = (scenario) => {
     const alloc = scenario.target_allocation || {};
@@ -199,6 +211,27 @@ const AICopilotView = ({ riskProfile }) => {
       { id: s.scenario_id || "custom", title: s.name, category: "optimization" },
       s.payload
     );
+  };
+
+  // ---------- pending plans ----------
+  const handleDeletePending = async (planId) => {
+    try {
+      await axios.delete(`${API}/scenarios/pending/${planId}`, { withCredentials: true });
+      toast.success("Plan removed");
+      loadPending();
+    } catch (err) {
+      toast.error("Delete failed");
+    }
+  };
+
+  const handleCompletePending = async (planId) => {
+    try {
+      await axios.post(`${API}/scenarios/pending/${planId}/complete`, {}, { withCredentials: true });
+      toast.success("Marked as completed");
+      loadPending();
+    } catch (err) {
+      toast.error("Update failed");
+    }
   };
 
   // ---------- render ----------
@@ -341,6 +374,105 @@ const AICopilotView = ({ riskProfile }) => {
                 </button>
               </div>
             ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Pending Plans (applied scenarios awaiting execution) */}
+      {pendingPlans.length > 0 && (
+        <Card
+          data-testid="pending-plans"
+          className="p-4 sm:p-5 rounded-2xl border-amber-200 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <ClipboardList className="w-4 h-4 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+            <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+              Your Applied Action Plans
+            </h3>
+            <span className="text-xs text-amber-600 dark:text-amber-400">({pendingPlans.length} pending)</span>
+          </div>
+          <div className="space-y-2">
+            {pendingPlans.map((p) => {
+              const expanded = expandedPlan === p.plan_id;
+              const createdDate = new Date(p.created_at).toLocaleString("en-IN", {
+                day: "numeric", month: "short", hour: "numeric", minute: "numeric",
+              });
+              return (
+                <div
+                  key={p.plan_id}
+                  data-testid={`plan-${p.plan_id}`}
+                  className="rounded-xl border border-amber-200 dark:border-amber-900 bg-white dark:bg-slate-900 overflow-hidden"
+                >
+                  <div className="p-3 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setExpandedPlan(expanded ? null : p.plan_id)}
+                      className="flex-1 text-left flex items-center gap-2 min-w-0"
+                    >
+                      {expanded ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />}
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm text-slate-900 dark:text-white truncate">
+                          {p.scenario_id ? p.scenario_id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Custom Plan"}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                          <span>{p.actions?.length || 0} actions</span>
+                          <span>·</span>
+                          <span>{createdDate}</span>
+                        </div>
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCompletePending(p.plan_id)}
+                        data-testid={`complete-${p.plan_id}`}
+                        className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 h-8 px-2"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="sr-only">Mark done</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeletePending(p.plan_id)}
+                        data-testid={`delete-plan-${p.plan_id}`}
+                        className="text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 h-8 px-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="sr-only">Delete</span>
+                      </Button>
+                    </div>
+                  </div>
+                  {expanded && p.actions?.length > 0 && (
+                    <div className="px-3 pb-3 space-y-1.5 border-t border-amber-100 dark:border-amber-950 pt-3">
+                      {p.actions.map((a, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded font-bold text-[10px] tracking-wider flex-shrink-0 ${
+                              a.action === "REDUCE" ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400" :
+                              a.action === "EXIT" ? "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400" :
+                              a.action === "SWITCH" ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-400" :
+                              "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
+                            }`}
+                          >
+                            {a.action}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-slate-900 dark:text-white truncate">{a.holding_name}</div>
+                            <div className="text-slate-500 dark:text-slate-400">{a.reason}</div>
+                          </div>
+                          {a.change_amount !== 0 && (
+                            <span className={`font-bold flex-shrink-0 ${a.change_amount < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                              {a.change_amount < 0 ? "−" : "+"}₹{Math.abs(a.change_amount).toLocaleString("en-IN")}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}
