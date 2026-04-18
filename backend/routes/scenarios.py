@@ -262,6 +262,70 @@ async def suggest_scenarios(request: Request):
     candidates.sort(key=lambda x: (not x.get("recommended"), x["id"]))
     scenarios = candidates[:4]
 
+    # ── Intelligence-driven scenario: consolidate top redundancy ─────────
+    # Appended separately so it never gets squeezed out of the top 4.
+    try:
+        from services import portfolio_intelligence as _pi
+        intel = await _pi.compute_portfolio_intelligence(user["user_id"])
+        if not intel.get("empty"):
+            top_redund = (intel.get("redundancy_suggestions") or [])[:1]
+            worst_cat = next(
+                (c for c in (intel.get("category_inefficiency") or [])
+                 if c.get("avg_pair_overlap", 0) >= 50),
+                None,
+            )
+            if top_redund:
+                r = top_redund[0]
+                scenarios.insert(0, {
+                    "id": "consolidate_overlap",
+                    "title": f"Consolidate: remove {r['remove_name'][:34]}",
+                    "subtitle": f"Cut overlap {r['overlap_reduced_pp']} pp · {r['sector_l1_drift_pct']}% sector drift",
+                    "category": "intelligence",
+                    "icon": "layers",
+                    "current_value": f"{intel['compression']['score']} efficiency",
+                    "target_value": f"−{r['overlap_reduced_pp']} pp overlap",
+                    "target_allocation": {"remove_mf_ids": [r["remove_id"]]},
+                    "impact": {
+                        "diversification": "up",
+                        "concentration_risk": "down",
+                        "return": "neutral",
+                    },
+                    "reason": (
+                        f"Real stock-level analysis shows removing this fund "
+                        f"(₹{int(r['remove_amount_rs']):,}) reduces portfolio overlap "
+                        f"by {r['overlap_reduced_pp']} pp with only {r['sector_l1_drift_pct']}% "
+                        f"sector drift."
+                    ),
+                    "recommended": True,
+                    "intel_ref": {
+                        "compression_score": intel["compression"]["score"],
+                        "effective_stocks": intel["compression"]["effective_stocks"],
+                        "behaves_like_rs": intel["narrative"]["behaves_like_rs"],
+                        "total_invested_rs": intel["narrative"]["total_invested_rs"],
+                    },
+                })
+            if worst_cat:
+                scenarios.insert(1 if top_redund else 0, {
+                    "id": f"category_{worst_cat['category'].lower().replace(' ', '_')}",
+                    "title": f"Consolidate {worst_cat['category']} funds",
+                    "subtitle": f"{worst_cat['funds_count']} funds with {worst_cat['avg_pair_overlap']}% avg overlap",
+                    "category": "intelligence",
+                    "icon": "alert-triangle",
+                    "current_value": f"{worst_cat['funds_count']} funds",
+                    "target_value": f"{max(1, worst_cat['funds_count']-1)} funds",
+                    "target_allocation": {"category": worst_cat["category"]},
+                    "impact": {"diversification": "up", "return": "neutral"},
+                    "reason": (
+                        f"Your {worst_cat['funds_count']} {worst_cat['category']} funds "
+                        f"(₹{int(worst_cat['invested_rs']):,}) have {worst_cat['avg_pair_overlap']}% "
+                        f"average pairwise overlap — effectively duplicating strategies."
+                    ),
+                    "recommended": worst_cat["avg_pair_overlap"] >= 60,
+                })
+            scenarios = scenarios[:5]
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"intelligence scenario augmentation skipped: {e}")
+
     return {"scenarios": scenarios, "context": ctx}
 
 

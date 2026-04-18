@@ -2,6 +2,13 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — CAGR fix + Category Ratings + Copilot wiring
+- [x] **CAGR bug fix** (`routes/analytics.py`) — only computes CAGR when holding is ≥1 year old. Previously ingested `buy_date=today` produced absurd values like +720,699,398% (ratio^10). Now shows `—` until real purchase dates are parsed from CAS transactions.
+- [x] **Category AI ratings** (`services/ai_insights.rate_portfolio_categories`) — per-category 1-5 star rating based on fund count + avg pair overlap; LLM upgrades the reason text. Exposed in `/api/intelligence/portfolio` response as `category_ratings[]`.
+- [x] **On-demand scraping** — `fund_data_resolver.get_fund_data` now scrapes Groww whenever user hits the endpoint (cache miss), regardless of market hours. Background APScheduler drain still respects off-hours gate for bulk operations.
+- [x] **Real PG data in AI Copilot** — `/api/scenarios/suggest` now prepends 2 intelligence-driven scenario cards: "Consolidate: remove <fund>" (from top redundancy suggestion) + "Consolidate <Category> funds" (for categories with ≥50% avg overlap), each citing exact ₹ amounts + pp overlap reduction + sector drift.
+- [x] **Category ratings UI** — `PortfolioIntelligenceTab.jsx` CategoryStrip now shows 1-5 star rating per category with AI-upgraded reason text.
+
 ### Feb 2026 — Portfolio Intelligence (AI-grade Fund Overlap Rewrite)
 - [x] **Bulk scrape pipeline** — seeded aporwal107@gmail.com + priyankamantri@gmail.com portfolios into scrape queue, APScheduler-drained 21/22 funds; PG now has 22 MUTUAL_FUND + 712 EQUITY rows + 2102 holdings + ratios
 - [x] **`services/portfolio_intelligence.py`** — real stock-level engine:

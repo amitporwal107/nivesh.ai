@@ -20,6 +20,7 @@ async def get_portfolio_intelligence(request: Request, narrate: bool = Query(Tru
     metrics = await portfolio_intelligence.compute_portfolio_intelligence(user["user_id"])
     if narrate and not metrics.get("empty"):
         metrics["ai_insights"] = await ai_insights.generate_insights(metrics)
+        metrics["category_ratings"] = await ai_insights.rate_portfolio_categories(metrics)
     return metrics
 
 

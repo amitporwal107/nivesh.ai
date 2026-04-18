@@ -154,6 +154,107 @@ def _parse_json_loose(raw: str) -> Dict[str, Any]:
         return {}
 
 
+# ── Category-level AI rating ─────────────────────────────────────────────
+async def rate_portfolio_categories(metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """For each category in a user's portfolio, return a 1-5 rating + rationale.
+
+    Heuristic baseline (always computed): category rating = a function of:
+      - funds_count (more = worse if overlap is high)
+      - avg_pair_overlap (lower = better)
+      - invested_rs share of portfolio (sanity anchor)
+    AI-enhanced reason string if LLM is available.
+    """
+    cats = metrics.get("category_inefficiency") or []
+    mf_invs = metrics.get("mf_investments") or []
+    total_invested = sum(m.get("amount_rs", 0) for m in mf_invs) or 1.0
+    out: List[Dict[str, Any]] = []
+
+    # First pass: deterministic rating
+    by_cat: Dict[str, Dict[str, Any]] = {}
+    for m in mf_invs:
+        c = m.get("category")
+        if not c:
+            continue
+        by_cat.setdefault(c, {"funds": [], "rs": 0.0})
+        by_cat[c]["funds"].append(m)
+        by_cat[c]["rs"] += m.get("amount_rs", 0)
+
+    cat_ov = {c["category"]: c["avg_pair_overlap"] for c in cats}
+
+    for cat_name, info in by_cat.items():
+        n = len(info["funds"])
+        rs = info["rs"]
+        ov = cat_ov.get(cat_name)
+        # Deterministic rating:
+        if n == 1:
+            rating = 4   # single fund in category — clean
+            reason = f"Single fund (₹{_fmt(rs)}) in {cat_name} — no internal overlap."
+        else:
+            if ov is None:
+                rating = 3
+                reason = f"{n} funds in {cat_name} (overlap data not yet available)."
+            elif ov >= 70:
+                rating = 1
+                reason = f"{n} funds in {cat_name} overlap {ov}% on average — near-identical portfolios."
+            elif ov >= 50:
+                rating = 2
+                reason = f"{n} funds in {cat_name} overlap {ov}% — clear consolidation opportunity."
+            elif ov >= 30:
+                rating = 3
+                reason = f"{n} funds in {cat_name} overlap {ov}% — moderate duplication."
+            elif ov >= 15:
+                rating = 4
+                reason = f"{n} funds in {cat_name} with only {ov}% overlap — well diversified."
+            else:
+                rating = 5
+                reason = f"{n} funds in {cat_name} with minimal {ov}% overlap — highly diversified."
+        out.append({
+            "category": cat_name,
+            "funds_count": n,
+            "invested_rs": round(rs, 2),
+            "invested_pct": round(rs / total_invested * 100, 2),
+            "avg_pair_overlap": ov,
+            "rating": rating,
+            "reason": reason,
+        })
+
+    # Second pass: upgrade reason with LLM if key present (best-effort)
+    key = _secrets.get("EMERGENT_LLM_KEY") or _secrets.get("OPENAI_API_KEY")
+    if not key or not out:
+        out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
+        return out
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=key,
+            session_id="nivesh-category-ratings",
+            system_message=(
+                "You are rating category-level diversification quality of an Indian MF portfolio. "
+                "Given existing ratings/reasons, return STRICT JSON {'updates':[{category, reason}]} "
+                "with at most 40-word punchier reasons that call out fund consolidation action. "
+                "Keep numbers from input intact. No generic phrases."
+            ),
+        ).with_model("openai", "gpt-4o-mini")
+        compact = [
+            {"category": o["category"], "rating": o["rating"], "reason": o["reason"],
+             "funds_count": o["funds_count"], "invested_rs": o["invested_rs"]}
+            for o in out
+        ]
+        raw = await chat.send_message(UserMessage(text=json.dumps(compact)))
+        data = _parse_json_loose(raw)
+        updates = {u.get("category"): u.get("reason")
+                   for u in (data.get("updates") or [])
+                   if isinstance(u, dict)}
+        for o in out:
+            if o["category"] in updates and updates[o["category"]]:
+                o["reason"] = str(updates[o["category"]])[:300]
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"category AI reason-upgrade skipped: {e}")
+
+    out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
+    return out
+
+
 # ── MF AI rating (on-demand) ─────────────────────────────────────────────
 async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a 1-5 rating + reasoning for a single MF."""

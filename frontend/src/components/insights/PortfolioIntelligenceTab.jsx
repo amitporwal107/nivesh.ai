@@ -248,38 +248,49 @@ const RedundancyPanel = ({ items, onSimulate, simulating, simRemoved }) => (
 );
 
 // ── Category & sector strips ────────────────────────────────────────────
-const CategoryStrip = ({ items }) => (
-  <Card className="bg-slate-900 border-slate-800 rounded-2xl">
-    <CardContent className="p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <AlertTriangle className="w-4 h-4 text-amber-400" />
-        <h3 className="text-sm font-semibold text-white">Category inefficiency</h3>
-      </div>
-      {items.length === 0 ? (
-        <div className="text-xs text-slate-500">No category overlap detected.</div>
-      ) : (
-        <div className="space-y-2">
-          {items.map((c) => (
-            <div key={c.category} className="flex items-center justify-between text-xs py-1.5 border-b border-slate-800 last:border-b-0"
-                 data-testid={`pi-cat-${c.category}`}>
-              <div>
-                <span className="text-white font-medium">{c.category}</span>
-                <span className="text-slate-500 ml-2">· {c.funds_count} funds</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-slate-400">{fmt(c.invested_rs)}</span>
-                <Badge variant="outline"
-                       className={`${c.inefficient ? "border-rose-500/50 text-rose-300" : "border-slate-600 text-slate-400"} text-[10px]`}>
-                  {c.avg_pair_overlap.toFixed(1)}% avg overlap
-                </Badge>
-              </div>
-            </div>
-          ))}
+const CategoryStrip = ({ items, ratings }) => {
+  const ratingByCat = Object.fromEntries((ratings || []).map(r => [r.category, r]));
+  return (
+    <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400" />
+          <h3 className="text-sm font-semibold text-white">Category ratings & efficiency</h3>
         </div>
-      )}
-    </CardContent>
-  </Card>
-);
+        {(items.length === 0 && (ratings?.length || 0) === 0) ? (
+          <div className="text-xs text-slate-500">No category data yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {(ratings || items.map(i => ({ category: i.category, rating: 3, funds_count: i.funds_count, avg_pair_overlap: i.avg_pair_overlap, invested_rs: i.invested_rs, reason: "" }))).map((r) => {
+              const cat = items.find(i => i.category === r.category) || {};
+              const stars = "★".repeat(r.rating) + "☆".repeat(5 - r.rating);
+              const tone = r.rating >= 4 ? "text-emerald-400" :
+                           r.rating >= 3 ? "text-sky-400" :
+                           r.rating >= 2 ? "text-amber-400" : "text-rose-400";
+              return (
+                <div key={r.category}
+                     className="border-b border-slate-800 last:border-b-0 pb-3 last:pb-0"
+                     data-testid={`pi-cat-${r.category}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm text-white font-medium">{r.category}</div>
+                      <div className="text-[10px] text-slate-500">
+                        {r.funds_count} funds · {fmt(r.invested_rs)}
+                        {r.avg_pair_overlap != null && ` · ${r.avg_pair_overlap}% avg overlap`}
+                      </div>
+                    </div>
+                    <div className={`text-sm font-semibold ${tone} tracking-wider shrink-0`}>{stars}</div>
+                  </div>
+                  {r.reason && <div className="text-[11px] text-slate-400 mt-1.5 leading-snug">{r.reason}</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const SectorStrip = ({ items }) => (
   <Card className="bg-slate-900 border-slate-800 rounded-2xl">
@@ -365,6 +376,7 @@ export default function PortfolioIntelligenceTab() {
         sectors: simData.sector_exposure || [],
         ai_insights: data.ai_insights || [],
         redundancy: data.redundancy_suggestions || [],
+        ratings: data.category_ratings || [],
       };
     }
     return {
@@ -376,6 +388,7 @@ export default function PortfolioIntelligenceTab() {
       sectors: data.sector_exposure || [],
       ai_insights: data.ai_insights || [],
       redundancy: data.redundancy_suggestions || [],
+      ratings: data.category_ratings || [],
     };
   }, [data, simData]);
 
@@ -439,7 +452,7 @@ export default function PortfolioIntelligenceTab() {
         <RedundancyPanel items={view.redundancy} onSimulate={runSimulate}
                          simulating={simulating} simRemoved={simRemoved} />
         <div className="space-y-5">
-          <CategoryStrip items={view.cats} />
+          <CategoryStrip items={view.cats} ratings={view.ratings} />
           <SectorStrip items={view.sectors} />
         </div>
       </div>

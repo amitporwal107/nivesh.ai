@@ -128,8 +128,11 @@ async def get_fund_data(
     key = resolved["instrument_key"]
     canonical_name = resolved["scheme_name"]
 
-    off_hours = _is_off_hours()
-    should_scrape_now = allow_scrape if allow_scrape is not None else off_hours
+    # User-initiated requests always allow scraping (polite pacing handled by
+    # httpx timeouts + 3s between queue items). The off-hours gate only applies
+    # to the background APScheduler drain, which passes allow_scrape=False
+    # during market hours.
+    should_scrape_now = allow_scrape if allow_scrape is not None else True
 
     cached = None if force_refresh else await _get_cached(key)
     if cached and not cached.get("_stale") and cached.get("valid"):

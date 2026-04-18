@@ -447,8 +447,12 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
                 from dateutil.parser import parse as parse_date
                 buy_dt = parse_date(h["buy_date"])
                 now_dt = datetime.now(timezone.utc)
-                years = max((now_dt - buy_dt.replace(tzinfo=timezone.utc)).days / 365.25, 0.1)
-                cagr = round(((cur / inv) ** (1 / years) - 1) * 100, 1)
+                years = (now_dt - buy_dt.replace(tzinfo=timezone.utc)).days / 365.25
+                # Only compute CAGR for holdings older than 1 year — otherwise
+                # short horizons annualise into absurd multipliers (e.g., a fund
+                # bought 30 days ago with 50% return becomes CAGR ~1e6%).
+                if years >= 1.0:
+                    cagr = round(((cur / inv) ** (1 / years) - 1) * 100, 1)
             except Exception:
                 pass
 
