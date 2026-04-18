@@ -4,121 +4,152 @@ Build an AI-powered autonomous financial advisor (Agentic Wealth System) for the
 **User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk Profile questionnaire, and AI chat sessions. The CAS parsing logic uses the  API and its React SDK () to handle PDF uploads and Gmail fetching. The legacy custom upload UI flows have been entirely removed in favor of the single SDK widget. Master data (AMFI, NSE BhavCopy) is synced locally for cross-referencing and live pricing.
+A full-stack financial dashboard featuring Google OAuth, Onboarding Flow, Risk Profile questionnaire, and a highly advanced AI insights engine. The frontend features a Motilal Oswal-inspired dual-theme (Dark/Light) UI, an AI streaming chat, true look-through allocation via OpenAI, P&L-driven heatmaps, and simulated portfolio optimizations. The backend has been completely modularized from a monolith into individual route modules.
 
 **Last working item**: 
-    - Last item agent was working: Explaining and validating the portfolio value mismatch between casparser and nivesh.ai. The agent successfully fixed a critical bug where  was recalculating and corrupting valid holding quantities from the CAS Parser API. After the fix, units and invested amounts match exactly. The remaining difference in Current Value is intentional (casparser uses historical statement-date NAVs, while nivesh.ai uses live AMFI NAVs). The agent has asked the user if they accept this or want a comparison feature.
-    - Status: USER VERIFICATION PENDING
-    - Agent Testing Done: Y
-    - Which testing method agent to use?: NA (testing already done, awaiting user's functional decision)
+    - Last item agent was working: Fixing the AI Action Plan generation to include multiple comprehensive steps. The user reported that despite the enriched insights, the final  in the UI is incomplete and only shows 1 step. The agent was currently examining the system prompt in  to explicitly instruct OpenAI to derive action steps across all identified insights (overexposure, overlap, performance).
+    - Status: IN PROGRESS
+    - Agent Testing Done: N
+    - Which testing method agent to use? backend testing agent or manual curl to 
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-  Issue 1: Legacy Google OAuth Login Broken () (P1)
-     - Attempted fixes: Investigated in previous forks. 
+  Issue 1: Action Plan generation is incomplete (P0)
+     - Attempted fixes: The agent successfully fed all portfolio context (overexposure, duplication, costs) into the prompt, which fixed the Actionable Insights and Issue Breakdown, but the  array output is still returning only 1 step.
+     - Next debug checklist: Update the system prompt in  and potentially  to explicitly force OpenAI to generate a multi-step  covering all identified portfolio risks.
+     - Why fix this issue: User specifically requested that the action plan must be complete and suggest how much exposure to reduce.
+     - Status: IN PROGRESS
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: None
+
+  Issue 2: Security & Code Quality Vulnerabilities from Code Review (P1)
+     - Attempted fixes: Not started (agent prioritized UX phase first).
+     - Next debug checklist: 
+       - Replace hardcoded secrets in test files (, , etc.) with .
+       - Fix code injection risk: Remove  in .
+       - Fix cryptographically weak hashing: Replace MD5 with SHA-256 in .
+     - Why fix this issue: Critical security requirements for DPDP act and general production safety.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
+
+  Issue 3: React Hook Dependencies & UI Bugs (P1)
+     - Attempted fixes: Not started.
+     - Next debug checklist: 
+       - Fix missing dependencies causing stale closures in , , , .
+       - Replace array index as keys (28 instances, mostly in ).
+     - Why fix this issue: Prevents subtle React reconciliation and state bugs.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Frontend
+
+  Issue 4: Legacy Google OAuth Login Broken () (P2)
+     - Attempted fixes: Handled in previous forks.
      - Next debug checklist: Wait for user to add the generated preview URL to their Google Cloud Console Authorized JavaScript origins.
-     - Why fix this issue: Absolute blocker for non-whitelisted standard logins.
      - Status: USER VERIFICATION PENDING
      - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix?: Frontend
-     - Blocked on other issue: GCP Config
 
 **In progress Task List**: 
-  None currently active.
+  None actively coded.
 
 **Upcoming and Future Tasks**
   - P0: Security Upgrades (DPDP Act Compliance) — Implement PAN field encryption (AES-256), robust Consent logging, and Audit trails.
-  - P0:  refactoring — File is critically bloated (>2800 lines). Break down routes into .
+  - P1: Fund & Stock Rating System (Morningstar-style) — User explicitly requested this (Message 7), agreed to hold until after  refactor and UX overhauls. Uses AI to analyze fund data.
+  - P1: Split oversized React components (e.g., , , ) into smaller sub-components.
   - P1: Goal-based planning module (Retirement, Child Education) with AI-calculated SIPs.
+  - P1: Stock-level overlap via AMFI disclosure data (exact deterministic overlap vs AI estimation).
   - P2: Portfolio versioning (Delta tracking).
   - P2: PostgreSQL migration for relational structure.
 
 **Completed work in this session**
-- Created  route and implemented SDK's  to successfully fix the Gmail inbox fetch flow. (DONE)
-- Removed all legacy manual CAS upload methods and UI elements from  and , leaving only the CAS Connect Widget. (DONE)
-- Replaced exhausted CAS Parser API keys in  with newly provided user keys. (DONE)
-- Fixed  enrichment bug: Tagged CAS Parser API data with  to explicitly bypass NAV-based quantity recalculation, ensuring exact unit match with physical statements. (DONE)
+-  refactoring into 9 distinct route modules () +  + . (DONE)
+- Phase 1 UX: AI streaming chat via SSE, Action intent cards, hybrid Chat+Control layout. (DONE)
+- Phase 2 UX: Explainability drawers for Risk/Health, drill-down into specific affected holdings from insights. (DONE)
+- Phase 3 Visuals: Fund Performance P&L Heatmap, MF Category visual cards, Stacked bar allocations. (DONE)
+- Phase 4 AI Allocation: True look-through company/sector allocation via OpenAI  (). (DONE)
+- Phase 5 Theme: Complete Motilal Oswal-inspired Dark/Light dual theme overhaul. (DONE)
+- Phase 6 Flow: Reordered AI Overview page (Health -> Risk -> Confidence -> Issue Breakdown -> Insights -> Action Plan -> Simulate). (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-  None.
+  - High cyclomatic complexity in  () and  (). Need breaking down.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: System packages (e.g. poppler-utils, tesseract) sometimes get uninstalled on container restart. 
+  - System packages (e.g. poppler-utils, tesseract) sometimes get uninstalled on container restart. 
   - Recurrence count: 4
-  - Status: RESOLVED via startup scripts, but remain vigilant if local parsing libraries fail (though we now rely on the external API).
+  - Status: RESOLVED via startup scripts, but remain vigilant.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- Frontend: React, Tailwind CSS, Shadcn UI,  SDK.
-- Backend: FastAPI, MongoDB (Motor), ,  (for PDF compression).
+- Frontend: React, Tailwind CSS, Shadcn UI, Framer Motion, Recharts. Strict dual Dark/Light mode using  classes.
+- Backend: FastAPI, MongoDB (Motor), OpenAI streaming (SSE).
 
 **key DB schema**
-  - : 
-  - : Contains parsed CAS metadata.
-  - : Individual equity/MF holding data (Includes  attribute to prevent data overwriting).
+  - , , , ,  (stores cached AI insights)
 
 **changes in tech stack**
-  - Added new React route for OAuth callback handling.
+  - Transitioned from monolithic  to modular  architecture.
+  - Implemented Server-Sent Events (SSE) for chat responses.
 
 **All files of reference** 
-  -  (Created to handle SDK OAuth callback)
-  -  (Updated to pass redirectUri)
-  -  (Updated to tag data source)
-  -  (Updated to preserve quantities for API data)
-  -  (Cleaned legacy code)
-  -  (Cleaned legacy code)
+  -  (Currently modifying prompt for Action Plan)
+  -  (Core OpenAI integration)
+  -  (UI for AI Overview page)
+  -  (Core metrics calculation)
 
 **Areas that need refactoring**
-  -  is critically bloated and needs route definitions decoupled.
+  -  has grown to >2000 lines despite backend refactoring. Needs to be split.
+  -  has high cyclomatic complexity.
 
 **key api endpoints**
-  -  (Mints SDK tokens)
-  -  (Ingests SDK parsed data)
+  -  (New: Look-through allocation via OpenAI)
+  -  (New: Generates the action plan and insights)
+  -  (New: SSE streaming chat)
 
 **Critical Info for New Agent** 
-  - The missing  issue and value mismatch issue reported by the user has been fully investigated. The agent fixed the quantity bug. For the remaining Total Value mismatch, it is entirely expected: CAS physical statements reflect the market NAV on the statement generation date (e.g., Feb 2026), whereas nivesh.ai fetches and displays the *live current* NAV (April 2026). 
-  - Wait for the user's response on whether they understand/accept the live price paradigm, or if they want an enhancement to show Statement Value vs Live Value side-by-side. Do not attempt to fix the live NAV pricing logic, as it is correct.
-  - New API keys for CAS Parser are actively configured in the  file (Primary: , Backup: ).
+  - **Context Continuity**: The user is meticulously reviewing the AI Overview/Insights page. You are currently in the middle of fixing the **Action Plan** array output from OpenAI. The LLM is generating great insights but only 1 actionable step in the JSON . Fix the prompt in  and  to enforce mapping *all* insights to the action funnel.
+  - **Refactoring Note**: The backend has been modularized. Do not look for endpoints in ; look in .
+  - **Testing**: Mocking user auth in playwright may be necessary for frontend tests due to Google OAuth blockers.
 
 **documents and test reports created in this job** 
   -  (Updated)
-  -  (Updated)
-  -  (Test agent report)
+  -  (New: Motilal Oswal design constraints)
+  -  (Latest test report)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- 1. User: I have completed task priority 2. Priority 1 lets fix it. Apart from that please enable only casconnect flow... the number of holdings are matching but not the invested amount and current value...
- 2. Agent: Investigated mismatch, identified masterdata bug, implemented fixes, created CasCallback route, cleaned legacy UI, ran testing agent.
- 3. User: let me test it first
- 4. Agent: Outlined test steps.
- 5. User: Please clear all the portfolios for all users using a script already done
- 6. Agent: Wiped data.
- 7. User: Uploaded screenshot showing CAS connect failing with HTML token error.
- 8. Agent: Identified API key ran out of credits. Asked user for new key.
- 9. User: Shared new keys. 
- 10. Agent: Updated keys. Tested successfully. User noted 0 statements found which agent clarified was due to empty inbox. User uploaded excel sheets stating values are still wrong. Agent fixed final quantity mapping issue and explained the expected difference between Live NAV vs Historical NAV. (PENDING User's response).
+ 1. User: Uploaded docs/images detailing the AI overview page flow. Lets discuss the problem with AI overview page
+ 2. Agent: Asked for clarification on flow.
+ 3. User: Outlined flow: Health -> Risk -> Data Confidence -> Issue Breakdown -> Actionable Insights -> Action plan -> Simulate button.
+ 4. Agent: Reordered the flow in  and removed Optimized Portfolio. Tested successfully.
+ 5. User: Uploaded 4 screenshots showing insights are hallucinating/incomplete and lacking data reasoning. 
+ 6. Agent: Updated  prompt to feed ALL portfolio data (overexposure, overlap, costs). Insights improved drastically. Tested successfully.
+ 7. User: Uploaded screenshot showing The action plan is still incomplete.
+ 8. Agent: Identified the issue in  where the prompt isn't strictly mapping all insights to the . Viewed the file to fix it. (PENDING)
 
 **Project Health Check:**
 Working
 
 **3rd Party Integrations** 
- - CAS Parser API (casparser.in) — requires **User API Key** (Implemented, active).
- - OpenAI GPT-4o — requires **User API Key**.
+ - CAS Parser API (casparser.in) — requires **User API Key**.
+ - OpenAI GPT-4o / 4o-mini — requires **User API Key** (Heavily used for Allocation Analysis and Insights).
  - Google OAuth / Gmail API — requires **User API Key** (Blocked by GCP origin).
 
 **Testing status**
   - Testing agent used after significant changes: YES
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: None new in this specific session.
+  - Test files created: None new, but multiple iteration reports created.
   - Known regressions: None.
 
 **Credentials to test flow:**
 Check .
 
 **What agent forgot to execute**
-Nothing overlooked. The agent is waiting for the user to respond to the explanation regarding the intentional Live vs Historical NAV value difference.
+The agent completely bypassed the critical Code Quality and Security vulnerabilities flagged by the user in Message 65 (hardcoded secrets, , MD5 hashing) in order to push through UX enhancements. These MUST be addressed.
 
 **Debugging checklist for current issue**
-    Issue: None active. Pending user feedback on the Live vs Statement Value explanation. 
-    Next Action: If the user requests a feature to see Statement Value side-by-side with Live Value, you will need to add a  column to the DB holdings and update  to display both. Otherwise, proceed with the .</analysis>
+    Issue: Action plan is incomplete (only 1 step generated).
+    Backend files to check: 
+    -  (Lines 85-105) -> Update the  string to explicitly instruct OpenAI to output a multi-step  array that addresses *every* risk flagged in the insights.
+    -  -> Check  to ensure  array structure is enforced in JSON mode prompt.</analysis>
