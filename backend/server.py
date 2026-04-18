@@ -93,15 +93,29 @@ async def startup_seed():
         from services import cas_api_client
         await _secrets.hydrate_from_db(db)
         await _ff.hydrate_from_db(db)
-        # Also load legacy CAS sandbox toggle
         cas_cfg = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0})
         if cas_cfg and "use_sandbox" in cas_cfg:
             cas_api_client.set_override(use_sandbox=cas_cfg["use_sandbox"])
         logger.info("Secrets + feature flags hydrated from DB")
     except Exception as e:
         logger.warning(f"Config hydrate failed: {e}")
+    # Start MF scheduler if Postgres is configured
+    try:
+        from services import pg_client, mf_scheduler
+        pool = await pg_client.get_pool()
+        if pool is not None:
+            mf_scheduler.start()
+    except Exception as e:
+        logger.warning(f"MF scheduler start failed: {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        from services import mf_scheduler, pg_client, redis_client
+        mf_scheduler.stop()
+        await pg_client.close_pool()
+        await redis_client.close_client()
+    except Exception:
+        pass
     client.close()

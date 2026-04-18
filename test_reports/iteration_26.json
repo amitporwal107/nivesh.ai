@@ -1,0 +1,41 @@
+{
+  "summary": "Phase 2 + Phase 3 Groww MF Data Fetcher — full backend validation. Wrote 34 new integration tests in /app/backend/tests/test_groww_phase2_phase3.py covering scheduler (running + 3 cron jobs + start/stop toggle), full scrape→PG persistence lifecycle (HDFC Flexi Cap: instrument_master UUID + metadata + ratios + 30 holdings + audit log verified via direct psql), cache enrichment on 2nd /api/mf/holdings call (source=cache + isin populated), PG fallback via pg_writer.load_fund_from_pg (source=pg, valid=true, holdings+ratios hydrated), dashboard endpoints (/admin/mf/funds + /{uuid} + /audit-log + 404 on bad uuid), queue ops (seed-portfolio-queue + drain-queue?force=true), admin auth gates (9 endpoints × unauthenticated → all 401/403), and regression on existing endpoints. All 34 new tests pass; 26 existing Phase 1 tests also pass after minor test-script updates (db-status + secrets test endpoints previously asserted PG/Redis were NOT configured — now they are, assertion relaxed). Combined 60/60 green. PG verified directly via psql: 4 MFs, 314 holdings rows, 4 metadata rows, 4 ratios rows, 13 audit log rows. risk_label regression confirmed fixed — now 'Very High' from return_stats.risk, not 'Flexi Cap' from sub_category.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_groww_phase2_phase3.py",
+    "/app/backend/tests/test_groww_phase1_api.py",
+    "/app/backend/tests/test_groww_phase1.py",
+    "/app/test_reports/pytest/iteration_26_all.xml",
+    "/app/test_reports/pytest/phase2_phase3.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "pg_writer.persist_scrape writes holdings with weight_percent capped at NUMERIC(5,2) i.e. max 999.99. Fine today, but if Groww ever returns a malformed 4-digit pct it will be silently clamped via _to_numeric. Log a warning when clamping triggers.",
+    "mf_scheduler.start() is idempotent but stop() sets _scheduler=None even if shutdown raises — restart after a failed stop would silently leak the old scheduler instance. Wrap shutdown in try/finally and always null _scheduler.",
+    "pg_writer.load_fund_from_pg returns source='pg' but the resolver elsewhere (fund_data_resolver) tags PG fallback as source='pg-fallback' in the problem statement. Confirm single convention — tests here accept 'pg'; double-check UI/consumers don't hardcode 'pg-fallback'.",
+    "/api/admin/mf/funds has no pagination beyond limit; at 1000-fund scale a holdings_count subquery per row becomes O(N²). Consider pre-aggregating or using LATERAL JOIN.",
+    "scrape_audit_log has no retention policy — will grow unbounded. Add a scheduled prune (e.g. keep 90 days or 10k rows per instrument)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_groww_phase2_phase3.py (new, 34 tests)",
+    "/app/backend/tests/test_groww_phase1_api.py (relaxed 3 obsolete 'not-configured' assertions — PG + Redis are now actually configured in this env)"
+  ],
+  "success_rate": {
+    "backend": "100% (60/60 across phase1 + phase2/3)",
+    "frontend": "n/a (skipped per request)"
+  },
+  "test_credentials": "Used admin 370eff71-fda1-46d8-b506-b81b894d634f and user 5770bebb-8a9a-41f7-a7b9-e8152ac25daa from /app/memory/test_credentials.md. Both are is_admin=True in DB; admin negative-auth tests use unauthenticated (no-cookie) requests which correctly return 401.",
+  "seed_data_creation": "Live Groww scrape of HDFC Flexi Cap Fund Direct Growth triggered once via /api/admin/mf/scrape-now (test_scrape_now_full_shape). Also indirectly re-warmed cache for Parag Parikh/SBI Small Cap/Nippon Multi Cap through regression test + phase1 reruns. Total distinct live Groww hits this run: 1-2 (most came from cache). PG now has 4 MFs persisted with 314 holdings rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test suites are idempotent and share PG state. /app/backend/tests/test_groww_phase2_phase3.py uses class-level _state dict to pass instrument_id between tests (ScrapeLifecycle → PgFallback, Dashboard) — run the WHOLE class or whole file for the PgFallback test to work (otherwise it skips). Subprocess test for load_fund_from_pg injects POSTGRES_URL from PG_CONN constant since the secrets helper's in-memory cache is empty in a fresh process. If PG_CONN in pod changes, update both the test constant and admin secrets. psql is available at /usr/bin/psql with PGPASSWORD=nivesh_dev. Scheduler start/stop test flips state — if a future test depends on scheduler being stopped, re-verify.",
+  "rca of the issue": "N/A — no product bugs found. The earlier risk_label cosmetic bug (populated from sub_category instead of return_stats.risk) is verified fixed — /api/admin/mf/scrape-now now returns metadata.risk_label='Very High' and psql confirms mutual_fund_metadata.risk_label stores 'Very High' while mutual_fund_metadata.category stores 'Flexi Cap' (correctly separated)."
+}

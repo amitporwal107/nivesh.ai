@@ -142,7 +142,7 @@ async def search_mf_by_name(name_query: str, limit: int = 5) -> List[Dict[str, A
 
 
 async def latest_nav(instrument_id: int) -> Optional[Dict[str, Any]]:
-    """Most recent NAV for a given MF instrument_id."""
+    """Most recent NAV for a given MF instrument_id (legacy integer PK)."""
     pool = await get_pool()
     if pool is None:
         return None
@@ -158,4 +158,27 @@ async def latest_nav(instrument_id: int) -> Optional[Dict[str, Any]]:
             return {"nav": float(row["nav"]), "nav_date": row["nav_date"].isoformat()}
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pg latest_nav failed: {e}")
+        return None
+
+
+async def latest_nav_by_uuid(instrument_id) -> Optional[Dict[str, Any]]:
+    """Most recent NAV using new schema: mutual_fund_metadata.nav/nav_date."""
+    pool = await get_pool()
+    if pool is None:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT nav, nav_date FROM mutual_fund_metadata "
+                "WHERE instrument_id = $1",
+                instrument_id,
+            )
+            if not row or row["nav"] is None:
+                return None
+            return {
+                "nav": float(row["nav"]),
+                "nav_date": row["nav_date"].isoformat() if row["nav_date"] else None,
+            }
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"pg latest_nav_by_uuid failed: {e}")
         return None

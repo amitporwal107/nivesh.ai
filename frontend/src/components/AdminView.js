@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import SecretsSection from "@/components/admin/SecretsSection";
 import FeatureFlagsSection from "@/components/admin/FeatureFlagsSection";
+import MFDataSection from "@/components/admin/MFDataSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -180,6 +181,7 @@ const AdminView = () => {
       {/* CAS Parser API Config */}
       <SecretsSection />
       <FeatureFlagsSection />
+      <MFDataSection />
 
       {/* Add Email Form */}
       <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
