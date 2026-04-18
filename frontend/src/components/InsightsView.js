@@ -1922,7 +1922,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                   <RefreshCw className="w-3 h-3 mr-1" /> Refresh
                 </Button>
               </div>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
                 <div className="w-40 h-40 flex-shrink-0" data-testid="benchmark-pie">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1938,7 +1938,7 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex-1 space-y-2.5">
+                <div className="flex-1 w-full space-y-2.5">
                   {pieData.map(d => (
                     <div key={d.name} className="flex items-center justify-between cursor-pointer hover:bg-slate-100 dark:bg-[#1A1A1A] rounded-lg px-2 py-1 -mx-2 transition-colors"
                       onClick={() => setDrilldownRating(d.ratingKey)}

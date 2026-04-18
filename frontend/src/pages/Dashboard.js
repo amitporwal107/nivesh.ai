@@ -83,9 +83,9 @@ const Dashboard = () => {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex" data-testid="dashboard-loading">
+      <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard-loading">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={{}} />
-        <main className="flex-1 ml-0 md:ml-64 min-h-screen">
+        <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
           <div className="pt-16 md:pt-4 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             <DashboardSkeleton />
           </div>
@@ -123,9 +123,9 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex" data-testid="dashboard">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
-      <main className="flex-1 ml-0 md:ml-64 min-h-screen">
+      <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
         <div className="pt-16 md:pt-4 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>
