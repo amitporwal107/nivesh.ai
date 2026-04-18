@@ -12,6 +12,7 @@ don't pick up nav / sector-chart rows.
 """
 from __future__ import annotations
 import re
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 USER_AGENT = "nivesh.ai portfolio tracker (contact: support@nivesh.ai)"
 BASE_URL = "https://groww.in/mutual-funds"
 TIMEOUT_S = 15.0
+
+# Coalesce concurrent search_slug calls for the same query
+_search_locks: Dict[str, asyncio.Lock] = {}
+_search_cache: Dict[str, Optional[str]] = {}
 
 
 def scheme_name_to_slug(name: str) -> str:
@@ -56,23 +61,38 @@ async def search_slug(scheme_name: str) -> Optional[str]:
 
     Returns the `search_id` of the top matching Scheme result, or None.
     Used as a fallback when deterministic slug 404s.
+
+    Concurrent calls for the same query are coalesced (single in-flight
+    request per scheme_name) and the result is memoised for the process
+    lifetime to avoid tripping Groww's WAF on cold-cache bursts.
     """
-    url = "https://groww.in/v1/api/search/v3/query/global/st_query"
-    params = {"q": scheme_name, "from": "0", "size": "5"}
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT_S) as c:
-            r = await c.get(url, params=params, headers=headers)
-            r.raise_for_status()
-            data = r.json()
-        hits = (data.get("data") or {}).get("content") or []
-        for h in hits:
-            if h.get("sub_entity_type") == "Scheme" and h.get("search_id"):
-                return h["search_id"]
+    key = (scheme_name or "").strip().lower()
+    if not key:
         return None
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"groww search failed for {scheme_name!r}: {e}")
-        return None
+    if key in _search_cache:
+        return _search_cache[key]
+    lock = _search_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        if key in _search_cache:  # double-check after acquiring lock
+            return _search_cache[key]
+        url = "https://groww.in/v1/api/search/v3/query/global/st_query"
+        params = {"q": scheme_name, "from": "0", "size": "5"}
+        headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+        slug: Optional[str] = None
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT_S) as c:
+                r = await c.get(url, params=params, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+            hits = (data.get("data") or {}).get("content") or []
+            for h in hits:
+                if h.get("sub_entity_type") == "Scheme" and h.get("search_id"):
+                    slug = h["search_id"]
+                    break
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"groww search failed for {scheme_name!r}: {e}")
+        _search_cache[key] = slug
+        return slug
 
 
 # ── Regexes ──────────────────────────────────────────────────────────────
@@ -190,6 +210,13 @@ def validate(parsed: Dict[str, Any]) -> Dict[str, Any]:
         reasons.append(f"holdings sum {tot:.1f}% out of expected 70-115 range")
     if len(h) < 5:
         reasons.append(f"only {len(h)} holdings (likely partial)")
+    meta = parsed.get("metadata", {}) or {}
+    aum = meta.get("aum_cr")
+    nav = meta.get("nav")
+    if aum is not None and aum <= 0:
+        reasons.append(f"metadata AUM non-positive: {aum}")
+    if nav is not None and nav <= 0:
+        reasons.append(f"metadata NAV non-positive: {nav}")
     parsed["valid"] = not reasons
     parsed["validation_issues"] = reasons
     return parsed

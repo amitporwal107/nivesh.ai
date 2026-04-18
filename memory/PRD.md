@@ -2,6 +2,24 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Groww MF Data Fetcher Phase 1
+- [x] **Deterministic parser** (`services/groww_client.py`) — scoped to `holdings_row__*` CSS classes; extracts name, stock slug, sector, instrument type, pct per holding, plus AUM, NAV, expense ratio from metadata divs
+- [x] **Search-API slug fallback** — when deterministic slug 404s, calls Groww `st_query` endpoint to resolve canonical search_id (e.g., "SBI Small Cap" → `sbi-small-midcap-fund-direct-growth`). Concurrent lookups coalesced per scheme_name + process-lifetime memo
+- [x] **Pluggable Postgres + Redis layer** — lazy pools driven by admin-managed secrets `POSTGRES_URL`, `REDIS_URL` (new category: "data"). Auto-rebuilds on secret change.
+  - `services/pg_client.py`: `lookup_instrument(symbol|isin|type)`, `search_mf_by_name` (ILIKE), `latest_nav`, `ping`
+  - `services/redis_client.py`: `get/set_holdings`, `get/set_slug`, `ping` (15-day TTL)
+- [x] **Tiered cache resolver** (`fund_data_resolver.py`) — Redis primary → Mongo durable fallback; 15-day TTL; ISIN-first canonical instrument_key (ISIN → SCHEME → NAME)
+- [x] **Off-hours gate** — Mon-Fri 09:00-16:00 IST = market hours (enqueue only); all other times allow inline scrape. Admin endpoint `/api/admin/mf/scrape-now` bypasses gate
+- [x] **Endpoints** (prefix `/api/mf`, `/api/admin/mf`):
+  - GET `/mf/holdings` (user) — scheme_name + optional scheme_code/isin/slug/force
+  - GET `/mf/lookup` (user) — resolve instrument → {instrument_key, id, symbol, isin, latest_nav}
+  - GET `/admin/mf/db-status` — probe pg + redis connectivity
+  - GET `/admin/mf/scrape-queue`, POST `/admin/mf/drain-queue`, POST `/admin/mf/scrape-now`
+- [x] **Admin secret tests** — POST `/api/admin/secrets/POSTGRES_URL/test` and `/REDIS_URL/test` ping live connections
+- [x] 26 backend tests passing (8 unit + 18 API integration)
+- Dependencies added: `asyncpg==0.31.0`, `redis==7.4.0`
+- Cache collections: `db.fund_holdings_cache`, `db.scrape_queue`
+
 ### Feb 2026 - Generic Admin Config Panel (Secrets + Feature Flags)
 - [x] **Unified Secrets Registry** (`backend/helpers/secrets.py`)
   - DB-first with env fallback, module-level cache
@@ -55,6 +73,8 @@
 - PAN encryption + consent logging + audit trails (DPDP)
 
 ### P1
+- **Groww Phase 2**: APScheduler off-hours queue, admin panel for queue mgmt, bulk seed from user portfolios
+- **Groww Phase 3**: wire ISIN-level overlap + true sector exposure into AI Copilot + InsightsView (replaces static category-proxy)
 - AI Copilot Phase 3: chat-as-secondary, color system polish, icon library
 - Fund & Stock Rating System (Morningstar-style)
 - React hook dependency & array-index key cleanup
