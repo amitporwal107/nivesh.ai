@@ -34,11 +34,50 @@ TIMEOUT_S = float(os.environ.get("CASPARSER_TIMEOUT", "120"))
 # fall through to the local OCR path in the caller.
 API_SIZE_LIMIT = 1_800_000
 
+# Admin overrides — set via /admin/cas-config endpoint, persisted to db.system_config.
+# Overrides take precedence over env variables.
+_override_prod_key: Optional[str] = None
+_override_sandbox: Optional[bool] = None
+
+
+def set_override(prod_key: Optional[str] = None, use_sandbox: Optional[bool] = None) -> None:
+    """Admin-controlled override for API key + sandbox toggle."""
+    global _override_prod_key, _override_sandbox
+    if prod_key is not None:
+        _override_prod_key = prod_key.strip() or None
+    if use_sandbox is not None:
+        _override_sandbox = bool(use_sandbox)
+
+
+def get_effective_config() -> Dict:
+    """Return effective config (masked key) — for admin UI display."""
+    prod = _override_prod_key if _override_prod_key is not None else PROD_KEY
+    use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    active_key = SANDBOX_KEY if use_sb or not prod else prod
+    return {
+        "prod_key_masked": _mask(prod),
+        "prod_key_configured": bool(prod),
+        "use_sandbox": use_sb,
+        "active_key_masked": _mask(active_key),
+        "source_override": _override_prod_key is not None or _override_sandbox is not None,
+        "base_url": BASE_URL,
+    }
+
+
+def _mask(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    if len(s) <= 8:
+        return "••••"
+    return f"{s[:4]}••••••{s[-4:]}"
+
 
 def _active_key() -> str:
-    if USE_SANDBOX or not PROD_KEY:
+    prod = _override_prod_key if _override_prod_key is not None else PROD_KEY
+    use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    if use_sb or not prod:
         return SANDBOX_KEY
-    return PROD_KEY
+    return prod
 
 
 def is_configured() -> bool:
@@ -61,7 +100,8 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
 
     # Sandbox key doubles as a fake access token — the widget accepts sandbox
     # tokens directly without a /v1/token call.
-    if USE_SANDBOX or api_key.startswith("sandbox-"):
+    use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    if use_sb or api_key.startswith("sandbox-"):
         return {"access_token": api_key, "expires_in": expiry_minutes * 60}
 
     try:
@@ -112,7 +152,8 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
 
     # Skip API for oversized PDFs — its backend only parses text-based CAS.
     # Sandbox mode bypasses the size gate since it returns sample data regardless.
-    if not USE_SANDBOX and len(content) > API_SIZE_LIMIT:
+    _use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    if not _use_sb and len(content) > API_SIZE_LIMIT:
         logger.info(
             f"PDF {len(content)/1e6:.1f}MB exceeds CAS Parser API cap "
             f"({API_SIZE_LIMIT/1e6:.1f}MB); skipping API, caller will use local OCR"

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import CasConfigSection from "@/components/admin/CasConfigSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -174,6 +175,9 @@ const AdminView = () => {
           ))}
         </div>
       )}
+
+      {/* CAS Parser API Config */}
+      <CasConfigSection />
 
       {/* Add Email Form */}
       <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">

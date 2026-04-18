@@ -84,6 +84,18 @@ app.add_middleware(
 async def startup_seed():
     logger.info("Connected to MongoDB")
     await seed_admin_and_whitelist()
+    # Hydrate CAS Parser overrides from DB
+    try:
+        from services import cas_api_client
+        cfg = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0})
+        if cfg:
+            cas_api_client.set_override(
+                prod_key=cfg.get("prod_key"),
+                use_sandbox=cfg.get("use_sandbox"),
+            )
+            logger.info("CAS Parser config hydrated from DB")
+    except Exception as e:
+        logger.warning(f"CAS Parser hydrate failed: {e}")
 
 
 @app.on_event("shutdown")

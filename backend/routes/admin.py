@@ -246,3 +246,65 @@ async def get_ocr_correction_stats(request: Request):
         raise HTTPException(status_code=403, detail="Admin access required")
     from services.ocr_correction import get_correction_stats
     return get_correction_stats()
+
+
+
+# ─── CAS Parser API key management ──────────────────────────────────────
+@router.get("/admin/cas-config")
+async def get_cas_config(request: Request):
+    """Return current CAS Parser config (prod key masked). Admin only."""
+    await require_admin(request)
+    from services import cas_api_client
+    cfg = cas_api_client.get_effective_config()
+    # Include DB-persisted values (for display — same as effective but makes source explicit)
+    persisted = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0}) or {}
+    cfg["persisted_at"] = persisted.get("updated_at")
+    cfg["persisted_by"] = persisted.get("updated_by")
+    return cfg
+
+
+@router.put("/admin/cas-config")
+async def update_cas_config(request: Request):
+    """Persist CAS Parser key + sandbox toggle. Empty prod_key clears the override."""
+    user = await require_admin(request)
+    body = await request.json()
+    prod_key = body.get("prod_key")  # str (empty string clears override) or None (don't change)
+    use_sandbox = body.get("use_sandbox")  # bool or None
+
+    from services import cas_api_client
+
+    if prod_key is not None:
+        cas_api_client.set_override(prod_key=prod_key if prod_key.strip() else "", use_sandbox=None)
+    if use_sandbox is not None:
+        cas_api_client.set_override(prod_key=None, use_sandbox=bool(use_sandbox))
+
+    now = datetime.now(timezone.utc).isoformat()
+    update_doc = {"updated_at": now, "updated_by": user.get("email", "")}
+    if prod_key is not None:
+        update_doc["prod_key"] = prod_key.strip()
+    if use_sandbox is not None:
+        update_doc["use_sandbox"] = bool(use_sandbox)
+
+    await db.system_config.update_one(
+        {"key": "cas_parser"},
+        {"$set": update_doc, "$setOnInsert": {"key": "cas_parser"}},
+        upsert=True,
+    )
+    return {"status": "ok", "config": cas_api_client.get_effective_config()}
+
+
+@router.post("/admin/cas-config/test")
+async def test_cas_connection(request: Request):
+    """Attempt to mint an access token to verify the key works. Admin only."""
+    await require_admin(request)
+    from services import cas_api_client
+    token_res = cas_api_client.generate_access_token(expiry_minutes=5)
+    if not token_res:
+        return {"ok": False, "error": "Token mint failed — key may be invalid or API unreachable"}
+    tok = token_res.get("access_token", "")
+    return {
+        "ok": True,
+        "token_prefix": tok[:8] + "…" if tok else "",
+        "expires_in": token_res.get("expires_in"),
+        "mode": "sandbox" if tok.startswith("sandbox-") else "production",
+    }
