@@ -157,7 +157,7 @@ const Landing = () => {
             <div className="w-3 h-3 rounded-full bg-emerald-400" />
             <span className="ml-4 text-xs text-slate-400 font-medium">nivesh.ai Dashboard</span>
           </div>
-          <div className="p-8 grid grid-cols-3 gap-6">
+          <div className="p-4 sm:p-8 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 h-32 flex flex-col justify-between">
               <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">Portfolio Value</span>
               <span className="text-2xl font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>₹24,85,000</span>
@@ -205,7 +205,7 @@ const Landing = () => {
 
       {/* Footer */}
       <footer className="py-12 border-t border-slate-100 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center gap-3 sm:gap-0 sm:justify-between text-center sm:text-left">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-emerald-600 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-3 h-3 text-white" strokeWidth={2.5} />

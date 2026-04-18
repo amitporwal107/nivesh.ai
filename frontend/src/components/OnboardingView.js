@@ -583,7 +583,7 @@ const OnboardingView = ({ onComplete, userProfile }) => {
         {projection && (
           <Card className="p-5 rounded-2xl border-emerald-100 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10 mb-4" data-testid="projection-card">
             <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-3">Wealth Projection</h3>
-            <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
               <div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Monthly SIP</div>
                 <div className="text-lg font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>&#8377;{projection.monthly_sip.toLocaleString("en-IN")}</div>
@@ -882,7 +882,7 @@ const OnboardingView = ({ onComplete, userProfile }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex items-center justify-center p-4 pb-16" data-testid="onboarding-view">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex items-start sm:items-center justify-center p-4 pt-8 sm:pt-4 pb-24" data-testid="onboarding-view">
       <AnimatePresence mode="wait">
         <motion.div
           key={step}

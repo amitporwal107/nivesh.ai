@@ -153,7 +153,7 @@ const ChatView = () => {
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(typeof window !== "undefined" ? window.innerWidth >= 768 : true);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
@@ -406,17 +406,24 @@ const ChatView = () => {
   };
 
   return (
-    <div data-testid="chat-view" className="h-[calc(100vh-6rem)] flex gap-4">
-      {/* Session Sidebar */}
+    <div data-testid="chat-view" className="h-[calc(100vh-8rem)] md:h-[calc(100vh-6rem)] flex gap-4 relative">
+      {/* Session Sidebar — overlay on mobile, inline on desktop */}
       <AnimatePresence>
         {showSidebar && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 260, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex-shrink-0 flex flex-col h-full"
-          >
+          <>
+            {/* Mobile backdrop */}
+            <div
+              className="fixed inset-0 bg-black/30 z-30 md:hidden"
+              onClick={() => setShowSidebar(false)}
+            />
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 260, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex-shrink-0 flex flex-col h-full fixed md:relative top-0 left-0 z-40 md:z-auto bg-transparent md:bg-transparent"
+              style={{ maxWidth: 260 }}
+            >
             <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
               <div className="p-3 border-b border-slate-100 dark:border-slate-800">
                 <Button
@@ -449,27 +456,28 @@ const ChatView = () => {
               </ScrollArea>
             </Card>
           </motion.div>
+          </>
         )}
       </AnimatePresence>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mb-4 gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Button
               data-testid="toggle-chat-sidebar"
               variant="outline"
               onClick={() => setShowSidebar(!showSidebar)}
-              className="rounded-xl border-slate-200 dark:border-slate-700 h-9 w-9 p-0"
+              className="rounded-xl border-slate-200 dark:border-slate-700 h-9 w-9 p-0 flex-shrink-0"
             >
               {showSidebar ? <ChevronLeft className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
             </Button>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-medium tracking-tight text-slate-900 dark:text-white truncate" style={{ fontFamily: "'Outfit', sans-serif" }}>
                 AI Financial Advisor
               </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Ask anything about your investments</p>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 hidden sm:block">Ask anything about your investments</p>
             </div>
           </div>
           {messages.length > 0 && (
@@ -477,17 +485,17 @@ const ChatView = () => {
               data-testid="clear-chat-button"
               variant="outline"
               onClick={handleClear}
-              className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:border-red-200"
+              className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:border-red-200 flex-shrink-0 px-2 sm:px-4"
             >
-              <Trash2 className="w-4 h-4 mr-2" strokeWidth={1.5} />
-              Clear
+              <Trash2 className="w-4 h-4 sm:mr-2" strokeWidth={1.5} />
+              <span className="hidden sm:inline">Clear</span>
             </Button>
           )}
         </div>
 
         {/* Messages */}
         <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
-          <ScrollArea className="flex-1 p-6">
+          <ScrollArea className="flex-1 p-3 sm:p-6">
             {loadingMessages ? (
               <div className="space-y-6 py-4">
                 <ChatMessageSkeleton />
@@ -536,7 +544,7 @@ const ChatView = () => {
                           <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
                         </div>
                       )}
-                      <div className={`max-w-[75%] ${msg.role === "user" ? "" : ""}`}>
+                      <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === "user" ? "" : ""}`}>
                         <div
                           className={`px-4 py-3 text-sm leading-relaxed ${
                             msg.role === "user"
@@ -574,7 +582,7 @@ const ChatView = () => {
                     <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
                       <Bot className="w-4 h-4 text-emerald-600 animate-pulse" strokeWidth={1.5} />
                     </div>
-                    <div className="max-w-[75%] chat-ai-bubble chat-markdown px-4 py-3 text-sm leading-relaxed">
+                    <div className="max-w-[85%] sm:max-w-[75%] chat-ai-bubble chat-markdown px-4 py-3 text-sm leading-relaxed">
                       <MarkdownMessage content={streamingContent} />
                       <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 rounded-sm" />
                     </div>
@@ -590,8 +598,8 @@ const ChatView = () => {
           </ScrollArea>
 
           {/* Input */}
-          <CardContent className="p-4 border-t border-slate-100 dark:border-slate-800">
-            <form onSubmit={handleSend} className="flex items-center gap-3">
+          <CardContent className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800">
+            <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
               <input
                 ref={inputRef}
                 data-testid="chat-input"

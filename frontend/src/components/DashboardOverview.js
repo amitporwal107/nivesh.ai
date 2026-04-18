@@ -202,7 +202,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Select value={displayMode} onValueChange={setDisplayMode}>
             <SelectTrigger data-testid="format-toggle" className="w-24 h-9 rounded-xl border-slate-200 dark:border-slate-700 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -235,7 +235,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         ].map((kpi, i) => (
           <motion.div key={kpi.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
             <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none hover:shadow-lg hover:border-slate-200 dark:hover:border-slate-600 transition-all duration-300 h-full">
-              <CardContent className="p-5">
+              <CardContent className="p-4 sm:p-5">
                 <div className="flex items-center gap-1">
                   <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{kpi.label}</p>
                   {kpi.infoTooltip && <InfoTooltip text={kpi.infoTooltip}><Info className="w-3 h-3 text-slate-400 hover:text-slate-600 cursor-help mb-2" /></InfoTooltip>}
@@ -471,7 +471,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="asset-allocation-chart">
             <CardContent className="p-6 md:p-8">
               <CollapsibleSection title="Asset Allocation" subtitle="Click a segment to view details" testId="section-allocation">
-              <div className="flex items-center gap-6">
+              <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
                 <div className="w-44 h-44 flex-shrink-0 cursor-pointer">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -487,7 +487,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex-1 space-y-2.5">
+                <div className="flex-1 w-full space-y-2.5">
                   {allocationData.map((a, i) => {
                     const pct = analytics.current_value > 0 ? ((a.value / analytics.current_value) * 100).toFixed(1) : 0;
                     return (
@@ -558,7 +558,7 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                 subtitle="Click a holding to view details"
                 testId="section-heatmap"
                 badge={
-                  <div className="flex items-center gap-3 text-[10px] font-bold tracking-wider uppercase ml-4">
+                  <div className="flex items-center gap-2 sm:gap-3 text-[10px] font-bold tracking-wider uppercase sm:ml-4 flex-wrap">
                     <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-400/60" />Loss</div>
                     <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-400/40" />Low</div>
                     <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500/80" />High</div>

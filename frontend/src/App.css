@@ -70,3 +70,13 @@
 .dark .chat-markdown a {
     color: #34d399;
 }
+
+
+/* Hide scrollbar for horizontally-scrolling tab strips on mobile */
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}

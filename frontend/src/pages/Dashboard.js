@@ -86,7 +86,7 @@ const Dashboard = () => {
       <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex" data-testid="dashboard-loading">
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={{}} />
         <main className="flex-1 ml-0 md:ml-64 min-h-screen">
-          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+          <div className="pt-16 md:pt-4 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
             <DashboardSkeleton />
           </div>
         </main>
@@ -126,7 +126,7 @@ const Dashboard = () => {
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex" data-testid="dashboard">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen">
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        <div className="pt-16 md:pt-4 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>
       </main>

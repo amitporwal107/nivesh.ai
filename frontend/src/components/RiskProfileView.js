@@ -180,7 +180,7 @@ const RiskProfileView = ({ onComplete, existingProfile }) => {
 
             <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Suggested Asset Allocation</h3>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {Object.entries(allocation).map(([asset, pct]) => (
                   <div key={asset} className="text-center">
                     <div className="text-2xl font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
@@ -193,7 +193,7 @@ const RiskProfileView = ({ onComplete, existingProfile }) => {
             </div>
           </Card>
 
-          <div className="flex justify-center gap-3">
+          <div className="flex flex-col sm:flex-row justify-center gap-3">
             <Button
               data-testid="retake-risk-profile"
               variant="outline"

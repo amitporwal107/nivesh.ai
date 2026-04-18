@@ -264,14 +264,14 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       </div>
 
       {/* Filters Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <Input data-testid="search-holdings" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search by name, ticker, sector..." className="pl-10 rounded-xl border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-white" />
         </div>
         {portfolios.length > 0 && (
           <Select value={filterPortfolio} onValueChange={setFilterPortfolio}>
-            <SelectTrigger data-testid="filter-portfolio" className="w-48 rounded-xl border-slate-200 dark:border-slate-700"><SelectValue placeholder="All Members" /></SelectTrigger>
+            <SelectTrigger data-testid="filter-portfolio" className="w-full sm:w-48 rounded-xl border-slate-200 dark:border-slate-700"><SelectValue placeholder="All Members" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Members</SelectItem>
               {portfolios.map(p => <SelectItem key={p.portfolio_id} value={p.portfolio_id}>{p.name}</SelectItem>)}
@@ -323,9 +323,9 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
       })()}
 
       <Tabs value={activeAssetTab} onValueChange={setActiveAssetTab} className="mb-6">
-        <TabsList className="bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+        <TabsList className="bg-slate-100 dark:bg-slate-800 rounded-xl p-1 overflow-x-auto w-full justify-start scrollbar-hide">
           {TAB_FILTERS.map(t => (
-            <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="rounded-lg text-xs data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm">
+            <TabsTrigger key={t.id} value={t.id} data-testid={`tab-${t.id}`} className="rounded-lg text-xs data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm flex-shrink-0 whitespace-nowrap">
               {t.label}
               <span className="ml-1 text-[10px] text-slate-400">
                 ({t.id === "all" ? holdings.length : holdings.filter(h => t.id === "gold" ? ["gold","bond"].includes(h.asset_type) : t.id === "other_assets" ? ["fd","other"].includes(h.asset_type) : h.asset_type === t.id).length})
@@ -368,6 +368,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
         </Card>
       ) : (
         <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none overflow-hidden" data-testid="holdings-table">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-slate-100 dark:border-slate-700 hover:bg-transparent">
@@ -427,7 +428,8 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
               })}
             </TableBody>
           </Table>
-          <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-400">
+          </div>
+          <div className="px-4 sm:px-6 py-3 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-400">
             Showing {filteredHoldings.length} of {holdings.length} holdings
           </div>
         </Card>
@@ -479,7 +481,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
 
       {/* Add/Edit Dialog with Autocomplete */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-lg rounded-2xl">
+        <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>{editingHolding ? "Edit Holding" : "Add Holding"}</DialogTitle>
           </DialogHeader>
