@@ -80,7 +80,13 @@ const formatCurrency = (n) => {
 
 const SimulationPanel = ({ result, scenario, onApply, onSave, onViewPlan, applying, saving }) => {
   if (!result) return null;
-  const { before, after, delta, top_changes } = result;
+  const { before, after, delta, top_changes, cagr_data } = result;
+  const isReal = cagr_data?.is_real_data;
+  const coverage = cagr_data?.coverage_pct || {};
+  const covLabel = Object.entries(coverage)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${k} ${v}%`)
+    .join(" · ");
 
   return (
     <Card
@@ -95,6 +101,19 @@ const SimulationPanel = ({ result, scenario, onApply, onSave, onViewPlan, applyi
           <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white">
             {scenario?.title || "What-if Analysis"}
           </h3>
+          <p
+            data-testid="cagr-source-badge"
+            className={`mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded ${
+              isReal
+                ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400"
+                : "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400"
+            }`}
+            title={covLabel || "Annualized from each holding's buy price + date"}
+          >
+            {isReal
+              ? `Returns from your real holdings${covLabel ? ` · ${covLabel}` : ""}`
+              : "Returns: category averages (no holding-level history)"}
+          </p>
         </div>
       </div>
 

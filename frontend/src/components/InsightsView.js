@@ -24,7 +24,7 @@ const API = `${BACKEND_URL}/api`;
 const RISK_COLORS = { high: "#EF4444", medium: "#F59E0B", low: "#10B981" };
 const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
-const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile }) => {
+const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilotEnabled = false }) => {
   const { fmt } = useNumberFormat();
   const [analysis, setAnalysis] = useState(null);
   const [deepAnalytics, setDeepAnalytics] = useState(null);
@@ -189,9 +189,23 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile }) => {
         </Card>
       ) : (
         <>
-          {/* ══════════════ TAB: AI COPILOT (replaces old Overview) ══════════════ */}
+          {/* ══════════════ TAB: AI COPILOT (gated) ══════════════ */}
           {activeTab === "overview" && (
-            <AICopilotView riskProfile={riskProfile} />
+            copilotEnabled ? (
+              <AICopilotView riskProfile={riskProfile} />
+            ) : (
+              <OverviewTab
+                pd={pd}
+                gauge={gauge}
+                ba={ba}
+                cost={cost}
+                ins={ins}
+                funnel={funnel}
+                doNothing={doNothing}
+                fmt={fmt}
+                analytics={deepAnalytics}
+              />
+            )
           )}
 
           {/* ══════════════ TAB: BENCHMARK ══════════════ */}

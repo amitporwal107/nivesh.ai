@@ -13,15 +13,24 @@ import logging
 
 from deps import db, get_current_user, ai_engine
 from helpers.portfolio_utils import extract_fund_house
+from feature_flags import is_copilot_enabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-# ─── Static return assumptions (per PRD Phase 1 decision) ────────────────
-ASSUMED_CAGR = {
+async def _require_copilot(request: Request):
+    """Gate — only whitelisted users may access scenario routes."""
+    user = await get_current_user(request)
+    if not is_copilot_enabled(user.get("email")):
+        raise HTTPException(status_code=403, detail="AI Copilot not enabled for this account")
+    return user
+
+
+# ─── Fallback return assumptions (used only when real returns can't be computed) ──
+FALLBACK_CAGR = {
     "equity": 12.0,
-    "mutual_fund": 11.5,   # mixed average
+    "mutual_fund": 11.5,
     "etf": 11.0,
     "debt": 7.0,
     "gold": 8.0,
@@ -35,6 +44,35 @@ REGULAR_EXPENSE = 1.8
 DIRECT_EXPENSE = 0.8
 
 
+def _annualized_return(buy_price: float, current_price: float, buy_date: str | None) -> float | None:
+    """Compute annualized return from realized price + holding duration.
+
+    Falls back to None if data insufficient (e.g. buy_date is today / missing).
+    """
+    if not buy_price or buy_price <= 0 or not current_price:
+        return None
+    total_return = (current_price - buy_price) / buy_price
+    if not buy_date:
+        return None
+    try:
+        bd = datetime.fromisoformat(buy_date.split("T")[0])
+    except Exception:
+        return None
+    days = (datetime.now(timezone.utc).replace(tzinfo=None) - bd).days
+    if days < 30:
+        return None  # too short to annualize meaningfully
+    years = max(days / 365.25, 0.1)
+    # Annualized = (1+r)^(1/years) - 1
+    try:
+        ann = (1 + total_return) ** (1 / years) - 1
+        # Clamp extreme values (unreliable data)
+        if ann < -0.5 or ann > 1.0:
+            return None
+        return ann * 100
+    except Exception:
+        return None
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────
 def _compute_portfolio_context(holdings: List[Dict]) -> Dict[str, Any]:
     """Deterministic portfolio metrics used for both suggest + simulate."""
@@ -45,6 +83,9 @@ def _compute_portfolio_context(holdings: List[Dict]) -> Dict[str, Any]:
     amc_map: Dict[str, float] = {}
     regular_value = 0.0
     dead_positions: List[Dict] = []
+
+    # Real per-class CAGR: {class: (sum(return * val), sum(val), n_valid)}
+    class_returns: Dict[str, List[float]] = {}
 
     for h in holdings:
         val = h["quantity"] * h["current_price"]
@@ -58,21 +99,34 @@ def _compute_portfolio_context(holdings: List[Dict]) -> Dict[str, Any]:
             if "regular" in name_lower and "direct" not in name_lower:
                 regular_value += val
 
-        # "Dead position" = tiny value, < ₹500
         if val < 500:
             dead_positions.append({"name": h["name"][:40], "value": round(val, 2)})
+
+        # Real annualized return per holding
+        ann = _annualized_return(h.get("buy_price", 0), h.get("current_price", 0), h.get("buy_date"))
+        if ann is not None:
+            class_returns.setdefault(at, []).append((ann, val))
 
     asset_pct = {k: round(v / total * 100, 1) for k, v in asset_map.items()}
     top_amc = max(amc_map.items(), key=lambda x: x[1]) if amc_map else ("", 0)
     top_amc_pct = round(top_amc[1] / total * 100, 1) if total else 0
 
-    # Cost leakage: regular plans pay ~1% more/yr vs direct
     annual_cost_leak = round(regular_value * (REGULAR_EXPENSE - DIRECT_EXPENSE) / 100)
 
-    # Deterministic risk score (0-100) based on concentration + missing debt
     equity_pct = asset_pct.get("equity", 0) + asset_pct.get("mutual_fund", 0) + asset_pct.get("etf", 0)
     debt_pct = asset_pct.get("debt", 0)
     risk_score = min(100, int(equity_pct * 0.6 + top_amc_pct * 0.5 + (100 if debt_pct < 5 else 0) * 0.2))
+
+    # Compute real per-class CAGR (value-weighted)
+    real_cagr: Dict[str, float] = {}
+    coverage: Dict[str, float] = {}  # % of class value with real data
+    for at, pairs in class_returns.items():
+        tot_val = sum(v for _, v in pairs)
+        if tot_val > 0:
+            weighted = sum(r * v for r, v in pairs) / tot_val
+            real_cagr[at] = round(weighted, 2)
+            class_tot = asset_map.get(at, 0)
+            coverage[at] = round(tot_val / class_tot * 100, 1) if class_tot else 0
 
     return {
         "total_value": round(total),
@@ -88,7 +142,14 @@ def _compute_portfolio_context(holdings: List[Dict]) -> Dict[str, Any]:
         "dead_position_value": round(sum(d["value"] for d in dead_positions)),
         "risk_score": risk_score,
         "holdings_count": len(holdings),
+        "real_cagr": real_cagr,
+        "cagr_coverage": coverage,
     }
+
+
+def _cagr_for_class(asset_type: str, real_cagr: Dict[str, float]) -> float:
+    """Return real per-class CAGR if user has data for it; otherwise fall back."""
+    return real_cagr.get(asset_type, FALLBACK_CAGR.get(asset_type, 8.0))
 
 
 def _risk_label(score: int) -> str:
@@ -105,7 +166,7 @@ def _risk_label(score: int) -> str:
 @router.get("/scenarios/suggest")
 async def suggest_scenarios(request: Request):
     """Generate 3-4 personalized scenario cards based on portfolio context."""
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
     if not holdings:
         return {"scenarios": [], "context": None}
@@ -220,18 +281,18 @@ class SimulateRequest(BaseModel):
 @router.post("/scenarios/simulate")
 async def simulate_scenario(payload: SimulateRequest, request: Request):
     """Run a what-if simulation and return Before/After metrics."""
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
     if not holdings:
         raise HTTPException(status_code=400, detail="No holdings to simulate")
 
     before = _compute_portfolio_context(holdings)
+    real_cagr = before["real_cagr"]
 
-    # Build "after" by applying target allocations deterministically
-    # Weighted CAGR — BEFORE
+    # Weighted CAGR — BEFORE (uses real per-class returns when available)
     before_cagr = 0.0
     for at, pct in before["asset_pct"].items():
-        before_cagr += (pct / 100) * ASSUMED_CAGR.get(at, 8.0)
+        before_cagr += (pct / 100) * _cagr_for_class(at, real_cagr)
 
     # Determine target allocation
     after_alloc = dict(before["asset_pct"])  # start from current
@@ -261,7 +322,7 @@ async def simulate_scenario(payload: SimulateRequest, request: Request):
     # Weighted CAGR — AFTER
     after_cagr = 0.0
     for at, pct in after_alloc.items():
-        after_cagr += (pct / 100) * ASSUMED_CAGR.get(at, 8.0)
+        after_cagr += (pct / 100) * _cagr_for_class(at, real_cagr)
 
     # Risk score after
     after_equity = after_alloc.get("equity", 0) + after_alloc.get("mutual_fund", 0) + after_alloc.get("etf", 0)
@@ -313,6 +374,11 @@ async def simulate_scenario(payload: SimulateRequest, request: Request):
             "value_5y": round(after_5y - before_5y),
         },
         "top_changes": _build_top_changes(payload, before, after_alloc, cost_saving),
+        "cagr_data": {
+            "real_cagr": real_cagr,
+            "coverage_pct": before.get("cagr_coverage", {}),
+            "is_real_data": bool(real_cagr),
+        },
         "scenario_id": payload.scenario_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -345,7 +411,7 @@ async def rebalance_plan(payload: RebalanceRequest, request: Request):
 
     Returns a list of actions, grouped by asset_class, with specific holdings + ₹ amounts.
     """
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
     if not holdings:
         raise HTTPException(status_code=400, detail="No holdings to rebalance")
@@ -474,7 +540,7 @@ class SaveScenarioRequest(BaseModel):
 
 @router.post("/scenarios/save")
 async def save_scenario(req: SaveScenarioRequest, request: Request):
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     import uuid as _uuid
     doc = {
         "saved_id": f"ssc_{_uuid.uuid4().hex[:12]}",
@@ -492,7 +558,7 @@ async def save_scenario(req: SaveScenarioRequest, request: Request):
 
 @router.get("/scenarios/saved")
 async def list_saved(request: Request):
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     items = await db.saved_scenarios.find(
         {"user_id": user["user_id"]}, {"_id": 0}
     ).sort("created_at", -1).to_list(50)
@@ -501,7 +567,7 @@ async def list_saved(request: Request):
 
 @router.delete("/scenarios/saved/{saved_id}")
 async def delete_saved(saved_id: str, request: Request):
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     r = await db.saved_scenarios.delete_one({"saved_id": saved_id, "user_id": user["user_id"]})
     return {"deleted": r.deleted_count}
 
@@ -519,7 +585,7 @@ async def apply_scenario(req: ApplyRequest, request: Request):
     Holdings stay untouched. `pending_actions` collection holds the plan so UI
     can later surface 'You have 3 pending rebalance actions' badges.
     """
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     import uuid as _uuid
     plan_id = f"plan_{_uuid.uuid4().hex[:12]}"
     doc = {
@@ -537,7 +603,7 @@ async def apply_scenario(req: ApplyRequest, request: Request):
 
 @router.get("/scenarios/pending")
 async def list_pending(request: Request):
-    user = await get_current_user(request)
+    user = await _require_copilot(request)
     items = await db.pending_actions.find(
         {"user_id": user["user_id"], "status": "pending"}, {"_id": 0}
     ).sort("created_at", -1).to_list(10)

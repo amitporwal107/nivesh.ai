@@ -112,7 +112,7 @@ const Dashboard = () => {
       case "chat":
         return <ChatView />;
       case "insights":
-        return <InsightsView insights={insights} onRefresh={fetchData} />;
+        return <InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />;
       case "risk_profile":
         return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
       case "admin":
