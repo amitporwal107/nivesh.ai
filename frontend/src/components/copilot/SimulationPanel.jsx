@@ -2,20 +2,33 @@ import React from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, TrendingUp, Shield, Wallet, Save, CheckCircle2, FileText } from "lucide-react";
+import { motion } from "framer-motion";
+import CountUp from "./CountUp";
 
-const MetricBlock = ({ label, before, after, format = (v) => v, testId, tone }) => {
+const MetricBlock = ({ label, beforeNum, afterNum, beforeStr, afterStr, format, testId, tone }) => {
   const improved = tone === "good";
+  const animate = typeof beforeNum === "number" && typeof afterNum === "number";
   return (
-    <div data-testid={testId} className="p-3 sm:p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      data-testid={testId}
+      className="p-3 sm:p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900"
+    >
       <div className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-2">{label}</div>
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-slate-500 dark:text-slate-400 line-through">{format(before)}</span>
+        <span className="text-slate-500 dark:text-slate-400 line-through">{beforeStr}</span>
         <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
         <span className={`font-semibold text-base ${improved ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white"}`}>
-          {format(after)}
+          {animate && format ? (
+            <CountUp from={beforeNum} value={afterNum} format={format} />
+          ) : (
+            afterStr
+          )}
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -30,8 +43,12 @@ const RiskGauge = ({ before, after }) => {
         <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">0 = safe · 100 = risky</span>
       </div>
       <div className="relative h-2.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-        <div className={`absolute inset-y-0 left-0 ${color} transition-all duration-700`} style={{ width: `${pct}%` }} />
-        {/* before marker */}
+        <motion.div
+          className={`absolute inset-y-0 left-0 ${color}`}
+          initial={{ width: `${pctBefore}%` }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+        />
         <div
           className="absolute top-0 bottom-0 w-0.5 bg-slate-400 dark:bg-slate-500"
           style={{ left: `${pctBefore}%` }}
@@ -41,7 +58,7 @@ const RiskGauge = ({ before, after }) => {
       <div className="mt-2 flex items-center justify-between text-xs">
         <span className="text-slate-500 dark:text-slate-400">Before <b className="text-slate-700 dark:text-slate-300">{before}</b></span>
         <span className={`font-semibold ${after < before ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"}`}>
-          After {after} {after < before && `(${after - before})`}
+          After <CountUp from={before} value={after} duration={900} format={(n) => Math.round(n)} /> {after < before && `(${after - before})`}
         </span>
       </div>
     </div>
