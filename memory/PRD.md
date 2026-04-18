@@ -2,6 +2,14 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 - AI Copilot Phase 2
+- [x] **Custom Scenario Builder** — slider-based UI to tweak Equity/Debt/Gold + Max AMC + Max Stock exposure, with auto-balancing allocation (sums to 100%)
+- [x] **Rebalance Plan generator** — `POST /api/scenarios/rebalance-plan` outputs REDUCE/EXIT/SWITCH/BUY actions with specific holdings, ₹ amounts, reasons
+- [x] **Save/Load scenarios** — named scenarios persisted per user in `saved_scenarios`, inline chip UI with load + delete
+- [x] **Apply Changes** — `POST /api/scenarios/apply` persists plan actions to `pending_actions` collection (no portfolio mutation)
+- [x] New components: `CustomScenarioBuilder.jsx`, `RebalancePlanDialog.jsx`
+- [x] New endpoints: `/api/scenarios/rebalance-plan`, `/save`, `/saved`, `/saved/{id}` (DELETE), `/apply`, `/pending`
+
 ### Feb 2026 - AI Copilot Phase 1 MVP
 - [x] **Scenario-driven AI Copilot** replacing the AI Overview tab
   - Backend: `/app/backend/routes/scenarios.py` — new module

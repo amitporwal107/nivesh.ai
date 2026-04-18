@@ -329,6 +329,221 @@ async def simulate_scenario(payload: SimulateRequest, request: Request):
     return result
 
 
+# ─── /scenarios/rebalance-plan ───────────────────────────────────────────
+class RebalanceRequest(BaseModel):
+    target_equity: Optional[float] = None
+    target_debt: Optional[float] = None
+    target_gold: Optional[float] = None
+    target_amc_cap: Optional[float] = None
+    switch_to_direct: bool = False
+    remove_dead: bool = False
+
+
+@router.post("/scenarios/rebalance-plan")
+async def rebalance_plan(payload: RebalanceRequest, request: Request):
+    """Generate step-by-step buy/sell actions to reach target allocation.
+
+    Returns a list of actions, grouped by asset_class, with specific holdings + ₹ amounts.
+    """
+    user = await get_current_user(request)
+    holdings = await db.holdings.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
+    if not holdings:
+        raise HTTPException(status_code=400, detail="No holdings to rebalance")
+
+    ctx = _compute_portfolio_context(holdings)
+    total = ctx["total_value"]
+    actions: List[Dict[str, Any]] = []
+
+    # 1. Shift equity → debt if target_debt > current
+    if payload.target_debt is not None and payload.target_debt > ctx["debt_pct"]:
+        delta_pct = payload.target_debt - ctx["debt_pct"]
+        amount_to_shift = round(total * delta_pct / 100)
+        # Pick the most-overweight MF/equity holdings to reduce proportionally
+        equity_holdings = [
+            h for h in holdings if h.get("asset_type") in ("equity", "mutual_fund", "etf")
+        ]
+        # Sort by value desc, pick top 3
+        equity_holdings.sort(key=lambda h: h["quantity"] * h["current_price"], reverse=True)
+        for h in equity_holdings[:3]:
+            reduce_amt = round(amount_to_shift / 3)
+            actions.append({
+                "action": "REDUCE",
+                "asset_class": "equity",
+                "holding_name": h["name"],
+                "isin": h.get("isin", ""),
+                "current_value": round(h["quantity"] * h["current_price"]),
+                "change_amount": -reduce_amt,
+                "reason": f"Trim to free ₹{reduce_amt:,} for debt allocation",
+            })
+        actions.append({
+            "action": "BUY",
+            "asset_class": "debt",
+            "holding_name": "Debt fund — suggestions",
+            "isin": "",
+            "current_value": 0,
+            "change_amount": amount_to_shift,
+            "reason": (
+                "Consider: HDFC Corporate Bond Fund (Direct), "
+                "ICICI Prudential Short Term Fund (Direct), "
+                "Axis Banking & PSU Debt Fund (Direct)"
+            ),
+        })
+
+    # 2. AMC concentration cap — reduce holdings from top AMC
+    if payload.target_amc_cap is not None and payload.target_amc_cap < ctx["top_amc_pct"]:
+        target_pct = payload.target_amc_cap
+        target_value = round(total * target_pct / 100)
+        current_value = round(total * ctx["top_amc_pct"] / 100)
+        to_reduce = current_value - target_value
+        top_amc = ctx["top_amc"]
+        amc_holdings = [
+            h for h in holdings
+            if h.get("asset_type") in ("mutual_fund", "etf") and extract_fund_house(h["name"]) == top_amc
+        ]
+        amc_holdings.sort(key=lambda h: h["quantity"] * h["current_price"], reverse=True)
+        # Reduce largest first
+        remaining = to_reduce
+        for h in amc_holdings:
+            if remaining <= 0:
+                break
+            val = round(h["quantity"] * h["current_price"])
+            reduce_amt = min(val, remaining)
+            actions.append({
+                "action": "REDUCE",
+                "asset_class": "mutual_fund",
+                "holding_name": h["name"],
+                "isin": h.get("isin", ""),
+                "current_value": val,
+                "change_amount": -reduce_amt,
+                "reason": f"Reduce {top_amc} exposure to meet {target_pct}% cap",
+            })
+            remaining -= reduce_amt
+
+    # 3. Switch to direct plans
+    if payload.switch_to_direct:
+        for h in holdings:
+            if h.get("asset_type") in ("mutual_fund", "etf") and "regular" in h["name"].lower() and "direct" not in h["name"].lower():
+                val = round(h["quantity"] * h["current_price"])
+                actions.append({
+                    "action": "SWITCH",
+                    "asset_class": "mutual_fund",
+                    "holding_name": h["name"],
+                    "isin": h.get("isin", ""),
+                    "current_value": val,
+                    "change_amount": 0,
+                    "reason": "Switch to Direct plan (same fund, ~1% lower expense ratio)",
+                })
+
+    # 4. Remove dead positions
+    if payload.remove_dead:
+        for h in holdings:
+            val = h["quantity"] * h["current_price"]
+            if val < 500:
+                actions.append({
+                    "action": "EXIT",
+                    "asset_class": h.get("asset_type", "other"),
+                    "holding_name": h["name"],
+                    "isin": h.get("isin", ""),
+                    "current_value": round(val),
+                    "change_amount": -round(val),
+                    "reason": "Dead position (below ₹500) — exit for simplicity",
+                })
+
+    # Sort: REDUCE/EXIT first, then SWITCH, then BUY
+    order = {"REDUCE": 0, "EXIT": 1, "SWITCH": 2, "BUY": 3}
+    actions.sort(key=lambda a: order.get(a["action"], 99))
+
+    summary = {
+        "total_actions": len(actions),
+        "reduce_count": sum(1 for a in actions if a["action"] == "REDUCE"),
+        "exit_count": sum(1 for a in actions if a["action"] == "EXIT"),
+        "switch_count": sum(1 for a in actions if a["action"] == "SWITCH"),
+        "buy_count": sum(1 for a in actions if a["action"] == "BUY"),
+    }
+
+    return {"actions": actions, "summary": summary, "generated_at": datetime.now(timezone.utc).isoformat()}
+
+
+# ─── /scenarios/save + /saved + /apply ──────────────────────────────────
+class SaveScenarioRequest(BaseModel):
+    name: str
+    scenario_id: Optional[str] = None
+    payload: Dict[str, Any]
+    result: Dict[str, Any]
+
+
+@router.post("/scenarios/save")
+async def save_scenario(req: SaveScenarioRequest, request: Request):
+    user = await get_current_user(request)
+    import uuid as _uuid
+    doc = {
+        "saved_id": f"ssc_{_uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": req.name,
+        "scenario_id": req.scenario_id,
+        "payload": req.payload,
+        "result": req.result,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.saved_scenarios.insert_one(doc)
+    doc.pop("_id", None)
+    return {"saved_id": doc["saved_id"], "name": req.name}
+
+
+@router.get("/scenarios/saved")
+async def list_saved(request: Request):
+    user = await get_current_user(request)
+    items = await db.saved_scenarios.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return {"saved": items}
+
+
+@router.delete("/scenarios/saved/{saved_id}")
+async def delete_saved(saved_id: str, request: Request):
+    user = await get_current_user(request)
+    r = await db.saved_scenarios.delete_one({"saved_id": saved_id, "user_id": user["user_id"]})
+    return {"deleted": r.deleted_count}
+
+
+class ApplyRequest(BaseModel):
+    scenario_id: Optional[str] = None
+    actions: List[Dict[str, Any]]
+    payload: Dict[str, Any]
+
+
+@router.post("/scenarios/apply")
+async def apply_scenario(req: ApplyRequest, request: Request):
+    """Persist pending actions — marks intent without mutating holdings.
+
+    Holdings stay untouched. `pending_actions` collection holds the plan so UI
+    can later surface 'You have 3 pending rebalance actions' badges.
+    """
+    user = await get_current_user(request)
+    import uuid as _uuid
+    plan_id = f"plan_{_uuid.uuid4().hex[:12]}"
+    doc = {
+        "plan_id": plan_id,
+        "user_id": user["user_id"],
+        "scenario_id": req.scenario_id,
+        "payload": req.payload,
+        "actions": req.actions,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.pending_actions.insert_one(doc)
+    return {"plan_id": plan_id, "action_count": len(req.actions), "status": "pending"}
+
+
+@router.get("/scenarios/pending")
+async def list_pending(request: Request):
+    user = await get_current_user(request)
+    items = await db.pending_actions.find(
+        {"user_id": user["user_id"], "status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    return {"pending": items}
+
+
 def _build_top_changes(payload: SimulateRequest, before: Dict, after: Dict, cost_saving: int) -> List[str]:
     changes: List[str] = []
     if payload.target_debt is not None and payload.target_debt != before["debt_pct"]:

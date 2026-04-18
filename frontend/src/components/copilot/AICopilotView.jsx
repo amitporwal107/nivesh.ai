@@ -2,13 +2,23 @@ import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Sparkles, Lightbulb, AlertTriangle } from "lucide-react";
+import { Sparkles, Lightbulb, AlertTriangle, Sliders, Bookmark, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 import PortfolioContextHeader from "./PortfolioContextHeader";
 import ScenarioCard from "./ScenarioCard";
 import SimulationPanel from "./SimulationPanel";
+import CustomScenarioBuilder from "./CustomScenarioBuilder";
+import RebalancePlanDialog from "./RebalancePlanDialog";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -17,10 +27,20 @@ const AICopilotView = ({ riskProfile }) => {
   const [scenarios, setScenarios] = useState([]);
   const [context, setContext] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [selectedPayload, setSelectedPayload] = useState(null);
   const [simulating, setSimulating] = useState(false);
   const [result, setResult] = useState(null);
   const [applying, setApplying] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Phase 2
+  const [showCustom, setShowCustom] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [plan, setPlan] = useState(null);
+  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [savedList, setSavedList] = useState([]);
 
   const loadScenarios = useCallback(async () => {
     setLoading(true);
@@ -35,9 +55,19 @@ const AICopilotView = ({ riskProfile }) => {
     }
   }, []);
 
+  const loadSaved = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/scenarios/saved`, { withCredentials: true });
+      setSavedList(res.data.saved || []);
+    } catch (err) {
+      // non-fatal
+    }
+  }, []);
+
   useEffect(() => {
     loadScenarios();
-  }, [loadScenarios]);
+    loadSaved();
+  }, [loadScenarios, loadSaved]);
 
   const buildSimulatePayload = (scenario) => {
     const alloc = scenario.target_allocation || {};
@@ -52,18 +82,14 @@ const AICopilotView = ({ riskProfile }) => {
     return payload;
   };
 
-  const handleSimulate = async (scenario) => {
+  const runSimulate = async (scenario, payload) => {
     setSelected(scenario);
+    setSelectedPayload(payload);
     setSimulating(true);
     setResult(null);
     try {
-      const res = await axios.post(
-        `${API}/scenarios/simulate`,
-        buildSimulatePayload(scenario),
-        { withCredentials: true }
-      );
+      const res = await axios.post(`${API}/scenarios/simulate`, payload, { withCredentials: true });
       setResult(res.data);
-      // Scroll the simulation panel into view
       setTimeout(() => {
         document.querySelector('[data-testid="simulation-panel"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
@@ -74,27 +100,108 @@ const AICopilotView = ({ riskProfile }) => {
     }
   };
 
-  const handleApply = async () => {
-    setApplying(true);
-    // Phase 1: plan-only — no actual portfolio mutation
-    setTimeout(() => {
-      toast.success("Plan saved. Actionable rebalance steps coming soon.");
-      setApplying(false);
-    }, 500);
+  const handleSimulateCard = (scenario) => runSimulate(scenario, buildSimulatePayload(scenario));
+
+  const handleRunCustom = async (payload) => {
+    setShowCustom(false);
+    await runSimulate(
+      { id: "custom", title: "Custom Scenario", category: "optimization" },
+      payload
+    );
   };
 
-  const handleViewPlan = () => {
-    toast.info("Rebalance Plan: detailed buy/sell actions coming in Phase 2.");
+  // --- Apply: persist pending actions ---
+  const handleApply = async () => {
+    if (!result || !selectedPayload) return;
+    setApplying(true);
+    try {
+      // First build plan if not already built
+      let planData = plan;
+      if (!planData) {
+        const r = await axios.post(`${API}/scenarios/rebalance-plan`, selectedPayload, { withCredentials: true });
+        planData = r.data;
+      }
+      const res = await axios.post(
+        `${API}/scenarios/apply`,
+        {
+          scenario_id: selected?.id || null,
+          actions: planData?.actions || [],
+          payload: selectedPayload,
+        },
+        { withCredentials: true }
+      );
+      toast.success(`${res.data.action_count} action(s) saved as pending plan.`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Apply failed");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  // --- View Rebalance Plan ---
+  const handleViewPlan = async () => {
+    if (!selectedPayload) return;
+    setLoadingPlan(true);
+    setPlanOpen(true);
+    try {
+      const res = await axios.post(`${API}/scenarios/rebalance-plan`, selectedPayload, { withCredentials: true });
+      setPlan(res.data);
+    } catch (err) {
+      toast.error("Couldn't build rebalance plan");
+      setPlanOpen(false);
+    } finally {
+      setLoadingPlan(false);
+    }
+  };
+
+  // --- Save scenario ---
+  const openSaveDialog = () => {
+    setSaveName(selected?.title || "My Scenario");
+    setSaveDialogOpen(true);
   };
 
   const handleSave = async () => {
+    if (!result || !selectedPayload || !saveName.trim()) return;
     setSaving(true);
-    setTimeout(() => {
-      toast.success("Scenario saved to your dashboard.");
+    try {
+      await axios.post(
+        `${API}/scenarios/save`,
+        {
+          name: saveName.trim(),
+          scenario_id: selected?.id || null,
+          payload: selectedPayload,
+          result,
+        },
+        { withCredentials: true }
+      );
+      toast.success(`"${saveName}" saved.`);
+      setSaveDialogOpen(false);
+      loadSaved();
+    } catch (err) {
+      toast.error("Couldn't save scenario");
+    } finally {
       setSaving(false);
-    }, 500);
+    }
   };
 
+  const handleDeleteSaved = async (savedId) => {
+    try {
+      await axios.delete(`${API}/scenarios/saved/${savedId}`, { withCredentials: true });
+      toast.success("Scenario deleted");
+      loadSaved();
+    } catch (err) {
+      toast.error("Delete failed");
+    }
+  };
+
+  const handleLoadSaved = async (s) => {
+    await runSimulate(
+      { id: s.scenario_id || "custom", title: s.name, category: "optimization" },
+      s.payload
+    );
+  };
+
+  // ---------- render ----------
   if (loading) {
     return (
       <Card className="p-8 rounded-2xl border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
@@ -125,10 +232,9 @@ const AICopilotView = ({ riskProfile }) => {
 
   return (
     <div data-testid="ai-copilot-view" className="space-y-5">
-      {/* 1. Portfolio Context Header */}
       <PortfolioContextHeader context={context} riskProfile={riskProfile} />
 
-      {/* 2. AI Insight Summary */}
+      {/* AI Insight Summary */}
       <Card
         data-testid="ai-insight-summary"
         className="p-4 sm:p-5 rounded-2xl border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900"
@@ -147,10 +253,7 @@ const AICopilotView = ({ riskProfile }) => {
               <>
                 <div className="mt-2 flex flex-wrap gap-1.5" data-testid="top-problems">
                   {topProblems.map((p, i) => (
-                    <span
-                      key={i}
-                      className="text-[11px] font-medium px-2 py-1 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400"
-                    >
+                    <span key={i} className="text-[11px] font-medium px-2 py-1 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400">
                       {p}
                     </span>
                   ))}
@@ -167,9 +270,9 @@ const AICopilotView = ({ riskProfile }) => {
         </div>
       </Card>
 
-      {/* 3. Scenario Builder chips (opens prebuilt cards — already shown below) */}
+      {/* Scenarios header with Custom builder CTA */}
       <div>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
           <div>
             <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">
               Pre-built Scenarios
@@ -178,6 +281,14 @@ const AICopilotView = ({ riskProfile }) => {
               Personalized for your holdings. Tap Simulate to see impact.
             </p>
           </div>
+          <Button
+            data-testid="open-custom-scenario-btn"
+            variant="outline"
+            onClick={() => setShowCustom(true)}
+            className="rounded-xl border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+          >
+            <Sliders className="w-4 h-4 mr-2" /> Custom Scenario
+          </Button>
         </div>
 
         {scenarios.length === 0 ? (
@@ -190,7 +301,7 @@ const AICopilotView = ({ riskProfile }) => {
               <ScenarioCard
                 key={s.id}
                 scenario={s}
-                onSimulate={handleSimulate}
+                onSimulate={handleSimulateCard}
                 simulating={simulating}
                 selected={selected?.id === s.id}
               />
@@ -199,7 +310,42 @@ const AICopilotView = ({ riskProfile }) => {
         )}
       </div>
 
-      {/* 4. Simulation Output Panel */}
+      {/* Saved scenarios */}
+      {savedList.length > 0 && (
+        <Card className="p-4 sm:p-5 rounded-2xl border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900" data-testid="saved-scenarios">
+          <div className="flex items-center gap-2 mb-3">
+            <Bookmark className="w-4 h-4 text-slate-500" strokeWidth={2} />
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Saved Scenarios</h3>
+            <span className="text-xs text-slate-400">({savedList.length})</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {savedList.map((s) => (
+              <div
+                key={s.saved_id}
+                data-testid={`saved-${s.saved_id}`}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <button
+                  onClick={() => handleLoadSaved(s)}
+                  className="text-xs font-medium text-slate-700 dark:text-slate-300"
+                >
+                  {s.name}
+                </button>
+                <button
+                  onClick={() => handleDeleteSaved(s.saved_id)}
+                  className="text-slate-400 hover:text-red-500"
+                  data-testid={`delete-${s.saved_id}`}
+                  aria-label="Delete"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Simulation panel */}
       <AnimatePresence>
         {result && (
           <motion.div
@@ -213,13 +359,65 @@ const AICopilotView = ({ riskProfile }) => {
               scenario={selected}
               onApply={handleApply}
               onViewPlan={handleViewPlan}
-              onSave={handleSave}
+              onSave={openSaveDialog}
               applying={applying}
               saving={saving}
             />
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Custom scenario dialog */}
+      <CustomScenarioBuilder
+        open={showCustom}
+        onOpenChange={setShowCustom}
+        onRun={handleRunCustom}
+        running={simulating}
+      />
+
+      {/* Rebalance plan dialog */}
+      <RebalancePlanDialog
+        open={planOpen}
+        onOpenChange={(v) => {
+          setPlanOpen(v);
+          if (!v) setPlan(null);
+        }}
+        plan={loadingPlan ? { actions: [], summary: {} } : plan}
+        onApply={async () => {
+          await handleApply();
+          setPlanOpen(false);
+        }}
+        applying={applying}
+      />
+
+      {/* Save scenario dialog */}
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl" data-testid="save-scenario-dialog">
+          <DialogHeader>
+            <DialogTitle>Save Scenario</DialogTitle>
+          </DialogHeader>
+          <Input
+            data-testid="save-scenario-name"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            placeholder="Give this scenario a name…"
+            className="rounded-xl"
+          />
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSaveDialogOpen(false)} className="rounded-xl">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={saving || !saveName.trim()}
+              data-testid="confirm-save-btn"
+              className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl"
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
