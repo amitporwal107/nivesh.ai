@@ -2,23 +2,28 @@
 
 ## Implemented Features (Latest)
 
-### Feb 2026 — Groww MF Data Fetcher Phase 1
-- [x] **Deterministic parser** (`services/groww_client.py`) — scoped to `holdings_row__*` CSS classes; extracts name, stock slug, sector, instrument type, pct per holding, plus AUM, NAV, expense ratio from metadata divs
-- [x] **Search-API slug fallback** — when deterministic slug 404s, calls Groww `st_query` endpoint to resolve canonical search_id (e.g., "SBI Small Cap" → `sbi-small-midcap-fund-direct-growth`). Concurrent lookups coalesced per scheme_name + process-lifetime memo
-- [x] **Pluggable Postgres + Redis layer** — lazy pools driven by admin-managed secrets `POSTGRES_URL`, `REDIS_URL` (new category: "data"). Auto-rebuilds on secret change.
-  - `services/pg_client.py`: `lookup_instrument(symbol|isin|type)`, `search_mf_by_name` (ILIKE), `latest_nav`, `ping`
-  - `services/redis_client.py`: `get/set_holdings`, `get/set_slug`, `ping` (15-day TTL)
-- [x] **Tiered cache resolver** (`fund_data_resolver.py`) — Redis primary → Mongo durable fallback; 15-day TTL; ISIN-first canonical instrument_key (ISIN → SCHEME → NAME)
-- [x] **Off-hours gate** — Mon-Fri 09:00-16:00 IST = market hours (enqueue only); all other times allow inline scrape. Admin endpoint `/api/admin/mf/scrape-now` bypasses gate
-- [x] **Endpoints** (prefix `/api/mf`, `/api/admin/mf`):
-  - GET `/mf/holdings` (user) — scheme_name + optional scheme_code/isin/slug/force
-  - GET `/mf/lookup` (user) — resolve instrument → {instrument_key, id, symbol, isin, latest_nav}
-  - GET `/admin/mf/db-status` — probe pg + redis connectivity
-  - GET `/admin/mf/scrape-queue`, POST `/admin/mf/drain-queue`, POST `/admin/mf/scrape-now`
-- [x] **Admin secret tests** — POST `/api/admin/secrets/POSTGRES_URL/test` and `/REDIS_URL/test` ping live connections
-- [x] 26 backend tests passing (8 unit + 18 API integration)
-- Dependencies added: `asyncpg==0.31.0`, `redis==7.4.0`
-- Cache collections: `db.fund_holdings_cache`, `db.scrape_queue`
+### Feb 2026 — Portfolio Intelligence (AI-grade Fund Overlap Rewrite)
+- [x] **Bulk scrape pipeline** — seeded aporwal107@gmail.com + priyankamantri@gmail.com portfolios into scrape queue, APScheduler-drained 21/22 funds; PG now has 22 MUTUAL_FUND + 712 EQUITY rows + 2102 holdings + ratios
+- [x] **`services/portfolio_intelligence.py`** — real stock-level engine:
+  - `compute_portfolio_intelligence(user_id)` returns narrative + compression + pairwise_overlap + top_stocks + category_inefficiency + sector_exposure + redundancy_suggestions
+  - Pairwise overlap: `Σ min(w_A[i], w_B[i])` on stock-slug/name keys
+  - Compression Score: HHI-reciprocal, normalised vs 80-stock target
+  - Dedupe by instrument_id (collapses direct+regular plan variants)
+  - Redundancy ranked by `overlap_reduced_pp - 0.3 * sector_l1_drift`
+- [x] **`services/ai_insights.py`** — GPT-4o-mini via **emergentintegrations LlmChat** (JSON-parsed loose); deterministic fallback when LLM unavailable. Insights cite specific ₹/% amounts.
+- [x] **MF AI rating** — `/api/intelligence/rate-fund/{uuid}` generates 1-5 stars + reason, cached in `mutual_fund_metadata.ai_rating/reason/rated_at`
+- [x] **`routes/intelligence.py`** — 4 endpoints: GET `/portfolio`, GET `/portfolio/{user_id}` (admin), POST `/simulate` (what-if removal), POST `/rate-fund/{id}` (admin)
+- [x] **Frontend — `PortfolioIntelligenceTab.jsx`** — compression hero ring + AI insights grid + top-stocks bars + pairwise heatmap + redundancy picker with live what-if simulator + category/sector strips. Mounted as the Fund Overlap tab in InsightsView.
+- [x] 87 backend tests passing (including new `test_portfolio_intelligence.py`)
+- Dependencies: `emergentintegrations` (Emergent internal SDK for Universal LLM key)
+
+### Feb 2026 — Groww MF Data Fetcher Phase 1, 2 & 3
+- [x] **Phase 1**: deterministic parser (JSON-first from `__NEXT_DATA__`, HTML regex fallback) + search-API slug resolution
+- [x] **Phase 2**: APScheduler (Asia/Kolkata) — 3 cron jobs: drain_weekday (02-05h), drain_weekend (every 2h), stale_refresh (Wed 03:00)
+- [x] **Phase 3**: Postgres persistence (UUID schema: instrument_master, mutual_fund_holdings, mutual_fund_performance_ratios, mutual_fund_metadata, scrape_audit_log) + admin dashboard (MFDataSection.jsx)
+- [x] 3-tier read chain: Redis → Mongo → PG aggregate → live Groww scrape
+- [x] Pluggable Postgres + Redis via admin secrets (POSTGRES_URL, REDIS_URL — "Data Layer" category)
+- Dependencies: `asyncpg==0.31.0`, `redis==7.4.0`, `APScheduler==3.11.2`, local Postgres 15 + Redis 7 (supervisor-managed)
 
 ### Feb 2026 - Generic Admin Config Panel (Secrets + Feature Flags)
 - [x] **Unified Secrets Registry** (`backend/helpers/secrets.py`)

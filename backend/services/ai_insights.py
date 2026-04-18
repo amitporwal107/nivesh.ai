@@ -100,30 +100,24 @@ async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
     if not key:
         return _fallback_insights(metrics)
     try:
-        from openai import OpenAI
-        emergent = bool(_secrets.get("EMERGENT_LLM_KEY")) and not _secrets.get("OPENAI_API_KEY")
-        base_url = "https://integrations.emergentagent.com/openai" if emergent else None
-        client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=key,
+            session_id="nivesh-insights",
+            system_message=SYSTEM_PROMPT,
+        ).with_model("openai", "gpt-4o-mini")
         user_prompt = (
-            "Using the metrics below, return a JSON object with key 'insights' "
-            "containing 3-5 objects {type, headline, detail}. Types must be from "
-            "[compression, top_stock, duplication, category_inefficiency, redundancy, "
-            "sector_concentration, risk_adjusted]. Headlines cite exact ₹ or %. "
+            "Using the metrics below, return STRICT JSON ONLY (no markdown, no prose) "
+            "with key 'insights' containing 3-5 objects {type, headline, detail}. "
+            "Types must be from [compression, top_stock, duplication, "
+            "category_inefficiency, redundancy, sector_concentration, risk_adjusted]. "
+            "Headlines MUST cite exact ₹ or %. "
             "No advice to BUY; only diagnose or suggest REDUCE/REMOVE.\n\n"
             f"METRICS:\n{json.dumps(payload, default=str)}"
         )
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-            max_tokens=700,
-        )
-        data = json.loads(resp.choices[0].message.content or "{}")
-        out = data.get("insights") or []
+        raw = await chat.send_message(UserMessage(text=user_prompt))
+        data = _parse_json_loose(raw)
+        out = (data or {}).get("insights") or []
         if not isinstance(out, list) or not out:
             return _fallback_insights(metrics)
         return [
@@ -139,6 +133,27 @@ async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
         return _fallback_insights(metrics)
 
 
+def _parse_json_loose(raw: str) -> Dict[str, Any]:
+    """Tolerant JSON parser for LLM output that may have code fences or prose."""
+    if not raw:
+        return {}
+    s = raw.strip()
+    # Strip markdown code fences
+    if s.startswith("```"):
+        s = s.split("```", 2)[1]
+        if s.startswith("json"):
+            s = s[4:]
+        s = s.strip().rstrip("`").strip()
+    # Find the outermost {...}
+    i, j = s.find("{"), s.rfind("}")
+    if i >= 0 and j > i:
+        s = s[i:j + 1]
+    try:
+        return json.loads(s)
+    except ValueError:
+        return {}
+
+
 # ── MF AI rating (on-demand) ─────────────────────────────────────────────
 async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
     """Generate a 1-5 rating + reasoning for a single MF."""
@@ -146,31 +161,28 @@ async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
     if not key:
         return {"rating": None, "reason": "LLM not configured"}
     try:
-        from openai import OpenAI
-        emergent = bool(_secrets.get("EMERGENT_LLM_KEY")) and not _secrets.get("OPENAI_API_KEY")
-        base_url = "https://integrations.emergentagent.com/openai" if emergent else None
-        client = OpenAI(api_key=key, base_url=base_url) if base_url else OpenAI(api_key=key)
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=key,
+            session_id="nivesh-mf-rating",
+            system_message=(
+                "You rate Indian mutual funds 1-5 stars based on risk-adjusted "
+                "returns, expense, and portfolio quality. Return STRICT JSON "
+                "{rating: int 1-5, reason: 2-sentence string}."
+            ),
+        ).with_model("openai", "gpt-4o-mini")
         compact = {
-            "name": fund_detail.get("scheme_name") or fund_detail.get("instrument", {}).get("instrument_name"),
+            "name": fund_detail.get("scheme_name")
+                    or fund_detail.get("instrument", {}).get("instrument_name"),
             "metadata": fund_detail.get("metadata"),
-            "ratios": (fund_detail.get("ratios_history") or [{}])[0] if fund_detail.get("ratios_history") else fund_detail.get("ratios"),
+            "ratios": (fund_detail.get("ratios_history") or [{}])[0]
+                      if fund_detail.get("ratios_history") else fund_detail.get("ratios"),
             "top_holdings": (fund_detail.get("holdings") or [])[:10],
         }
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content":
-                    "You rate Indian mutual funds 1-5 stars based on risk-adjusted "
-                    "returns, expense, and portfolio quality. Return JSON "
-                    "{rating: int 1-5, reason: 2-sentence string}."},
-                {"role": "user", "content":
-                    f"Rate this fund:\n{json.dumps(compact, default=str)}"},
-            ],
-            temperature=0.2,
-            max_tokens=200,
-        )
-        data = json.loads(resp.choices[0].message.content or "{}")
+        raw = await chat.send_message(UserMessage(
+            text=f"Rate this fund:\n{json.dumps(compact, default=str)}"
+        ))
+        data = _parse_json_loose(raw)
         rating = data.get("rating")
         try:
             rating = int(rating) if rating is not None else None

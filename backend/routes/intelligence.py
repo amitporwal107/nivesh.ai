@@ -116,8 +116,9 @@ async def rate_single_fund(request: Request, instrument_id: str):
             }
     # Generate
     result = await ai_insights.rate_fund(detail)
-    # Cache back
-    if result.get("rating") is not None and pool:
+    # Cache back — always cache (including null) to avoid hammering broken LLM.
+    # For null results we use a short-lived marker; success persists until next re-rate.
+    if pool:
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE mutual_fund_metadata SET ai_rating = $1, ai_rating_reason = $2, "
