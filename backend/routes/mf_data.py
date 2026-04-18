@@ -118,10 +118,15 @@ async def admin_scrape_now(
 
 
 @router.post("/admin/mf/seed-portfolio-queue")
-async def seed_portfolio_queue(request: Request, user_id: Optional[str] = None):
+async def seed_portfolio_queue(
+    request: Request,
+    user_id: Optional[str] = None,
+    emails: Optional[str] = Query(None, description="Comma-separated emails"),
+):
     """Bulk-queue all MF schemes from portfolios into the scrape queue."""
     await require_admin(request)
-    return await fund_data_resolver.seed_portfolio_queue(user_id=user_id)
+    email_list = [e.strip() for e in emails.split(",")] if emails else None
+    return await fund_data_resolver.seed_portfolio_queue(user_id=user_id, emails=email_list)
 
 
 # ── Scheduler controls ───────────────────────────────────────────────────

@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 27 — Portfolio Intelligence layer (backend only). Wrote 29 new tests in /app/backend/tests/test_portfolio_intelligence.py covering the full intelligence surface: narrative/compression/pairwise-overlap/top-stocks/category-inefficiency/sector-exposure/redundancy shape & math invariants, dedupe (aporwal's 26 Mongo MF rows collapse to 22 unique PG instruments with no duplicate IDs, no self-overlap pairs), AI insights (3-6 items with ₹/% citations), deterministic fallback path (validated with LLM keys blanked via _secrets.set_override), /simulate (empty body → sim_unchanged, remove 2 funds → recompute with lower total + filtered pairs + kept_count=20, bad-type body → 422, auth required), admin /portfolio/{user_id} + /rate-fund/{instrument_id} (create-then-verify-cache pattern, 404 on bad UUID). Full regression: all 60 existing Phase-1/2/3 tests still green (26+18+8 in _api/phase1/phase2_phase3 files). Final score: 86 passed, 2 skipped (both seeded users are admins per iter-26 note), 1 xfailed (LLM integration bug below).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/intelligence/rate-fund/{instrument_id}",
+        "issue": "Emergent LLM integration broken — base_url 'https://integrations.emergentagent.com/openai' returns 401 'Incorrect API key provided: sk-emerg******************7A18' (OpenAI rejects the emergent-prefixed key because the request is actually hitting api.openai.com, not the emergent proxy). Confirmed via /api/admin/secrets/EMERGENT_LLM_KEY/test → {ok:false, error:'NotFoundError: fault filter abort'}. Consequence: rate_fund returns {rating:null, cached:false} on every call (route only caches non-null ratings, so 2nd call never cached). Same root cause makes /api/intelligence/portfolio?narrate=true silently degrade to deterministic _fallback_insights (still returns 4 insights with ₹/% citations, so UX not broken — but the GPT-4o-mini insights promised in the PRD are effectively never served).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/intelligence/rate-fund/{instrument_id}",
+        "issue": "When LLM fails, route returns rating=null but still 200 OK with cached:false. Consider: (a) returning 502/503 so clients can retry, or (b) caching the null+reason so repeated calls don't hammer the broken LLM. Currently every UI click re-calls OpenAI → 401 → 500ms wasted."
+      },
+      {
+        "endpoint": "services.ai_insights.generate_insights",
+        "issue": "emergent detection 'bool(EMERGENT_LLM_KEY) and not OPENAI_API_KEY' means that if both keys are configured the emergent key gets sent to the plain OpenAI endpoint and 401s. Prefer emergent key unconditionally when it is present (always route to the emergent base_url), or fall back to OPENAI_API_KEY only when EMERGENT key is empty."
+      },
+      {
+        "endpoint": "routes/intelligence.py",
+        "issue": "simulate endpoint reuses heavy compute_portfolio_intelligence and then throws away catalog/pairs to recompute them — wasted Postgres round-trip. Could factor out a reusable `compute_from_investments(mf_investments, catalog)` helper to reuse between /portfolio and /simulate."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_portfolio_intelligence.py",
+    "/app/test_reports/pytest/iteration_27_intelligence.xml",
+    "/app/test_reports/pytest/iteration_27_full.xml"
+  ],
+  "action_items": [
+    "Fix EMERGENT_LLM_KEY integration in services/ai_insights.py — the base_url 'https://integrations.emergentagent.com/openai' appears wrong or decommissioned. Recommend switching to the `emergentintegrations` python SDK (Emergent internal construct) instead of hand-rolling the OpenAI client with a base_url override. This unblocks both generate_insights (currently falling back to deterministic templates) AND rate_fund (currently returns null). Admin endpoint /api/admin/secrets/EMERGENT_LLM_KEY/test confirms the URL is dead: {ok:false, error:'NotFoundError: fault filter abort'}.",
+    "After fixing LLM, the xfailed test test_rate_fund_second_call_cached will either auto-pass (remove the xfail guard) or expose a secondary bug — re-run.",
+    "Cache null/error ratings with short TTL so broken LLM doesn't cause repeated upstream hits.",
+    "Consider whether /simulate should also return ai_insights (currently silent — AI narrates original portfolio but not the hypothetical)."
+  ],
+  "critical_code_review_comments": [
+    "services/ai_insights.py L104-105: `emergent = bool(EMERGENT_LLM_KEY) and not OPENAI_API_KEY` — if an admin ever sets OPENAI_API_KEY alongside EMERGENT_LLM_KEY, the code will pick EMERGENT key (L99 `or`) but send it to api.openai.com (L105 base_url=None) → guaranteed 401. Make key/base_url selection symmetric.",
+    "services/portfolio_intelligence.py L60-156: the Mongo→PG resolve loop does ~4 async queries per MF holding serially. For a 26-holding portfolio that's ~100 round-trips synchronously. Consider asyncio.gather() per instrument or batching the instrument lookups into a single `ISIN IN (...)` query.",
+    "routes/intelligence.py L37-91 /simulate: re-runs compute_portfolio_intelligence() (full Mongo+PG pipeline) just to filter 2 funds out — then rebuilds weights dict from the catalog it already has. Extract a pure function compute_metrics_from_catalog(investments, catalog) and reuse.",
+    "services/portfolio_intelligence.py _dedupe_investments: folds by instrument_id but loses the `holdings_count` summary when two rows collapse (keeps first row's count). Fine for UI but misleading if user's direct + regular plans actually track slightly different holdings snapshots.",
+    "routes/intelligence.py L94-127 rate_fund: not idempotent on transient LLM errors (see critical above). Also, concurrent rate-fund calls on the same instrument_id will race on the UPDATE — acceptable since UPDATE is last-write-wins, but the 2nd concurrent caller still pays the full LLM cost before discovering it could've used the cache. A SELECT ... FOR UPDATE or an advisory lock would save tokens at high concurrency.",
+    "services/portfolio_intelligence.py L168 compression math: `1 / Σ(w²)` with normalised weights, capped at effective_stocks=80 → score 100. This is a reasonable HHI-reciprocal but top_stocks is truncated to 50 in _top_stock_exposure (L288) so effective_stocks and score both upper-bound by the truncation. If a portfolio has 250+ unique stocks, the score will still max at ~62 (50/80) even if perfectly diversified. Either remove the [:50] cap for the compression calc or document it.",
+    "services/portfolio_intelligence.py _top_stock_exposure: sector is captured from the FIRST fund's row (via `bucket['sector'] or h['holding_sector']`) — if two funds tag the same stock with different sectors, only the first wins silently. Low-risk but note."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_portfolio_intelligence.py (new, 29 tests)"
+  ],
+  "success_rate": {
+    "backend": "97% (86 passed, 2 skipped-by-design, 1 xfailed due to LLM bug, 0 hard failures / 89 collected; new suite 26 passed + 2 skipped + 1 xfailed / 29; regression 60/60)",
+    "frontend": "n/a (skipped per request)"
+  },
+  "test_credentials": "Used admin 370eff71-fda1-46d8-b506-b81b894d634f (priyanka) and user 5770bebb-8a9a-41f7-a7b9-e8152ac25daa (aporwal) from /app/memory/test_credentials.md. Per iteration_26 context both are is_admin=True; negative-admin tests therefore skipped (covered by unauthenticated path test).",
+  "seed_data_creation": "None. The rate_fund test calls the LLM once per admin click (which currently 401s and returns null rating — no PG write because the route only persists non-null ratings). PG state unchanged from iteration 26 (22 MFs + 2102 holdings rows). No live Groww scrapes triggered.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Once the Emergent LLM fix lands (switch to emergentintegrations SDK or correct base URL), remove the pytest.xfail guard from TestRateFund.test_rate_fund_second_call_cached (lines ~313-320) — it will pass. Also re-verify TestAIInsights.test_insights_3_to_6_items actually returns GPT-generated insights (not fallback) by asserting headlines contain content not producible by _fallback_insights templates (e.g., types like 'risk_adjusted' or 'sector_concentration' which only GPT emits, never the deterministic path). Test suite is idempotent — full run ~34s. JUnit XMLs in /app/test_reports/pytest/iteration_27_*.xml.",
+  "rca of the issue": "Emergent LLM base URL 'https://integrations.emergentagent.com/openai' returns HTTP fault/abort. The code tries to use it as an OpenAI-compatible endpoint with the sk-emergent-* key; Emergent's proxy isn't answering, so the OpenAI SDK falls through / errors. Separately, OpenAI.com itself rejects sk-emergent-* keys with 401. Net effect: every LLM call from ai_insights.py fails with the 401 shown in the test output. generate_insights() catches the exception and degrades to _fallback_insights (user still sees 4 deterministic insights). rate_fund() catches and returns {rating:null, reason:'LLM error: ...'} which the route then does NOT cache (guard: `if rating is not None`). Reproduction: `curl -XPOST -H 'Authorization: Bearer <admin>' $URL/api/intelligence/rate-fund/<any_uuid>` returns {rating:null, cached:false, reason:'LLM error: Error code: 401 ...'}. Mitigation: (1) switch to emergentintegrations SDK; (2) cache failed ratings short-TTL; (3) unit-test emergent base_url in /api/admin/secrets/EMERGENT_LLM_KEY/test as part of boot-health."
+}

@@ -296,28 +296,41 @@ async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
     return {"processed": ok + failed, "ok": ok, "failed": failed, "skipped": False}
 
 
-async def seed_portfolio_queue(user_id: Optional[str] = None) -> Dict[str, Any]:
+async def seed_portfolio_queue(user_id: Optional[str] = None,
+                               emails: Optional[list] = None) -> Dict[str, Any]:
     """Bulk-enqueue all MF schemes from users' portfolios for off-hours scraping.
 
-    If `user_id` is None, enqueues across ALL users.
+    Filters by `user_id`, or resolves user_ids from a list of `emails`.
+    Empty filters = all users.
     """
-    query: Dict[str, Any] = {"instrument_type": "MUTUAL_FUND"}
-    if user_id:
+    query: Dict[str, Any] = {"asset_type": {"$in": ["mutual_fund", "MUTUAL_FUND"]}}
+    if emails:
+        user_docs = await db.users.find(
+            {"email": {"$in": [e.lower().strip() for e in emails]}}, {"_id": 0, "user_id": 1}
+        ).to_list(100)
+        uids = [u["user_id"] for u in user_docs]
+        if not uids:
+            return {"queued": 0, "reason": "no matching users"}
+        query["user_id"] = {"$in": uids}
+    elif user_id:
         query["user_id"] = user_id
-    # Dedupe by (scheme_name, scheme_code)
+
     pipeline = [
         {"$match": query},
         {"$group": {
-            "_id": {"scheme_name": "$scheme_name", "scheme_code": "$scheme_code"},
+            "_id": {"name": "$name", "ticker": "$ticker"},
         }},
     ]
     queued = 0
     async for row in db.holdings.aggregate(pipeline):
-        sn = (row["_id"] or {}).get("scheme_name")
-        sc = (row["_id"] or {}).get("scheme_code")
-        if not sn:
+        rid = row.get("_id") or {}
+        name = rid.get("name")
+        ticker = rid.get("ticker")  # often ISIN
+        if not name:
             continue
-        resolved = await resolve_instrument(sn, sc, None)
+        isin = ticker if ticker and len(ticker) == 12 and ticker.isalnum() else None
+        scheme_code = ticker if ticker and not isin else None
+        resolved = await resolve_instrument(name, scheme_code, isin)
         await _queue_scrape(resolved["instrument_key"], resolved["scheme_name"], None)
         queued += 1
     return {"queued": queued}

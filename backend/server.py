@@ -37,6 +37,7 @@ from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
 from routes.mf_data import router as mf_data_router
+from routes.intelligence import router as intelligence_router
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -56,6 +57,7 @@ app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
 app.include_router(mf_data_router)
+app.include_router(intelligence_router)
 
 
 # Root endpoint

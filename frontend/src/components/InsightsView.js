@@ -17,6 +17,7 @@ import {
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
 import AICopilotView from "@/components/copilot/AICopilotView";
+import PortfolioIntelligenceTab from "@/components/insights/PortfolioIntelligenceTab";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -223,9 +224,9 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             <OverexposureTab overexposure={overexposure} fmt={fmt} />
           )}
 
-          {/* ══════════════ TAB: FUND OVERLAP ══════════════ */}
+          {/* ══════════════ TAB: FUND OVERLAP (new real stock-level) ══════════════ */}
           {activeTab === "overlap" && (
-            <OverlapTab overlaps={overlapMatrix} duplication={deepAnalytics?.duplication} fmt={fmt} />
+            <PortfolioIntelligenceTab />
           )}
 
           {/* ══════════════ TAB: PERFORMANCE ══════════════ */}
