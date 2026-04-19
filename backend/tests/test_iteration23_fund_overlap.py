@@ -12,7 +12,7 @@ import requests
 import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
-SESSION_TOKEN = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"
+SESSION_TOKEN = os.environ.get("NIVESH_TEST_USER_TOKEN", "5770bebb-8a9a-41f7-a7b9-e8152ac25daa")
 
 
 @pytest.fixture

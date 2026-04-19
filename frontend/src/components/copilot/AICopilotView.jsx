@@ -50,7 +50,7 @@ const AICopilotView = ({ riskProfile }) => {
       const res = await axios.get(`${API}/scenarios/suggest`, { withCredentials: true });
       setScenarios(res.data.scenarios || []);
       setContext(res.data.context || null);
-    } catch (err) {
+    } catch (_err) {
       toast.error("Couldn't load scenarios");
     } finally {
       setLoading(false);
@@ -61,7 +61,7 @@ const AICopilotView = ({ riskProfile }) => {
     try {
       const res = await axios.get(`${API}/scenarios/saved`, { withCredentials: true });
       setSavedList(res.data.saved || []);
-    } catch (err) {
+    } catch (_err) {
       // non-fatal
     }
   }, []);
@@ -70,7 +70,7 @@ const AICopilotView = ({ riskProfile }) => {
     try {
       const res = await axios.get(`${API}/scenarios/pending`, { withCredentials: true });
       setPendingPlans(res.data.pending || []);
-    } catch (err) {
+    } catch (_err) {
       // non-fatal
     }
   }, []);
@@ -158,7 +158,7 @@ const AICopilotView = ({ riskProfile }) => {
     try {
       const res = await axios.post(`${API}/scenarios/rebalance-plan`, selectedPayload, { withCredentials: true });
       setPlan(res.data);
-    } catch (err) {
+    } catch (_err) {
       toast.error("Couldn't build rebalance plan");
       setPlanOpen(false);
     } finally {
@@ -189,7 +189,7 @@ const AICopilotView = ({ riskProfile }) => {
       toast.success(`"${saveName}" saved.`);
       setSaveDialogOpen(false);
       loadSaved();
-    } catch (err) {
+    } catch (_err) {
       toast.error("Couldn't save scenario");
     } finally {
       setSaving(false);
@@ -201,7 +201,7 @@ const AICopilotView = ({ riskProfile }) => {
       await axios.delete(`${API}/scenarios/saved/${savedId}`, { withCredentials: true });
       toast.success("Scenario deleted");
       loadSaved();
-    } catch (err) {
+    } catch (_err) {
       toast.error("Delete failed");
     }
   };
@@ -219,7 +219,7 @@ const AICopilotView = ({ riskProfile }) => {
       await axios.delete(`${API}/scenarios/pending/${planId}`, { withCredentials: true });
       toast.success("Plan removed");
       loadPending();
-    } catch (err) {
+    } catch (_err) {
       toast.error("Delete failed");
     }
   };
@@ -229,7 +229,7 @@ const AICopilotView = ({ riskProfile }) => {
       await axios.post(`${API}/scenarios/pending/${planId}/complete`, {}, { withCredentials: true });
       toast.success("Marked as completed");
       loadPending();
-    } catch (err) {
+    } catch (_err) {
       toast.error("Update failed");
     }
   };
@@ -285,8 +285,8 @@ const AICopilotView = ({ riskProfile }) => {
             {topProblems.length > 0 && (
               <>
                 <div className="mt-2 flex flex-wrap gap-1.5" data-testid="top-problems">
-                  {topProblems.map((p, i) => (
-                    <span key={i} className="text-[11px] font-medium px-2 py-1 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400">
+                  {topProblems.map((p) => (
+                    <span key={p} className="text-[11px] font-medium px-2 py-1 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400">
                       {p}
                     </span>
                   ))}
@@ -446,7 +446,7 @@ const AICopilotView = ({ riskProfile }) => {
                   {expanded && p.actions?.length > 0 && (
                     <div className="px-3 pb-3 space-y-1.5 border-t border-amber-100 dark:border-amber-950 pt-3">
                       {p.actions.map((a, i) => (
-                        <div key={i} className="flex items-start gap-2 text-xs">
+                        <div key={`${a.action}-${a.fund_name || a.category || i}`} className="flex items-start gap-2 text-xs">
                           <span
                             className={`inline-flex items-center px-1.5 py-0.5 rounded font-bold text-[10px] tracking-wider flex-shrink-0 ${
                               a.action === "REDUCE" ? "bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400" :

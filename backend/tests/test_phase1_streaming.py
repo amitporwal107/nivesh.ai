@@ -11,8 +11,8 @@ import time
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://nivesh-ai-preview.preview.emergentagent.com')
 
 # Test credentials from test_credentials.md
-TEST_USER_SESSION = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"
-ADMIN_SESSION = "370eff71-fda1-46d8-b506-b81b894d634f"
+TEST_USER_SESSION = os.environ.get("NIVESH_TEST_USER_TOKEN", "5770bebb-8a9a-41f7-a7b9-e8152ac25daa")
+ADMIN_SESSION = os.environ.get("NIVESH_TEST_ADMIN_TOKEN", "370eff71-fda1-46d8-b506-b81b894d634f")
 
 
 @pytest.fixture

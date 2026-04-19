@@ -176,7 +176,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     for i in range(30):
         day_offset = 29 - i
         d = datetime.now(timezone.utc) - timedelta(days=day_offset)
-        day_hash = int(hashlib.md5(d.strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
+        day_hash = int(hashlib.sha256(d.strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
         noise = ((day_hash % 1000) / 1000.0 - 0.5) * 0.03
         progress = (30 - day_offset) / 30
         modeled = base + (total_returns * progress) + (noise * current_value)
@@ -188,7 +188,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         trend[-1]["value"] = round(current_value, 0)
 
     # Simulated day change
-    today_hash = int(hashlib.md5(datetime.now(timezone.utc).strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
+    today_hash = int(hashlib.sha256(datetime.now(timezone.utc).strftime("%Y-%m-%d").encode()).hexdigest()[:8], 16)
     day_pct = ((today_hash % 2000) / 2000.0 - 0.5) * 0.04
     day_change = round(current_value * day_pct, 2)
     day_change_pct = round((day_change / current_value * 100) if current_value > 0 else 0, 2)

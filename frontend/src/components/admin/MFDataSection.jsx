@@ -199,8 +199,8 @@ const FundDrill = ({ detail, onClose }) => {
               Holdings ({detail.holdings?.length || 0}) — {detail.latest_holdings_date}
             </h3>
             <div className="max-h-[280px] overflow-y-auto border border-slate-100 dark:border-slate-800 rounded-xl">
-              {detail.holdings?.map((h, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 text-xs">
+              {detail.holdings?.map((h) => (
+                <div key={`${h.rank}-${h.holding_name}`} className="grid grid-cols-12 gap-2 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 text-xs">
                   <div className="col-span-1 text-slate-400 font-mono">#{h.rank}</div>
                   <div className="col-span-6 min-w-0 truncate text-slate-900 dark:text-white">{h.holding_name}</div>
                   <div className="col-span-3 text-slate-500 truncate">{h.holding_sector}</div>

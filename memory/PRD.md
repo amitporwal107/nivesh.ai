@@ -2,6 +2,14 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Code Review Fixes (Security + Hooks + Keys)
+- [x] **MD5 → SHA-256** in `routes/analytics.py:179, 191` (day_hash seeds for fake price generation)
+- [x] **eval()** — verified not present in current codebase (previously removed)
+- [x] **Hardcoded test tokens** — 13 instances across 9 test files migrated to `os.environ.get("NIVESH_TEST_ADMIN_TOKEN"/"NIVESH_TEST_USER_TOKEN", <dev_fallback>)` pattern; new `tests/conftest.py` with `admin_token` + `user_token` + `base_url` fixtures for CI override
+- [x] **ESLint config** (`frontend/eslint.config.mjs`) — enabled `react-hooks/exhaustive-deps` + `react/no-array-index-key` as `warn`; hooks/keys issues are now discoverable via `npx eslint`
+- [x] **Array index keys** fixed in AICopilotView.jsx (actions list, problem pills) + MFDataSection.jsx (holdings table)
+- [x] **Unused catch clauses** → `_err` with `caughtErrorsIgnorePattern: ^_` — top-3 reviewed files now lint clean
+
 ### Feb 2026 — Container recovery + LLM Circuit Breaker (Preview Fix)
 - [x] **Supervisor recovery** — postgres/redis supervisor configs restored after container package wipe; DB schema reapplied; secrets re-hydrated
 - [x] **Bulk rescrape** — aporwal107 + priyankamantri portfolios re-seeded via APScheduler; 20 funds currently in PG (drain continuing in background)

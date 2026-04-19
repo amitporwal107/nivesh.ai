@@ -28,8 +28,8 @@ def _load_backend_url():
 BASE_URL = _load_backend_url()
 
 # Test credentials (from /app/memory/test_credentials.md via problem statement)
-USER_TOKEN = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"   # aporwal107@gmail.com
-ADMIN_TOKEN = "370eff71-fda1-46d8-b506-b81b894d634f"  # priyankamantri@gmail.com
+USER_TOKEN = os.environ.get("NIVESH_TEST_USER_TOKEN", "5770bebb-8a9a-41f7-a7b9-e8152ac25daa")   # aporwal107@gmail.com
+ADMIN_TOKEN = os.environ.get("NIVESH_TEST_ADMIN_TOKEN", "370eff71-fda1-46d8-b506-b81b894d634f")  # priyankamantri@gmail.com
 USER_ID_APORWAL = None  # resolved from profile below
 
 
