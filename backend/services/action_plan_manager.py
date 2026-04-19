@@ -709,41 +709,29 @@ class ActionPlanManager:
             "total_tax": round(total_tax, 2),
         }
     
-    def _suggest_debt_fund(self, amount: float) -> Dict[str, Any]:
-        """Suggest specific debt fund based on amount and risk profile."""
+    def _suggest_debt_fund(self, amount: float, excluded_amcs: List[str] = None) -> Dict[str, Any]:
+        """Suggest specific debt fund, avoiding overconcentrated AMCs."""
+        if excluded_amcs is None:
+            excluded_amcs = []
+        
         debt_funds = [
-            {
-                "fund_name": "HDFC Corporate Bond Fund - Direct Plan - Growth",
-                "fund_type": "Corporate Bond",
-                "expense_ratio": 0.25,
-                "aum": "₹25,000 Cr",
-                "rating": "5-Star (CRISIL)",
-                "returns_3y": "7.2%",
-            },
-            {
-                "fund_name": "ICICI Prudential Corporate Bond Fund - Direct Growth",
-                "fund_type": "Corporate Bond",
-                "expense_ratio": 0.23,
-                "aum": "₹18,500 Cr",
-                "rating": "5-Star (CRISIL)",
-                "returns_3y": "7.1%",
-            },
-            {
-                "fund_name": "Axis Treasury Advantage Fund - Direct Growth",
-                "fund_type": "Ultra Short Duration",
-                "expense_ratio": 0.18,
-                "aum": "₹12,000 Cr",
-                "rating": "4-Star",
-                "returns_3y": "6.8%",
-            },
+            {"fund_name": "ICICI Prudential Corporate Bond Fund - Direct Growth", "amc": "ICICI", "fund_type": "Corporate Bond", "expense_ratio": 0.23, "aum": "₹18,500 Cr", "rating": "5-Star (CRISIL)", "returns_3y": "7.1%"},
+            {"fund_name": "Axis Treasury Advantage Fund - Direct Growth", "amc": "AXIS", "fund_type": "Ultra Short Duration", "expense_ratio": 0.18, "aum": "₹12,000 Cr", "rating": "4-Star", "returns_3y": "6.8%"},
+            {"fund_name": "SBI Magnum Gilt Fund - Direct Growth", "amc": "SBI", "fund_type": "Gilt Fund", "expense_ratio": 0.35, "aum": "₹9,500 Cr", "rating": "4-Star", "returns_3y": "6.9%"},
+            {"fund_name": "Kotak Corporate Bond Fund - Direct Growth", "amc": "KOTAK", "fund_type": "Corporate Bond", "expense_ratio": 0.32, "aum": "₹8,200 Cr", "rating": "5-Star", "returns_3y": "7.0%"},
+            {"fund_name": "HDFC Corporate Bond Fund - Direct Plan - Growth", "amc": "HDFC", "fund_type": "Corporate Bond", "expense_ratio": 0.25, "aum": "₹25,000 Cr", "rating": "5-Star (CRISIL)", "returns_3y": "7.2%"},
         ]
         
+        available = [f for f in debt_funds if f["amc"] not in excluded_amcs]
+        if not available:
+            available = debt_funds
+        
         if amount >= 500000:
-            return debt_funds[0]
+            return available[0]
         elif amount >= 200000:
-            return debt_funds[1]
+            return available[min(1, len(available) - 1)]
         else:
-            return debt_funds[2]
+            return available[min(2, len(available) - 1)]
     
     def _suggest_gold_fund(self, amount: float) -> Dict[str, Any]:
         """Suggest gold ETF/fund for diversification."""
