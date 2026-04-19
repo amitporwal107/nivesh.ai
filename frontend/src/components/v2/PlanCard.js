@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, Minimize2, Maximize2, Play } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, Minimize2, Maximize2, Play, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -183,6 +183,32 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
           <p className="text-xs text-slate-600 mt-1">
             {plan.completed_actions || 0}/{plan.total_actions || plan.actions?.length || 0} actions completed
           </p>
+          
+          {/* Auto-regeneration prompt when complete but signals still exist */}
+          {(plan.completion_pct >= 100 || (plan.completed_actions + plan.skipped_actions) === plan.actions.length) && 
+           plan.signals && plan.signals.length > 0 && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-amber-900">
+                    Actions complete, but {plan.signals.length} signal{plan.signals.length !== 1 ? 's' : ''} still detected
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    Generate a new plan to address remaining portfolio issues
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={onRefresh}
+                    className="mt-2 h-7 text-xs bg-amber-600 hover:bg-amber-700"
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                    Generate New Plan
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
