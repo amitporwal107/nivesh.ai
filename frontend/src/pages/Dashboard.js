@@ -10,7 +10,8 @@ import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
 import OnboardingView from "@/components/OnboardingView";
 import RiskProfileView from "@/components/RiskProfileView";
-import ActionPlanView from "@/components/v2/ActionPlanView";
+import PlanBoardView from "@/components/v2/PlanBoardView";
+import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
 
@@ -28,6 +29,7 @@ const Dashboard = () => {
   const [dataLoading, setDataLoading] = useState(true);
   const [userProfile, setUserProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [showActionPrompt, setShowActionPrompt] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -68,6 +70,9 @@ const Dashboard = () => {
     if (user) {
       fetchProfile();
       fetchData();
+      // Show action prompt after 1 second delay
+      const timer = setTimeout(() => setShowActionPrompt(true), 1000);
+      return () => clearTimeout(timer);
     }
   }, [user, loading, navigate, fetchData, fetchProfile]);
 
@@ -106,8 +111,8 @@ const Dashboard = () => {
     switch (activeTab) {
       case "overview":
         return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
-      case "v2_plan":
-        return <ActionPlanView />;
+      case "plan_board":
+        return <PlanBoardView />;
       case "family":
         return <FamilyView onRefresh={fetchData} />;
       case "portfolio":
@@ -133,6 +138,13 @@ const Dashboard = () => {
           {renderContent()}
         </div>
       </main>
+      
+      {/* Action Prompt Modal */}
+      <ActionPromptModal 
+        open={showActionPrompt}
+        onClose={() => setShowActionPrompt(false)}
+        onNavigateToPlanBoard={() => setActiveTab("plan_board")}
+      />
     </div>
   );
 };

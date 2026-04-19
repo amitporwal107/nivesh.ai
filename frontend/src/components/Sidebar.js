@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const baseNavItems = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
-  { id: "v2_plan", label: "Action Plan", icon: Zap, badge: "V2" },
+  { id: "plan_board", label: "Plan Board", icon: TrendingUp, badge: "V2" },
   { id: "family", label: "Family", icon: Users },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "chat", label: "AI Chat", icon: MessageSquare },
