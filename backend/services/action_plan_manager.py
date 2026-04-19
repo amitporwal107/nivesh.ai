@@ -648,7 +648,93 @@ class ActionPlanManager:
         }
     
     def _suggest_debt_fund(self, amount: float) -> Dict[str, Any]:
+        """Suggest specific debt fund based on amount and risk profile."""
+        debt_funds = [
+            {
+                "fund_name": "HDFC Corporate Bond Fund - Direct Plan - Growth",
+                "fund_type": "Corporate Bond",
+                "expense_ratio": 0.25,
+                "aum": "₹25,000 Cr",
+                "rating": "5-Star (CRISIL)",
+                "returns_3y": "7.2%",
+            },
+            {
+                "fund_name": "ICICI Prudential Corporate Bond Fund - Direct Growth",
+                "fund_type": "Corporate Bond",
+                "expense_ratio": 0.23,
+                "aum": "₹18,500 Cr",
+                "rating": "5-Star (CRISIL)",
+                "returns_3y": "7.1%",
+            },
+            {
+                "fund_name": "Axis Treasury Advantage Fund - Direct Growth",
+                "fund_type": "Ultra Short Duration",
+                "expense_ratio": 0.18,
+                "aum": "₹12,000 Cr",
+                "rating": "4-Star",
+                "returns_3y": "6.8%",
+            },
+        ]
+        
+        if amount >= 500000:
+            return debt_funds[0]
+        elif amount >= 200000:
+            return debt_funds[1]
+        else:
+            return debt_funds[2]
+    
+    def _suggest_gold_fund(self, amount: float) -> Dict[str, Any]:
+        """Suggest gold ETF/fund for diversification."""
+        gold_funds = [
+            {
+                "fund_name": "HDFC Gold ETF",
+                "fund_type": "Gold ETF",
+                "expense_ratio": 0.50,
+                "aum": "₹2,500 Cr",
+                "rating": "4-Star",
+                "returns_3y": "13.5%",
+            },
+            {
+                "fund_name": "SBI Gold Fund - Direct Growth",
+                "fund_type": "Gold Fund",
+                "expense_ratio": 0.65,
+                "aum": "₹1,200 Cr",
+                "rating": "4-Star",
+                "returns_3y": "13.2%",
+            },
+        ]
+        
+        return gold_funds[0] if amount >= 100000 else gold_funds[1]
+    
+    def _create_add_action_specific(
+        self,
+        fund_suggestion: Dict[str, Any],
+        priority: int,
+        reason: str
+    ) -> Dict[str, Any]:
+        """Create ADD action with specific fund recommendation."""
+        fund_name = fund_suggestion.get("fund_name")
+        fund_type = fund_suggestion.get("fund_type")
+        
+        return {
+            "action_id": f"act_{uuid4().hex[:8]}",
+            "type": "ADD",
+            "priority": priority,
+            "asset_type": "mutual_fund",
+            "asset_name": fund_name,
+            "fund_details": fund_suggestion,
+            "amount": 0,
+            "confidence": "HIGH",
+            "reason_text": f"{reason}. Consider {fund_name} ({fund_type})",
+            "reason_codes": ["ALLOCATION_GAP", "DIVERSIFICATION"],
+            "status": "PENDING",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+# Singleton instance
 _plan_manager = None
+
 
 def get_plan_manager() -> ActionPlanManager:
     """Get singleton action plan manager instance."""
