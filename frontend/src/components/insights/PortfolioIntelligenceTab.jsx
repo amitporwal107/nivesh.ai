@@ -155,9 +155,24 @@ const TopStocksPanel = ({ stocks }) => (
   </Card>
 );
 
-// ── Pairwise heatmap-lite ────────────────────────────────────────────────
-const PairsHeatmap = ({ pairs }) => {
+// ── Pairwise heatmap with drill-down ────────────────────────────────────
+const PairsHeatmap = ({ pairs, catalog }) => {
+  const [expandedPair, setExpandedPair] = useState(null);
   const top = pairs.slice(0, 15);
+  
+  const togglePair = (pairKey) => {
+    setExpandedPair(expandedPair === pairKey ? null : pairKey);
+  };
+
+  const getHoldingDetails = (mfId, stockKey) => {
+    const fund = catalog?.[mfId];
+    if (!fund) return null;
+    const holding = fund.holdings?.find(
+      h => (h.holding_stock_slug || h.holding_name || "").toLowerCase() === stockKey
+    );
+    return holding;
+  };
+
   return (
     <Card className="bg-slate-900 border-slate-800 rounded-2xl">
       <CardContent className="p-5">
@@ -166,26 +181,84 @@ const PairsHeatmap = ({ pairs }) => {
           <h3 className="text-sm font-semibold text-white">Fund-to-fund overlap (real stock-level)</h3>
         </div>
         <p className="text-xs text-slate-400 mb-4">
-          Overlap(A,B) = Σ min(weight_A, weight_B). Red pairs are candidates for consolidation.
+          Overlap(A,B) = Σ min(weight_A, weight_B). Red pairs are candidates for consolidation. Click to see details.
         </p>
         {top.length === 0 ? (
           <div className="text-xs text-slate-500">Need 2+ resolved funds.</div>
         ) : (
           <div className="space-y-2">
-            {top.map((p, i) => (
-              <div key={`${p.a}-${p.b}`} className="grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-800 last:border-b-0"
-                   data-testid={`pi-pair-${i}`}>
-                <div className="col-span-5 min-w-0 text-white truncate">{p.a_name}</div>
-                <div className="col-span-1 text-center text-slate-500">↔</div>
-                <div className="col-span-4 min-w-0 text-white truncate">{p.b_name}</div>
-                <div className="col-span-2 text-right">
-                  <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${colorFor(p.overlap_pct)} text-white`}>
-                    {p.overlap_pct.toFixed(1)}%
-                  </span>
-                  <div className="text-[10px] text-slate-500 mt-0.5">{p.shared_count} shared</div>
+            {top.map((p, i) => {
+              const pairKey = `${p.a}-${p.b}`;
+              const isExpanded = expandedPair === pairKey;
+              return (
+                <div key={pairKey} data-testid={`pi-pair-${i}`}>
+                  <button
+                    onClick={() => togglePair(pairKey)}
+                    className="w-full grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-800 hover:bg-slate-800/30 transition cursor-pointer"
+                  >
+                    <div className="col-span-5 min-w-0 text-white truncate text-left">{p.a_name}</div>
+                    <div className="col-span-1 text-center text-slate-500">↔</div>
+                    <div className="col-span-4 min-w-0 text-white truncate text-left">{p.b_name}</div>
+                    <div className="col-span-2 text-right">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${colorFor(p.overlap_pct)} text-white`}>
+                        {p.overlap_pct.toFixed(1)}%
+                      </span>
+                      <div className="text-[10px] text-slate-500 mt-0.5">{p.shared_count} shared</div>
+                    </div>
+                  </button>
+                  
+                  {/* Drill-down details */}
+                  {isExpanded && (
+                    <div className="mt-2 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 space-y-2"
+                         data-testid={`pi-pair-drilldown-${i}`}>
+                      <div className="text-xs font-medium text-indigo-300 mb-2">
+                        Shared stocks ({p.shared_count}):
+                      </div>
+                      {p.top_shared?.slice(0, 10).map((stock, idx) => {
+                        const holdingA = getHoldingDetails(p.a, stock.key);
+                        const holdingB = getHoldingDetails(p.b, stock.key);
+                        const isDeadA = holdingA?.holding_type?.toLowerCase() === "dead";
+                        const isDeadB = holdingB?.holding_type?.toLowerCase() === "dead";
+                        
+                        return (
+                          <div key={idx} className="grid grid-cols-12 gap-2 text-[10px] py-1.5 border-b border-slate-700/50 last:border-0">
+                            <div className="col-span-5 text-slate-200">
+                              {stock.key}
+                              {(isDeadA || isDeadB) && (
+                                <span className="ml-1 text-rose-400 font-semibold">💀 DEAD</span>
+                              )}
+                            </div>
+                            <div className="col-span-3 text-right">
+                              <span className="text-sky-300">{stock.w_a.toFixed(2)}%</span>
+                              <span className="text-slate-500 ml-1 text-[9px]">
+                                ({holdingA?.holding_type?.includes("Direct") ? "Direct" : "Regular"})
+                              </span>
+                            </div>
+                            <div className="col-span-3 text-right">
+                              <span className="text-amber-300">{stock.w_b.toFixed(2)}%</span>
+                              <span className="text-slate-500 ml-1 text-[9px]">
+                                ({holdingB?.holding_type?.includes("Direct") ? "Direct" : "Regular"})
+                              </span>
+                            </div>
+                            <div className="col-span-1 text-right text-slate-400">
+                              {stock.shared_w.toFixed(1)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      
+                      {p.reasons && p.reasons.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-700/50">
+                          <div className="text-[10px] text-amber-300">
+                            ⚠️ {p.reasons.join(" · ")}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -377,6 +450,7 @@ export default function PortfolioIntelligenceTab() {
         ai_insights: data.ai_insights || [],
         redundancy: data.redundancy_suggestions || [],
         ratings: data.category_ratings || [],
+        catalog: data.catalog || {},
       };
     }
     return {
@@ -389,6 +463,7 @@ export default function PortfolioIntelligenceTab() {
       ai_insights: data.ai_insights || [],
       redundancy: data.redundancy_suggestions || [],
       ratings: data.category_ratings || [],
+      catalog: data.catalog || {},
     };
   }, [data, simData]);
 
@@ -448,7 +523,7 @@ export default function PortfolioIntelligenceTab() {
       {/* 2-col grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <TopStocksPanel stocks={view.top} />
-        <PairsHeatmap pairs={view.pairs} />
+        <PairsHeatmap pairs={view.pairs} catalog={view.catalog} />
         <RedundancyPanel items={view.redundancy} onSimulate={runSimulate}
                          simulating={simulating} simRemoved={simRemoved} />
         <div className="space-y-5">

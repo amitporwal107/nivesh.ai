@@ -24,8 +24,8 @@ BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
     "https://nivesh-ai-preview.preview.emergentagent.com",
 ).rstrip("/")
-ADMIN_TOKEN = os.environ.get("NIVESH_TEST_ADMIN_TOKEN", "370eff71-fda1-46d8-b506-b81b894d634f")
-USER_TOKEN = os.environ.get("NIVESH_TEST_USER_TOKEN", "5770bebb-8a9a-41f7-a7b9-e8152ac25daa")
+ADMIN_TOKEN = os.environ["NIVESH_TEST_ADMIN_TOKEN"]
+USER_TOKEN = os.environ["NIVESH_TEST_USER_TOKEN"]
 TIMEOUT = 90  # live Groww scrape can take ~20s
 PG_CONN = "postgresql://postgres:nivesh_dev@127.0.0.1:5432/nivesh"
 

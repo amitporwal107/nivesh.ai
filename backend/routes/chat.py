@@ -9,9 +9,84 @@ import logging
 
 from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
+from services import portfolio_intelligence
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+
+
+async def _compute_portfolio_intelligence_context(user_id: str) -> str:
+    """Generate PG-based Portfolio Intelligence context for AI chat."""
+    try:
+        metrics = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
+        
+        if metrics.get("empty"):
+            return ""
+        
+        # Build intelligence summary for AI context
+        narrative = metrics.get("narrative", {})
+        compression = metrics.get("compression", {})
+        top_stocks = metrics.get("top_stocks", [])
+        pairs = metrics.get("pairwise_overlap", [])
+        category_ineff = metrics.get("category_inefficiency", [])
+        sector_exp = metrics.get("sector_exposure", [])
+        redundancy = metrics.get("redundancy_suggestions", [])
+        
+        ctx = "\n\n=== PORTFOLIO INTELLIGENCE (Real Stock-Level Analysis) ===\n"
+        
+        # Compression summary
+        ctx += f"\nCompression Score: {compression.get('score', 0):.1f}/100 "
+        ctx += f"(Portfolio behaves like ₹{narrative.get('behaves_like_rs', 0):,.0f} due to overlap)\n"
+        ctx += f"- Unique stocks held: {narrative.get('unique_stocks', 0)}\n"
+        ctx += f"- Effective stocks (risk-weighted): {compression.get('effective_stocks', 0)}\n"
+        ctx += f"- Top 10 stocks exposure: {compression.get('top_10_exposure_pct', 0):.1f}%\n"
+        ctx += f"- Top 20 stocks exposure: {compression.get('top_20_exposure_pct', 0):.1f}%\n"
+        
+        # Top stock exposures
+        if top_stocks:
+            ctx += "\nTop Stock Exposures (look-through across all MFs):\n"
+            for i, s in enumerate(top_stocks[:10], 1):
+                ctx += f"  {i}. {s['name']} ({s.get('sector', 'N/A')}): {s['exposure_pct']:.2f}% (₹{s['exposure_rs']:,.0f}) via {s['fund_count']} funds\n"
+        
+        # Fund overlap pairs
+        if pairs:
+            ctx += "\nFund Overlap (Stock-Level):\n"
+            for p in pairs[:5]:
+                ctx += f"  - {p['a_name']} ↔ {p['b_name']}: {p['overlap_pct']:.1f}% overlap ({p['shared_count']} shared stocks)\n"
+                if p.get('reasons'):
+                    ctx += f"    Reasons: {', '.join(p['reasons'])}\n"
+        
+        # Category inefficiency
+        if category_ineff:
+            ctx += "\nCategory Inefficiency:\n"
+            for cat in category_ineff[:3]:
+                ctx += f"  - {cat['category']}: {cat['funds_count']} funds, {cat['avg_pair_overlap']:.1f}% avg overlap"
+                if cat.get('inefficient'):
+                    ctx += " ⚠️ INEFFICIENT\n"
+                else:
+                    ctx += "\n"
+        
+        # Sector exposure
+        if sector_exp:
+            ctx += "\nSector Exposure (look-through):\n"
+            for s in sector_exp[:8]:
+                ctx += f"  - {s['sector']}: {s['pct']:.1f}% (₹{s['rs']:,.0f})\n"
+        
+        # Redundancy suggestions
+        if redundancy:
+            ctx += "\nRedundancy Removal Suggestions:\n"
+            for r in redundancy[:3]:
+                ctx += f"  - Remove '{r['remove_name']}' (₹{r['remove_amount_rs']:,.0f}): "
+                ctx += f"Would reduce overlap by {r['overlap_reduced_pp']:.1f}pp, "
+                ctx += f"sector drift {r['sector_l1_drift_pct']:.1f}%\n"
+        
+        ctx += "\n(Use this intelligence data to provide accurate, data-driven advice)\n"
+        return ctx
+        
+    except Exception as e:
+        logger.warning(f"Failed to compute intelligence context: {e}")
+        return ""
+
 
 
 @router.get("/chat/sessions")
@@ -124,6 +199,9 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         rp = user_profile["risk_profile"]
         risk_context = f"\n\nUser's Risk Profile: {rp.get('category', 'Unknown')} (Score: {rp.get('score', 'N/A')}/100)"
 
+    # Portfolio Intelligence context (PG-based stock-level data)
+    intelligence_context = await _compute_portfolio_intelligence_context(user_id)
+
     # Get recent chat history
     recent_msgs = await db.chat_messages.find(
         {"user_id": user_id, "session_id": session_id}, {"_id": 0}
@@ -138,7 +216,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
 
         ai_response = await ai_engine.chat(
             message=msg.message,
-            portfolio_context=portfolio_context,
+            portfolio_context=portfolio_context + risk_context + intelligence_context,
             history=history,
             session_id=f"wealth_{user_id}_{session_id}",
         )
@@ -251,9 +329,12 @@ async def stream_chat(request: Request):
             meta = {"session_id": session_id, "user_msg_id": user_msg_id, "ai_msg_id": ai_msg_id}
             yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
 
+            # Portfolio Intelligence context (PG-based stock-level data)
+            intelligence_context = await _compute_portfolio_intelligence_context(user_id)
+            
             async for token in ai_engine.chat_stream(
                 message=message,
-                portfolio_context=portfolio_context,
+                portfolio_context=portfolio_context + intelligence_context,
                 history=history,
                 session_id=f"wealth_{user_id}_{session_id}",
             ):

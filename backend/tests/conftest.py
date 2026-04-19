@@ -23,34 +23,36 @@ if os.path.exists(_ENV_PATH):
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k, _v.strip('"'))
 
+# Dev-default tokens — injected if no env var is set. This keeps dev test
+# runs working without exposing the literal token in individual test files.
+# CI / prod override via NIVESH_TEST_*_TOKEN env vars.
+os.environ.setdefault("NIVESH_TEST_ADMIN_TOKEN", "370eff71-fda1-46d8-b506-b81b894d634f")
+os.environ.setdefault("NIVESH_TEST_USER_TOKEN", "5770bebb-8a9a-41f7-a7b9-e8152ac25daa")
+os.environ.setdefault("NIVESH_TEST_ADMIN_EMAIL", "priyankamantri@gmail.com")
+os.environ.setdefault("NIVESH_TEST_USER_EMAIL", "aporwal107@gmail.com")
+os.environ.setdefault("NIVESH_TEST_BASE_URL", "http://localhost:8001")
+
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
-    return os.environ.get("NIVESH_TEST_BASE_URL", "http://localhost:8001")
+    return os.environ["NIVESH_TEST_BASE_URL"]
 
 
 @pytest.fixture(scope="session")
 def admin_token() -> str:
-    return os.environ.get(
-        "NIVESH_TEST_ADMIN_TOKEN",
-        # Dev-default — overridden in CI via NIVESH_TEST_ADMIN_TOKEN.
-        "370eff71-fda1-46d8-b506-b81b894d634f",
-    )
+    return os.environ["NIVESH_TEST_ADMIN_TOKEN"]
 
 
 @pytest.fixture(scope="session")
 def user_token() -> str:
-    return os.environ.get(
-        "NIVESH_TEST_USER_TOKEN",
-        "5770bebb-8a9a-41f7-a7b9-e8152ac25daa",
-    )
+    return os.environ["NIVESH_TEST_USER_TOKEN"]
 
 
 @pytest.fixture(scope="session")
 def admin_email() -> str:
-    return os.environ.get("NIVESH_TEST_ADMIN_EMAIL", "priyankamantri@gmail.com")
+    return os.environ["NIVESH_TEST_ADMIN_EMAIL"]
 
 
 @pytest.fixture(scope="session")
 def user_email() -> str:
-    return os.environ.get("NIVESH_TEST_USER_EMAIL", "aporwal107@gmail.com")
+    return os.environ["NIVESH_TEST_USER_EMAIL"]
