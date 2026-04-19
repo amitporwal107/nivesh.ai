@@ -128,32 +128,61 @@ class ActionPlanManager:
         #         exit_candidates.append(exit_result)
         
         # Sort by exit score (highest first)
-        exit_candidates.sort(key=lambda x: x["exit_score"], reverse=True)
+        exit_candidates = sorted(exit_candidates, key=lambda x: x["exit_score"], reverse=True)
         
-        # 3. Select top actions (max 3 for MVP, configurable)
+        logger.info(f"Generated {len(exit_candidates)} MF exit candidates")
+        
+        # 3. Build action plan based on signals and candidates
         actions = []
         action_priority = 1
         
-        # Add top 2 EXIT actions
-        for candidate in exit_candidates[:2]:
-            action = self._create_exit_action(candidate, action_priority)
-            actions.append(action)
-            action_priority += 1
+        # Strategy: If overlap signal exists, prioritize exiting overlapping funds
+        overlap_signal = next((s for s in signals if s["type"] == "OVERLAP_REDUNDANCY"), None)
+        
+        if overlap_signal and overlap_signal.get("details", {}).get("top_overlap_pairs"):
+            # Exit from overlapping pairs - pick the one with higher exit score
+            logger.info("Building actions based on overlap signal")
+            pairs = overlap_signal["details"]["top_overlap_pairs"]
+            
+            for pair in pairs[:2]:  # Top 2 overlapping pairs
+                fund_a_name = pair.get("fund_a")
+                fund_b_name = pair.get("fund_b")
+                
+                # Find candidates for these funds
+                candidate_a = next((c for c in exit_candidates if c.get("scheme_name") == fund_a_name), None)
+                candidate_b = next((c for c in exit_candidates if c.get("scheme_name") == fund_b_name), None)
+                
+                # Exit the one with higher exit score
+                if candidate_a and candidate_b:
+                    exit_fund = candidate_a if candidate_a["exit_score"] >= candidate_b["exit_score"] else candidate_b
+                    action = self._create_exit_action_with_tax_analysis(exit_fund, action_priority, overlap_signal)
+                    actions.append(action)
+                    action_priority += 1
+                    logger.info(f"Added EXIT action for {exit_fund.get('scheme_name', 'Unknown')[:40]} (overlap pair)")
+        
+        # If no overlap-based actions, take top 2 exit candidates
+        if len(actions) == 0 and len(exit_candidates) > 0:
+            logger.info("No overlap pairs found, using top exit candidates")
+            for candidate in exit_candidates[:2]:
+                action = self._create_exit_action_with_tax_analysis(candidate, action_priority, None)
+                actions.append(action)
+                action_priority += 1
         
         # 4. Check for ADD opportunity (asset allocation gap)
         if portfolio_context["total_value"] > 0:
             asset_allocation = self._calculate_asset_allocation(holdings)
             portfolio_context["asset_allocation"] = asset_allocation
             
-            # If debt < 20%, suggest debt fund
+            # If debt < 20%, suggest specific debt fund
             if asset_allocation.get("debt_pct", 0) < 20:
-                add_action = self._create_add_action_generic(
-                    asset_class="debt",
-                    target_amount=portfolio_context["total_value"] * 0.10,  # 10% reallocation
-                    reason="Portfolio lacks debt allocation",
-                    priority=action_priority,
+                debt_suggestion = self._suggest_debt_fund(portfolio_context["total_value"] * 0.10)
+                add_action = self._create_add_action_specific(
+                    debt_suggestion,
+                    action_priority,
+                    "Portfolio lacks debt allocation"
                 )
                 actions.append(add_action)
+                logger.info(f"Added ADD action: {debt_suggestion['fund_name']}")
         
         # 5. Calculate portfolio-level tax impact
         total_tax_impact = self._calculate_total_tax_impact(actions)
@@ -354,6 +383,73 @@ class ActionPlanManager:
             "plan_snapshot": plan,
         }
         
+
+    def _create_exit_action_with_tax_analysis(
+        self,
+        candidate: Dict[str, Any],
+        priority: int,
+        overlap_signal: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create EXIT action with tax cost vs benefit analysis.
+        
+        Highlights if tax cost > exit benefit (not advisable to exit).
+        """
+        tax_impact = candidate.get("tax_impact", {})
+        exit_amount = candidate.get("current_value", 0)
+        tax_liability = tax_impact.get("tax_liability", 0)
+        post_tax_proceeds = tax_impact.get("post_tax_proceeds", exit_amount - tax_liability)
+        capital_gain = tax_impact.get("capital_gain", 0)
+        
+        # Calculate benefit: Capital gain - tax
+        net_benefit = capital_gain - tax_liability if capital_gain > 0 else -tax_liability
+        
+        # Determine if exit is advisable
+        tax_efficient = True
+        exit_warning = None
+        
+        if capital_gain > 0 and tax_liability > capital_gain * 0.5:
+            # Tax is more than 50% of gain - NOT advisable
+            tax_efficient = False
+            exit_warning = f"⚠️ Tax cost (₹{tax_liability:,.0f}) is {(tax_liability/capital_gain*100):.0f}% of your gain. Consider holding longer for better tax efficiency."
+        elif capital_gain <= 0 and tax_liability > 0:
+            # Loss-making position with tax - NOT advisable
+            tax_efficient = False
+            exit_warning = f"⚠️ This fund is in loss. Exiting now will incur ₹{tax_liability:,.0f} in taxes with no capital gain. Not recommended."
+        elif tax_liability > exit_amount * 0.15:
+            # Tax > 15% of total value - CAUTION
+            tax_efficient = False
+            exit_warning = f"⚠️ High tax impact: ₹{tax_liability:,.0f} ({(tax_liability/exit_amount*100):.1f}% of total value). Evaluate if exit benefit justifies the cost."
+        
+        # Build reason with overlap context
+        reason_text = candidate.get("reason_text", "")
+        if overlap_signal:
+            overlap_pct = overlap_signal.get("details", {}).get("max_overlap_pct", 0)
+            reason_text = f"High overlap ({overlap_pct:.1f}%) with other funds. {reason_text}"
+        
+        return {
+            "action_id": f"act_{uuid4().hex[:8]}",
+            "type": "EXIT",
+            "priority": priority,
+            "asset_type": "mutual_fund",
+            "asset_name": candidate.get("scheme_name", "Unknown"),
+            "instrument_id": candidate.get("isin"),
+            "amount": exit_amount,
+            "exit_score": candidate.get("exit_score"),
+            "confidence": candidate.get("confidence"),
+            "reason_text": reason_text,
+            "reason_codes": candidate.get("reasons", []),
+            "status": "PENDING",
+            "score_breakdown": candidate.get("score_breakdown"),
+            "tax_impact": {
+                **tax_impact,
+                "net_benefit": net_benefit,
+                "tax_efficient": tax_efficient,
+                "exit_warning": exit_warning,
+            },
+            "fundamentals": candidate.get("fundamentals"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
         await db.plan_history.insert_one(history_entry)
         
         # Update plan status
@@ -560,3 +656,90 @@ def get_plan_manager() -> ActionPlanManager:
     if _plan_manager is None:
         _plan_manager = ActionPlanManager()
     return _plan_manager
+
+
+    def _suggest_debt_fund(self, amount: float) -> Dict[str, Any]:
+        """Suggest specific debt fund based on amount and risk profile."""
+        # Top-rated debt funds for conservative allocation
+        debt_funds = [
+            {
+                "fund_name": "HDFC Corporate Bond Fund - Direct Plan - Growth",
+                "fund_type": "Corporate Bond",
+                "expense_ratio": 0.25,
+                "aum": "₹25,000 Cr",
+                "rating": "5-Star (CRISIL)",
+                "returns_3y": "7.2%",
+            },
+            {
+                "fund_name": "ICICI Prudential Corporate Bond Fund - Direct Growth",
+                "fund_type": "Corporate Bond",
+                "expense_ratio": 0.23,
+                "aum": "₹18,500 Cr",
+                "rating": "5-Star (CRISIL)",
+                "returns_3y": "7.1%",
+            },
+            {
+                "fund_name": "Axis Treasury Advantage Fund - Direct Growth",
+                "fund_type": "Ultra Short Duration",
+                "expense_ratio": 0.18,
+                "aum": "₹12,000 Cr",
+                "rating": "4-Star",
+                "returns_3y": "6.8%",
+            },
+        ]
+        
+        # Pick based on amount (higher amount → higher AUM fund)
+        if amount >= 500000:  # ₹5L+
+            return debt_funds[0]
+        elif amount >= 200000:  # ₹2L+
+            return debt_funds[1]
+        else:
+            return debt_funds[2]
+    
+    def _suggest_gold_fund(self, amount: float) -> Dict[str, Any]:
+        """Suggest gold ETF/fund for diversification."""
+        gold_funds = [
+            {
+                "fund_name": "HDFC Gold ETF",
+                "fund_type": "Gold ETF",
+                "expense_ratio": 0.50,
+                "aum": "₹2,500 Cr",
+                "rating": "4-Star",
+                "returns_3y": "13.5%",
+            },
+            {
+                "fund_name": "SBI Gold Fund - Direct Growth",
+                "fund_type": "Gold Fund",
+                "expense_ratio": 0.65,
+                "aum": "₹1,200 Cr",
+                "rating": "4-Star",
+                "returns_3y": "13.2%",
+            },
+        ]
+        
+        return gold_funds[0] if amount >= 100000 else gold_funds[1]
+    
+    def _create_add_action_specific(
+        self,
+        fund_suggestion: Dict[str, Any],
+        priority: int,
+        reason: str
+    ) -> Dict[str, Any]:
+        """Create ADD action with specific fund recommendation."""
+        fund_name = fund_suggestion.get("fund_name")
+        fund_type = fund_suggestion.get("fund_type")
+        
+        return {
+            "action_id": f"act_{uuid4().hex[:8]}",
+            "type": "ADD",
+            "priority": priority,
+            "asset_type": "mutual_fund",
+            "asset_name": fund_name,
+            "fund_details": fund_suggestion,
+            "amount": 0,  # User determines amount
+            "confidence": "HIGH",
+            "reason_text": f"{reason}. Consider {fund_name} ({fund_type})",
+            "reason_codes": ["ALLOCATION_GAP", "DIVERSIFICATION"],
+            "status": "PENDING",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
