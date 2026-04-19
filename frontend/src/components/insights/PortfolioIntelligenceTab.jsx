@@ -6,12 +6,13 @@
  * AI-narrated insights. Includes a what-if "Remove fund" simulator.
  */
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Sparkles, TrendingUp, Layers, AlertTriangle, Target, Zap,
-  RefreshCw, Minus, ChevronRight, Info
+  RefreshCw, Minus, ChevronRight, Info, ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -35,6 +36,7 @@ const colorFor = (pct) => {
 
 // ── Hero compression card ────────────────────────────────────────────────
 const CompressionHero = ({ narrative, compression }) => {
+  const navigate = useNavigate();
   const score = compression?.score ?? 0;
   const tone = score >= 70 ? "emerald" : score >= 50 ? "sky" : score >= 30 ? "amber" : "rose";
   const toneCls = {
@@ -85,6 +87,14 @@ const CompressionHero = ({ narrative, compression }) => {
                 <div className="text-lg font-semibold text-white">{compression?.top_20_exposure_pct}%</div>
               </div>
             </div>
+            <Button 
+              onClick={() => navigate('/plan-board')}
+              className="mt-4 bg-white/10 hover:bg-white/20 text-white border border-white/20"
+              size="sm"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              View Action Plan
+            </Button>
           </div>
         </div>
       </CardContent>

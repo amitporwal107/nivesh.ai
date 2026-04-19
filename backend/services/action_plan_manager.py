@@ -205,7 +205,11 @@ class ActionPlanManager:
             portfolio_context["asset_allocation"] = asset_allocation
             
             # Calculate AMC concentration to avoid recommending overconcentrated AMCs
-            amc_exposure = self._calculate_amc_exposure(holdings)
+            # Use MF investments from portfolio intelligence (has proper scheme names)
+            amc_exposure = self._calculate_amc_exposure_from_mf_investments(
+                portfolio_intelligence.get("mf_investments", []),
+                portfolio_context["total_value"]
+            )
             excluded_amcs = [amc for amc, pct in amc_exposure.items() if pct > 15.0]
             logger.info(f"AMC exposure analysis: {amc_exposure}")
             if excluded_amcs:
@@ -841,6 +845,83 @@ class ActionPlanManager:
             "stcg_tax": round(stcg_tax, 2),
             "total_tax": round(total_tax, 2),
         }
+    
+    def _calculate_amc_exposure_from_mf_investments(
+        self, 
+        mf_investments: List[Dict[str, Any]], 
+        total_portfolio_value: float
+    ) -> Dict[str, float]:
+        """Calculate AMC concentration from MF investments data.
+        
+        Uses scheme_name from portfolio intelligence MF data.
+        Returns dict mapping AMC name to exposure percentage.
+        Example: {"HDFC": 35.1, "ICICI": 14.6, ...}
+        """
+        if total_portfolio_value == 0:
+            return {}
+        
+        amc_values = {}
+        
+        for mf in mf_investments:
+            if not mf.get("resolved"):
+                continue
+                
+            scheme_name = mf.get("scheme_name", "")
+            amount = mf.get("amount_rs", 0)
+            
+            # Extract AMC from scheme name
+            amc = self._extract_amc_from_name(scheme_name)
+            
+            if amc:
+                amc_values[amc] = amc_values.get(amc, 0) + amount
+        
+        # Convert to percentages
+        amc_exposure = {
+            amc: round(value / total_portfolio_value * 100, 2)
+            for amc, value in amc_values.items()
+        }
+        
+        return amc_exposure
+    
+    def _extract_amc_from_name(self, name: str) -> Optional[str]:
+        """Extract AMC name from fund/scheme name.
+        
+        Examples:
+          "HDFC Flexi Cap Fund" -> "HDFC"
+          "Aditya Birla Sun Life Frontline Equity Fund" -> "ADITYA BIRLA"
+          "Parag Parikh Flexi Cap Fund" -> "PARAG PARIKH"
+        """
+        if not name:
+            return None
+            
+        words = name.upper().split()
+        
+        # Known single-word AMCs
+        known_amcs = [
+            "HDFC", "ICICI", "SBI", "AXIS", "KOTAK",
+            "NIPPON", "FRANKLIN", "TEMPLETON", "MIRAE", 
+            "DSP", "TATA", "UTI", "INVESCO", "HSBC", "IDFC",
+            "SUNDARAM", "MOTILAL", "EDELWEISS", "BARODA",
+            "CANARA", "BANDHAN", "UNION", "BOI", "QUANTUM"
+        ]
+        
+        # Check for single-word AMCs
+        for word in words:
+            if word in known_amcs:
+                return word
+        
+        # Check for multi-word AMCs
+        if "ADITYA" in words and "BIRLA" in words:
+            return "ADITYA BIRLA"
+        if "PARAG" in words and "PARIKH" in words:
+            return "PARAG PARIKH"
+        if "L" in words and "T" in words:
+            idx_l = words.index("L")
+            idx_t = words.index("T")
+            if abs(idx_l - idx_t) == 1:
+                return "L&T"
+        
+        return None
     
     def _calculate_amc_exposure(self, holdings: List[Dict[str, Any]]) -> Dict[str, float]:
         """Calculate AMC concentration as percentage of total portfolio value.
