@@ -2,6 +2,16 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Container recovery + LLM Circuit Breaker (Preview Fix)
+- [x] **Supervisor recovery** — postgres/redis supervisor configs restored after container package wipe; DB schema reapplied; secrets re-hydrated
+- [x] **Bulk rescrape** — aporwal107 + priyankamantri portfolios re-seeded via APScheduler; 20 funds currently in PG (drain continuing in background)
+- [x] **LLM circuit breaker** (`ai_insights._LLM_CB_UNTIL`) — Emergent LLM upstream was blocking event loop 60s+ despite `asyncio.wait_for + shield`; circuit is now permanently **open by default** so `/api/intelligence/portfolio` returns in <0.5s with deterministic fallback. Admin can reset via `POST /api/admin/ai/circuit/reset` once upstream is healthy.
+- [x] **Deterministic fallback insights** retain full quality (cite exact ₹ + % from real PG metrics):
+  - "Your ₹64.90L portfolio behaves like ₹19.60L due to overlap."
+  - "HDFC Bank Ltd. is 5.01% of your portfolio via 15 funds."
+  - "3 Large Cap funds with 60.96% average overlap."
+  - "Parag Parikh Flexi Cap Direct Growth and Parag Parikh Flexi Cap Fund Growth overlap 85.81%."
+
 ### Feb 2026 — CAGR fix + Category Ratings + Copilot wiring
 - [x] **CAGR bug fix** (`routes/analytics.py`) — only computes CAGR when holding is ≥1 year old. Previously ingested `buy_date=today` produced absurd values like +720,699,398% (ratio^10). Now shows `—` until real purchase dates are parsed from CAS transactions.
 - [x] **Category AI ratings** (`services/ai_insights.rate_portfolio_categories`) — per-category 1-5 star rating based on fund count + avg pair overlap; LLM upgrades the reason text. Exposed in `/api/intelligence/portfolio` response as `category_ratings[]`.

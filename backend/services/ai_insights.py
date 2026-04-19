@@ -7,6 +7,7 @@ deterministic templates when the LLM is unavailable.
 from __future__ import annotations
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from helpers import secrets as _secrets
@@ -18,6 +19,41 @@ evidence-based insights for an Indian mutual-fund investor. Every insight
 must cite a specific ₹ amount, %, or fund name from the data. Never use
 hedge words like "may" or "could". Maximum 2 lines per insight. Output
 strict JSON per the schema in the user prompt."""
+
+# ── Circuit breaker ──────────────────────────────────────────────────────
+# The Emergent LLM upstream endpoint has been unresponsive (requests block
+# the event loop for 60+s despite asyncio.wait_for + shield). For now the
+# circuit stays permanently OPEN by default; admin can re-enable LLM via
+# POST /api/admin/ai/circuit/reset once upstream is healthy again. The
+# deterministic fallback produces high-quality insights that cite real
+# ₹ amounts + % directly from computed metrics.
+_CB_COOLDOWN_S = 300
+import time as _time_mod
+_LLM_CB_UNTIL = _time_mod.time() + 365 * 24 * 3600  # tripped indefinitely
+
+
+def _llm_circuit_open() -> bool:
+    return time.time() < _LLM_CB_UNTIL
+
+
+def _llm_circuit_trip() -> None:
+    global _LLM_CB_UNTIL
+    _LLM_CB_UNTIL = time.time() + _CB_COOLDOWN_S
+    logger.warning(f"LLM circuit tripped for {_CB_COOLDOWN_S}s")
+
+
+def llm_circuit_reset() -> None:
+    global _LLM_CB_UNTIL
+    _LLM_CB_UNTIL = 0.0
+    logger.info("LLM circuit manually reset")
+
+
+def llm_circuit_status() -> Dict[str, Any]:
+    return {
+        "open": _llm_circuit_open(),
+        "opens_until": _LLM_CB_UNTIL,
+        "seconds_remaining": max(0, int(_LLM_CB_UNTIL - time.time())),
+    }
 
 
 def _truncate(metrics: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,15 +128,32 @@ def _fmt(n: float) -> str:
     return f"{int(n)}"
 
 
+async def _call_llm_with_timeout(chat, user_text: str, timeout_s: int = 10) -> Optional[str]:
+    """Run an LlmChat.send_message in a background task with hard timeout.
+
+    Litellm retries internally and ignores asyncio cancellation, so we run
+    it in a separate task and abandon if it exceeds the timeout. Returns
+    raw response text or None on timeout/error.
+    """
+    import asyncio
+    from emergentintegrations.llm.chat import UserMessage
+    task = asyncio.create_task(chat.send_message(UserMessage(text=user_text)))
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        task.cancel()  # Fire-and-forget; task may continue but we won't wait.
+        return None
+
+
 async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
     if metrics.get("empty"):
         return []
     payload = _truncate(metrics)
     key = _secrets.get("EMERGENT_LLM_KEY") or _secrets.get("OPENAI_API_KEY")
-    if not key:
+    if not key or _llm_circuit_open():
         return _fallback_insights(metrics)
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from emergentintegrations.llm.chat import LlmChat
         chat = LlmChat(
             api_key=key,
             session_id="nivesh-insights",
@@ -115,7 +168,10 @@ async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
             "No advice to BUY; only diagnose or suggest REDUCE/REMOVE.\n\n"
             f"METRICS:\n{json.dumps(payload, default=str)}"
         )
-        raw = await chat.send_message(UserMessage(text=user_prompt))
+        raw = await _call_llm_with_timeout(chat, user_prompt, timeout_s=10)
+        if raw is None:
+            _llm_circuit_trip()
+            return _fallback_insights(metrics)
         data = _parse_json_loose(raw)
         out = (data or {}).get("insights") or []
         if not isinstance(out, list) or not out:
@@ -129,6 +185,7 @@ async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
             for x in out[:6]
         ]
     except Exception as e:  # noqa: BLE001
+        _llm_circuit_trip()
         logger.warning(f"AI insights failed, falling back: {e}")
         return _fallback_insights(metrics)
 
@@ -220,11 +277,11 @@ async def rate_portfolio_categories(metrics: Dict[str, Any]) -> List[Dict[str, A
 
     # Second pass: upgrade reason with LLM if key present (best-effort)
     key = _secrets.get("EMERGENT_LLM_KEY") or _secrets.get("OPENAI_API_KEY")
-    if not key or not out:
+    if not key or not out or _llm_circuit_open():
         out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
         return out
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from emergentintegrations.llm.chat import LlmChat
         chat = LlmChat(
             api_key=key,
             session_id="nivesh-category-ratings",
@@ -240,7 +297,11 @@ async def rate_portfolio_categories(metrics: Dict[str, Any]) -> List[Dict[str, A
              "funds_count": o["funds_count"], "invested_rs": o["invested_rs"]}
             for o in out
         ]
-        raw = await chat.send_message(UserMessage(text=json.dumps(compact)))
+        raw = await _call_llm_with_timeout(chat, json.dumps(compact), timeout_s=10)
+        if raw is None:
+            _llm_circuit_trip()
+            out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
+            return out
         data = _parse_json_loose(raw)
         updates = {u.get("category"): u.get("reason")
                    for u in (data.get("updates") or [])
@@ -249,6 +310,7 @@ async def rate_portfolio_categories(metrics: Dict[str, Any]) -> List[Dict[str, A
             if o["category"] in updates and updates[o["category"]]:
                 o["reason"] = str(updates[o["category"]])[:300]
     except Exception as e:  # noqa: BLE001
+        _llm_circuit_trip()
         logger.info(f"category AI reason-upgrade skipped: {e}")
 
     out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
@@ -261,8 +323,10 @@ async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
     key = _secrets.get("EMERGENT_LLM_KEY") or _secrets.get("OPENAI_API_KEY")
     if not key:
         return {"rating": None, "reason": "LLM not configured"}
+    if _llm_circuit_open():
+        return {"rating": None, "reason": "LLM temporarily unavailable"}
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        from emergentintegrations.llm.chat import LlmChat
         chat = LlmChat(
             api_key=key,
             session_id="nivesh-mf-rating",
@@ -280,9 +344,12 @@ async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
                       if fund_detail.get("ratios_history") else fund_detail.get("ratios"),
             "top_holdings": (fund_detail.get("holdings") or [])[:10],
         }
-        raw = await chat.send_message(UserMessage(
-            text=f"Rate this fund:\n{json.dumps(compact, default=str)}"
-        ))
+        raw = await _call_llm_with_timeout(
+            chat, f"Rate this fund:\n{json.dumps(compact, default=str)}", timeout_s=10
+        )
+        if raw is None:
+            _llm_circuit_trip()
+            return {"rating": None, "reason": "LLM timeout"}
         data = _parse_json_loose(raw)
         rating = data.get("rating")
         try:
@@ -293,5 +360,6 @@ async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
             rating = None
         return {"rating": rating, "reason": str(data.get("reason", ""))[:400]}
     except Exception as e:  # noqa: BLE001
+        _llm_circuit_trip()
         logger.warning(f"AI rate_fund failed: {e}")
         return {"rating": None, "reason": f"LLM error: {e}"}

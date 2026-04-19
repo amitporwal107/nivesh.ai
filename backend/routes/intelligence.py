@@ -92,6 +92,19 @@ async def simulate_removal(request: Request, body: SimulateBody):
     }
 
 
+@router.post("/admin/ai/circuit/reset")
+async def reset_llm_circuit(request: Request):
+    await require_admin(request)
+    ai_insights.llm_circuit_reset()
+    return ai_insights.llm_circuit_status()
+
+
+@router.get("/admin/ai/circuit")
+async def get_llm_circuit(request: Request):
+    await require_admin(request)
+    return ai_insights.llm_circuit_status()
+
+
 @router.post("/intelligence/rate-fund/{instrument_id}")
 async def rate_single_fund(request: Request, instrument_id: str):
     """Admin-triggered AI rating for a single fund — cached in mutual_fund_metadata."""
