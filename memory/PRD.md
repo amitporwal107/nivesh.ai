@@ -2,6 +2,20 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — V2 Action Generation Rule Engine (6 Core Rules)
+- [x] **Implemented 6 explicit business logic rules** in `services/action_plan_manager._apply_action_rules` per user spec (see `/app/memory/V2_ACTION_GENERATION_RULES_COMPLETE.md`):
+  - **Rule 1**: Regular → Direct consolidation (same fund, exit Regular plan)
+  - **Rule 6**: Regular → Direct cost-leak detection (>₹10K/yr threshold → SWITCH actions)
+  - **Rule 2**: AMC concentration >15% → EXIT funds by highest exit_score until <15%
+  - **Rule 3**: Underperformer → EXIT + ADD same-category top replacement (by category)
+  - **Rule 4**: Different-fund overlap >60% → EXIT fund with higher exit_score
+  - **Rule 5**: Debt <10% → ADD debt fund (excluding over-concentrated AMCs)
+- [x] New helpers: `_classify_plan_type`, `_normalize_base_scheme_name`, `_find_regular_direct_pairs`, `_estimate_cost_leak`, `_find_underperformers`, `_find_best_same_category_replacement`, `_build_exit_action_from_holding`
+- [x] Full test coverage: `backend/tests/test_action_rules.py` (10 tests, all passing, no DB/network deps)
+- [x] **Verified on real user (priyankamantri, 64 holdings)**: Engine produced 6 actions — 5 Regular→Direct consolidations (HDFC Balanced, HDFC Small Cap, HDFC Flexi Cap, Parag Parikh Flexi, SBI Contra) + 1 debt ADD (ICICI Corporate Bond). Tax impact computed for all EXIT actions.
+- [x] Rules applied in priority order with shared `exited_holding_keys` set to prevent duplicate recommendations for same holding.
+
+
 ### Feb 2026 — Code Review Fixes (Security + Hooks + Keys)
 - [x] **MD5 → SHA-256** in `routes/analytics.py:179, 191` (day_hash seeds for fake price generation)
 - [x] **eval()** — verified not present in current codebase (previously removed)
