@@ -218,8 +218,21 @@ class ActionPlanManager:
     async def save_plan(self, plan_id: str, user_id: str) -> Dict[str, Any]:
         """Save a preview plan as active.
         
-        Changes status from "preview" to "active"
+        Changes status from "preview" to "active".
+        Also archives any pre-existing active plan(s) for the user to prevent duplicates.
         """
+        # Archive any other active plan for this user first
+        await db.action_plans.update_many(
+            {"user_id": user_id, "status": STATUS_ACTIVE, "plan_id": {"$ne": plan_id}},
+            {
+                "$set": {
+                    "status": STATUS_ARCHIVED,
+                    "archived_at": datetime.now(timezone.utc),
+                    "archive_reason": "superseded_by_new_plan",
+                }
+            }
+        )
+
         result = await db.action_plans.update_one(
             {"plan_id": plan_id, "user_id": user_id, "status": STATUS_PREVIEW},
             {
