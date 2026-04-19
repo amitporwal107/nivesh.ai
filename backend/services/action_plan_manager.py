@@ -26,6 +26,7 @@ STATUS_ARCHIVED = "archived"
 
 # Action statuses
 ACTION_PENDING = "PENDING"
+ACTION_IN_PROGRESS = "IN_PROGRESS"
 ACTION_COMPLETED = "COMPLETED"
 ACTION_SKIPPED = "SKIPPED"
 
@@ -135,7 +136,7 @@ class ActionPlanManager:
                 # Lower threshold: include even HOLD recommendations in candidates
                 if exit_result["exit_score"] >= 4.0:  # Was filtering only "EXIT", now include score >= 4
                     exit_candidates.append(exit_result)
-                    logger.info(f"  → Added to exit_candidates (score >= 4.0)")
+                    logger.info("  → Added to exit_candidates (score >= 4.0)")
                 else:
                     logger.debug(f"  → Skipped (score {exit_result['exit_score']} < 4.0)")
             except Exception as e:
@@ -345,11 +346,11 @@ class ActionPlanManager:
         new_status: str,
         completion_note: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Update action status (PENDING → COMPLETED/SKIPPED).
+        """Update action status (PENDING → IN_PROGRESS → COMPLETED/SKIPPED).
         
         Also updates plan progress.
         """
-        if new_status not in [ACTION_COMPLETED, ACTION_SKIPPED]:
+        if new_status not in [ACTION_PENDING, ACTION_IN_PROGRESS, ACTION_COMPLETED, ACTION_SKIPPED]:
             raise ValueError(f"Invalid status: {new_status}")
         
         # Get current plan
@@ -368,13 +369,21 @@ class ActionPlanManager:
             raise ValueError(f"Action {action_id} not found in plan")
         
         # Update action
-        timestamp_field = "completed_at" if new_status == ACTION_COMPLETED else "skipped_at"
+        timestamp_field = None
+        if new_status == ACTION_COMPLETED:
+            timestamp_field = "completed_at"
+        elif new_status == ACTION_SKIPPED:
+            timestamp_field = "skipped_at"
+        elif new_status == ACTION_IN_PROGRESS:
+            timestamp_field = "started_at"
         
         update_fields = {
             f"actions.{action_idx}.status": new_status,
-            f"actions.{action_idx}.{timestamp_field}": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
+        
+        if timestamp_field:
+            update_fields[f"actions.{action_idx}.{timestamp_field}"] = datetime.now(timezone.utc)
         
         if completion_note:
             update_fields[f"actions.{action_idx}.completion_note"] = completion_note
@@ -385,16 +394,18 @@ class ActionPlanManager:
         
         completed_count = sum(1 for a in actions if a["status"] == ACTION_COMPLETED)
         skipped_count = sum(1 for a in actions if a["status"] == ACTION_SKIPPED)
+        in_progress_count = sum(1 for a in actions if a["status"] == ACTION_IN_PROGRESS)
         pending_count = sum(1 for a in actions if a["status"] == ACTION_PENDING)
         completion_pct = (completed_count / len(actions) * 100) if actions else 0
         
         update_fields["completed_actions"] = completed_count
         update_fields["skipped_actions"] = skipped_count
+        update_fields["in_progress_actions"] = in_progress_count
         update_fields["pending_actions"] = pending_count
         update_fields["completion_pct"] = round(completion_pct, 2)
         
         # Check if plan is completed
-        if pending_count == 0:
+        if pending_count == 0 and in_progress_count == 0:
             update_fields["status"] = STATUS_COMPLETED
             update_fields["completed_at"] = datetime.now(timezone.utc)
         
@@ -406,8 +417,123 @@ class ActionPlanManager:
         
         # Return updated plan
         updated_plan = await self.get_plan(plan_id, user_id)
-        logger.info(f"Action {action_id} status updated to {new_status}")
         return updated_plan
+        
+    
+    async def update_action_feedback(
+        self,
+        plan_id: str,
+        action_id: str,
+        user_id: str,
+        useful: bool,
+        comment: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update action feedback (useful/not useful + optional comment).
+        
+        Feedback is stored per action for future recommendation improvements.
+        """
+        # Get current plan
+        plan = await self.get_plan(plan_id, user_id)
+        if not plan:
+            raise ValueError(f"Plan {plan_id} not found")
+        
+        # Find action
+        action_idx = None
+        for idx, action in enumerate(plan["actions"]):
+            if action["action_id"] == action_id:
+                action_idx = idx
+                break
+        
+        if action_idx is None:
+            raise ValueError(f"Action {action_id} not found in plan")
+        
+        # Build feedback object
+        feedback = {
+            "useful": useful,
+            "comment": comment or "",
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        # Update action
+        update_fields = {
+            f"actions.{action_idx}.feedback": feedback,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        
+        # Update in DB
+        await db.action_plans.update_one(
+            {"plan_id": plan_id, "user_id": user_id},
+            {"$set": update_fields}
+        )
+        
+        # Return updated plan
+        updated_plan = await self.get_plan(plan_id, user_id)
+        return updated_plan
+
+    
+    async def auto_archive_old_completed_plans(self, user_id: str) -> int:
+        """Auto-archive plans with all actions completed for >30 days.
+        
+        Returns count of archived plans.
+        """
+        from datetime import timedelta
+        
+        threshold_date = datetime.now(timezone.utc) - timedelta(days=30)
+        
+        # Find active/completed plans where all actions are done for >30 days
+        plans = await db.action_plans.find({
+            "user_id": user_id,
+            "status": {"$in": [STATUS_ACTIVE, STATUS_COMPLETED]},
+        }, {"_id": 0}).to_list(100)
+        
+        archived_count = 0
+        
+        for plan in plans:
+            # Check if all actions are completed/skipped
+            actions = plan.get("actions", [])
+            if not actions:
+                continue
+            
+            all_done = all(
+                a.get("status") in [ACTION_COMPLETED, ACTION_SKIPPED]
+                for a in actions
+            )
+            
+            if not all_done:
+                continue
+            
+            # Check if oldest completion is >30 days
+            completion_dates = []
+            for action in actions:
+                if action.get("status") == ACTION_COMPLETED and action.get("completed_at"):
+                    completion_dates.append(action["completed_at"])
+                elif action.get("status") == ACTION_SKIPPED and action.get("skipped_at"):
+                    completion_dates.append(action["skipped_at"])
+            
+            if not completion_dates:
+                continue
+            
+            # Get the most recent completion date
+            latest_completion = max(completion_dates)
+            
+            # If the most recent completion is >30 days old, archive
+            if isinstance(latest_completion, str):
+                latest_completion = datetime.fromisoformat(latest_completion.replace('Z', '+00:00'))
+            
+            if latest_completion < threshold_date:
+                # Archive this plan
+                await db.action_plans.update_one(
+                    {"plan_id": plan["plan_id"], "user_id": user_id},
+                    {"$set": {
+                        "status": STATUS_ARCHIVED,
+                        "archived_at": datetime.now(timezone.utc),
+                        "archive_reason": "auto_archived_after_30_days",
+                    }}
+                )
+                archived_count += 1
+                logger.info(f"Auto-archived plan {plan['plan_id']} (completed >30 days ago)")
+        
+        return archived_count
     
     # ══════════════════════════════════════════════════════════════════════
     # PLAN LIFECYCLE

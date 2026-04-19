@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter, LayoutGrid, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ const PlanBoardView = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active"); // Default to "active" to hide archived plans
   const [generating, setGenerating] = useState(false);
+  const [compactView, setCompactView] = useState(false);
 
   useEffect(() => {
     fetchPlans();
@@ -118,25 +119,47 @@ const PlanBoardView = () => {
           </div>
 
           {/* Filters */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-slate-600" />
-              <span className="text-sm font-medium text-slate-700">Filter:</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-slate-600" />
+                <span className="text-sm font-medium text-slate-700">Filter:</span>
+              </div>
+              <Select value={filter} onValueChange={setFilter}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Plans</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+              <Badge variant="outline" className="text-sm">
+                {filteredPlans.length} plan{filteredPlans.length !== 1 ? 's' : ''}
+              </Badge>
             </div>
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Plans</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-            <Badge variant="outline" className="text-sm">
-              {filteredPlans.length} plan{filteredPlans.length !== 1 ? 's' : ''}
-            </Badge>
+            
+            {/* Compact View Toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCompactView(!compactView)}
+              className="flex items-center gap-2"
+            >
+              {compactView ? (
+                <>
+                  <LayoutGrid className="w-4 h-4" />
+                  Detailed View
+                </>
+              ) : (
+                <>
+                  <List className="w-4 h-4" />
+                  Compact View
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -170,6 +193,7 @@ const PlanBoardView = () => {
                 plan={plan}
                 isActive={activePlan?.plan_id === plan.plan_id}
                 onRefresh={fetchPlans}
+                compactMode={compactView}
               />
             ))}
           </div>

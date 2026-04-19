@@ -60,6 +60,21 @@ backend:
         - working: true
           agent: "testing"
           comment: "✅ PATCH /api/plans/{plan_id}/actions/{action_id} endpoint working correctly. Updates action status to COMPLETED/SKIPPED with completion notes. Automatically recalculates plan progress (completion_pct, completed_actions, pending_actions). Validates action existence and plan ownership."
+        - working: true
+          agent: "testing"
+          comment: "✅ V2 Action Status Update API COMPREHENSIVE TESTING COMPLETE. All status transitions working perfectly: PENDING → IN_PROGRESS → COMPLETED. Progress calculation accurate (completion_pct: 66.67%, completed_actions: 2). Timestamps properly set (completed_at, started_at). Fixed missing return statement in update_action_status method. API returns updated plan object with recalculated metrics (in_progress_actions, pending_actions). Validates action existence and plan ownership correctly."
+
+  - task: "V2 Action Feedback API"
+    implemented: true
+    working: true
+    file: "/app/backend/routes/plans.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "✅ PATCH /api/plans/{plan_id}/actions/{action_id}/feedback endpoint working correctly. Records user feedback (useful: true/false, comment: string) with submitted_at timestamp. Feedback object properly stored in action with structure: {useful, comment, submitted_at}. Fixed missing return statement in update_action_feedback method. API returns updated plan object. Validates action existence and plan ownership."
 
   - task: "V2 Plan Refresh API"
     implemented: true
@@ -231,3 +246,5 @@ agent_communication:
       message: "✅ Portfolio Intelligence drill-down UI testing COMPLETE. All functionality working as expected with real production data from admin user (priyankamantri@gmail.com). Key findings: (1) Compression score: 30/100 displayed correctly with visual ring indicator. (2) Overlap pairs: 15 pairs shown (top 15 of 153 total from API). (3) Drill-down: Click-to-expand works perfectly, showing shared stocks with accurate weight percentages and plan types (Regular/Direct). (4) Multi-pair testing: Successfully expanded/collapsed different pairs. (5) Additional components: Top 10 stocks, 5 redundancy suggestions, 5 category ratings, 8 sectors all rendering correctly. (6) Data quality: Real stock-level data from PostgreSQL (1,817 holdings) flowing through correctly. Minor non-blocking issues: Chart width warnings in console (Recharts library), expected CDN/auth network errors. Overall: Items 1 & 2 from the implementation are fully functional and production-ready."
     - agent: "testing"
       message: "✅ V2 DECISION ENGINE COMPREHENSIVE VALIDATION COMPLETE. All backend APIs tested successfully with 100% pass rate (18/18 tests). CRITICAL REQUIREMENTS VALIDATED: (1) MF-ONLY ACTIONS: ✅ All generated actions have asset_type='mutual_fund' - no equity/stock actions found (2) SIGNALS GENERATION: ✅ Detects OVERLAP_REDUNDANCY and QUALITY_ISSUES with proper severity levels and impact calculations (3) SPECIFIC FUND NAMES: ✅ ADD actions contain specific fund recommendations (e.g., 'HDFC Corporate Bond Fund - Direct Plan - Growth') with complete fund_details including expense_ratio, rating, returns_3y (4) TAX CALCULATIONS: ✅ All plans include total_tax_impact structure with LTCG/STCG breakdown (5) WORKFLOW INTEGRITY: ✅ Complete plan lifecycle working: generate → save → update action → refresh → history. FIXED: refresh_plan method signature issue in routes/plans.py. The system correctly implements V2 MF-Only strategy - signals detect overlap/quality issues but action generation focuses on portfolio optimization through ADD actions rather than EXIT actions for mutual funds, which aligns with the MF-only requirement."
+    - agent: "testing"
+      message: "✅ V2 ACTION PLAN DASHBOARD ENHANCEMENTS TESTING COMPLETE - 100% SUCCESS RATE (15/15 tests passed). COMPREHENSIVE VALIDATION: (1) GET /api/plans/active ✅ Returns active plan with proper structure (plan_id, actions, completion_pct, completed_actions, pending_actions) (2) ACTION STATUS TRANSITIONS ✅ All transitions working: PENDING → IN_PROGRESS → COMPLETED. Progress calculation accurate (66.67% completion). Timestamps properly set (completed_at, started_at) (3) SUBMIT ACTION FEEDBACK ✅ PATCH /api/plans/{plan_id}/actions/{action_id}/feedback records feedback with structure {useful: boolean, comment: string, submitted_at: timestamp} (4) AUTO-ARCHIVE CHECK ✅ Runs automatically during active plan fetch without errors (5) DATA STRUCTURE VERIFICATION ✅ Actions have required fields (action_id, status, feedback), Plan has progress fields (completion_pct, completed_actions, in_progress_actions). FIXED: Missing return statements in update_action_status and update_action_feedback methods in action_plan_manager.py. Test user: priyankamantri@gmail.com with session token 370eff71-fda1-46d8-b506-b81b894d634f. All expected results verified: status transitions work, feedback recorded, progress updates correctly, timestamps set appropriately."

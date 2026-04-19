@@ -1,14 +1,24 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, Minimize2, Maximize2, Play } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import axios from "axios";
 
-const PlanCard = ({ plan, isActive, onRefresh }) => {
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
+
+const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  const [feedbackStates, setFeedbackStates] = useState({});
+  const [updatingAction, setUpdatingAction] = useState(null);
 
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -41,7 +51,91 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
   };
 
   const exitActions = plan.actions.filter(a => a.type === "EXIT");
+
+  const handleStatusUpdate = async (actionId, newStatus) => {
+    try {
+      setUpdatingAction(actionId);
+      await axios.patch(
+        `${API}/plans/${plan.plan_id}/actions/${actionId}`,
+        { status: newStatus },
+        { withCredentials: true }
+      );
+      toast.success(`Action marked as ${newStatus}`);
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error updating action status:", error);
+      toast.error("Failed to update action status");
+    } finally {
+      setUpdatingAction(null);
+    }
+  };
+
+  const handleFeedback = async (actionId, useful) => {
+    const comment = feedbackStates[actionId]?.comment || "";
+    try {
+      await axios.patch(
+        `${API}/plans/${plan.plan_id}/actions/${actionId}/feedback`,
+        { useful, comment },
+        { withCredentials: true }
+      );
+      toast.success("Thank you for your feedback!");
+      setFeedbackStates(prev => ({ ...prev, [actionId]: { submitted: true, useful } }));
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      toast.error("Failed to submit feedback");
+    }
+  };
+
+  const getActionStatusColor = (status) => {
+    switch(status) {
+      case "COMPLETED": return "text-emerald-600 bg-emerald-50";
+      case "IN_PROGRESS": return "text-blue-600 bg-blue-50";
+      case "SKIPPED": return "text-slate-600 bg-slate-100";
+      default: return "text-amber-600 bg-amber-50";
+    }
+  };
+
+  const getActionStatusLabel = (status) => {
+    switch(status) {
+      case "COMPLETED": return "Done";
+      case "IN_PROGRESS": return "In Progress";
+      case "SKIPPED": return "Skipped";
+      default: return "Pending";
+    }
+  };
+
   const addActions = plan.actions.filter(a => a.type === "ADD");
+
+  // If minimized or compact, show minimal card
+  if (minimized || compactMode) {
+    return (
+      <Card className={`overflow-hidden hover:shadow-md transition-all duration-300 ${
+        isActive ? 'ring-2 ring-emerald-600 shadow-emerald-100' : ''
+      }`}>
+        <div className="p-4 bg-gradient-to-br from-slate-50 to-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1">
+              <Badge className={getStatusColor()}>
+                {getStatusLabel()}
+              </Badge>
+              <span className="text-sm text-slate-600">{formatDate(plan.created_at)}</span>
+              <span className="text-sm font-semibold text-slate-900">
+                {(plan.completion_pct || 0).toFixed(0)}% complete
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMinimized(false)}
+            >
+              <Maximize2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className={`overflow-hidden hover:shadow-lg transition-all duration-300 ${
@@ -67,6 +161,14 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
               {formatDate(plan.created_at)}
             </div>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMinimized(true)}
+            className="ml-2"
+          >
+            <Minimize2 className="w-4 h-4" />
+          </Button>
         </div>
 
         {/* Progress */}
@@ -152,11 +254,15 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
           <h4 className="text-sm font-semibold text-slate-900 mb-3">Action Details</h4>
           <div className="space-y-3">
             {plan.actions.map((action, idx) => (
-              <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex items-start justify-between mb-2">
+              <div key={idx} className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                {/* Action Header */}
+                <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Badge className={action.type === "EXIT" ? "bg-red-600" : "bg-emerald-600"}>
                       {action.type}
+                    </Badge>
+                    <Badge className={getActionStatusColor(action.status || "PENDING")} variant="outline">
+                      {getActionStatusLabel(action.status || "PENDING")}
                     </Badge>
                     <span className="text-xs text-slate-600">Priority {action.priority}</span>
                   </div>
@@ -165,7 +271,43 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
                   </span>
                 </div>
                 
-                <h5 className="text-sm font-semibold text-slate-900 mb-2">{action.asset_name}</h5>
+                <h5 className="text-sm font-semibold text-slate-900 mb-3 break-words">{action.asset_name}</h5>
+                
+                {/* Status Control */}
+                <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <label className="text-xs font-semibold text-slate-700 mb-2 block">Update Status</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant={action.status === "IN_PROGRESS" ? "default" : "outline"}
+                      onClick={() => handleStatusUpdate(action.action_id, "IN_PROGRESS")}
+                      disabled={updatingAction === action.action_id}
+                      className="flex-1 min-w-[100px]"
+                    >
+                      <Play className="w-3 h-3 mr-1" />
+                      In Progress
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={action.status === "COMPLETED" ? "default" : "outline"}
+                      onClick={() => handleStatusUpdate(action.action_id, "COMPLETED")}
+                      disabled={updatingAction === action.action_id}
+                      className="flex-1 min-w-[100px] bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      Done
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={action.status === "SKIPPED" ? "default" : "outline"}
+                      onClick={() => handleStatusUpdate(action.action_id, "SKIPPED")}
+                      disabled={updatingAction === action.action_id}
+                      className="flex-1 min-w-[100px]"
+                    >
+                      Skip
+                    </Button>
+                  </div>
+                </div>
                 
                 {action.type === "EXIT" && action.tax_impact && (
                   <div className="space-y-1 text-xs text-slate-600 mb-2">
@@ -248,9 +390,60 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
                   </div>
                 )}
                 
-                <p className="text-xs text-slate-600 mt-2">
+                <p className="text-xs text-slate-600 mt-2 mb-3">
                   <span className="font-medium">Reason:</span> {action.reason_text}
                 </p>
+                
+                {/* Feedback Section */}
+                {!feedbackStates[action.action_id]?.submitted && !action.feedback ? (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-slate-700 mb-2">Was this recommendation useful?</p>
+                    <div className="flex gap-2 mb-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleFeedback(action.action_id, true)}
+                        className="flex-1 bg-white hover:bg-emerald-50 hover:border-emerald-300"
+                      >
+                        <ThumbsUp className="w-3 h-3 mr-1" />
+                        Yes, useful
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleFeedback(action.action_id, false)}
+                        className="flex-1 bg-white hover:bg-red-50 hover:border-red-300"
+                      >
+                        <ThumbsDown className="w-3 h-3 mr-1" />
+                        Not useful
+                      </Button>
+                    </div>
+                    <Textarea
+                      placeholder="Optional: Add your feedback..."
+                      className="text-xs h-16 resize-none"
+                      value={feedbackStates[action.action_id]?.comment || ""}
+                      onChange={(e) => setFeedbackStates(prev => ({
+                        ...prev,
+                        [action.action_id]: { ...prev[action.action_id], comment: e.target.value }
+                      }))}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-3 p-3 bg-slate-100 rounded-lg border border-slate-200">
+                    <p className="text-xs text-slate-600">
+                      ✓ Feedback submitted: {
+                        (feedbackStates[action.action_id]?.useful ?? action.feedback?.useful) 
+                          ? "Useful" 
+                          : "Not useful"
+                      }
+                    </p>
+                    {(feedbackStates[action.action_id]?.comment || action.feedback?.comment) && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        "{feedbackStates[action.action_id]?.comment || action.feedback?.comment}"
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

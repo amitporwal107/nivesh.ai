@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from typing import Optional
 from pydantic import BaseModel
+import logging
 
 from deps import get_current_user, db
 from services import (
@@ -12,6 +13,7 @@ from services import (
 
 router = APIRouter(prefix="/api")
 plan_manager = action_plan_manager.get_plan_manager()
+logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -20,8 +22,14 @@ plan_manager = action_plan_manager.get_plan_manager()
 
 class ActionStatusUpdate(BaseModel):
     """Request body for updating action status."""
-    status: str  # "COMPLETED" | "SKIPPED"
+    status: str  # "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED"
     completion_note: Optional[str] = None
+
+
+class ActionFeedback(BaseModel):
+    """Request body for action feedback."""
+    useful: bool  # True = 👍, False = 👎
+    comment: Optional[str] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -97,6 +105,8 @@ async def save_plan(plan_id: str, request: Request):
 async def get_active_plan(request: Request):
     """Get user's active plan.
     
+    Also runs auto-archive for old completed plans.
+    
     Returns:
         {
             "plan": {...} | null,
@@ -105,6 +115,13 @@ async def get_active_plan(request: Request):
     """
     user = await get_current_user(request)
     user_id = user["user_id"]
+    
+    # Auto-archive old completed plans (runs in background)
+    try:
+        await plan_manager.auto_archive_old_completed_plans(user_id)
+    except Exception as e:
+        # Don't fail the request if auto-archive fails
+        logger.warning(f"Auto-archive failed: {e}")
     
     plan = await plan_manager.get_active_plan(user_id)
     
@@ -161,7 +178,7 @@ async def update_action_status(
     
     Body:
         {
-            "status": "COMPLETED" | "SKIPPED",
+            "status": "PENDING" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED",
             "completion_note": "Redeemed via Groww app" (optional)
         }
     
@@ -183,6 +200,44 @@ async def update_action_status(
         return {
             "plan": updated_plan,
             "message": f"Action {action_id} marked as {body.status}"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/plans/{plan_id}/actions/{action_id}/feedback")
+async def submit_action_feedback(
+    plan_id: str,
+    action_id: str,
+    body: ActionFeedback,
+    request: Request,
+):
+    """Submit feedback for an action.
+    
+    Body:
+        {
+            "useful": true | false,
+            "comment": "Optional feedback text"
+        }
+    
+    Returns:
+        Updated plan with feedback recorded
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    
+    try:
+        updated_plan = await plan_manager.update_action_feedback(
+            plan_id=plan_id,
+            action_id=action_id,
+            user_id=user_id,
+            useful=body.useful,
+            comment=body.comment,
+        )
+        
+        return {
+            "plan": updated_plan,
+            "message": "Feedback recorded successfully"
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -214,8 +269,8 @@ async def refresh_plan(request: Request):
     if not holdings:
         raise HTTPException(status_code=400, detail="No holdings found")
     
-    # Run portfolio intelligence
-    intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
+    # Run portfolio intelligence (fetched but not returned - used by plan_manager internally)
+    await portfolio_intelligence.compute_portfolio_intelligence(user_id)
     
     # Refresh plan
     new_plan = await plan_manager.refresh_plan(user_id)
