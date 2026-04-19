@@ -646,9 +646,8 @@ class ActionPlanManager:
             "stcg_tax": round(stcg_tax, 2),
             "total_tax": round(total_tax, 2),
         }
-
-
-# Singleton instance
+    
+    def _suggest_debt_fund(self, amount: float) -> Dict[str, Any]:
 _plan_manager = None
 
 def get_plan_manager() -> ActionPlanManager:
