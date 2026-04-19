@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 import {
   Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
   BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
-  HelpCircle, Lightbulb, GripHorizontal,
+  HelpCircle, Lightbulb, GripHorizontal, Maximize2, Minimize2, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,11 +27,15 @@ const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#E
 
 // ══════════════════════════════════════════════════════════════════════════
 // CollapsibleSection — reusable wrapper with click-to-collapse + drag-to-resize
+// + focus-mode (one section expands to fill viewport, auto-collapses others).
 // Persists collapsed state + resized height to localStorage so it survives refresh.
 // ══════════════════════════════════════════════════════════════════════════
-const CollapsibleSection = ({ id, title, subtitle, accent, children, defaultHeight = 600, minHeight = 240 }) => {
+const CollapsibleSection = ({
+  id, title, subtitle, accent, children,
+  defaultHeight = 600, minHeight = 240,
+  focusedId, onToggleFocus,
+}) => {
   const storageKey = `insights-section-${id}`;
-  // Read persisted state (collapsed + height)
   const readPersisted = () => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -43,14 +47,19 @@ const CollapsibleSection = ({ id, title, subtitle, accent, children, defaultHeig
   const [height, setHeight] = useState(persisted.height || defaultHeight);
   const bodyRef = React.useRef(null);
 
-  // Persist on change
+  // Focus-mode derived state
+  const isFocused = focusedId === id;
+  const isOtherFocused = focusedId && focusedId !== id;
+  const effectiveCollapsed = isOtherFocused ? true : collapsed;
+
+  // Persist on change (only user-driven state, not focus-mode overrides)
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify({ collapsed, height })); } catch {}
   }, [collapsed, height, storageKey]);
 
-  // Watch for user drag-resize on the body div (browser native `resize: vertical`)
+  // Track user drag-resize on the body div (only in normal mode, not focus mode)
   useEffect(() => {
-    if (!bodyRef.current || collapsed) return;
+    if (!bodyRef.current || effectiveCollapsed || isFocused) return;
     const el = bodyRef.current;
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -61,10 +70,16 @@ const CollapsibleSection = ({ id, title, subtitle, accent, children, defaultHeig
     ro.observe(el);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collapsed]);
+  }, [effectiveCollapsed, isFocused]);
+
+  const handleFocusClick = () => {
+    if (typeof onToggleFocus === "function") {
+      onToggleFocus(isFocused ? null : id);
+    }
+  };
 
   return (
-    <section id={id} data-testid={id} className="scroll-mt-20">
+    <section id={id} data-testid={id} className={`scroll-mt-20 ${isFocused ? "relative z-10" : ""}`}>
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-1.5 h-6 ${accent} rounded-full`} />
         <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
@@ -74,34 +89,45 @@ const CollapsibleSection = ({ id, title, subtitle, accent, children, defaultHeig
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {!collapsed && (
+          {!effectiveCollapsed && !isFocused && (
             <span className="hidden sm:flex items-center gap-1 text-[10px] text-slate-400 dark:text-zinc-600 pr-1" title="Drag the bottom-right corner to resize">
               <GripHorizontal className="w-3 h-3" />
               drag to resize
             </span>
           )}
           <button
+            data-testid={`${id}-focus-toggle`}
+            onClick={handleFocusClick}
+            className={`p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 ${
+              isFocused ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30" : "text-slate-500 dark:text-zinc-400"
+            }`}
+            title={isFocused ? "Exit full view" : "Expand to full view"}
+            aria-label={isFocused ? "Exit full view" : "Expand to full view"}
+          >
+            {isFocused ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+          <button
             data-testid={`${id}-toggle`}
             onClick={() => setCollapsed((c) => !c)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-zinc-400"
-            title={collapsed ? "Expand section" : "Collapse section"}
-            aria-label={collapsed ? "Expand section" : "Collapse section"}
+            disabled={isOtherFocused}
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-zinc-400 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={effectiveCollapsed ? "Expand section" : "Collapse section"}
+            aria-label={effectiveCollapsed ? "Expand section" : "Collapse section"}
           >
-            {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            {effectiveCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
-      {!collapsed && (
+      {!effectiveCollapsed && (
         <div
           ref={bodyRef}
           data-testid={`${id}-body`}
-          style={{
-            height: `${height}px`,
-            minHeight: `${minHeight}px`,
-            resize: "vertical",
-            overflow: "auto",
-          }}
+          style={
+            isFocused
+              ? { height: "calc(100vh - 220px)", minHeight: `${minHeight}px`, overflow: "auto" }
+              : { height: `${height}px`, minHeight: `${minHeight}px`, resize: "vertical", overflow: "auto" }
+          }
           className="rounded-xl border border-slate-200 dark:border-white/5 bg-white/40 dark:bg-white/[0.02] p-3 sm:p-4"
         >
           {children}
@@ -120,6 +146,19 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
   const [loadingBenchmark, setLoadingBenchmark] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview");
+  const [focusedSection, setFocusedSection] = useState(null);   // ID of section in full-view mode
+
+  // Reset layout preferences for the given section IDs (clears collapse/resize state)
+  const resetSectionLayouts = useCallback((sectionIds) => {
+    sectionIds.forEach((sid) => {
+      try { localStorage.removeItem(`insights-section-${sid}`); } catch {}
+    });
+    setFocusedSection(null);
+    // Force remount by briefly flipping activeTab then back — simplest reliable reset
+    const t = activeTab;
+    setActiveTab("__reset__");
+    setTimeout(() => setActiveTab(t), 0);
+  }, [activeTab]);
   const [perfSort, setPerfSort] = useState("pct_return");
   const [perfDir, setPerfDir] = useState("desc");
   const [perfFilter, setPerfFilter] = useState("all");
@@ -298,7 +337,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             <div className="space-y-6" data-testid="tab-performance-benchmark-content">
               {/* Sticky section quick-nav */}
               <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
-                <div className="flex gap-2 text-xs font-medium">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
                   <button
                     data-testid="jump-to-performance"
                     onClick={() => document.getElementById("section-performance")?.scrollIntoView({ behavior: "smooth", block: "start" })}
@@ -313,6 +352,15 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                   >
                     ↓ Benchmark comparison
                   </button>
+                  <button
+                    data-testid="reset-layout-perf-bench"
+                    onClick={() => resetSectionLayouts(["section-performance", "section-benchmark"])}
+                    className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-500 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5"
+                    title="Reset collapsed state and heights for this tab"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reset layout
+                  </button>
                 </div>
               </div>
 
@@ -323,6 +371,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 subtitle="Return, risk and cost per holding"
                 accent="bg-emerald-500"
                 defaultHeight={700}
+                focusedId={focusedSection}
+                onToggleFocus={setFocusedSection}
               >
                 <PerformanceTab
                   cards={sortedPerfCards}
@@ -347,6 +397,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 subtitle="How each fund ranks vs its category benchmark"
                 accent="bg-sky-500"
                 defaultHeight={700}
+                focusedId={focusedSection}
+                onToggleFocus={setFocusedSection}
               >
                 <BenchmarkTab
                   data={fundPerformance}
@@ -363,7 +415,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             <div className="space-y-6" data-testid="tab-fund-overlap-content">
               {/* Sticky section quick-nav */}
               <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
-                <div className="flex gap-2 text-xs font-medium">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
                   <button
                     data-testid="jump-to-fund-overlap"
                     onClick={() => document.getElementById("section-fund-overlap")?.scrollIntoView({ behavior: "smooth", block: "start" })}
@@ -378,6 +430,15 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                   >
                     ↓ Overexposure (stock & sector)
                   </button>
+                  <button
+                    data-testid="reset-layout-fund-overlap"
+                    onClick={() => resetSectionLayouts(["section-fund-overlap", "section-overexposure"])}
+                    className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-500 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5"
+                    title="Reset collapsed state and heights for this tab"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reset layout
+                  </button>
                 </div>
               </div>
 
@@ -388,6 +449,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 subtitle="Real stock-level overlap between mutual funds"
                 accent="bg-purple-500"
                 defaultHeight={750}
+                focusedId={focusedSection}
+                onToggleFocus={setFocusedSection}
               >
                 <PortfolioIntelligenceTab />
               </CollapsibleSection>
@@ -402,6 +465,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 subtitle="Stock and sector concentration risk"
                 accent="bg-rose-500"
                 defaultHeight={600}
+                focusedId={focusedSection}
+                onToggleFocus={setFocusedSection}
               >
                 <OverexposureTab overexposure={overexposure} fmt={fmt} />
               </CollapsibleSection>
