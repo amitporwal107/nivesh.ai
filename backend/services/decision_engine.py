@@ -210,22 +210,36 @@ async def generate_portfolio_actions(user_id: str) -> Dict[str, Any]:
 
 
 def _generate_exit_reason(candidate: Dict[str, Any]) -> str:
-    """Generate human-readable exit reason from score breakdown."""
+    """Generate human-readable exit reason from score breakdown.
+    
+    Priority order: Quality > Momentum > Overlap > Concentration > Cost > Tax
+    Tax is mentioned last as it's informational, not a primary reason.
+    """
     scores = candidate["score_breakdown"]
     reasons = []
     
+    # Priority 1: Fundamental quality issues
+    if scores.get("quality", 0) >= 7:
+        reasons.append("weak fundamentals (poor ROE/P-E/Debt)")
+    
+    # Priority 2: Technical/momentum issues
+    if scores.get("momentum", 0) >= 7:
+        reasons.append("negative price momentum")
+    
+    # Priority 3: Portfolio structure issues
     if scores.get("overlap", 0) >= 7:
         reasons.append("high overlap with other funds")
-    if scores.get("tax", 0) >= 7:
-        reasons.append("significant tax liability")
-    if scores.get("cost", 0) >= 7:
-        reasons.append("high expense ratio")
-    if scores.get("quality", 0) >= 7:
-        reasons.append("underperforming vs category")
     if scores.get("concentration", 0) >= 7:
         reasons.append("overconcentrated position")
-    if scores.get("momentum", 0) >= 7:
-        reasons.append("negative momentum")
+    
+    # Priority 4: Cost issues
+    if scores.get("cost", 0) >= 7:
+        reasons.append("high expense ratio")
+    
+    # Priority 5: Tax (informational only)
+    if scores.get("tax", 0) >= 7 and len(reasons) > 0:
+        # Only mention tax if there are other reasons
+        reasons.append("plus tax implications on exit")
     
     if not reasons:
         return "Optimization opportunity identified"

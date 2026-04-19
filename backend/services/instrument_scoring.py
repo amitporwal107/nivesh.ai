@@ -42,12 +42,12 @@ MF_ADD_WEIGHTS = {
 
 # Stock EXIT Score Weights
 STOCK_EXIT_WEIGHTS = {
-    "concentration": 0.25,  # 25%
-    "tax": 0.20,            # 20%
-    "quality": 0.25,        # 25%
-    "momentum": 0.15,       # 15%
-    "sector": 0.10,         # 10%
-    "role": 0.05,           # 5%
+    "concentration": 0.20,  # 20% - Position size risk
+    "tax": 0.05,            # 5% - Tax is informational only, not a deciding factor
+    "quality": 0.45,        # 45% - PRIMARY: Fundamentals (P/E, ROE, Debt/Equity)
+    "momentum": 0.20,       # 20% - Price momentum and technicals
+    "sector": 0.05,         # 5% - Sector overexposure
+    "role": 0.05,           # 5% - Portfolio redundancy
 }
 
 # Decision Thresholds
@@ -153,16 +153,105 @@ class QualityScorer:
         stock_data: Dict[str, Any],
         fundamentals: Optional[Dict[str, Any]] = None,
     ) -> float:
-        """Calculate Stock Quality Score (0-10).
+        """Calculate Stock Quality Score (0-10) based on available fundamentals.
         
         Lower is better: 1-3 = strong, 4-6 = average, 7-10 = weak
         
-        For MVP: Simplified placeholder
-        In production: Use ROCE, growth, valuation, debt
+        Factors (if available):
+        - P/E Ratio (valuation)
+        - ROE (profitability)
+        - Debt/Equity (financial health)
+        - Price vs Buy Price (return performance)
+        
+        If no fundamental data available: Returns neutral 5.0
         """
-        # MVP: Return neutral score
-        # Future: Integrate fundamentals from Alpha Vantage / Groww
-        return 5.0
+        scores = []
+        has_fundamental_data = False
+        
+        # 1. P/E Ratio (25%) - Compare to industry average
+        pe_ratio = stock_data.get("pe_ratio")
+        if pe_ratio:
+            has_fundamental_data = True
+            try:
+                pe_val = float(pe_ratio)
+                if pe_val < 15:  # Undervalued
+                    scores.append(3.0)
+                elif pe_val < 25:  # Fair value
+                    scores.append(5.0)
+                elif pe_val < 40:  # Overvalued
+                    scores.append(7.0)
+                else:  # Highly overvalued
+                    scores.append(9.0)
+            except:
+                scores.append(5.0)
+        
+        # 2. ROE - Return on Equity (profitability) (30%)
+        roe = stock_data.get("roe")
+        if roe:
+            has_fundamental_data = True
+            try:
+                roe_val = float(roe)
+                if roe_val >= 20:  # Excellent
+                    scores.append(2.0)
+                elif roe_val >= 15:  # Good
+                    scores.append(3.0)
+                elif roe_val >= 10:  # Average
+                    scores.append(5.0)
+                elif roe_val >= 5:  # Weak
+                    scores.append(7.0)
+                else:  # Poor
+                    scores.append(9.0)
+            except:
+                scores.append(5.0)
+        
+        # 3. Debt to Equity (25%) - Financial health
+        debt_to_equity = stock_data.get("debt_to_equity")
+        if debt_to_equity is not None:
+            has_fundamental_data = True
+            try:
+                de_val = float(debt_to_equity)
+                if de_val < 0.5:  # Very low debt (healthy)
+                    scores.append(2.0)
+                elif de_val < 1.0:  # Moderate
+                    scores.append(4.0)
+                elif de_val < 2.0:  # High debt
+                    scores.append(7.0)
+                else:  # Very high debt (risky)
+                    scores.append(9.0)
+            except:
+                scores.append(5.0)
+        
+        # 4. Return Performance (20%) - Buy price vs current price
+        buy_price = stock_data.get("buy_price")
+        current_price = stock_data.get("current_price")
+        if buy_price and current_price:
+            try:
+                buy_val = float(buy_price)
+                curr_val = float(current_price)
+                if buy_val > 0:
+                    return_pct = ((curr_val - buy_val) / buy_val) * 100
+                    if return_pct >= 50:  # Excellent return
+                        scores.append(2.0)
+                    elif return_pct >= 20:  # Good
+                        scores.append(3.0)
+                    elif return_pct >= 0:  # Positive
+                        scores.append(5.0)
+                    elif return_pct >= -15:  # Small loss
+                        scores.append(7.0)
+                    else:  # Significant loss
+                        scores.append(9.0)
+            except:
+                pass
+        
+        # If we have fundamental data, calculate average
+        if scores:
+            quality_score = sum(scores) / len(scores)
+            return round(quality_score, 2)
+        
+        # No fundamental data available - return neutral
+        # This means stock won't be flagged for EXIT based on quality alone
+        logger.warning(f"No fundamental data for stock: {stock_data.get('name', 'Unknown')}")
+        return 5.0  # Neutral - neither good nor bad
 
 
 # ══════════════════════════════════════════════════════════════════════════
