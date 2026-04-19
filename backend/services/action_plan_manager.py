@@ -10,6 +10,7 @@ Handles:
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from uuid import uuid4
+from decimal import Decimal
 import logging
 
 from deps import db
@@ -27,6 +28,23 @@ STATUS_ARCHIVED = "archived"
 ACTION_PENDING = "PENDING"
 ACTION_COMPLETED = "COMPLETED"
 ACTION_SKIPPED = "SKIPPED"
+
+
+def convert_decimals_to_float(obj: Any) -> Any:
+    """Recursively convert Decimal objects to float for MongoDB compatibility.
+    
+    PostgreSQL numeric/decimal types return Python Decimal objects which
+    MongoDB's BSON encoder cannot serialize. This converts them to float.
+    """
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimals_to_float(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals_to_float(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_decimals_to_float(item) for item in obj)
+    return obj
 
 
 class ActionPlanManager:
@@ -84,9 +102,16 @@ class ActionPlanManager:
             if not holding:
                 continue
             
-            exit_result = await decision_engine.calculate_mf_exit_score(mf, portfolio_intelligence, holding)
-            if exit_result["action"] == "EXIT":
-                exit_candidates.append(exit_result)
+            try:
+                exit_result = await decision_engine.calculate_mf_exit_score(mf, portfolio_intelligence, holding)
+                logger.info(f"MF Exit Score: {mf.get('scheme_name', 'Unknown')[:40]} = {exit_result['exit_score']} (action: {exit_result['action']})")
+                
+                # Lower threshold: include even HOLD recommendations in candidates
+                if exit_result["exit_score"] >= 4.0:  # Was filtering only "EXIT", now include score >= 4
+                    exit_candidates.append(exit_result)
+            except Exception as e:
+                logger.error(f"Error scoring MF {mf.get('scheme_name', 'Unknown')}: {e}")
+                continue
         
         # Score stocks
         portfolio_context = {
@@ -96,9 +121,16 @@ class ActionPlanManager:
         }
         
         for stock in stock_holdings:
-            exit_result = await decision_engine.calculate_stock_exit_score(stock, portfolio_context)
-            if exit_result["action"] == "EXIT":
-                exit_candidates.append(exit_result)
+            try:
+                exit_result = await decision_engine.calculate_stock_exit_score(stock, portfolio_context)
+                logger.info(f"Stock Exit Score: {stock.get('name', 'Unknown')[:40]} = {exit_result['exit_score']} (action: {exit_result['action']})")
+                
+                # Include stocks with score >= 4
+                if exit_result["exit_score"] >= 4.0:
+                    exit_candidates.append(exit_result)
+            except Exception as e:
+                logger.error(f"Error scoring stock {stock.get('name', 'Unknown')}: {e}")
+                continue
         
         # Sort by exit score (highest first)
         exit_candidates.sort(key=lambda x: x["exit_score"], reverse=True)
@@ -223,9 +255,11 @@ class ActionPlanManager:
     
     async def create_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         """Insert new plan into database."""
-        await db.action_plans.insert_one(plan)
+        # Convert Decimal objects to float for MongoDB compatibility
+        plan_clean = convert_decimals_to_float(plan)
+        await db.action_plans.insert_one(plan_clean)
         logger.info(f"Plan {plan['plan_id']} created in DB")
-        return plan
+        return plan_clean
     
     # ══════════════════════════════════════════════════════════════════════
     # ACTION STATE MANAGEMENT

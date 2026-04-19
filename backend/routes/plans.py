@@ -114,20 +114,6 @@ async def get_active_plan(request: Request):
     }
 
 
-@router.get("/plans/{plan_id}")
-async def get_plan(plan_id: str, request: Request):
-    """Get specific plan by ID."""
-    user = await get_current_user(request)
-    user_id = user["user_id"]
-    
-    plan = await plan_manager.get_plan(plan_id, user_id)
-    
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    
-    return {"plan": plan}
-
-
 @router.get("/plans/history")
 async def get_plan_history(
     request: Request,
@@ -144,6 +130,20 @@ async def get_plan_history(
         "plans": plans,
         "count": len(plans)
     }
+
+
+@router.get("/plans/{plan_id}")
+async def get_plan(plan_id: str, request: Request):
+    """Get specific plan by ID."""
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    
+    plan = await plan_manager.get_plan(plan_id, user_id)
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    return {"plan": plan}
 
 
 # ══════════════════════════════════════════════════════════════════════════
