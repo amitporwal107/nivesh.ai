@@ -74,12 +74,12 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-600">Progress</span>
             <span className="text-sm font-bold text-slate-900">
-              {plan.completion_pct.toFixed(0)}%
+              {(plan.completion_pct || 0).toFixed(0)}%
             </span>
           </div>
-          <Progress value={plan.completion_pct} className="h-2" />
+          <Progress value={plan.completion_pct || 0} className="h-2" />
           <p className="text-xs text-slate-600 mt-1">
-            {plan.completed_actions}/{plan.total_actions} actions completed
+            {plan.completed_actions || 0}/{plan.total_actions || plan.actions?.length || 0} actions completed
           </p>
         </div>
       </div>

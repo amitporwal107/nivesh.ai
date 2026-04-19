@@ -74,19 +74,25 @@ const ActionPromptModal = ({ open, onClose, onNavigateToPlanBoard }) => {
     return null;
   }
 
-  const pendingActions = plan.actions.filter(a => a.status === "PENDING");
+  const pendingActions = plan.actions?.filter(a => a.status === "PENDING") || [];
   
   if (pendingActions.length === 0) {
     return null;
   }
 
   const formatAmount = (amount) => {
+    if (!amount && amount !== 0) return '₹0';
     return new Intl.NumberFormat('en-IN', { 
       style: 'currency', 
       currency: 'INR',
       maximumFractionDigits: 0 
     }).format(amount);
   };
+  
+  // Calculate progress with safe fallbacks
+  const totalActions = plan.actions?.length || 0;
+  const completedActions = plan.completed_actions || plan.actions?.filter(a => a.status === "COMPLETED").length || 0;
+  const completionPct = totalActions > 0 ? (completedActions / totalActions) * 100 : 0;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -108,17 +114,17 @@ const ActionPromptModal = ({ open, onClose, onNavigateToPlanBoard }) => {
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold text-slate-700">Progress</span>
               <span className="text-lg font-bold text-slate-900">
-                {plan.completion_pct.toFixed(0)}%
+                {completionPct.toFixed(0)}%
               </span>
             </div>
             <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-emerald-600 transition-all duration-500"
-                style={{ width: `${plan.completion_pct}%` }}
+                style={{ width: `${completionPct}%` }}
               ></div>
             </div>
             <p className="text-xs text-slate-600 mt-2">
-              {plan.completed_actions} of {plan.total_actions} completed
+              {completedActions} of {totalActions} completed
             </p>
           </div>
 
@@ -147,13 +153,13 @@ const ActionPromptModal = ({ open, onClose, onNavigateToPlanBoard }) => {
                       </Badge>
                     </div>
                     <h4 className="font-semibold text-slate-900 mb-1">
-                      {action.asset_name}
+                      {action.asset_name || 'Unnamed Asset'}
                     </h4>
                     <p className="text-2xl font-black text-slate-900 mb-2">
                       {formatAmount(action.amount)}
                     </p>
                     <p className="text-sm text-slate-600 mb-3">
-                      {action.reason_text}
+                      {action.reason_text || 'No reason provided'}
                     </p>
                     <Button
                       onClick={() => markActionComplete(action.action_id)}

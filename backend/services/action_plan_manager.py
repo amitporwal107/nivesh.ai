@@ -280,11 +280,27 @@ class ActionPlanManager:
         return plan
     
     async def get_active_plan(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user's active plan."""
+        """Get user's active plan with calculated completion metrics."""
         plan = await db.action_plans.find_one(
             {"user_id": user_id, "status": STATUS_ACTIVE},
             {"_id": 0}
         )
+        
+        if not plan:
+            return None
+        
+        # Calculate completion metrics
+        actions = plan.get("actions", [])
+        total_actions = len(actions)
+        completed_actions = len([a for a in actions if a.get("status") == "COMPLETED"])
+        completion_pct = (completed_actions / total_actions * 100) if total_actions > 0 else 0
+        
+        # Add calculated fields to plan
+        plan["total_actions"] = total_actions
+        plan["completed_actions"] = completed_actions
+        plan["completion_pct"] = completion_pct
+        plan["pending_actions"] = total_actions - completed_actions
+        
         return plan
     
     async def get_plan(self, plan_id: str, user_id: str) -> Optional[Dict[str, Any]]:
