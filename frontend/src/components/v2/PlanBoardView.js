@@ -15,7 +15,7 @@ const PlanBoardView = () => {
   const [plans, setPlans] = useState([]);
   const [activePlan, setActivePlan] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all"); // all, active, completed, archived
+  const [filter, setFilter] = useState("active"); // Default to "active" to hide archived plans
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
