@@ -209,9 +209,29 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
 
           {/* ══════════════ TAB: PERFORMANCE & BENCHMARK (merged) ══════════════ */}
           {activeTab === "performance_benchmark" && (
-            <div className="space-y-8" data-testid="tab-performance-benchmark-content">
+            <div className="space-y-6" data-testid="tab-performance-benchmark-content">
+              {/* Sticky section quick-nav */}
+              <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
+                <div className="flex gap-2 text-xs font-medium">
+                  <button
+                    data-testid="jump-to-performance"
+                    onClick={() => document.getElementById("section-performance")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
+                  >
+                    ↓ Performance (per-holding)
+                  </button>
+                  <button
+                    data-testid="jump-to-benchmark"
+                    onClick={() => document.getElementById("section-benchmark")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="px-3 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-900 hover:bg-sky-100 dark:hover:bg-sky-950/70"
+                  >
+                    ↓ Benchmark comparison
+                  </button>
+                </div>
+              </div>
+
               {/* Section 1: Performance */}
-              <section data-testid="section-performance">
+              <section id="section-performance" data-testid="section-performance" className="scroll-mt-20">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
@@ -238,7 +258,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               <div className="border-t border-slate-200 dark:border-white/5" />
 
               {/* Section 2: Benchmark */}
-              <section data-testid="section-benchmark">
+              <section id="section-benchmark" data-testid="section-benchmark" className="scroll-mt-20">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1.5 h-6 bg-sky-500 rounded-full" />
                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
@@ -260,9 +280,29 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
 
           {/* ══════════════ TAB: FUND & OVERLAP INSIGHTS (merged) ══════════════ */}
           {activeTab === "fund_overlap_insights" && (
-            <div className="space-y-8" data-testid="tab-fund-overlap-content">
+            <div className="space-y-6" data-testid="tab-fund-overlap-content">
+              {/* Sticky section quick-nav */}
+              <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
+                <div className="flex gap-2 text-xs font-medium">
+                  <button
+                    data-testid="jump-to-fund-overlap"
+                    onClick={() => document.getElementById("section-fund-overlap")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900 hover:bg-purple-100 dark:hover:bg-purple-950/70"
+                  >
+                    ↓ Fund overlap (stock-level)
+                  </button>
+                  <button
+                    data-testid="jump-to-overexposure"
+                    onClick={() => document.getElementById("section-overexposure")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 dark:hover:bg-rose-950/70"
+                  >
+                    ↓ Overexposure (stock & sector)
+                  </button>
+                </div>
+              </div>
+
               {/* Section 1: Fund Overlap (stock-level) */}
-              <section data-testid="section-fund-overlap">
+              <section id="section-fund-overlap" data-testid="section-fund-overlap" className="scroll-mt-20">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1.5 h-6 bg-purple-500 rounded-full" />
                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
@@ -279,7 +319,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               <div className="border-t border-slate-200 dark:border-white/5" />
 
               {/* Section 2: Overexposure (stock/sector concentration) */}
-              <section data-testid="section-overexposure">
+              <section id="section-overexposure" data-testid="section-overexposure" className="scroll-mt-20">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1.5 h-6 bg-rose-500 rounded-full" />
                   <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
