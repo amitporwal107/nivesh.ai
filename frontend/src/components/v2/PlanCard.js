@@ -169,20 +169,58 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
                 
                 {action.type === "EXIT" && action.tax_impact && (
                   <div className="space-y-1 text-xs text-slate-600 mb-2">
-                    <div className="flex justify-between">
-                      <span>Tax Liability:</span>
-                      <span className="font-medium">₹{action.tax_impact.tax_liability?.toLocaleString('en-IN')}</span>
+                    <h6 className="font-semibold text-slate-900 text-sm mb-2 flex items-center gap-2">
+                      💰 Tax Calculation (STCG/LTCG)
+                    </h6>
+                    
+                    <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-1.5">
+                      <div className="flex justify-between">
+                        <span>Current Value:</span>
+                        <span className="font-medium">₹{action.amount?.toLocaleString('en-IN', {maximumFractionDigits: 0})}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Invested Amount:</span>
+                        <span className="font-medium">₹{((action.amount || 0) - (action.tax_impact.capital_gain || 0)).toLocaleString('en-IN', {maximumFractionDigits: 0})}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-slate-300 pt-1.5">
+                        <span className="font-medium">Capital Gain:</span>
+                        <span className="font-semibold text-emerald-600">₹{action.tax_impact.capital_gain?.toLocaleString('en-IN', {maximumFractionDigits: 0})}</span>
+                      </div>
+                      
+                      <div className="flex justify-between mt-2 pt-2 border-t border-slate-300">
+                        <span>Holding Period:</span>
+                        <span className="font-medium">{action.tax_impact.holding_period_days || 0} days ({((action.tax_impact.holding_period_days || 0) / 365).toFixed(1)} years)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Tax Type:</span>
+                        <span className="font-semibold text-blue-600">
+                          {action.tax_impact.is_long_term ? 'LTCG' : 'STCG'} ({(action.tax_impact.tax_rate * 100).toFixed(0)}%)
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between mt-2 pt-2 border-t border-slate-300">
+                        <span className="font-medium">Tax Liability:</span>
+                        <span className="font-semibold text-red-600">₹{action.tax_impact.tax_liability?.toLocaleString('en-IN', {maximumFractionDigits: 0})}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-semibold">Post-tax Proceeds:</span>
+                        <span className="font-bold text-emerald-600">₹{action.tax_impact.post_tax_proceeds?.toLocaleString('en-IN', {maximumFractionDigits: 0})}</span>
+                      </div>
+                      
+                      {action.tax_impact.break_even_years && (
+                        <div className="flex justify-between mt-2 pt-2 border-t border-slate-300">
+                          <span>Break-even Period:</span>
+                          <span className="font-medium">{action.tax_impact.break_even_years.toFixed(1)} years</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex justify-between">
-                      <span>Post-tax Proceeds:</span>
-                      <span className="font-medium text-emerald-600">₹{action.tax_impact.post_tax_proceeds?.toLocaleString('en-IN')}</span>
+                    
+                    <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                      ⚠️ <span className="font-semibold">Disclaimer:</span> This calculation does not consider your individual tax bracket. Actual tax liability may vary based on your total income and applicable tax slab.
                     </div>
-                    <div className="flex justify-between">
-                      <span>Exit Score:</span>
-                      <span className="font-medium">{action.exit_score}/10</span>
-                    </div>
+                    
                     {action.tax_impact.exit_warning && (
-                      <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800">
                         ⚠️ {action.tax_impact.exit_warning}
                       </div>
                     )}
