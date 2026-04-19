@@ -112,10 +112,8 @@ def calculate_tax_impact(
         if exit_amount_rs:
             exit_ratio = exit_amount_rs / total_current if total_current > 0 else 0
             capital_gain = total_gain * exit_ratio
-            exit_quantity = quantity * exit_ratio
         else:
             capital_gain = total_gain
-            exit_quantity = quantity
             exit_amount_rs = total_current
         
         # Calculate tax
@@ -256,8 +254,6 @@ def calculate_tax_impact_fifo(
         # Calculate gain for this lot
         cost_basis = exit_from_lot_units * lot_buy_price
         gain = exit_from_lot_rs - cost_basis
-        
-        # Calculate holding period
         buy_date = datetime.fromisoformat(lot["buy_date"].replace('Z', '+00:00'))
         holding_period_days = (today - buy_date).days
         is_lt = is_long_term(holding_period_days)

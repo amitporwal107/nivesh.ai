@@ -315,7 +315,7 @@ class QualitySignalDetector(SignalDetector):
             "type": self.signal_type,
             "severity": severity,
             "title": f"{weak_count} underperforming fund{'s' if weak_count > 1 else ''} detected",
-            "description": f"Funds not meeting performance benchmarks",
+            "description": "Funds not meeting performance benchmarks",
             "impact": f"₹{total_weak_amount:,.0f} in weak performers",
             "affected_assets": [f["fund_name"] for f in weak_funds],
             "details": {
@@ -433,7 +433,7 @@ def get_signal_summary(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
             try:
                 amount_str = impact_text.split("₹")[1].split()[0].replace(",", "").replace("L", "00000").replace("K", "000")
                 total_impact_rs += float(amount_str)
-            except:
+            except (IndexError, ValueError):
                 pass
     
     return {
