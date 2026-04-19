@@ -58,8 +58,8 @@ async def generate_plan(request: Request):
     # Run portfolio intelligence
     intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
     
-    # Generate plan
-    plan = await plan_manager.generate_plan(user_id, intelligence, holdings)
+    # Generate plan using ActionPlanManager
+    plan = await plan_manager.generate_action_plan(user_id)
     
     # Save as preview
     await plan_manager.create_plan(plan)
