@@ -1,86 +1,141 @@
 {
-  "theme": "dark",
-  "archetype": "Swiss & High-Contrast (Fintech Dark Mode)",
-  "colors": {
-    "background": "#09090B",
-    "surface": "#121212",
-    "surface_hover": "#1A1A1A",
-    "border": "#27272A",
-    "text_primary": "#FFFFFF",
-    "text_secondary": "#A1A1AA",
-    "text_muted": "#71717A",
-    "portfolio_gradient_start": "#0F766E",
-    "portfolio_gradient_end": "#042F2E",
-    "alert_red_bg": "rgba(239, 68, 68, 0.1)",
-    "alert_red_border": "rgba(239, 68, 68, 0.2)",
-    "alert_red_text": "#EF4444",
-    "success_green_bg": "rgba(16, 185, 129, 0.1)",
-    "success_green_border": "rgba(16, 185, 129, 0.2)",
-    "success_green_text": "#10B981"
+  "theme_and_archetype": {
+    "domain": "Finance / Wealth Management",
+    "theme": "Light",
+    "archetype": "4 (Swiss & High-Contrast) combined with Mobile-First Utility",
+    "rationale": "The app is a 'financial to-do list', not an analytics dashboard. It requires extreme clarity, maximum thumb-target sizes, and stark semantic colors to drive action. We use a crisp, tactile aesthetic to establish trust without feeling clinical.",
+    "background_color": "#FAF9F6",
+    "surface_color": "#FFFFFF"
   },
   "typography": {
-    "font_family_heading": "Cabinet Grotesk, sans-serif",
-    "font_family_body": "IBM Plex Sans, sans-serif",
-    "h1": "text-4xl md:text-5xl font-bold tracking-tight",
-    "h2": "text-2xl md:text-3xl font-semibold tracking-tight",
-    "h3": "text-xl font-medium",
-    "body": "text-sm text-zinc-400 leading-relaxed",
-    "numbers": "font-mono font-medium tracking-tight"
+    "fonts": {
+      "headings": "Outfit, sans-serif",
+      "body": "Manrope, sans-serif"
+    },
+    "hierarchy": {
+      "amounts": "text-5xl sm:text-6xl font-black tracking-tighter text-slate-900",
+      "titles": "text-xl sm:text-2xl font-bold tracking-tight text-slate-900",
+      "reasons": "text-sm sm:text-base font-medium text-slate-600",
+      "impact": "text-sm text-slate-500"
+    },
+    "rules": [
+      "No generic sans like Inter or Roboto.",
+      "Never center-align financial data; left-align everything in the card for scannability.",
+      "Use extremely tight tracking on massive numbers (₹ amounts)."
+    ]
   },
-  "layout": {
-    "container": "max-w-7xl mx-auto p-4 md:p-8 space-y-6 md:space-y-8",
-    "grid_bento": "grid grid-cols-1 md:grid-cols-12 gap-6",
-    "card": "bg-[#121212] border border-white/5 rounded-xl p-6 shadow-sm",
-    "card_dense": "bg-[#121212] border border-white/5 rounded-xl p-4 shadow-sm"
+  "colors": {
+    "background": "bg-[#FAF9F6]",
+    "surface": "bg-white",
+    "text": {
+      "primary": "text-slate-900",
+      "secondary": "text-slate-600",
+      "tertiary": "text-slate-400"
+    },
+    "semantic": {
+      "urgent_exit": {
+        "color": "red",
+        "bg": "bg-red-600",
+        "text": "text-white",
+        "light_bg": "bg-red-50",
+        "border": "border-red-200"
+      },
+      "warning_switch": {
+        "color": "amber",
+        "bg": "bg-amber-500",
+        "text": "text-slate-900",
+        "light_bg": "bg-amber-50",
+        "border": "border-amber-200"
+      },
+      "good_add": {
+        "color": "emerald",
+        "bg": "bg-emerald-600",
+        "text": "text-white",
+        "light_bg": "bg-emerald-50",
+        "border": "border-emerald-200"
+      }
+    },
+    "borders": "border-slate-200"
   },
-  "components": {
-    "portfolio_value_card": {
-      "classes": "col-span-1 md:col-span-12 lg:col-span-4 bg-gradient-to-br from-teal-900/50 to-slate-900 border border-teal-500/20 rounded-2xl p-6 relative overflow-hidden",
-      "description": "Large display of portfolio value (e.g., ₹76.5L). Use a subtle grain or noise overlay if possible. The gradient must be dark-theme compatible."
+  "spacing_and_layout": {
+    "philosophy": "Mobile-first, 1-hand usage, touch-first design.",
+    "container": "max-w-md mx-auto min-h-screen pb-32 pt-24",
+    "card": {
+      "padding": "p-5 sm:p-6",
+      "border_radius": "rounded-2xl",
+      "gap": "gap-4 sm:gap-5"
     },
-    "risk_alert_banner": {
-      "classes": "flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 mb-6",
-      "description": "Top level alert. Icon on left, title and description on right. 'Your portfolio needs attention'."
+    "buttons": {
+      "height": "min-h-[56px]",
+      "border_radius": "rounded-xl",
+      "padding": "px-6 py-4",
+      "font_size": "text-lg font-semibold"
     },
-    "risk_cards_grid": {
-      "classes": "grid grid-cols-1 md:grid-cols-3 gap-4 mt-4",
-      "description": "Small cards showing specific risks: AMC Dominance, Large Cap Overweight, Asset Class Balance. Each card has a red icon, title, and a small badge or stat."
+    "rules": [
+      "NO multi-column layouts on mobile.",
+      "Card padding must be generous (p-5 or p-6).",
+      "If user cannot act in 1 thumb tap, redesign.",
+      "Button height MUST be >= 48px, optimally 56px."
+    ]
+  },
+  "components_instructions": {
+    "Header_and_Version_Toggle": {
+      "type": "Top Navigation",
+      "classes": "flex justify-between items-center p-4 bg-[#FAF9F6]",
+      "details": "Includes a dropdown (Shadcn Select/DropdownMenu) with options 'V2: Action Plan View' (selected) and 'V1: Dashboard View (Classic)'. Include the user_avatar on the right."
     },
-    "performance_chart_card": {
-      "classes": "col-span-1 md:col-span-12 lg:col-span-8 bg-[#121212] border border-white/5 rounded-2xl p-6",
-      "description": "Contains Recharts AreaChart. X-axis: months. Y-axis: hidden or minimal. Two areas: Portfolio (Teal) and Benchmark Nifty 500 (Gray). Needs a top-right time toggle (1M/3M/6M/1Y/3Y/5Y)."
+    "Sticky_Action_Plan": {
+      "type": "Header / Progress Tracker",
+      "classes": "sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-200 p-4 shadow-sm",
+      "details": "Displays 'Fix Your Portfolio' title. Include a textual/dot progress indicator like '● ○ ○ 1/3 completed' using text-slate-300 for inactive and text-slate-900 for active dots. Must be collapsible to save vertical space on scroll."
     },
-    "tabs": {
-      "classes": "w-full bg-[#1A1A1A] p-1 rounded-lg border border-white/5",
-      "description": "Use Shadcn Tabs. Triggers should be data-[state=active]:bg-[#27272A] data-[state=active]:text-white."
+    "Action_Cards": {
+      "type": "Main Content",
+      "classes": "w-full bg-white border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm",
+      "details": "Cards must span 100% width of the mobile container. Structure: Top row (Type Indicator dot + 'SELL/SWITCH/ADD' label), Second row (Massive ₹ Amount in Outfit font), Third row (Title), Fourth row (Reason & Impact). Bottom row: Huge CTA button filling the width.",
+      "states": {
+        "PENDING": "Uses the specific semantic color for its CTA.",
+        "COMPLETED": "Card dims (opacity-60) and CTA changes to a disabled 'Completed' state with a checkmark."
+      }
     },
-    "fund_list_item": {
-      "classes": "flex items-center justify-between py-4 border-b border-white/5 last:border-0",
-      "description": "Left: AMC Avatar (use Fallback text like 'HD', 'SB' with bg-slate-800) + Fund Name + Category badge. Right: 3Y Return % (green text) + Category Rank (e.g., 39/40)."
+    "Portfolio_Signals": {
+      "type": "Collapsible Accordion",
+      "classes": "bg-white rounded-2xl border border-slate-200 mt-8",
+      "details": "Use Shadcn Accordion. Default state shows a compact summary row (e.g., 🔴 High Overlap, 🟡 Overexposure). Expanded state reveals details and ₹ impact. Keep it clean and data-focused without heavy charts initially."
     },
-    "progress_bar": {
-      "classes": "h-2 w-full bg-slate-800 rounded-full overflow-hidden",
-      "indicator": "h-full bg-teal-500 rounded-full",
-      "description": "Used in MF Concentration tab. Show the % text above it."
+    "Bottom_Action_Bar": {
+      "type": "Sticky Footer",
+      "classes": "fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl border-t border-slate-200 p-4 flex gap-3 pb-8",
+      "details": "Thumb-friendly zone containing 'Update Plan' (ghost/outline) and 'Simulate' (solid primary black) buttons. Both buttons must be h-14 to ensure easy reachability."
     },
-    "horizontal_stacked_bar": {
-      "classes": "flex w-full h-4 rounded-full overflow-hidden mb-6",
-      "description": "A single bar with multiple colored segments representing AMC allocation (e.g., 50% red, 24% blue, etc). Use inline styles for width %."
+    "Loading_States": {
+      "type": "Skeletons",
+      "details": "Use Shadcn Skeleton to block out the Action Cards and Signals. Must load instantly (< 2s perception) with pulsing blocks replacing the text and ₹ amounts."
     }
   },
-  "animations": {
-    "hover_card": "transition-all duration-200 hover:-translate-y-1 hover:border-white/10 hover:shadow-lg hover:shadow-black/50",
-    "chart_entrance": "animate-in fade-in slide-in-from-bottom-4 duration-500"
+  "motion_and_interactions": {
+    "buttons": "active:scale-[0.98] transition-transform duration-200",
+    "cards": "opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-forwards",
+    "stagger": "Stagger the entrance of Action Cards (e.g., delay-100, delay-200).",
+    "collapsible": "Use smooth height transitions for Accordions and the Sticky Plan."
   },
-  "instructions_to_main_agent": [
-    "You are building the 'Insights' or 'Portfolio Analysis' page for a dark-theme fintech app.",
-    "MUST use 'lucide-react' for all icons (AlertTriangle, TrendingUp, TrendingDown, Info, ShieldAlert, CheckCircle).",
-    "MUST use 'recharts' for the Performance Trend chart. Use AreaChart with gradients (`<defs><linearGradient>`).",
-    "MUST use Shadcn components: Card, Tabs, Progress, Badge, Avatar.",
-    "For the AMC Concentration stacked bar, manually create a flex container with colored divs for the percentages.",
-    "Implement the layout as a Dashboard pattern: Sidebar on left (optional or just a top nav), main content area with max-w-7xl.",
-    "Add 'data-testid' to all interactive elements like Tabs, Toggles, and Alert Banners.",
-    "Ensure the Portfolio Value card has the specific Teal gradient 'bg-gradient-to-br from-teal-900/40 to-slate-900'.",
-    "Do not use generic placeholder images. Use Avatar with initials for AMC logos (e.g., 'HD' for HDFC, 'SB' for SBI)."
-  ]
+  "icons_and_media": {
+    "library": "@phosphor-icons/react",
+    "usage": "Use Duotone weight for a premium look, or regular weight for high clarity. Ensure icons inside buttons are 24px.",
+    "media_urls": {
+      "success_icon": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/4e9376a1-4655-428d-b72e-6348a2e38dbd/images/7017bf4543cd786cb8a11a1f4f247b4073dd7ac9e36a5e466259328114f424b4.png",
+        "category": "Success State Image",
+        "description": "3D minimalist green checkmark icon to be shown when all actions are completed."
+      },
+      "user_avatar": {
+        "url": "https://images.pexels.com/photos/6146051/pexels-photo-6146051.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "Header Avatar",
+        "description": "Professional user portrait for the header/profile section."
+      }
+    }
+  },
+  "testing": {
+    "requirements": "All interactive and key informational elements MUST include a 'data-testid' attribute (kebab-case, role-based). Example: data-testid='mark-done-button-sell'."
+  }
 }
