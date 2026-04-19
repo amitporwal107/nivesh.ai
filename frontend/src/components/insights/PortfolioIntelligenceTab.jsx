@@ -483,6 +483,10 @@ export default function PortfolioIntelligenceTab() {
     );
   }
 
+  if (!view) {
+    return <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
+  }
+
   return (
     <div className="space-y-5" data-testid="portfolio-intelligence-tab">
       {/* Sim banner */}
@@ -499,10 +503,10 @@ export default function PortfolioIntelligenceTab() {
         </div>
       )}
 
-      <CompressionHero narrative={view.narrative} compression={view.compression} />
+      <CompressionHero narrative={view?.narrative} compression={view?.compression} />
 
       {/* AI insights */}
-      {view.ai_insights.length > 0 && (
+      {view?.ai_insights?.length > 0 && (
         <Card className="bg-slate-900 border-slate-800 rounded-2xl">
           <CardContent className="p-5">
             <div className="flex items-center gap-2 mb-4">
@@ -514,7 +518,7 @@ export default function PortfolioIntelligenceTab() {
               </Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {view.ai_insights.map((ins, i) => <InsightCard key={i} ins={ins} />)}
+              {view?.ai_insights?.map((ins, i) => <InsightCard key={i} ins={ins} />)}
             </div>
           </CardContent>
         </Card>
@@ -522,13 +526,13 @@ export default function PortfolioIntelligenceTab() {
 
       {/* 2-col grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <TopStocksPanel stocks={view.top} />
-        <PairsHeatmap pairs={view.pairs} catalog={view.catalog} />
-        <RedundancyPanel items={view.redundancy} onSimulate={runSimulate}
+        <TopStocksPanel stocks={view?.top || []} />
+        <PairsHeatmap pairs={view?.pairs || []} catalog={view?.catalog || {}} />
+        <RedundancyPanel items={view?.redundancy || []} onSimulate={runSimulate}
                          simulating={simulating} simRemoved={simRemoved} />
         <div className="space-y-5">
-          <CategoryStrip items={view.cats} ratings={view.ratings} />
-          <SectorStrip items={view.sectors} />
+          <CategoryStrip items={view?.cats || []} ratings={view?.ratings || []} />
+          <SectorStrip items={view?.sectors || []} />
         </div>
       </div>
     </div>
