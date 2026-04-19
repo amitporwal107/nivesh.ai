@@ -4,7 +4,7 @@ import {
   Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
   BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
-  HelpCircle, Lightbulb,
+  HelpCircle, Lightbulb, GripHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +24,92 @@ const API = `${BACKEND_URL}/api`;
 
 const RISK_COLORS = { high: "#EF4444", medium: "#F59E0B", low: "#10B981" };
 const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
+
+// ══════════════════════════════════════════════════════════════════════════
+// CollapsibleSection — reusable wrapper with click-to-collapse + drag-to-resize
+// Persists collapsed state + resized height to localStorage so it survives refresh.
+// ══════════════════════════════════════════════════════════════════════════
+const CollapsibleSection = ({ id, title, subtitle, accent, children, defaultHeight = 600, minHeight = 240 }) => {
+  const storageKey = `insights-section-${id}`;
+  // Read persisted state (collapsed + height)
+  const readPersisted = () => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  };
+  const persisted = readPersisted();
+  const [collapsed, setCollapsed] = useState(Boolean(persisted.collapsed));
+  const [height, setHeight] = useState(persisted.height || defaultHeight);
+  const bodyRef = React.useRef(null);
+
+  // Persist on change
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify({ collapsed, height })); } catch {}
+  }, [collapsed, height, storageKey]);
+
+  // Watch for user drag-resize on the body div (browser native `resize: vertical`)
+  useEffect(() => {
+    if (!bodyRef.current || collapsed) return;
+    const el = bodyRef.current;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = Math.round(entry.contentRect.height);
+        if (h && Math.abs(h - height) > 8) setHeight(h);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed]);
+
+  return (
+    <section id={id} data-testid={id} className="scroll-mt-20">
+      <div className="flex items-center gap-2 mb-3">
+        <div className={`w-1.5 h-6 ${accent} rounded-full`} />
+        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
+        {subtitle && (
+          <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1 hidden sm:inline">
+            · {subtitle}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          {!collapsed && (
+            <span className="hidden sm:flex items-center gap-1 text-[10px] text-slate-400 dark:text-zinc-600 pr-1" title="Drag the bottom-right corner to resize">
+              <GripHorizontal className="w-3 h-3" />
+              drag to resize
+            </span>
+          )}
+          <button
+            data-testid={`${id}-toggle`}
+            onClick={() => setCollapsed((c) => !c)}
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 dark:text-zinc-400"
+            title={collapsed ? "Expand section" : "Collapse section"}
+            aria-label={collapsed ? "Expand section" : "Collapse section"}
+          >
+            {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div
+          ref={bodyRef}
+          data-testid={`${id}-body`}
+          style={{
+            height: `${height}px`,
+            minHeight: `${minHeight}px`,
+            resize: "vertical",
+            overflow: "auto",
+          }}
+          className="rounded-xl border border-slate-200 dark:border-white/5 bg-white/40 dark:bg-white/[0.02] p-3 sm:p-4"
+        >
+          {children}
+        </div>
+      )}
+    </section>
+  );
+};
 
 const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilotEnabled = false }) => {
   const { fmt } = useNumberFormat();
@@ -231,16 +317,13 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               </div>
 
               {/* Section 1: Performance */}
-              <section id="section-performance" data-testid="section-performance" className="scroll-mt-20">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
-                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                    Performance
-                  </h2>
-                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
-                    · Return, risk and cost per holding
-                  </span>
-                </div>
+              <CollapsibleSection
+                id="section-performance"
+                title="Performance"
+                subtitle="Return, risk and cost per holding"
+                accent="bg-emerald-500"
+                defaultHeight={700}
+              >
                 <PerformanceTab
                   cards={sortedPerfCards}
                   allCards={perfCards}
@@ -252,29 +335,26 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                   setFilter={setPerfFilter}
                   fmt={fmt}
                 />
-              </section>
+              </CollapsibleSection>
 
               {/* Divider */}
               <div className="border-t border-slate-200 dark:border-white/5" />
 
               {/* Section 2: Benchmark */}
-              <section id="section-benchmark" data-testid="section-benchmark" className="scroll-mt-20">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-6 bg-sky-500 rounded-full" />
-                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                    Benchmark Comparison
-                  </h2>
-                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
-                    · How each fund ranks vs its category benchmark
-                  </span>
-                </div>
+              <CollapsibleSection
+                id="section-benchmark"
+                title="Benchmark Comparison"
+                subtitle="How each fund ranks vs its category benchmark"
+                accent="bg-sky-500"
+                defaultHeight={700}
+              >
                 <BenchmarkTab
                   data={fundPerformance}
                   loading={loadingBenchmark}
                   onLoad={fetchFundPerformance}
                   fmt={fmt}
                 />
-              </section>
+              </CollapsibleSection>
             </div>
           )}
 
@@ -302,35 +382,29 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               </div>
 
               {/* Section 1: Fund Overlap (stock-level) */}
-              <section id="section-fund-overlap" data-testid="section-fund-overlap" className="scroll-mt-20">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-6 bg-purple-500 rounded-full" />
-                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                    Fund Overlap
-                  </h2>
-                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
-                    · Real stock-level overlap between mutual funds
-                  </span>
-                </div>
+              <CollapsibleSection
+                id="section-fund-overlap"
+                title="Fund Overlap"
+                subtitle="Real stock-level overlap between mutual funds"
+                accent="bg-purple-500"
+                defaultHeight={750}
+              >
                 <PortfolioIntelligenceTab />
-              </section>
+              </CollapsibleSection>
 
               {/* Divider */}
               <div className="border-t border-slate-200 dark:border-white/5" />
 
               {/* Section 2: Overexposure (stock/sector concentration) */}
-              <section id="section-overexposure" data-testid="section-overexposure" className="scroll-mt-20">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1.5 h-6 bg-rose-500 rounded-full" />
-                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                    Overexposure
-                  </h2>
-                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
-                    · Stock and sector concentration risk
-                  </span>
-                </div>
+              <CollapsibleSection
+                id="section-overexposure"
+                title="Overexposure"
+                subtitle="Stock and sector concentration risk"
+                accent="bg-rose-500"
+                defaultHeight={600}
+              >
                 <OverexposureTab overexposure={overexposure} fmt={fmt} />
-              </section>
+              </CollapsibleSection>
             </div>
           )}
         </>
