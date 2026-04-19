@@ -1,11 +1,13 @@
 import React, { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import SignalDetailModal from "./SignalDetailModal";
 
 const SignalsWidget = ({ signals }) => {
   const [expanded, setExpanded] = useState(false);
+  const [selectedSignal, setSelectedSignal] = useState(null);
 
   if (!signals || signals.length === 0) return null;
 

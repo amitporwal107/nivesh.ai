@@ -113,24 +113,19 @@ class ActionPlanManager:
                 logger.error(f"Error scoring MF {mf.get('scheme_name', 'Unknown')}: {e}")
                 continue
         
-        # Score stocks
+        # Score stocks (DISABLED - MF-only action plans)
+        # Stocks are excluded from action recommendations
         portfolio_context = {
             "total_value": portfolio_data["total_value"],
             "mf_count": len(mf_holdings),
             "stock_count": len(stock_holdings),
         }
         
-        for stock in stock_holdings:
-            try:
-                exit_result = await decision_engine.calculate_stock_exit_score(stock, portfolio_context)
-                logger.info(f"Stock Exit Score: {stock.get('name', 'Unknown')[:40]} = {exit_result['exit_score']} (action: {exit_result['action']})")
-                
-                # Include stocks with score >= 4
-                if exit_result["exit_score"] >= 4.0:
-                    exit_candidates.append(exit_result)
-            except Exception as e:
-                logger.error(f"Error scoring stock {stock.get('name', 'Unknown')}: {e}")
-                continue
+        # NOTE: Stock scoring disabled - focus on MF optimization only
+        # for stock in stock_holdings:
+        #     exit_result = await decision_engine.calculate_stock_exit_score(stock, portfolio_context)
+        #     if exit_result["exit_score"] >= 4.0:
+        #         exit_candidates.append(exit_result)
         
         # Sort by exit score (highest first)
         exit_candidates.sort(key=lambda x: x["exit_score"], reverse=True)
