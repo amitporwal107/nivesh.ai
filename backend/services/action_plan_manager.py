@@ -47,6 +47,17 @@ def convert_decimals_to_float(obj: Any) -> Any:
     return obj
 
 
+def _normalize_fund_name(name: str) -> str:
+    """Normalize fund name for fuzzy matching.
+    
+    Removes commas, extra whitespace, and converts to lowercase.
+    Example:
+        "HDFC Balanced, Advantage Fund -, Direct Plan -, Growth Option"
+        → "hdfc balanced advantage fund direct plan growth option"
+    """
+    return " ".join(name.lower().replace(",", "").replace("-", " ").split())
+
+
 class ActionPlanManager:
     """Manages action plans for portfolio optimization."""
     
@@ -94,12 +105,27 @@ class ActionPlanManager:
         
         # Score MFs
         mf_investments = portfolio_intelligence.get("mf_investments", [])
+        logger.info(f"Found {len(mf_investments)} MF investments in portfolio intelligence")
+        resolved_count = sum(1 for mf in mf_investments if mf.get("resolved"))
+        logger.info(f"Resolved MF investments: {resolved_count}")
+        
+        # Build normalized name lookup for holdings
+        holding_lookup = {
+            _normalize_fund_name(h["name"]): h
+            for h in mf_holdings
+        }
+        
         for mf in mf_investments:
             if not mf.get("resolved"):
+                logger.debug(f"Skipping unresolved MF: {mf.get('scheme_name', 'Unknown')[:40]}")
                 continue
             
-            holding = next((h for h in mf_holdings if h["name"] == mf["scheme_name"]), None)
+            # Try normalized name matching
+            normalized_scheme = _normalize_fund_name(mf["scheme_name"])
+            holding = holding_lookup.get(normalized_scheme)
+            
             if not holding:
+                logger.warning(f"No matching holding found for MF: {mf.get('scheme_name', 'Unknown')[:40]}")
                 continue
             
             try:
@@ -109,8 +135,12 @@ class ActionPlanManager:
                 # Lower threshold: include even HOLD recommendations in candidates
                 if exit_result["exit_score"] >= 4.0:  # Was filtering only "EXIT", now include score >= 4
                     exit_candidates.append(exit_result)
+                    logger.info(f"  → Added to exit_candidates (score >= 4.0)")
+                else:
+                    logger.debug(f"  → Skipped (score {exit_result['exit_score']} < 4.0)")
             except Exception as e:
                 logger.error(f"Error scoring MF {mf.get('scheme_name', 'Unknown')}: {e}")
+                logger.exception(e)
                 continue
         
         # Score stocks (DISABLED - MF-only action plans)
@@ -394,8 +424,17 @@ class ActionPlanManager:
         
         Highlights if tax cost > exit benefit (not advisable to exit).
         """
+        # Extract data from candidate (exit_result includes mf_investment, holding, tax_impact)
+        mf_investment = candidate.get("mf_investment", {})
+        holding = candidate.get("holding", {})
         tax_impact = candidate.get("tax_impact", {})
-        exit_amount = candidate.get("current_value", 0)
+        
+        # Calculate amount from MF investment
+        exit_amount = mf_investment.get("amount_rs", 0)
+        if exit_amount == 0:
+            # Fallback: calculate from holding
+            exit_amount = holding.get("quantity", 0) * holding.get("current_price", 0)
+        
         tax_liability = tax_impact.get("tax_liability", 0)
         post_tax_proceeds = tax_impact.get("post_tax_proceeds", exit_amount - tax_liability)
         capital_gain = tax_impact.get("capital_gain", 0)
@@ -415,13 +454,13 @@ class ActionPlanManager:
             # Loss-making position with tax - NOT advisable
             tax_efficient = False
             exit_warning = f"⚠️ This fund is in loss. Exiting now will incur ₹{tax_liability:,.0f} in taxes with no capital gain. Not recommended."
-        elif tax_liability > exit_amount * 0.15:
+        elif exit_amount > 0 and tax_liability > exit_amount * 0.15:
             # Tax > 15% of total value - CAUTION
             tax_efficient = False
             exit_warning = f"⚠️ High tax impact: ₹{tax_liability:,.0f} ({(tax_liability/exit_amount*100):.1f}% of total value). Evaluate if exit benefit justifies the cost."
         
         # Build reason with overlap context
-        reason_text = candidate.get("reason_text", "")
+        reason_text = " • ".join(candidate.get("reasons", []))
         if overlap_signal:
             overlap_pct = overlap_signal.get("details", {}).get("max_overlap_pct", 0)
             reason_text = f"High overlap ({overlap_pct:.1f}%) with other funds. {reason_text}"
@@ -431,8 +470,8 @@ class ActionPlanManager:
             "type": "EXIT",
             "priority": priority,
             "asset_type": "mutual_fund",
-            "asset_name": candidate.get("scheme_name", "Unknown"),
-            "instrument_id": candidate.get("isin"),
+            "asset_name": candidate.get("instrument_name", mf_investment.get("scheme_name", "Unknown")),
+            "instrument_id": candidate.get("instrument_id"),
             "amount": exit_amount,
             "exit_score": candidate.get("exit_score"),
             "confidence": candidate.get("confidence"),
