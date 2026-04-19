@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingDown, TrendingUp, ArrowRight, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 
 const PlanCard = ({ plan, isActive, onRefresh }) => {
   const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(false);
 
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -87,32 +88,34 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
       <div className="p-6 pt-4">
         <h3 className="text-sm font-semibold text-slate-700 mb-3">Actions</h3>
         <div className="space-y-2">
-          {exitActions.length > 0 && (
-            <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
-              <div className="flex items-center gap-2">
-                <TrendingDown className="w-4 h-4 text-red-600" />
-                <span className="text-sm font-medium text-slate-700">
-                  {exitActions.length} EXIT
-                </span>
+          {exitActions.length > 0 && exitActions.map((action, idx) => (
+            <div key={idx} className="flex items-start justify-between p-3 bg-red-50 rounded-lg border border-red-100">
+              <div className="flex items-start gap-2 flex-1 min-w-0">
+                <TrendingDown className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-slate-900 block">EXIT</span>
+                  <span className="text-xs text-slate-600 line-clamp-1">{action.asset_name}</span>
+                </div>
               </div>
-              <span className="text-sm font-bold text-red-600">
-                {formatAmount(exitActions.reduce((sum, a) => sum + a.amount, 0))}
+              <span className="text-sm font-bold text-red-600 ml-2 flex-shrink-0">
+                {formatAmount(action.amount)}
               </span>
             </div>
-          )}
-          {addActions.length > 0 && (
-            <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                <span className="text-sm font-medium text-slate-700">
-                  {addActions.length} ADD
-                </span>
+          ))}
+          {addActions.length > 0 && addActions.map((action, idx) => (
+            <div key={idx} className="flex items-start justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+              <div className="flex items-start gap-2 flex-1 min-w-0">
+                <TrendingUp className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-slate-900 block">ADD</span>
+                  <span className="text-xs text-slate-600 line-clamp-1">{action.asset_name}</span>
+                </div>
               </div>
-              <span className="text-sm font-bold text-emerald-600">
-                {formatAmount(addActions.reduce((sum, a) => sum + a.amount, 0))}
+              <span className="text-sm font-bold text-emerald-600 ml-2 flex-shrink-0">
+                {formatAmount(action.amount)}
               </span>
             </div>
-          )}
+          ))}
         </div>
 
         {/* Signals */}
@@ -136,12 +139,106 @@ const PlanCard = ({ plan, isActive, onRefresh }) => {
         <Button 
           variant="outline"
           className="w-full"
-          onClick={() => navigate(`/dashboard/plan/${plan.plan_id}`)}
+          onClick={() => setExpanded(!expanded)}
         >
-          View Details
-          <ArrowRight className="w-4 h-4 ml-2" />
+          {expanded ? "Hide Details" : "View Details"}
+          {expanded ? <ChevronUp className="w-4 h-4 ml-2" /> : <ChevronDown className="w-4 h-4 ml-2" />}
         </Button>
       </div>
+
+      {/* Expanded Details */}
+      {expanded && (
+        <div className="px-6 pb-6 border-t border-slate-200 pt-4">
+          <h4 className="text-sm font-semibold text-slate-900 mb-3">Action Details</h4>
+          <div className="space-y-3">
+            {plan.actions.map((action, idx) => (
+              <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Badge className={action.type === "EXIT" ? "bg-red-600" : "bg-emerald-600"}>
+                      {action.type}
+                    </Badge>
+                    <span className="text-xs text-slate-600">Priority {action.priority}</span>
+                  </div>
+                  <span className="text-sm font-bold text-slate-900">
+                    {formatAmount(action.amount)}
+                  </span>
+                </div>
+                
+                <h5 className="text-sm font-semibold text-slate-900 mb-2">{action.asset_name}</h5>
+                
+                {action.type === "EXIT" && action.tax_impact && (
+                  <div className="space-y-1 text-xs text-slate-600 mb-2">
+                    <div className="flex justify-between">
+                      <span>Tax Liability:</span>
+                      <span className="font-medium">₹{action.tax_impact.tax_liability?.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Post-tax Proceeds:</span>
+                      <span className="font-medium text-emerald-600">₹{action.tax_impact.post_tax_proceeds?.toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Exit Score:</span>
+                      <span className="font-medium">{action.exit_score}/10</span>
+                    </div>
+                    {action.tax_impact.exit_warning && (
+                      <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        ⚠️ {action.tax_impact.exit_warning}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {action.type === "ADD" && action.fund_details && (
+                  <div className="space-y-1 text-xs text-slate-600 mb-2">
+                    <div className="flex justify-between">
+                      <span>Fund Type:</span>
+                      <span className="font-medium">{action.fund_details.fund_type}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Expense Ratio:</span>
+                      <span className="font-medium">{action.fund_details.expense_ratio}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Rating:</span>
+                      <span className="font-medium">{action.fund_details.rating}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>3Y Returns:</span>
+                      <span className="font-medium text-emerald-600">{action.fund_details.returns_3y}</span>
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-xs text-slate-600 mt-2">
+                  <span className="font-medium">Reason:</span> {action.reason_text}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Total Tax Impact */}
+          {plan.total_tax_impact && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h5 className="text-sm font-semibold text-slate-900 mb-2">Tax Summary</h5>
+              <div className="space-y-1 text-xs text-slate-700">
+                <div className="flex justify-between">
+                  <span>LTCG Tax:</span>
+                  <span className="font-medium">₹{plan.total_tax_impact.ltcg_tax?.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>STCG Tax:</span>
+                  <span className="font-medium">₹{plan.total_tax_impact.stcg_tax?.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-sm border-t border-blue-300 pt-1 mt-1">
+                  <span>Total Tax:</span>
+                  <span className="text-red-600">₹{plan.total_tax_impact.total_tax?.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 };
