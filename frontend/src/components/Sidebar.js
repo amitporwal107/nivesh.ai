@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck, Shield } from "lucide-react";
+import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck, Shield, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const baseNavItems = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
+  { id: "v2_plan", label: "Action Plan", icon: Zap, badge: "V2" },
   { id: "family", label: "Family", icon: Users },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "chat", label: "AI Chat", icon: MessageSquare },
@@ -75,7 +76,12 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
               }`}
             >
               <item.icon className="w-5 h-5" strokeWidth={1.5} />
-              <span className="text-sm">{item.label}</span>
+              <span className="text-sm flex-1">{item.label}</span>
+              {item.badge && (
+                <span className="text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>

@@ -10,6 +10,7 @@ import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
 import OnboardingView from "@/components/OnboardingView";
 import RiskProfileView from "@/components/RiskProfileView";
+import ActionPlanView from "@/components/v2/ActionPlanView";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
 
@@ -105,6 +106,8 @@ const Dashboard = () => {
     switch (activeTab) {
       case "overview":
         return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
+      case "v2_plan":
+        return <ActionPlanView />;
       case "family":
         return <FamilyView onRefresh={fetchData} />;
       case "portfolio":
