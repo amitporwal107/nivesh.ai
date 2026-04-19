@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SignalDetailModal from "./SignalDetailModal";
 
-const SignalsWidget = ({ signals }) => {
+const SignalsWidget = ({ signals, onViewActionPlan }) => {
   const [expanded, setExpanded] = useState(false);
   const [selectedSignal, setSelectedSignal] = useState(null);
 
@@ -95,7 +95,7 @@ const SignalsWidget = ({ signals }) => {
 
               {/* Affected Assets */}
               {signal.affected_assets && signal.affected_assets.length > 0 && (
-                <div>
+                <div className="mb-3">
                   <p className="text-sm font-semibold text-slate-700 mb-1">Affected Assets:</p>
                   <ul className="text-sm text-slate-600 space-y-1">
                     {signal.affected_assets.slice(0, 3).map((asset, idx) => (
@@ -111,6 +111,17 @@ const SignalsWidget = ({ signals }) => {
                     )}
                   </ul>
                 </div>
+              )}
+
+              {/* View Action Plan CTA */}
+              {onViewActionPlan && (
+                <Button
+                  size="sm"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white mt-3"
+                  onClick={onViewActionPlan}
+                >
+                  View Action Plan →
+                </Button>
               )}
             </div>
           ))}
