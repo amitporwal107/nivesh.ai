@@ -122,31 +122,39 @@ def calculate_tax_impact(
             tax_liability = 0
             taxable_gain = 0
             tax_rate = 0
-            tax_score = 1.0  # Best score - no tax hit
+            tax_score = 0.0  # Best score - no tax hit (exit freely)
         elif is_lt:
             # LTCG: 10% on gains above ₹1L
             taxable_gain = max(0, capital_gain - LTCG_EXEMPTION)
             tax_liability = taxable_gain * LTCG_RATE
             tax_rate = LTCG_RATE
             
-            # Tax score: 0-10 (lower is better for exit)
-            # < 1 year old = 10 (worst - STCG would apply)
-            # 1-2 years = 3-5 (moderate LTCG)
-            # > 2 years = 1-3 (acceptable LTCG)
-            if holding_period_days < 365:
-                tax_score = 10.0
-            elif holding_period_days < 730:
-                # 1-2 years: score 3-5
-                tax_score = 5.0 - (holding_period_days - 365) / 365 * 2
+            # Tax score based on actual tax impact
+            tax_pct_of_exit = (tax_liability / exit_amount_rs * 100) if exit_amount_rs > 0 else 0
+            if tax_pct_of_exit < 2:
+                tax_score = 1.0  # Very low tax
+            elif tax_pct_of_exit < 5:
+                tax_score = 2.0 + (tax_pct_of_exit - 2) / 3 * 2  # 2-4
+            elif tax_pct_of_exit < 10:
+                tax_score = 4.0 + (tax_pct_of_exit - 5) / 5 * 3  # 4-7
             else:
-                # > 2 years: score 1-3
-                tax_score = max(1.0, 3.0 - (holding_period_days - 730) / 365)
+                tax_score = min(10.0, 7.0 + (tax_pct_of_exit - 10) / 5 * 3)  # 7-10
         else:
             # STCG: 15% on all gains
             taxable_gain = capital_gain
             tax_liability = taxable_gain * STCG_RATE
             tax_rate = STCG_RATE
-            tax_score = 10.0  # Worst score - STCG hit
+            
+            # Tax score based on actual tax impact (NOT hardcoded 10.0)
+            tax_pct_of_exit = (tax_liability / exit_amount_rs * 100) if exit_amount_rs > 0 else 0
+            if tax_pct_of_exit < 3:
+                tax_score = 2.0  # Low tax despite STCG
+            elif tax_pct_of_exit < 7:
+                tax_score = 3.0 + (tax_pct_of_exit - 3) / 4 * 3  # 3-6
+            elif tax_pct_of_exit < 12:
+                tax_score = 6.0 + (tax_pct_of_exit - 7) / 5 * 3  # 6-9
+            else:
+                tax_score = min(10.0, 9.0 + (tax_pct_of_exit - 12) / 3)  # 9-10
         
         post_tax_proceeds = exit_amount_rs - tax_liability
         
