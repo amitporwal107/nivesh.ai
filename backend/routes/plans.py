@@ -318,3 +318,36 @@ async def simulate_plan(plan_id: str, request: Request):
         },
         "message": "Simulation complete"
     }
+
+
+
+@router.post("/plans/refresh-fundamentals")
+async def refresh_fundamentals(request: Request):
+    """Refresh fundamental data cache for all user's stock holdings.
+    
+    This endpoint:
+    1. Fetches latest fundamental data from Groww for all stocks
+    2. Caches data in Redis (24h expiry)
+    3. Returns count of successfully updated stocks
+    
+    Should be called:
+    - Once daily (can be automated)
+    - Before generating a new plan
+    - On user request
+    """
+    from services.groww_fundamentals import refresh_cache_for_user
+    
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    
+    try:
+        fundamentals_map = await refresh_cache_for_user(user_id)
+        
+        return {
+            "success": True,
+            "stocks_updated": len(fundamentals_map),
+            "updated_stocks": list(fundamentals_map.keys()),
+            "message": f"Successfully refreshed fundamental data for {len(fundamentals_map)} stocks"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

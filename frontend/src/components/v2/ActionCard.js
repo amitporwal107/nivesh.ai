@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import ScoreBreakdownView from "./ScoreBreakdownView";
 
 const ActionCard = ({ action, priority, onComplete, onSkip }) => {
   const [showDetails, setShowDetails] = useState(false);
@@ -110,6 +111,9 @@ const ActionCard = ({ action, priority, onComplete, onSkip }) => {
           </div>
         </div>
       )}
+
+      {/* Score Breakdown */}
+      {showDetails && (\n        <div className=\"mb-4\">\n          <ScoreBreakdownView action={action} />\n        </div>\n      )}
 
       {/* Status Display */}
       {action.status === "COMPLETED" && (

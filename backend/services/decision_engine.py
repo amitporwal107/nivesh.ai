@@ -71,7 +71,28 @@ async def calculate_stock_exit_score(
     stock_holding: Dict[str, Any],
     portfolio_context: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Calculate EXIT score for a stock using InstrumentScoringEngine."""
+    """Calculate EXIT score for a stock using InstrumentScoringEngine with real-time fundamentals.
+    
+    Flow:
+    1. Fetch fundamental data from Groww (cached in Redis)
+    2. Calculate tax impact
+    3. Score using InstrumentScoringEngine
+    """
+    from services.groww_fundamentals import fetch_stock_fundamentals
+    
+    # Fetch real-time fundamentals from Groww
+    nse_symbol = stock_holding.get("nse_symbol")
+    fundamentals = None
+    if nse_symbol:
+        try:
+            fundamentals = await fetch_stock_fundamentals(nse_symbol)
+            if fundamentals:
+                # Merge fundamentals into stock_holding for scoring
+                stock_holding = {**stock_holding, **fundamentals}
+                logger.info(f"Fetched fundamentals for {stock_holding['name']}: P/E={fundamentals.get('pe_ratio')}, ROE={fundamentals.get('roe')}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch fundamentals for {nse_symbol}: {e}")
+    
     # Calculate tax impact
     tax_result = tax_calculator.calculate_tax_impact(stock_holding)
     
@@ -85,6 +106,7 @@ async def calculate_stock_exit_score(
     # Add additional context
     score_result["stock_holding"] = stock_holding
     score_result["tax_impact"] = tax_result
+    score_result["fundamentals"] = fundamentals  # NEW: For UI display
     
     return score_result
 
