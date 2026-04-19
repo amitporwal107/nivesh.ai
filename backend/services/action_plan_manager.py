@@ -205,14 +205,16 @@ class ActionPlanManager:
             
             # If debt < 20%, suggest specific debt fund
             if asset_allocation.get("debt_pct", 0) < 20:
-                debt_suggestion = self._suggest_debt_fund(portfolio_context["total_value"] * 0.10)
+                suggested_amount = portfolio_context["total_value"] * 0.10  # 10% of portfolio
+                debt_suggestion = self._suggest_debt_fund(suggested_amount)
                 add_action = self._create_add_action_specific(
                     debt_suggestion,
                     action_priority,
-                    "Portfolio lacks debt allocation"
+                    "Portfolio lacks debt allocation",
+                    suggested_amount
                 )
                 actions.append(add_action)
-                logger.info(f"Added ADD action: {debt_suggestion['fund_name']}")
+                logger.info(f"Added ADD action: {debt_suggestion['fund_name']} (₹{suggested_amount:,.0f})")
         
         # 5. Calculate portfolio-level tax impact
         total_tax_impact = self._calculate_total_tax_impact(actions)
@@ -754,7 +756,8 @@ class ActionPlanManager:
         self,
         fund_suggestion: Dict[str, Any],
         priority: int,
-        reason: str
+        reason: str,
+        amount: float = 0
     ) -> Dict[str, Any]:
         """Create ADD action with specific fund recommendation."""
         fund_name = fund_suggestion.get("fund_name")
@@ -767,7 +770,7 @@ class ActionPlanManager:
             "asset_type": "mutual_fund",
             "asset_name": fund_name,
             "fund_details": fund_suggestion,
-            "amount": 0,
+            "amount": round(amount, 2),
             "confidence": "HIGH",
             "reason_text": f"{reason}. Consider {fund_name} ({fund_type})",
             "reason_codes": ["ALLOCATION_GAP", "DIVERSIFICATION"],
