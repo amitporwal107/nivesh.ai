@@ -204,10 +204,17 @@ class ActionPlanManager:
             asset_allocation = self._calculate_asset_allocation(holdings)
             portfolio_context["asset_allocation"] = asset_allocation
             
+            # Calculate AMC concentration to avoid recommending overconcentrated AMCs
+            amc_exposure = self._calculate_amc_exposure(holdings)
+            excluded_amcs = [amc for amc, pct in amc_exposure.items() if pct > 15.0]
+            logger.info(f"AMC exposure analysis: {amc_exposure}")
+            if excluded_amcs:
+                logger.info(f"Excluding overconcentrated AMCs from debt fund suggestions: {excluded_amcs}")
+            
             # If debt < 20%, suggest specific debt fund
             if asset_allocation.get("debt_pct", 0) < 20:
                 suggested_amount = portfolio_context["total_value"] * 0.10  # 10% of portfolio
-                debt_suggestion = self._suggest_debt_fund(suggested_amount)
+                debt_suggestion = self._suggest_debt_fund(suggested_amount, excluded_amcs)
                 add_action = self._create_add_action_specific(
                     debt_suggestion,
                     action_priority,
@@ -834,6 +841,56 @@ class ActionPlanManager:
             "stcg_tax": round(stcg_tax, 2),
             "total_tax": round(total_tax, 2),
         }
+    
+    def _calculate_amc_exposure(self, holdings: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Calculate AMC concentration as percentage of total portfolio value.
+        
+        Returns dict mapping AMC name to exposure percentage.
+        Example: {"HDFC": 35.1, "ICICI": 14.6, ...}
+        """
+        total_value = sum(h["quantity"] * h["current_price"] for h in holdings)
+        if total_value == 0:
+            return {}
+        
+        amc_values = {}
+        
+        for holding in holdings:
+            # Extract AMC from asset name (e.g., "HDFC Flexi Cap Fund" -> "HDFC")
+            asset_name = holding.get("name", "")
+            value = holding["quantity"] * holding["current_price"]
+            
+            # Try to extract AMC from the fund name (first word usually)
+            amc = None
+            if asset_name:
+                words = asset_name.upper().split()
+                # Common AMC names
+                known_amcs = [
+                    "HDFC", "ICICI", "SBI", "AXIS", "KOTAK", "ADITYA", "BIRLA",
+                    "PARAG", "PARIKH", "NIPPON", "FRANKLIN", "TEMPLETON",
+                    "MIRAE", "DSP", "TATA", "UTI", "INVESCO", "HSBC", "IDFC"
+                ]
+                for word in words:
+                    if word in known_amcs:
+                        amc = word
+                        break
+                    # Handle multi-word AMCs like "ADITYA BIRLA"
+                    if word == "ADITYA" and "BIRLA" in words:
+                        amc = "ADITYA BIRLA"
+                        break
+                    if word == "PARAG" and "PARIKH" in words:
+                        amc = "PARAG PARIKH"
+                        break
+            
+            if amc:
+                amc_values[amc] = amc_values.get(amc, 0) + value
+        
+        # Convert to percentages
+        amc_exposure = {
+            amc: round(value / total_value * 100, 2)
+            for amc, value in amc_values.items()
+        }
+        
+        return amc_exposure
     
     def _suggest_debt_fund(self, amount: float, excluded_amcs: List[str] = None) -> Dict[str, Any]:
         """Suggest specific debt fund, avoiding overconcentrated AMCs."""
