@@ -50,6 +50,48 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
     return "Preview";
   };
 
+  // Map action reason_codes → rule provenance badge (shows WHY this action was recommended)
+  const getRuleBadge = (action) => {
+    const codes = action.reason_codes || [];
+    // Priority order: rule-level codes first, then fallback codes
+    const ruleMap = {
+      REGULAR_DIRECT_DUPLICATE: {
+        label: "Rule 1 · Regular → Direct",
+        className: "bg-indigo-50 text-indigo-700 border-indigo-200",
+        tooltip: "Same fund exists as Direct plan in your portfolio. Exiting the Regular plan saves on expense ratio.",
+      },
+      COST_LEAK_SWITCH_TO_DIRECT: {
+        label: "Rule 6 · Cost leak switch",
+        className: "bg-amber-50 text-amber-700 border-amber-200",
+        tooltip: "Switching to Direct plan saves ₹10K+/year in expense ratio.",
+      },
+      AMC_CONCENTRATION_EXIT: {
+        label: "Rule 2 · AMC concentration",
+        className: "bg-rose-50 text-rose-700 border-rose-200",
+        tooltip: "This AMC exceeds the 15% concentration limit. Exiting the highest exit-score fund to rebalance.",
+      },
+      UNDERPERFORMER_REPLACEMENT: {
+        label: "Rule 3 · Underperformer swap",
+        className: "bg-orange-50 text-orange-700 border-orange-200",
+        tooltip: "Fund is underperforming its benchmark. Replacing with highest-rated fund in same category.",
+      },
+      OVERLAP_CONSOLIDATION: {
+        label: "Rule 4 · Overlap consolidation",
+        className: "bg-purple-50 text-purple-700 border-purple-200",
+        tooltip: "Two funds have >60% stock-level overlap. Exiting the one with higher exit score to reduce duplication.",
+      },
+      ALLOCATION_GAP: {
+        label: "Rule 5 · Debt allocation gap",
+        className: "bg-sky-50 text-sky-700 border-sky-200",
+        tooltip: "Your portfolio lacks debt allocation. Adding a debt fund improves risk management.",
+      },
+    };
+    for (const code of codes) {
+      if (ruleMap[code]) return { code, ...ruleMap[code] };
+    }
+    return null;
+  };
+
   const exitActions = plan.actions.filter(a => a.type === "EXIT");
 
   const handleStatusUpdate = async (actionId, newStatus) => {
@@ -216,34 +258,56 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
       <div className="p-6 pt-4">
         <h3 className="text-sm font-semibold text-slate-700 mb-3">Actions</h3>
         <div className="space-y-2">
-          {exitActions.length > 0 && exitActions.map((action, idx) => (
-            <div key={idx} className="flex items-start justify-between p-3 bg-red-50 rounded-lg border border-red-100">
+          {exitActions.length > 0 && exitActions.map((action, idx) => {
+            const rule = getRuleBadge(action);
+            return (
+            <div key={idx} className="flex items-start justify-between p-3 bg-red-50 rounded-lg border border-red-100" data-testid={`plan-action-exit-${idx}`}>
               <div className="flex items-start gap-2 flex-1 min-w-0">
                 <TrendingDown className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-slate-900 block">EXIT</span>
                   <span className="text-xs text-slate-600 line-clamp-1">{action.asset_name}</span>
+                  {rule && (
+                    <span
+                      title={rule.tooltip}
+                      data-testid={`rule-badge-${rule.code.toLowerCase()}`}
+                      className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${rule.className}`}
+                    >
+                      {rule.label}
+                    </span>
+                  )}
                 </div>
               </div>
               <span className="text-sm font-bold text-red-600 ml-2 flex-shrink-0">
                 {formatAmount(action.amount)}
               </span>
             </div>
-          ))}
-          {addActions.length > 0 && addActions.map((action, idx) => (
-            <div key={idx} className="flex items-start justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+          );})}
+          {addActions.length > 0 && addActions.map((action, idx) => {
+            const rule = getRuleBadge(action);
+            return (
+            <div key={idx} className="flex items-start justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-100" data-testid={`plan-action-add-${idx}`}>
               <div className="flex items-start gap-2 flex-1 min-w-0">
                 <TrendingUp className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-slate-900 block">ADD</span>
                   <span className="text-xs text-slate-600 line-clamp-1">{action.asset_name}</span>
+                  {rule && (
+                    <span
+                      title={rule.tooltip}
+                      data-testid={`rule-badge-${rule.code.toLowerCase()}`}
+                      className={`inline-block mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${rule.className}`}
+                    >
+                      {rule.label}
+                    </span>
+                  )}
                 </div>
               </div>
               <span className="text-sm font-bold text-emerald-600 ml-2 flex-shrink-0">
                 {formatAmount(action.amount)}
               </span>
             </div>
-          ))}
+          );})}
         </div>
 
         {/* Signals */}
@@ -279,11 +343,13 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
         <div className="px-6 pb-6 border-t border-slate-200 pt-4">
           <h4 className="text-sm font-semibold text-slate-900 mb-3">Action Details</h4>
           <div className="space-y-3">
-            {plan.actions.map((action, idx) => (
-              <div key={idx} className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+            {plan.actions.map((action, idx) => {
+              const rule = getRuleBadge(action);
+              return (
+              <div key={idx} className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm" data-testid={`plan-action-detail-${idx}`}>
                 {/* Action Header */}
                 <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge className={action.type === "EXIT" ? "bg-red-600" : "bg-emerald-600"}>
                       {action.type}
                     </Badge>
@@ -291,6 +357,15 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
                       {getActionStatusLabel(action.status || "PENDING")}
                     </Badge>
                     <span className="text-xs text-slate-600">Priority {action.priority}</span>
+                    {rule && (
+                      <span
+                        title={rule.tooltip}
+                        data-testid={`rule-badge-detail-${rule.code.toLowerCase()}`}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${rule.className}`}
+                      >
+                        {rule.label}
+                      </span>
+                    )}
                   </div>
                   <span className="text-sm font-bold text-slate-900">
                     {formatAmount(action.amount)}
@@ -471,7 +546,7 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
                   </div>
                 )}
               </div>
-            ))}
+            );})}
           </div>
 
           {/* Total Tax Impact */}
