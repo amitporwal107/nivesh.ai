@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter, LayoutGrid, List } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter, LayoutGrid, List, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const PlanBoardView = () => {
+  const navigate = useNavigate();
   const [plans, setPlans] = useState([]);
   const [activePlan, setActivePlan] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -103,19 +105,32 @@ const PlanBoardView = () => {
                 Manage all your investment action plans in one place
               </p>
             </div>
-            <Button
-              onClick={generateNewPlan}
-              disabled={generating}
-              size="lg"
-              className="min-h-[48px] bg-emerald-600 hover:bg-emerald-700"
-            >
-              {generating ? (
-                <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-              ) : (
-                <Plus className="w-5 h-5 mr-2" />
-              )}
-              Generate New Plan
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                data-testid="view-insights-btn"
+                variant="outline"
+                onClick={() => navigate("/dashboard#insights")}
+                size="lg"
+                className="min-h-[48px]"
+              >
+                <Lightbulb className="w-5 h-5 mr-2" />
+                View Insights
+              </Button>
+              <Button
+                onClick={generateNewPlan}
+                disabled={generating}
+                size="lg"
+                className="min-h-[48px] bg-emerald-600 hover:bg-emerald-700"
+                data-testid="generate-new-plan-btn"
+              >
+                {generating ? (
+                  <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="w-5 h-5 mr-2" />
+                )}
+                Generate New Plan
+              </Button>
+            </div>
           </div>
 
           {/* Filters */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import DashboardOverview from "@/components/DashboardOverview";
 import PortfolioView from "@/components/PortfolioView";
@@ -21,7 +21,23 @@ const API = `${BACKEND_URL}/api`;
 const Dashboard = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState("overview");
+  const location = useLocation();
+
+  // Derive active tab from URL hash (e.g. "#plan_board"), falling back to "overview"
+  const tabFromHash = (location.hash || "").replace("#", "") || "overview";
+  const [activeTab, setActiveTabState] = useState(tabFromHash);
+
+  // Sync tab changes → URL hash (so the tab is shareable & browser back works)
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    navigate(`/dashboard#${tab}`, { replace: false });
+  }, [navigate]);
+
+  // Sync URL hash → tab state (handles back/forward navigation)
+  useEffect(() => {
+    const t = (location.hash || "").replace("#", "");
+    if (t && t !== activeTab) setActiveTabState(t);
+  }, [location.hash, activeTab]);
   const [holdings, setHoldings] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [insights, setInsights] = useState([]);

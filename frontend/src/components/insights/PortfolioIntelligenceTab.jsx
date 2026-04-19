@@ -88,7 +88,8 @@ const CompressionHero = ({ narrative, compression }) => {
               </div>
             </div>
             <Button 
-              onClick={() => navigate('/plan-board')}
+              data-testid="view-action-plan-intel-btn"
+              onClick={() => navigate('/dashboard#plan_board')}
               className="mt-4 bg-white/10 hover:bg-white/20 text-white border border-white/20"
               size="sm"
             >

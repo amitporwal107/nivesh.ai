@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Sparkles, Lightbulb, AlertTriangle, Sliders, Bookmark, Trash2, ClipboardList, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Sparkles, Lightbulb, AlertTriangle, Sliders, Bookmark, Trash2, ClipboardList, CheckCircle2, ChevronDown, ChevronUp, ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import RebalancePlanDialog from "./RebalancePlanDialog";
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const AICopilotView = ({ riskProfile }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [scenarios, setScenarios] = useState([]);
   const [context, setContext] = useState(null);
@@ -297,6 +299,18 @@ const AICopilotView = ({ riskProfile }) => {
                   {context.top_amc_pct > 30 ? "reduce AMC concentration, " : ""}
                   {context.annual_cost_leak > 10000 ? "switch to direct plans." : "stay the course."}
                 </p>
+                <div className="mt-3">
+                  <Button
+                    data-testid="view-action-plan-btn"
+                    size="sm"
+                    onClick={() => navigate("/dashboard#plan_board")}
+                    className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900"
+                  >
+                    <ClipboardList className="w-4 h-4 mr-2" />
+                    View Action Plan
+                    <ArrowRight className="w-3.5 h-3.5 ml-2" />
+                  </Button>
+                </div>
               </>
             )}
           </div>
