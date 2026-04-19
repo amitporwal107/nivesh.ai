@@ -59,7 +59,7 @@ async def generate_plan(request: Request):
     intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
     
     # Generate plan using ActionPlanManager
-    plan = await plan_manager.generate_action_plan(user_id)
+    plan = await plan_manager.generate_plan(user_id, intelligence, holdings)
     
     # Save as preview
     await plan_manager.create_plan(plan)
@@ -218,7 +218,7 @@ async def refresh_plan(request: Request):
     intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
     
     # Refresh plan
-    new_plan = await plan_manager.refresh_plan(user_id, intelligence, holdings)
+    new_plan = await plan_manager.refresh_plan(user_id)
     
     return {
         "plan": new_plan,
