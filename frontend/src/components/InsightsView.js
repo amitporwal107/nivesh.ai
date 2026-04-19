@@ -107,10 +107,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
 
   const tabs = [
     { id: "overview", label: "AI Overview" },
-    { id: "benchmark", label: "Benchmark" },
-    { id: "overexposure", label: "Overexposure" },
-    { id: "overlap", label: "Fund Overlap" },
-    { id: "performance", label: "Performance" },
+    { id: "performance_benchmark", label: "Performance & Benchmark" },
+    { id: "fund_overlap_insights", label: "Fund & Overlap Insights" },
   ];
 
   if (loading) {
@@ -209,39 +207,91 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             )
           )}
 
-          {/* ══════════════ TAB: BENCHMARK ══════════════ */}
-          {activeTab === "benchmark" && (
-            <BenchmarkTab
-              data={fundPerformance}
-              loading={loadingBenchmark}
-              onLoad={fetchFundPerformance}
-              fmt={fmt}
-            />
+          {/* ══════════════ TAB: PERFORMANCE & BENCHMARK (merged) ══════════════ */}
+          {activeTab === "performance_benchmark" && (
+            <div className="space-y-8" data-testid="tab-performance-benchmark-content">
+              {/* Section 1: Performance */}
+              <section data-testid="section-performance">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                    Performance
+                  </h2>
+                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
+                    · Return, risk and cost per holding
+                  </span>
+                </div>
+                <PerformanceTab
+                  cards={sortedPerfCards}
+                  allCards={perfCards}
+                  sort={perfSort}
+                  dir={perfDir}
+                  filter={perfFilter}
+                  setSort={setPerfSort}
+                  setDir={setPerfDir}
+                  setFilter={setPerfFilter}
+                  fmt={fmt}
+                />
+              </section>
+
+              {/* Divider */}
+              <div className="border-t border-slate-200 dark:border-white/5" />
+
+              {/* Section 2: Benchmark */}
+              <section data-testid="section-benchmark">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-6 bg-sky-500 rounded-full" />
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                    Benchmark Comparison
+                  </h2>
+                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
+                    · How each fund ranks vs its category benchmark
+                  </span>
+                </div>
+                <BenchmarkTab
+                  data={fundPerformance}
+                  loading={loadingBenchmark}
+                  onLoad={fetchFundPerformance}
+                  fmt={fmt}
+                />
+              </section>
+            </div>
           )}
 
-          {/* ══════════════ TAB: OVEREXPOSURE ══════════════ */}
-          {activeTab === "overexposure" && (
-            <OverexposureTab overexposure={overexposure} fmt={fmt} />
-          )}
+          {/* ══════════════ TAB: FUND & OVERLAP INSIGHTS (merged) ══════════════ */}
+          {activeTab === "fund_overlap_insights" && (
+            <div className="space-y-8" data-testid="tab-fund-overlap-content">
+              {/* Section 1: Fund Overlap (stock-level) */}
+              <section data-testid="section-fund-overlap">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-6 bg-purple-500 rounded-full" />
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                    Fund Overlap
+                  </h2>
+                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
+                    · Real stock-level overlap between mutual funds
+                  </span>
+                </div>
+                <PortfolioIntelligenceTab />
+              </section>
 
-          {/* ══════════════ TAB: FUND OVERLAP (new real stock-level) ══════════════ */}
-          {activeTab === "overlap" && (
-            <PortfolioIntelligenceTab />
-          )}
+              {/* Divider */}
+              <div className="border-t border-slate-200 dark:border-white/5" />
 
-          {/* ══════════════ TAB: PERFORMANCE ══════════════ */}
-          {activeTab === "performance" && (
-            <PerformanceTab
-              cards={sortedPerfCards}
-              allCards={perfCards}
-              sort={perfSort}
-              dir={perfDir}
-              filter={perfFilter}
-              setSort={setPerfSort}
-              setDir={setPerfDir}
-              setFilter={setPerfFilter}
-              fmt={fmt}
-            />
+              {/* Section 2: Overexposure (stock/sector concentration) */}
+              <section data-testid="section-overexposure">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-6 bg-rose-500 rounded-full" />
+                  <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                    Overexposure
+                  </h2>
+                  <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1">
+                    · Stock and sector concentration risk
+                  </span>
+                </div>
+                <OverexposureTab overexposure={overexposure} fmt={fmt} />
+              </section>
+            </div>
           )}
         </>
       )}
