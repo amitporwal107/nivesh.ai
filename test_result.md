@@ -64,7 +64,7 @@ backend:
 frontend:
   - task: "Portfolio Intelligence Tab Drill-down"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/frontend/src/components/PortfolioIntelligenceTab.jsx"
     stuck_count: 0
     priority: "medium"
@@ -73,18 +73,19 @@ frontend:
         - working: "NA"
           agent: "testing"
           comment: "Frontend testing not performed as per testing agent guidelines. Backend API provides all required data structure for drill-down functionality including top_shared with stock details and catalog with holding_type for Regular/Direct detection."
+        - working: true
+          agent: "testing"
+          comment: "✅ Portfolio Intelligence drill-down UI fully functional with real data. Compression score displays correctly (30/100). Found 15 overlap pairs (out of 153 total, showing top 15). Drill-down functionality works perfectly - clicking pairs expands detailed view showing shared stocks with weight percentages (e.g., ICICI Bank 8.82%, HDFC Bank 7.04%) and plan types (Regular/Direct). Successfully tested expanding/collapsing multiple pairs. All components present: 10 top stocks, 5 redundancy suggestions, 5 category ratings, 8 sectors. UI is responsive and data-rich. Minor: Some chart width warnings in console (non-blocking). Network errors for CDN/auth endpoints are expected in test environment."
 
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 1
-  run_ui: false
+  test_sequence: 2
+  run_ui: true
 
 test_plan:
   current_focus:
-    - "Portfolio Intelligence Chat Integration"
-    - "Intelligence API Data Structure"
-    - "Chat Intelligence Context Integration"
+    - "Portfolio Intelligence Tab Drill-down"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -92,3 +93,5 @@ test_plan:
 agent_communication:
     - agent: "testing"
       message: "Portfolio Intelligence integration into AI Copilot Chat is working correctly. All backend endpoints tested successfully. The _compute_portfolio_intelligence_context() helper function is properly integrated into both chat/send and chat/stream endpoints. Intelligence data is correctly formatted and injected into AI prompts. Error handling is robust - when PostgreSQL data is unavailable (as in test environment), the system gracefully returns empty intelligence context and continues normal chat operation. The API structure supports all required drill-down functionality with proper data fields for frontend consumption. Note: PostgreSQL tables (instrument_master, mutual_fund_holdings) are not available in test environment, but this is handled gracefully by the integration code."
+    - agent: "testing"
+      message: "✅ Portfolio Intelligence drill-down UI testing COMPLETE. All functionality working as expected with real production data from admin user (priyankamantri@gmail.com). Key findings: (1) Compression score: 30/100 displayed correctly with visual ring indicator. (2) Overlap pairs: 15 pairs shown (top 15 of 153 total from API). (3) Drill-down: Click-to-expand works perfectly, showing shared stocks with accurate weight percentages and plan types (Regular/Direct). (4) Multi-pair testing: Successfully expanded/collapsed different pairs. (5) Additional components: Top 10 stocks, 5 redundancy suggestions, 5 category ratings, 8 sectors all rendering correctly. (6) Data quality: Real stock-level data from PostgreSQL (1,817 holdings) flowing through correctly. Minor non-blocking issues: Chart width warnings in console (Recharts library), expected CDN/auth network errors. Overall: Items 1 & 2 from the implementation are fully functional and production-ready."
