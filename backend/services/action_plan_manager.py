@@ -449,31 +449,32 @@ class ActionPlanManager:
             "fundamentals": candidate.get("fundamentals"),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-
-        await db.plan_history.insert_one(history_entry)
-        
-        # Update plan status
-        await db.action_plans.update_one(
-            {"plan_id": plan_id, "user_id": user_id},
-            {"$set": {"status": STATUS_ARCHIVED, "updated_at": datetime.now(timezone.utc)}}
-        )
-        
-        logger.info(f"Plan {plan_id} archived (reason: {reason})")
+    
+    def _create_exit_action(self, candidate: Dict[str, Any], priority: int) -> Dict[str, Any]:
+        """Create EXIT action from candidate (legacy - use _create_exit_action_with_tax_analysis)."""
+        return {
+            "action_id": f"act_{uuid4().hex[:8]}",
+            "type": "EXIT",
+            "priority": priority,
+            "asset_type": candidate.get("asset_type", "mutual_fund"),
+            "asset_name": candidate.get("scheme_name", "Unknown"),
+            "instrument_id": candidate.get("isin"),
+            "amount": candidate.get("current_value", 0),
+            "exit_score": candidate.get("exit_score"),
+            "confidence": candidate.get("confidence"),
+            "reason_text": candidate.get("reason_text", ""),
+            "reason_codes": candidate.get("reasons", []),
+            "status": "PENDING",
+            "score_breakdown": candidate.get("score_breakdown"),
+            "tax_impact": candidate.get("tax_impact"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
     
     async def refresh_plan(
         self,
-        user_id: str,
-        portfolio_intelligence: Dict[str, Any],
-        holdings: List[Dict[str, Any]],
+        user_id: str
     ) -> Dict[str, Any]:
-        """Refresh existing plan (create new version, archive old).
-        
-        Flow:
-        1. Get current active plan
-        2. Archive it
-        3. Generate new plan with incremented version
-        4. Link to parent plan
-        """
+        """Refresh existing plan (create new version, archive old)."""
         # Get current active plan
         current_plan = await self.get_active_plan(user_id)
         
@@ -492,7 +493,7 @@ class ActionPlanManager:
             new_version = 1
         
         # Generate new plan
-        new_plan = await self.generate_plan(user_id, portfolio_intelligence, holdings)
+        new_plan = await self.generate_action_plan(user_id)
         new_plan["version"] = new_version
         new_plan["metadata"]["parent_plan_id"] = parent_plan_id
         
