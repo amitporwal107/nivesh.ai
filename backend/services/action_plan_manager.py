@@ -55,12 +55,56 @@ def convert_decimals_to_float(obj: Any) -> Any:
 def _normalize_fund_name(name: str) -> str:
     """Normalize fund name for fuzzy matching.
     
-    Removes commas, extra whitespace, and converts to lowercase.
+    Lowercases, strips punctuation, collapses whitespace, removes common
+    broker/CAS prefixes (3-4 letter codes like "DFG -", "MCOG -"), and drops
+    parenthetical notes like "(erstwhile Value Discovery Fund)".
     Example:
-        "HDFC Balanced, Advantage Fund -, Direct Plan -, Growth Option"
-        → "hdfc balanced advantage fund direct plan growth option"
+        "DFG - ICICI Prudential Value Fund (erstwhile Value Discovery Fund) - Growth"
+        → "icici prudential value fund growth"
     """
-    return " ".join(name.lower().replace(",", "").replace("-", " ").split())
+    import re
+    n = name.lower()
+    n = re.sub(r"\([^)]*\)", " ", n)  # drop parenthetical notes
+    n = n.replace(",", " ").replace("-", " ")
+    # Strip leading broker/CAS code prefix: "dfg", "mcog", "scgp" etc followed
+    # by whitespace. Max 5 chars to avoid eating real words.
+    n = re.sub(r"^\s*\b[a-z]{2,5}\b\s+(?=[a-z])", "", n)
+    return " ".join(n.split())
+
+
+def _fuzzy_match_holding(mf_scheme_name: str, mf_holdings: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Find the Mongo holding that best matches a PG scheme_name.
+
+    Tries exact normalized match, then substring containment either way.
+    Returns None when no confident match is found.
+    """
+    if not mf_scheme_name:
+        return None
+    target = _normalize_fund_name(mf_scheme_name)
+    if not target:
+        return None
+    # Exact normalized match
+    for h in mf_holdings:
+        if _normalize_fund_name(h.get("name", "")) == target:
+            return h
+    # Token-overlap-based substring match (handles "DFG - ICICI ..." vs "ICICI ...")
+    t_tokens = set(target.split())
+    if not t_tokens:
+        return None
+    best = None
+    best_score = 0.0
+    for h in mf_holdings:
+        hn = _normalize_fund_name(h.get("name", ""))
+        if not hn:
+            continue
+        h_tokens = set(hn.split())
+        common = t_tokens & h_tokens
+        # Jaccard-ish score; require at least 60% of target tokens present
+        score = len(common) / max(len(t_tokens), 1)
+        if score >= 0.6 and score > best_score:
+            best = h
+            best_score = score
+    return best
 
 
 class ActionPlanManager:
@@ -744,7 +788,9 @@ class ActionPlanManager:
         amc_cfg = rules_cfg["rule_2_amc_concentration"]["params"]
         amc_threshold = float(amc_cfg.get("threshold_pct", 15.0))
         rule_2_enabled = rules_cfg["rule_2_amc_concentration"]["enabled"]
-        over_concentrated_amcs = [(amc, pct) for amc, pct in amc_exposure.items() if pct > amc_threshold] if rule_2_enabled else []
+        # Use >= so exactly-at-threshold (e.g. 15.0%) still triggers, consistent
+        # with the Insights path. Prevents the "CRITICAL flag but no action" UX.
+        over_concentrated_amcs = [(amc, pct) for amc, pct in amc_exposure.items() if pct >= amc_threshold] if rule_2_enabled else []
         logger.info(f"[Rule 2] AMC exposure: {amc_exposure}; over-concentrated: {over_concentrated_amcs}")
 
         for amc_name, amc_pct in sorted(over_concentrated_amcs, key=lambda x: x[1], reverse=True):
@@ -763,20 +809,18 @@ class ActionPlanManager:
                 ranked.append({"mf": mf, "candidate": cand, "exit_score": score})
             ranked.sort(key=lambda x: x["exit_score"], reverse=True)
 
-            # Exit funds greedily until AMC exposure drops below threshold
+            # Exit funds greedily until AMC exposure drops STRICTLY below threshold.
+            # (`<` not `<=` so we don't bail at exactly-at-threshold — that's the
+            # value insights already flagged as CRITICAL.)
             current_pct = amc_pct
             target_pct = amc_threshold
             total_pv = portfolio_context["total_value"]
             for item in ranked:
-                if current_pct <= target_pct:
+                if current_pct < target_pct:
                     break
                 mf = item["mf"]
-                # Find matching holding
-                h = next(
-                    (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
-                     _normalize_fund_name(mf.get("scheme_name", ""))),
-                    None
-                )
+                # Find matching holding (fuzzy match handles broker prefixes like "DFG -")
+                h = _fuzzy_match_holding(mf.get("scheme_name", ""), mf_holdings)
                 if not h:
                     continue
                 h_key = _holding_key(h)
@@ -832,7 +876,7 @@ class ActionPlanManager:
             over_cats = [
                 (cn, v / total_mf_value * 100)
                 for cn, v in cat_totals.items()
-                if v / total_mf_value * 100 > CAT_CONCENTRATION_THRESHOLD and cn != "Uncategorised"
+                if v / total_mf_value * 100 >= CAT_CONCENTRATION_THRESHOLD and cn != "Uncategorised"
             ]
             over_cats.sort(key=lambda x: -x[1])
             logger.info(f"[Rule 2b] Category exposure over {CAT_CONCENTRATION_THRESHOLD}%: {over_cats}")
@@ -850,14 +894,10 @@ class ActionPlanManager:
                 ranked_funds.sort(key=lambda x: x["exit_score"], reverse=True)
                 current_pct = cat_pct
                 for item in ranked_funds:
-                    if current_pct <= CAT_CONCENTRATION_THRESHOLD:
+                    if current_pct < CAT_CONCENTRATION_THRESHOLD:
                         break
                     mf = item["mf"]
-                    h = next(
-                        (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
-                         _normalize_fund_name(mf.get("scheme_name", ""))),
-                        None,
-                    )
+                    h = _fuzzy_match_holding(mf.get("scheme_name", ""), mf_holdings)
                     if not h:
                         continue
                     h_key = _holding_key(h)
@@ -897,11 +937,7 @@ class ActionPlanManager:
             mf = under["mf"]
             if mf.get("instrument_id") in exited_ids:
                 continue
-            h = next(
-                (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
-                 _normalize_fund_name(mf.get("scheme_name", ""))),
-                None
-            )
+            h = _fuzzy_match_holding(mf.get("scheme_name", ""), mf_holdings)
             if not h:
                 continue
             h_key = _holding_key(h)
@@ -990,9 +1026,9 @@ class ActionPlanManager:
             # net = |exit_score_of_victim - 5| - (tax_penalty estimated from victim's ti)
             if victim_cand:
                 vti = victim_cand.get("tax_impact") or {}
+                _tmp = _fuzzy_match_holding(victim_name, mf_holdings)
                 exit_amt = (vti.get("exit_amount_rs") or 0) or (
-                    (h_tmp.get("quantity", 0) * h_tmp.get("current_price", 0)
-                     if (h_tmp := next((x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) == _normalize_fund_name(victim_name)), None)) else 0)
+                    (_tmp.get("quantity", 0) * _tmp.get("current_price", 0)) if _tmp else 0
                 )
                 tax_pct = ((vti.get("tax_liability") or 0) / exit_amt * 10) if exit_amt else 0
                 proxy_switch_score = (victim_cand["exit_score"] - 5.0) - tax_pct
@@ -1002,11 +1038,7 @@ class ActionPlanManager:
                         f"<= 0 for {victim_name[:40]}"
                     )
                     continue
-            h = next(
-                (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
-                 _normalize_fund_name(victim_name)),
-                None
-            )
+            h = _fuzzy_match_holding(victim_name, mf_holdings)
             if not h:
                 continue
             h_key = _holding_key(h)
@@ -1230,10 +1262,7 @@ class ActionPlanManager:
                     if exits_made >= max_exits:
                         break
                     mf = item["mf"]
-                    h = next(
-                        (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
-                         _normalize_fund_name(mf.get("scheme_name", ""))), None
-                    )
+                    h = _fuzzy_match_holding(mf.get("scheme_name", ""), mf_holdings)
                     if not h:
                         continue
                     h_key = f"{h.get('user_id','')}::{_normalize_fund_name(h.get('name',''))}"

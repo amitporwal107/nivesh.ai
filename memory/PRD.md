@@ -2,6 +2,17 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Insights↔Engine Consistency: CRITICAL flag now always ships with an action
+User reported: insights flag "Reduce ICICI Prudential AMC concentration — CRITICAL (15.0%)" but the V2 Action Plan had no ICICI exit. Same pattern suspected for other users. Three discrete bugs found + fixed:
+
+1. **Threshold inequality mismatch**: insights used `>= 15%` (so exactly-15% trips), engine used strict `> 15%` (so exactly-15% slips). Changed engine's Rule 2 and Rule 2b to `>=` for parity.
+2. **Exit-loop break condition off-by-one**: `if current_pct <= target_pct: break` meant the engine exited the greedy loop as soon as it hit the threshold — without actually emitting an action. Changed to `< target_pct` so at-threshold AMCs/categories get one more exit to drop below.
+3. **Name-matching skipped CAS broker prefixes**: PG returns clean scheme names (e.g. `ICICI Prudential Value Fund Growth`); Mongo holdings have broker prefixes + parenthetical notes (e.g. `DFG - ICICI Prudential Value Fund (erstwhile Value Discovery Fund) - Growth`). Old exact-match `_normalize_fund_name` missed them. New `_normalize_fund_name` strips 2-5 char broker codes + paren content; new `_fuzzy_match_holding` uses token-overlap (≥60% Jaccard) as a fallback.
+
+- **Impact for `nivessh.ai@gmail.com`**: active plan 1 → 3 actions (EXIT HDFC Mid Cap + **EXIT ICICI Value Fund** + ADD debt). Portfolio score 62.2 → 77.2. Insights and plan now agree.
+- **Priyankamantri** verified unchanged: 6 actions, including `AMC_CONCENTRATION_EXIT` on HDFC Focused (already worked).
+- **2 new regression tests**: `test_fuzzy_match_strips_broker_prefixes_and_parens` (broker-prefix fuzzy match), `test_rule_2_amc_threshold_uses_gte_not_strict_gt` (ICICI-at-exactly-15% case). Full suite 62/62.
+
 ### Feb 2026 — Plan Generation on Unresolved Funds (fix for "action plan not generating")
 User reported: insights now show 5 clean issues (Mid Cap 26%, HDFC 20.4%, ICICI 15%, etc.) but the **V2 Plan Board** only shows 1 ADD action. Investigation revealed:
 

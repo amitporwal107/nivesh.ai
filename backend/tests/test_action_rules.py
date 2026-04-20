@@ -513,5 +513,77 @@ def test_infer_category_helper():
     assert m._infer_category_from_name("Random Alpha Fund") is None
 
 
+def test_fuzzy_match_strips_broker_prefixes_and_parens():
+    """Reg: engine failed to match PG name `ICICI Prudential Value Fund Growth`
+    to Mongo holding `DFG - ICICI Prudential Value Fund (erstwhile Value
+    Discovery Fund) - Growth` because the old _normalize was exact-match.
+    _fuzzy_match_holding uses token-overlap to handle this.
+    """
+    from services.action_plan_manager import _fuzzy_match_holding, _normalize_fund_name
+    mf_holdings = [
+        {"name": "DFG - ICICI Prudential Value Fund (erstwhile Value Discovery Fund) - Growth",
+         "user_id": "u1", "quantity": 100, "current_price": 100},
+        {"name": "MCOG - HDFC Mid Cap Fund - Regular Plan - Growth",
+         "user_id": "u1", "quantity": 50, "current_price": 100},
+        {"name": "Parag Parikh Flexi Cap Fund - Direct - Growth",
+         "user_id": "u1", "quantity": 10, "current_price": 100},
+    ]
+    # PG scheme_name (clean) → should match DFG-prefixed Mongo holding
+    h = _fuzzy_match_holding("ICICI Prudential Value Fund Growth", mf_holdings)
+    assert h is not None and "ICICI Prudential Value" in h["name"]
+
+    # Exact-style match still works
+    h2 = _fuzzy_match_holding("Parag Parikh Flexi Cap Fund - Direct - Growth", mf_holdings)
+    assert h2 is not None and "Parag Parikh" in h2["name"]
+
+    # Normalization strips broker code prefix
+    assert _normalize_fund_name("DFG - ICICI Prudential Value Fund (erstwhile Value Discovery Fund) - Growth") == (
+        "icici prudential value fund growth"
+    )
+
+    # No match when tokens don't overlap
+    assert _fuzzy_match_holding("Completely Different Fund Name", mf_holdings) is None
+
+
+def test_rule_2_amc_threshold_uses_gte_not_strict_gt():
+    """Reg: insights flagged ICICI at exactly 15.0% as CRITICAL but V2 engine
+    used strict `> threshold` so at-threshold AMCs slipped through. Fix: use
+    `>=` in the engine too so insights and plan stay consistent.
+    """
+    m = ActionPlanManager()
+    # ICICI exactly at 15.0% (300k / 2M = 15.0%), spread across 7 AMCs with
+    # DIVERSE categories so Rule 2b (>35% category) doesn't preempt Rule 2.
+    holdings = [
+        _mk_holding("ICICI Prudential Large Cap Fund - Direct", qty=3000, price=100),
+        _mk_holding("HDFC Flexi Cap Fund - Direct",       qty=2428, price=100),
+        _mk_holding("SBI Small Cap Fund - Direct",        qty=2428, price=100),
+        _mk_holding("Axis Multi Cap Fund - Direct",       qty=2428, price=100),
+        _mk_holding("Kotak Focused Fund - Direct",        qty=2428, price=100),
+        _mk_holding("Mirae Value Fund - Direct",          qty=2428, price=100),
+        _mk_holding("DSP Mid Cap Fund - Direct",          qty=2428, price=100),
+        _mk_holding("Tata Large & Mid Cap Fund - Direct", qty=2428, price=100),
+    ]
+    mf_investments = [
+        {"instrument_id": None, "scheme_name": h["name"], "resolved": False,
+         "amount_rs": h["quantity"] * h["current_price"], "category": None}
+        for h in holdings
+    ]
+    total = sum(h["quantity"] * h["current_price"] for h in holdings)
+    actions = asyncio.run(m._apply_action_rules(
+        mf_holdings=holdings, mf_investments=mf_investments,
+        exit_candidates=[], holdings=holdings,
+        portfolio_intelligence={"mf_investments": mf_investments, "pairwise_overlap": [], "catalog": {}},
+        portfolio_context={"total_value": total, "mf_count": len(holdings), "stock_count": 0},
+        signals=[],
+    ))
+    icici_exits = [a for a in actions
+                   if "AMC_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])
+                   and "ICICI" in (a.get("asset_name") or "")]
+    assert len(icici_exits) >= 1, (
+        f"ICICI at exactly 15% must trigger AMC exit (>= threshold). Actions: "
+        f"{[(a.get('reason_codes'), a.get('asset_name')) for a in actions]}"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
