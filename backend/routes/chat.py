@@ -10,9 +10,74 @@ import logging
 from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
+from services.action_plan_manager import ActionPlanManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+
+_plan_manager = ActionPlanManager()
+
+
+async def _v2_active_plan_context(user_id: str) -> str:
+    """Build a COMPACT, STRICT block describing the user's current V2 active plan.
+
+    This is injected into every chat turn so the AI can ONLY reference V2's
+    actions — never invent its own. If there is no active plan we tell the AI
+    exactly that, so it stops volunteering recommendations.
+    """
+    try:
+        plan = await _plan_manager.get_active_plan(user_id)
+    except Exception as e:
+        logger.debug(f"v2 plan context fetch failed: {e}")
+        plan = None
+
+    if not plan or not plan.get("actions"):
+        return (
+            "\n\n── V2 ACTIVE PLAN (SOURCE OF TRUTH) ──\n"
+            "No active V2 plan for this user.\n"
+            "Rule: Do NOT recommend any actions. Tell the user: 'V2 hasn't flagged "
+            "any actions yet. Click Generate New Plan on the Plan Board to run V2.'\n"
+        )
+
+    lines = [
+        "\n\n── V2 ACTIVE PLAN (SOURCE OF TRUTH) ──",
+        f"Plan ID: {plan.get('plan_id')} · Status: {plan.get('status')} · "
+        f"Generated: {str(plan.get('created_at',''))[:10]}",
+        f"Total actions: {len(plan['actions'])} · "
+        f"Completed: {plan.get('completed_actions', 0)} · "
+        f"Pending: {plan.get('pending_actions', len(plan['actions']))}",
+    ]
+
+    tti = plan.get("total_tax_impact") or plan.get("tax_impact") or {}
+    if tti:
+        lines.append(
+            f"Plan tax: total_liability=₹{tti.get('total_tax_liability') or tti.get('total_tax') or 0:,.0f} "
+            f"(equity LTCG ₹{tti.get('equity_ltcg',0):,.0f}, equity STCG ₹{tti.get('equity_stcg',0):,.0f})"
+        )
+
+    lines.append("\nActions (use these EXACTLY — do NOT invent new ones):")
+    for i, a in enumerate(plan["actions"], 1):
+        reasons = " · ".join(a.get("reason_codes") or [])
+        ti = a.get("tax_impact") or {}
+        tax_str = ""
+        if ti.get("tax_impact_pending"):
+            tax_str = " [tax pending — buy_date missing]"
+        elif ti.get("tax_liability"):
+            tax_str = f" · est. tax ₹{ti.get('tax_liability',0):,.0f} ({ti.get('tax_regime','?')})"
+        amt = a.get("exit_amount_rs") or a.get("amount_rs") or 0
+        lines.append(
+            f"  {i}. [{a.get('type')}] {a.get('asset_name','?')[:55]}  "
+            f"₹{amt:,.0f} · {reasons}{tax_str}"
+        )
+
+    lines.append(
+        "\nRule: If the user asks 'what should I do', describe the actions above. "
+        "If they ask about a stock/fund that's NOT in this list, respond: 'V2 hasn't "
+        "flagged that instrument. Here's what V2 is prioritising instead: …' and list 1-3 "
+        "V2 actions from above.\n"
+    )
+    return "\n".join(lines)
+
 
 
 async def _compute_portfolio_intelligence_context(user_id: str) -> str:
@@ -201,6 +266,8 @@ async def send_chat(request: Request, msg: ChatMessageInput):
 
     # Portfolio Intelligence context (PG-based stock-level data)
     intelligence_context = await _compute_portfolio_intelligence_context(user_id)
+    # V2 active plan (single source of truth for actions)
+    v2_plan_context = await _v2_active_plan_context(user_id)
 
     # Get recent chat history
     recent_msgs = await db.chat_messages.find(
@@ -216,7 +283,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
 
         ai_response = await ai_engine.chat(
             message=msg.message,
-            portfolio_context=portfolio_context + risk_context + intelligence_context,
+            portfolio_context=portfolio_context + risk_context + intelligence_context + v2_plan_context,
             history=history,
             session_id=f"wealth_{user_id}_{session_id}",
         )
@@ -331,10 +398,11 @@ async def stream_chat(request: Request):
 
             # Portfolio Intelligence context (PG-based stock-level data)
             intelligence_context = await _compute_portfolio_intelligence_context(user_id)
+            v2_plan_context = await _v2_active_plan_context(user_id)
             
             async for token in ai_engine.chat_stream(
                 message=message,
-                portfolio_context=portfolio_context + intelligence_context,
+                portfolio_context=portfolio_context + intelligence_context + v2_plan_context,
                 history=history,
                 session_id=f"wealth_{user_id}_{session_id}",
             ):

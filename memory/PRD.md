@@ -2,10 +2,17 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V2 is the single source of truth (AI grounding fix)
+- [x] **Critical architecture fix**: Copilot AI was fabricating recommendations (e.g. "sell IRB Infrastructure for tax-loss harvesting") that V2 Decision Engine never produced. Resulting plan actions never matched AI's narrative.
+- [x] Rewrote `FINANCIAL_ADVISOR_SYSTEM` prompt in `services/ai_engine.py` with hard grounding rules: AI cannot invent stocks, funds, exits, switches, or numbers outside V2's output; must cite V2 action or deflect.
+- [x] Added `_v2_active_plan_context(user_id)` in `routes/chat.py` that compacts the active V2 plan (actions + reason_codes + tax_impact) and injects it into **every** chat turn (stream + non-stream).
+- [x] Verified: "Which stocks should I sell for tax-loss harvesting?" now deflects → lists V2's actual MF Regular→Direct exits instead of fabricating stock picks. "What should I do?" returns V2 actions with exact tax numbers (₹935, ₹15,260).
+
 ### Feb 2026 — Save-as-Plan flow fixes
-- [x] **Fix: "Save as Plan" now activates the plan.** Previously `/plans/generate` only created a preview (`status="preview"`) but PlanBoardView only reads `status="active"`, so users saw nothing. `SaveAsPlanCard.handleGenerate` now chains `/plans/generate` → `/plans/{id}/save` to promote preview→active (archiving any prior active plan).
-- [x] **Fix: "Open Plan Board" navigation works.** `window.location.hash = "plan_board"` wasn't triggering react-router's `useLocation`. The drawer now receives an `onNavigateToPlanBoard` prop from Dashboard that calls `setActiveTab("plan_board")` + closes the copilot. Hard fallback uses `history.pushState` + `hashchange` event.
-- [x] Threaded prop: `Dashboard → NiveshCopilotDrawer → ChatView → SaveAsPlanCard`.
+- [x] **Fix: "Save as Plan" now activates the plan** — chains `/plans/generate` → `/plans/{id}/save` to promote preview→active.
+- [x] **Fix: "Open Plan Board" navigation** — threaded `onNavigateToPlanBoard` prop through `Dashboard → NiveshCopilotDrawer → ChatView → SaveAsPlanCard`.
+- [x] **Fix: stale Plan Board** — `SaveAsPlanCard` dispatches `nivesh:plan-saved` event; `PlanBoardView` subscribes and refetches.
+- [x] Silent save failures no longer masked as ✓ PLAN READY — surface errors with retry.
 
 ### Feb 2026 — Phase A: Holistic Asset Coverage + ClearTax Tax Engine + Editable Buy Date
 - [x] **Copilot is no longer equity-only** — `_build_context` classifies ETFs (GOLDBEES/SGB → gold, LIQUIDBEES/GILT/BHARAT BOND → debt, rest → equity), bonds/FDs → debt, direct equity+MF → equity. Fixed `other_pct=100%` math bug.
