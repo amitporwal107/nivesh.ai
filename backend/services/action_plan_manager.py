@@ -792,6 +792,78 @@ class ActionPlanManager:
                 logger.info(f"[Rule 2] EXIT for AMC concentration: {mf.get('scheme_name','')[:40]} "
                             f"(new AMC pct ≈ {current_pct:.1f}%)")
 
+        # ── RULE 2b (NEW): MF Category Concentration > 35% ──────────────────
+        # User-flagged guardrail: no single category (Mid Cap, Large Cap, etc.)
+        # should exceed 35% of total MF corpus. Trims down the highest-exit-score
+        # funds in the offending category until under the threshold.
+        from collections import defaultdict as _dd
+        cat_totals: Dict[str, float] = _dd(float)
+        cat_funds: Dict[str, List[Dict[str, Any]]] = _dd(list)
+        total_mf_value = sum((m.get("amount_rs") or 0) for m in mf_investments)
+        for m in mf_investments:
+            cn = (m.get("category") or "Uncategorised").strip() or "Uncategorised"
+            cat_totals[cn] += (m.get("amount_rs") or 0)
+            cat_funds[cn].append(m)
+        CAT_CONCENTRATION_THRESHOLD = 35.0
+        if total_mf_value > 0:
+            over_cats = [
+                (cn, v / total_mf_value * 100)
+                for cn, v in cat_totals.items()
+                if v / total_mf_value * 100 > CAT_CONCENTRATION_THRESHOLD and cn != "Uncategorised"
+            ]
+            over_cats.sort(key=lambda x: -x[1])
+            logger.info(f"[Rule 2b] Category exposure over {CAT_CONCENTRATION_THRESHOLD}%: {over_cats}")
+            for cat_name, cat_pct in over_cats:
+                ranked_funds: List[Dict[str, Any]] = []
+                for mf in cat_funds[cat_name]:
+                    if mf.get("instrument_id") in exited_ids:
+                        continue
+                    cand = candidate_by_id.get(mf.get("instrument_id"))
+                    ranked_funds.append({
+                        "mf": mf,
+                        "candidate": cand,
+                        "exit_score": cand["exit_score"] if cand else 5.0,
+                    })
+                ranked_funds.sort(key=lambda x: x["exit_score"], reverse=True)
+                current_pct = cat_pct
+                for item in ranked_funds:
+                    if current_pct <= CAT_CONCENTRATION_THRESHOLD:
+                        break
+                    mf = item["mf"]
+                    h = next(
+                        (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
+                         _normalize_fund_name(mf.get("scheme_name", ""))),
+                        None,
+                    )
+                    if not h:
+                        continue
+                    h_key = _holding_key(h)
+                    if h_key in exited_holding_keys:
+                        current_pct -= (mf.get("amount_rs", 0) / total_mf_value * 100)
+                        continue
+                    reason = (
+                        f"{cat_name} is {current_pct:.1f}% of your MF corpus — above the "
+                        f"{CAT_CONCENTRATION_THRESHOLD:.0f}% guardrail. Exiting this fund "
+                        f"(exit score {item['exit_score']:.1f}) to diversify category exposure."
+                    )
+                    action = self._build_exit_action_from_holding(
+                        holding=h,
+                        candidate=item["candidate"],
+                        priority=priority_counter[0],
+                        reason_prefix=reason,
+                        reason_code="CATEGORY_CONCENTRATION_EXIT",
+                    )
+                    actions.append(action)
+                    exited_holding_keys.add(h_key)
+                    if mf.get("instrument_id"):
+                        exited_ids.add(mf["instrument_id"])
+                    priority_counter[0] += 1
+                    current_pct -= (mf.get("amount_rs", 0) / total_mf_value * 100)
+                    logger.info(
+                        f"[Rule 2b] EXIT for {cat_name} concentration: "
+                        f"{mf.get('scheme_name','')[:40]} (new cat pct ≈ {current_pct:.1f}%)"
+                    )
+
         # ── RULE 3: Underperformer Replacement ──────────────────────────────
         # Use signal QUALITY_ISSUES + exit_score quality component to detect underperformers
         underperformers = self._find_underperformers(mf_investments, portfolio_intelligence, exit_candidates)

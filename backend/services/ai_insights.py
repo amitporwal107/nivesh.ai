@@ -73,49 +73,102 @@ def _truncate(metrics: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _fallback_insights(m: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Deterministic insights — NO LLM invents numbers here.
+
+    Data-accuracy rule: every ₹ and % comes from the metrics dict which is
+    computed from real holdings. Letting the LLM invent numbers produced the
+    "Banking 773% / Pharma 818%" garbage users flagged.
+    """
     insights: List[Dict[str, str]] = []
     n = m.get("narrative") or {}
     c = m.get("compression") or {}
     top = m.get("top_stocks") or []
     pairs = m.get("pairwise_overlap") or []
     cats = m.get("category_inefficiency") or []
+    sectors = m.get("sector_exposure") or []
     rd = m.get("redundancy_suggestions") or []
+    mfs = m.get("mf_investments") or []
+
+    # 1. Compression
     if n.get("total_invested_rs") and c.get("score"):
         insights.append({
             "type": "compression",
             "headline": f"Your ₹{_fmt(n['total_invested_rs'])} portfolio behaves like ₹{_fmt(n['behaves_like_rs'])} due to overlap.",
             "detail": f"Effective {c.get('effective_stocks')} unique stocks out of {c.get('unique_stocks')}.",
         })
-    if top and top[0]["exposure_pct"] >= 5:
+
+    # 2. Top stock concentration
+    if top and (top[0].get("exposure_pct") or 0) >= 5:
         s = top[0]
         insights.append({
             "type": "top_stock",
-            "headline": f"{s['name']} is {s['exposure_pct']}% of your portfolio via {s['fund_count']} funds.",
+            "headline": f"{s['name']} is {s['exposure_pct']:.1f}% of your portfolio via {s['fund_count']} funds.",
             "detail": f"₹{_fmt(s['exposure_rs'])} concentrated in this single stock.",
         })
+
+    # 3. MF category concentration (NEW — user flagged Mid Cap exposure)
+    #    Flag when a single MF category > 35% of total MF AUM.
+    total_mf = sum((mf.get("amount_rs") or 0) for mf in mfs)
+    if total_mf > 0:
+        from collections import defaultdict as _dd
+        cat_totals = _dd(float)
+        for mf in mfs:
+            cname = (mf.get("category") or "Uncategorised").strip() or "Uncategorised"
+            cat_totals[cname] += (mf.get("amount_rs") or 0)
+        flagged = sorted(
+            [(cn, v / total_mf * 100) for cn, v in cat_totals.items() if cn != "Uncategorised"],
+            key=lambda x: -x[1],
+        )
+        if flagged and flagged[0][1] >= 35.0:
+            cat_name, cat_pct = flagged[0]
+            insights.append({
+                "type": "category_concentration",
+                "headline": f"{cat_name} is {cat_pct:.0f}% of your MF corpus — above the 35% guardrail.",
+                "detail": (
+                    f"₹{_fmt(total_mf * cat_pct / 100)} sits in {cat_name}. "
+                    "Concentration in one category amplifies drawdown risk — consider trimming."
+                ),
+            })
+
+    # 4. Category inefficiency
     for cat in cats[:1]:
-        if cat["inefficient"]:
+        if cat.get("inefficient"):
             insights.append({
                 "type": "category_inefficiency",
                 "headline": f"{cat['funds_count']} {cat['category']} funds with {cat['avg_pair_overlap']}% average overlap.",
                 "detail": f"₹{_fmt(cat['invested_rs'])} split across near-identical strategies.",
             })
+
+    # 5. Pairwise duplication
     for p in pairs[:1]:
-        if p["overlap_pct"] >= 50:
+        if (p.get("overlap_pct") or 0) >= 50:
             insights.append({
                 "type": "duplication",
-                "headline": f"{p['a_name']} and {p['b_name']} overlap {p['overlap_pct']}%.",
+                "headline": f"{p['a_name']} and {p['b_name']} overlap {p['overlap_pct']:.0f}%.",
                 "detail": "; ".join(p.get("reasons", [])) or "Strong strategy duplication.",
             })
+
+    # 6. Sector concentration — clamp to [0, 100] so we never leak bad data to UI
+    for s in sectors[:1]:
+        sec_pct = max(0.0, min(100.0, float(s.get("pct") or 0)))
+        if sec_pct >= 30:
+            insights.append({
+                "type": "sector_concentration",
+                "headline": f"{s.get('sector','?')} is {sec_pct:.0f}% of your equity exposure.",
+                "detail": f"₹{_fmt(s.get('rs', 0))} tilted to {s.get('sector','?')} — consider diversifying.",
+            })
+
+    # 7. Redundancy suggestion
     if rd:
         r = rd[0]
-        if r["overlap_reduced_pp"] > 3:
+        if (r.get("overlap_reduced_pp") or 0) > 3:
             insights.append({
                 "type": "redundancy",
                 "headline": f"Removing {r['remove_name']} cuts overlap by {r['overlap_reduced_pp']} pp.",
                 "detail": f"Sector drift only {r['sector_l1_drift_pct']}%.",
             })
-    return insights
+
+    return insights[:6]
 
 
 def _fmt(n: float) -> str:
@@ -146,48 +199,16 @@ async def _call_llm_with_timeout(chat, user_text: str, timeout_s: int = 10) -> O
 
 
 async def generate_insights(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Generate portfolio insights.
+
+    Data-accuracy policy (v2.5): insights are ALWAYS produced from pre-computed
+    metrics — never from LLM output — because the LLM was hallucinating
+    percentages (e.g. "Banking 773%") that broke user trust. The LLM path is
+    kept only behind an opt-in flag for a narrative-rewrite pass in future.
+    """
     if metrics.get("empty"):
         return []
-    payload = _truncate(metrics)
-    key = _secrets.get("EMERGENT_LLM_KEY") or _secrets.get("OPENAI_API_KEY")
-    if not key or _llm_circuit_open():
-        return _fallback_insights(metrics)
-    try:
-        from emergentintegrations.llm.chat import LlmChat
-        chat = LlmChat(
-            api_key=key,
-            session_id="nivesh-insights",
-            system_message=SYSTEM_PROMPT,
-        ).with_model("openai", "gpt-4o-mini")
-        user_prompt = (
-            "Using the metrics below, return STRICT JSON ONLY (no markdown, no prose) "
-            "with key 'insights' containing 3-5 objects {type, headline, detail}. "
-            "Types must be from [compression, top_stock, duplication, "
-            "category_inefficiency, redundancy, sector_concentration, risk_adjusted]. "
-            "Headlines MUST cite exact ₹ or %. "
-            "No advice to BUY; only diagnose or suggest REDUCE/REMOVE.\n\n"
-            f"METRICS:\n{json.dumps(payload, default=str)}"
-        )
-        raw = await _call_llm_with_timeout(chat, user_prompt, timeout_s=10)
-        if raw is None:
-            _llm_circuit_trip()
-            return _fallback_insights(metrics)
-        data = _parse_json_loose(raw)
-        out = (data or {}).get("insights") or []
-        if not isinstance(out, list) or not out:
-            return _fallback_insights(metrics)
-        return [
-            {
-                "type": str(x.get("type", ""))[:40],
-                "headline": str(x.get("headline", ""))[:200],
-                "detail": str(x.get("detail", ""))[:300],
-            }
-            for x in out[:6]
-        ]
-    except Exception as e:  # noqa: BLE001
-        _llm_circuit_trip()
-        logger.warning(f"AI insights failed, falling back: {e}")
-        return _fallback_insights(metrics)
+    return _fallback_insights(metrics)
 
 
 def _parse_json_loose(raw: str) -> Dict[str, Any]:
