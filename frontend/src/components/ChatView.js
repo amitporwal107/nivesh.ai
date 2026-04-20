@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 import {
   Send, Trash2, Bot, User, Plus, MessageSquare, ChevronLeft,
   Clock, TrendingUp, Shield, BarChart3, Lightbulb, ArrowRight,
-  Zap, RefreshCw,
+  Zap, RefreshCw, Wrench, Layers, ArrowRightCircle, AlertTriangle, Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -147,6 +147,8 @@ const SessionItem = ({ session, isActive, onClick, onDelete }) => (
 const ChatView = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [suggestedPrompts, setSuggestedPrompts] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
@@ -166,6 +168,19 @@ const ChatView = () => {
     } catch (err) {
       console.error("Failed to load sessions", err);
       return [];
+    }
+  }, []);
+
+  const fetchSuggestedPrompts = useCallback(async () => {
+    setSuggestionsLoading(true);
+    try {
+      const res = await axios.get(`${API}/copilot/suggested-prompts`, { withCredentials: true });
+      setSuggestedPrompts(res.data?.prompts || []);
+    } catch (err) {
+      // Fallback to empty; user can still type
+      setSuggestedPrompts([]);
+    } finally {
+      setSuggestionsLoading(false);
     }
   }, []);
 
@@ -193,9 +208,10 @@ const ChatView = () => {
       } else {
         setLoadingMessages(false);
       }
+      fetchSuggestedPrompts();
     };
     init();
-  }, [fetchSessions, fetchMessages]);
+  }, [fetchSessions, fetchMessages, fetchSuggestedPrompts]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -237,9 +253,8 @@ const ChatView = () => {
     }
   };
 
-  const handleSend = async (e) => {
-    if (e) e.preventDefault();
-    const text = input.trim();
+  const sendMessageWithText = useCallback(async (rawText) => {
+    const text = (rawText || "").trim();
     if (!text || sending || streaming) return;
 
     setInput("");
@@ -356,7 +371,14 @@ const ChatView = () => {
       setStreamingContent("");
       abortRef.current = null;
       inputRef.current?.focus();
+      // Refresh suggestions after a message completes — portfolio signals may have shifted
+      fetchSuggestedPrompts();
     }
+  }, [sending, streaming, activeSessionId, fetchSessions, fetchSuggestedPrompts]);
+
+  const handleSend = (e) => {
+    if (e) e.preventDefault();
+    return sendMessageWithText(input);
   };
 
   const handleQuickAction = (prompt) => {
@@ -395,6 +417,34 @@ const ChatView = () => {
     { text: "Analyze my portfolio performance", icon: BarChart3, color: "text-violet-600 bg-violet-50 dark:bg-violet-900/20" },
     { text: "What changes will improve my returns?", icon: Zap, color: "text-amber-600 bg-amber-50 dark:bg-amber-900/20" },
   ];
+
+  // Map backend icon-string → lucide component
+  const PROMPT_ICONS = {
+    Wrench, Layers, Shield, ArrowRightCircle, TrendingUp,
+    BarChart3, AlertTriangle, Zap, Lightbulb, Target,
+  };
+
+  // Map backend color-name → Tailwind classes (bg/text/border for light + dark)
+  const PROMPT_COLORS = {
+    rose:    { bg: "bg-rose-50 dark:bg-rose-950/30", text: "text-rose-700 dark:text-rose-300", border: "border-rose-200 dark:border-rose-900", hover: "hover:bg-rose-100 dark:hover:bg-rose-900/40" },
+    purple:  { bg: "bg-purple-50 dark:bg-purple-950/30", text: "text-purple-700 dark:text-purple-300", border: "border-purple-200 dark:border-purple-900", hover: "hover:bg-purple-100 dark:hover:bg-purple-900/40" },
+    sky:     { bg: "bg-sky-50 dark:bg-sky-950/30", text: "text-sky-700 dark:text-sky-300", border: "border-sky-200 dark:border-sky-900", hover: "hover:bg-sky-100 dark:hover:bg-sky-900/40" },
+    amber:   { bg: "bg-amber-50 dark:bg-amber-950/30", text: "text-amber-700 dark:text-amber-300", border: "border-amber-200 dark:border-amber-900", hover: "hover:bg-amber-100 dark:hover:bg-amber-900/40" },
+    emerald: { bg: "bg-emerald-50 dark:bg-emerald-950/30", text: "text-emerald-700 dark:text-emerald-300", border: "border-emerald-200 dark:border-emerald-900", hover: "hover:bg-emerald-100 dark:hover:bg-emerald-900/40" },
+    violet:  { bg: "bg-violet-50 dark:bg-violet-950/30", text: "text-violet-700 dark:text-violet-300", border: "border-violet-200 dark:border-violet-900", hover: "hover:bg-violet-100 dark:hover:bg-violet-900/40" },
+    red:     { bg: "bg-red-50 dark:bg-red-950/30", text: "text-red-700 dark:text-red-300", border: "border-red-200 dark:border-red-900", hover: "hover:bg-red-100 dark:hover:bg-red-900/40" },
+    indigo:  { bg: "bg-indigo-50 dark:bg-indigo-950/30", text: "text-indigo-700 dark:text-indigo-300", border: "border-indigo-200 dark:border-indigo-900", hover: "hover:bg-indigo-100 dark:hover:bg-indigo-900/40" },
+    yellow:  { bg: "bg-yellow-50 dark:bg-yellow-950/30", text: "text-yellow-700 dark:text-yellow-300", border: "border-yellow-200 dark:border-yellow-900", hover: "hover:bg-yellow-100 dark:hover:bg-yellow-900/40" },
+    teal:    { bg: "bg-teal-50 dark:bg-teal-950/30", text: "text-teal-700 dark:text-teal-300", border: "border-teal-200 dark:border-teal-900", hover: "hover:bg-teal-100 dark:hover:bg-teal-900/40" },
+  };
+
+  // Click a suggested prompt → auto-send it as the user's message
+  const runSuggestedPrompt = async (prompt) => {
+    if (streaming) return;
+    setInput("");
+    // Fire the normal send path
+    await sendMessageWithText(prompt.query);
+  };
 
   const formatTime = (dateStr) => {
     const d = new Date(dateStr);
@@ -502,31 +552,69 @@ const ChatView = () => {
                 <ChatMessageSkeleton />
               </div>
             ) : messages.length === 0 && !streaming ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-6">
+              <div className="flex flex-col items-center justify-center h-full text-center py-10 px-2">
+                <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-5">
                   <Bot className="w-7 h-7 text-emerald-600" strokeWidth={1.5} />
                 </div>
                 <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  What would you like to improve?
+                  What would you like to fix today?
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 max-w-md">
-                  Tell me your intent and I'll analyze your portfolio with actionable recommendations.
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md">
+                  I've looked at your portfolio. Tap any of these to get a direct answer — no typing needed.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-                  {intentQuestions.map((q) => (
-                    <button
-                      key={q.text}
-                      data-testid={`intent-${q.text.slice(0, 15).replace(/\s/g, '-').toLowerCase()}`}
-                      onClick={() => { setInput(q.text); inputRef.current?.focus(); }}
-                      className="flex items-center gap-3 text-left text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all duration-200 group"
-                    >
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${q.color}`}>
-                        <q.icon className="w-4 h-4" strokeWidth={1.5} />
-                      </div>
-                      <span className="group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{q.text}</span>
-                    </button>
-                  ))}
-                </div>
+                {suggestionsLoading ? (
+                  <div className="flex items-center gap-2 text-slate-400 text-xs"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analysing your portfolio…</div>
+                ) : suggestedPrompts.length === 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
+                    {intentQuestions.map((q) => (
+                      <button
+                        key={q.text}
+                        data-testid={`intent-${q.text.slice(0, 15).replace(/\s/g, '-').toLowerCase()}`}
+                        onClick={() => sendMessageWithText(q.text)}
+                        className="flex items-center gap-3 text-left text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50 p-3.5 rounded-xl border border-slate-100 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all duration-200 group"
+                      >
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${q.color}`}>
+                          <q.icon className="w-4 h-4" strokeWidth={1.5} />
+                        </div>
+                        <span className="group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{q.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2.5 max-w-lg w-full">
+                    {suggestedPrompts.map((p) => {
+                      const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
+                      const c = PROMPT_COLORS[p.color] || PROMPT_COLORS.emerald;
+                      return (
+                        <button
+                          key={p.id}
+                          data-testid={`copilot-prompt-${p.id}`}
+                          onClick={() => runSuggestedPrompt(p)}
+                          disabled={streaming}
+                          className={`group flex items-start gap-3 text-left p-3 rounded-xl border ${c.bg} ${c.border} ${c.hover} transition-all disabled:opacity-60`}
+                        >
+                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-white/70 dark:bg-white/5 ${c.text}`}>
+                            <Icon className="w-4 h-4" strokeWidth={1.8} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-sm font-semibold ${c.text}`}>{p.label}</span>
+                              {p.badge && (
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text} whitespace-nowrap`}>
+                                  {p.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2">
+                              {p.query}
+                            </p>
+                          </div>
+                          <ArrowRight className={`w-4 h-4 mt-1 ${c.text} opacity-0 group-hover:opacity-100 transition-opacity`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -598,7 +686,32 @@ const ChatView = () => {
           </ScrollArea>
 
           {/* Input */}
-          <CardContent className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800">
+          <CardContent className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+            {/* Persistent smart-prompt chips (dynamic, context-aware) */}
+            {messages.length > 0 && !suggestionsLoading && suggestedPrompts.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1 scrollbar-thin" data-testid="copilot-chip-strip">
+                <span className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider whitespace-nowrap pr-1">
+                  Ask:
+                </span>
+                {suggestedPrompts.map((p) => {
+                  const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
+                  const c = PROMPT_COLORS[p.color] || PROMPT_COLORS.emerald;
+                  return (
+                    <button
+                      key={p.id}
+                      data-testid={`copilot-chip-${p.id}`}
+                      onClick={() => runSuggestedPrompt(p)}
+                      disabled={streaming}
+                      title={p.query}
+                      className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border whitespace-nowrap transition-all ${c.bg} ${c.border} ${c.text} ${c.hover} disabled:opacity-60`}
+                    >
+                      <Icon className="w-3 h-3" strokeWidth={2} />
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
               <input
                 ref={inputRef}
