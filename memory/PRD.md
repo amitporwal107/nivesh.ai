@@ -2,6 +2,32 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Admin UI: V2 Rules Manager + LLM Prompts Manager (Phase 1 + Phase 2)
+Live-tunable configuration and auditability for the entire V2 engine + every LLM system prompt, behind the admin gate.
+
+**Backend**
+- [x] **`services/rules_config.py`** — DB-backed registry (`db.system_config.key="rules_config"`) with deep-merged defaults. Exposes `get_config()`, `get_param()`, `is_enabled()`, `save_overrides()`, `reset_to_defaults()`. In-memory cache, invalidated on write.
+- [x] **`services/prompts_manager.py`** — 7 prompts registered (`financial_advisor_system`, `insight_analysis_system`, `cas_parser_system`, `insights_system_prompt`, `category_rating_system`, `mf_rating_system`, `allocation_analysis_system`). Each exposes default/current/overridden. `get(name, **kwargs)` supports template `.format()`.
+- [x] **`services/rules_dsl.py`** — whitelisted AST evaluator for custom rules. No `eval`/`exec`/`compile`. Allowed: constants, names (context lookup), comparisons, bool ops, arithmetic, chained compares, `min/max/abs/len/sum/round`. `validate_expression` rejects `lambda/def/comprehensions/assignments/imports/if-exp` *in addition to* unsafe `Call`s to stay in sync with the runtime allow-list.
+- [x] **`routes/admin_rules.py`** — admin endpoints:
+  - `GET/PUT/POST(reset) /api/admin/rules-config` — built-in rule params + enable toggles.
+  - `GET/POST/DELETE /api/admin/rules-config/custom[/{id}]` — custom rules.
+  - `POST /api/admin/rules-config/custom/validate` — expression validator + sample-context evaluator.
+  - `GET/PUT/POST(reset)/POST(test) /api/admin/prompts[/{name}]` — prompt listing, editing, LLM sandbox.
+- [x] **`services/action_plan_manager._apply_action_rules`** — every hardcoded threshold replaced by a `rules_config.get_config()` lookup. Per-rule `enabled` flag honoured. New `_apply_custom_rules` method evaluates admin custom rules after built-ins, supporting `FLAG_ONLY`, `ADD_DEBT_FUND`, `EXIT_HIGHEST_EXIT_SCORE` action types with optional category/AMC targeting.
+- [x] `services/ai_engine.chat/chat_stream` now fetch the Copilot system prompt from `prompts_manager` at runtime (fallback to code default).
+- [x] Pytest coverage: `tests/test_rules_admin.py` (17 tests — DSL safety, config shape, lambda/comprehension rejection, prompts registry) + `tests/test_admin_rules_prompts_api.py` (20/21 integration tests hitting the public URL).
+
+**Frontend**
+- [x] **`components/admin/RulesConfigSection.jsx`** — per-rule card with enable/disable toggle, numeric inputs for every param (threshold, cost-leak-₹, max-switches, debt targets, etc.), "default X" tag when a param is overridden, global Save/Reset buttons. Below that, a **Custom Rules** editor with live expression validator (`Validate` + `Test against sample portfolio`), action type selector (FLAG/ADD DEBT/EXIT), category/AMC/max-exits targeting, reason code & text.
+- [x] **`components/admin/PromptsSection.jsx`** — expandable row per prompt with length badge, "Overridden" pill, full-text editor, Save/Reset, **Test prompt** sandbox that actually hits `gpt-4o-mini` and shows the LLM response inline.
+- [x] Registered both sections in `AdminView.js` directly under Secrets + Feature Flags.
+
+**Verified by testing agent (iteration_31)**
+- Backend API: 20/21 (95%) — the single red test (`validate rejects lambda`) is now fixed and covered by pytest (17/17) + live curl check.
+- Frontend: 100% — both sections render, rule toggle/param/save/reset/add-custom/validate/test-prompt flows all working, no console errors.
+- End-to-end BANANA test: override `financial_advisor_system` → chat → response contains BANANA → reset restored normal behaviour.
+
 ### Feb 2026 — Data-Accuracy Guardrails: Deterministic Insights + Rule 2b (VERIFIED)
 - [x] **Deterministic insights** — `services/ai_insights.generate_insights` now bypasses LLM completely and builds each insight from pre-computed metrics. Kills the "Banking 773%" / "Pharma 818%" hallucinations the user flagged. Sector % clamped to `[0, 100]` for defence-in-depth. Added a new `category_concentration` insight that flags any MF category > 35% of corpus.
 - [x] **Rule 2b — MF category concentration >35%** (`services/action_plan_manager._apply_action_rules`): if a single category (Mid Cap, Large Cap, etc.) exceeds 35% of total MF AUM, emit `CATEGORY_CONCENTRATION_EXIT` actions for the highest-exit-score funds in that category until under the threshold. Skips already-exited holdings; respects `priority_counter`.

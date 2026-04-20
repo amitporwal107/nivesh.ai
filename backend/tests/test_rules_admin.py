@@ -77,6 +77,22 @@ def test_dsl_validate_rejects_syntax_error():
     assert "Syntax" in v["error"]
 
 
+def test_dsl_validate_rejects_lambda_and_comprehensions():
+    """Validator must stay consistent with safe_eval — reject lambdas,
+    comprehensions, assignments, and other unsafe constructs up-front.
+    """
+    for bad in [
+        "(lambda x: x)(5)",
+        "[x for x in range(3)]",
+        "{k: v for k, v in {}.items()}",
+        "{x for x in range(3)}",
+        "(x for x in range(3))",
+        "a := 5",
+    ]:
+        v = validate_expression(bad)
+        assert v["ok"] is False, f"Expected validator to reject: {bad!r}; got {v}"
+
+
 def test_dsl_expression_size_limit():
     with pytest.raises(SafeEvalError):
         safe_eval("a" * 501 + " > 0", {})

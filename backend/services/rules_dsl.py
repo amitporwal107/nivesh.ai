@@ -130,10 +130,29 @@ def validate_expression(expr: str) -> Dict[str, Any]:
     except SyntaxError as e:
         return {"ok": False, "error": f"Syntax error: {e}", "names_used": []}
     names: set[str] = set()
+    # Reject unsafe constructs that safe_eval can't execute. Kept in sync with
+    # the allow-list in _eval so admins can't save expressions that will crash
+    # at engine-time.
+    forbidden = (
+        ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+        ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+        ast.Await, ast.Yield, ast.YieldFrom, ast.Starred,
+        ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr,
+        ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal,
+        ast.Try, ast.With, ast.Raise, ast.Return,
+        ast.For, ast.While, ast.If, ast.IfExp,
+        ast.FormattedValue, ast.JoinedStr,
+    )
     for node in ast.walk(tree):
+        if isinstance(node, forbidden):
+            return {
+                "ok": False,
+                "error": f"Construct not allowed: {type(node).__name__}",
+                "names_used": sorted(names - set(_SAFE_FUNCS)),
+            }
         if isinstance(node, ast.Name):
             names.add(node.id)
-        if isinstance(node, (ast.Call,)) and not (
+        if isinstance(node, ast.Call) and not (
             isinstance(node.func, ast.Name) and node.func.id in _SAFE_FUNCS
         ):
             return {"ok": False, "error": "Only safe builtins allowed as functions", "names_used": list(names)}
