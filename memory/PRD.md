@@ -2,6 +2,34 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V2.5 Decision Engine (Batch A + B)
+Implements the user's full V2.5 PRD:
+
+**New scoring primitives** (`services/instrument_scoring.py`):
+- `score_mf_switch(from, to, tax, intel)` → `switch_score = quality_improvement + overlap_reduction + cost_saving − tax_penalty`. Returns `recommended` (≥2.0 threshold), `annual_benefit_rs`, `tax_efficiency_score`.
+- `score_mf_hold(mf, intel, tax)` → `hold_score = 0.4·high_quality + 0.3·low_overlap + 0.3·tax_penalty`. Returns `strong_hold` (≥6.5 threshold).
+- **Quality v2** — 6 components with category-percentile normalization: Performance 25% / Risk-adj 20% / Consistency 20% / Drawdown 15% / Expense 10% / AUM 10%.
+- **EXIT v2.5** — weights rebalanced 25/25/25/15/10, with **guardrails**: `quality_floor ≥ 7.5` blocks EXIT unless `overlap > 80%`; `tax_efficiency_score < 1.0` also blocks.
+- **ADD v2.5** — new `need` component (15%) driven by `debt_target_pct` context.
+
+**Plan-level outputs** (`services/action_plan_manager.py`):
+- `portfolio_score` (0–100) with 5-component breakdown (diversification / overlap / AMC concentration / cost efficiency / asset allocation).
+- `confidence_score` (0–100) + label High/Medium/Low using system health + data completeness + tax certainty + freshness.
+- `plan_summary` hero-card string ("6 actions to improve your portfolio score. Save ₹4,302/yr. Raise debt 1%→21%. Est. tax ₹19,675.").
+- `improvements` before-after dict for overlap / top_amc / debt / annual cost saving.
+- `do_nothing: true` when portfolio_score ≥ 75 and no high-priority actions → synthetic HOLD action with reason `PORTFOLIO_HEALTHY`.
+- `degraded` flag propagated from portfolio_intelligence when PG is down.
+- Hard cap of 6 actions; `_priority_rank` helper handles both int and string priority encodings.
+- `engine_version: "v2.5"` stamped in metadata.
+
+**Rule engine updates**:
+- Rule 3 — stricter trigger: `quality≥6.5 AND (ret_1y<8% AND ret_3y<10%)`. Was: OR on either.
+- Rule 4 — only fires when `proxy_switch_score > 0` (exit benefit > tax cost).
+- Rule 5 — **dynamic debt target** from user risk profile (low→30%, medium→20%, high→10%). Add amount auto-sized to close the actual gap.
+- Rule 7 — Do-Nothing state when portfolio_score ≥ 75 and no high-priority actions.
+
+**Verified** (iteration_30, 23/23 pytest passing): engine_version=v2.5, portfolio_score=64.2, confidence=98.2 (High), plan_summary rendering, dynamic debt target in action, Rule 7 path, guardrails, 6 new schema fields.
+
 ### Feb 2026 — V2 degradation fix + full logic spec
 - [x] **Root cause of "only 1 action" bug**: admin secret `POSTGRES_URL` was missing after container restart → `pg_client.get_pool()` returned None → `portfolio_intelligence` returned `_empty_response` → only Rule 5 (debt gap, the only rule that doesn't need PG) fired. Plan Board showed just "ADD SBI Magnum Gilt".
 - [x] **Fix**: `pg_client.get_pool()` now falls back to `postgresql://postgres:postgres@localhost:5432/nivesh` when the secret is missing (matches the bootstrap script's DB). Also hydrates `POSTGRES_URL` and `REDIS_URL` into admin secrets so auto-recovery is permanent.

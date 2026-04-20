@@ -205,9 +205,21 @@ class ActionPlanManager:
             holdings=holdings,
             actions=actions,
         )
+        def _is_high_priority(a: Dict[str, Any]) -> bool:
+            """Accept both string ('high') and integer (1) priority encodings."""
+            p = a.get("priority")
+            return p == "high" or p == "HIGH" or p == 1
+
+        def _priority_rank(a: Dict[str, Any]) -> int:
+            """Lower rank = higher priority. Used for stable sort in action-cap trim."""
+            p = a.get("priority")
+            if p in ("high", "HIGH", 1): return 0
+            if p in ("medium", "MEDIUM", 2): return 1
+            return 2
+
         # Rule 7 — Do-Nothing: strip actions when portfolio already healthy
         do_nothing = False
-        if portfolio_score >= PORTFOLIO_HEALTHY_SCORE and not any(a.get("priority") == "high" for a in actions):
+        if portfolio_score >= PORTFOLIO_HEALTHY_SCORE and not any(_is_high_priority(a) for a in actions):
             do_nothing = True
             actions = []  # replaced with a synthetic HOLD action below
             actions.append({
@@ -230,8 +242,7 @@ class ActionPlanManager:
         if len(actions) > MAX_ACTIONS_PER_PLAN:
             actions = sorted(
                 actions,
-                key=lambda a: (0 if a.get("priority") == "high" else (1 if a.get("priority") == "medium" else 2),
-                               -(a.get("score") or 0)),
+                key=lambda a: (_priority_rank(a), -(a.get("score") or 0)),
             )[:MAX_ACTIONS_PER_PLAN]
 
         plan_summary = self._generate_plan_summary(
@@ -1664,13 +1675,14 @@ class ActionPlanManager:
             )
         imp = self._compute_improvements(portfolio_intelligence, actions)
         bits = [f"{len(actions)} action{'s' if len(actions) != 1 else ''} to improve your portfolio score."]
-        if imp["overlap_pct"]["before"] != imp["overlap_pct"]["after"]:
+        # Only emit overlap/AMC deltas when the plan actually moves the needle
+        if (imp["overlap_pct"]["before"] - imp["overlap_pct"]["after"]) >= 5:
             bits.append(f"Reduce overlap {imp['overlap_pct']['before']:.0f}% → {imp['overlap_pct']['after']:.0f}%.")
-        if imp["top_amc_pct"]["before"] != imp["top_amc_pct"]["after"]:
+        if (imp["top_amc_pct"]["before"] - imp["top_amc_pct"]["after"]) >= 3:
             bits.append(f"Cut AMC concentration {imp['top_amc_pct']['before']:.0f}% → {imp['top_amc_pct']['after']:.0f}%.")
         if imp["annual_cost_saving_rs"] > 0:
             bits.append(f"Save ₹{imp['annual_cost_saving_rs']:,.0f}/yr in costs.")
-        if imp["debt_pct"]["before"] != imp["debt_pct"]["after"]:
+        if (imp["debt_pct"]["after"] - imp["debt_pct"]["before"]) >= 1:
             bits.append(f"Raise debt from {imp['debt_pct']['before']:.0f}% → {imp['debt_pct']['after']:.0f}%.")
         tax_liab = total_tax_impact.get("total_tax_liability") or total_tax_impact.get("total_tax") or 0
         if tax_liab > 0:
