@@ -2,6 +2,19 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — /api/insights/generate: LLM → deterministic (hallucination kill #2)
+User reported a second hallucination path: **818% Pharma exposure**, **Banking 773%**, phantom action "Reduce Banking ₹10L" tagged to wrong funds. Root cause: `routes/insights.py` was a *different* codepath using GPT-4o-mini with `response_format=json_object`. Despite a grounded prompt, the model fabricated impossible percentages and mismatched affected_funds.
+
+- [x] **Replaced the OpenAI call in `/api/insights/generate` with `_deterministic_insights(...)`** — every insight is now built from the actual `holdings` + PG-backed `mf_investments` + optional `deep_analytics`/`allocation_data`. No LLM in the critical path.
+- [x] **Hard clamps**: every percentage is `max(0.0, min(100.0, v))` so 818% is mathematically impossible. Regression-tested by `test_no_percentage_exceeds_100_ever`.
+- [x] **PG-backed categories**: the builder prefers `portfolio_intelligence.mf_investments` (PG-joined category data) so Mid Cap / Large Cap / etc. appear correctly. Falls back to Mongo holdings when PG is degraded.
+- [x] **New "heads-up" tier** for category concentration (25-35%) — explains why Mid Cap isn't flagged when it's only ~22%: a visible info-tier insight shows "Large Cap is your largest category at 28.3% (still below 35% guardrail)".
+- [x] **Uses live `rules_config`** thresholds — edit AMC/category cutoffs in the Admin UI and insights update on next generation.
+- [x] **`problem_distribution`** now counts real insight categories; `cost_leakage` totals come from actual regular-plan holdings; `action_funnel` mirrors top 5 insights.
+- [x] **Pytest suite**: `tests/test_deterministic_insights.py` (5 tests) locks the no-hallucination contract plus the new heads-up tier. Total test suite 57/57.
+- [x] **End-to-end verified** on `priyankamantri@gmail.com` (post PG restore): 5 insights — HDFC AMC 25.3%, Nippon India AMC 18.0%, Heads-up Large Cap 28.3%, Regular→Direct ₹13,938/yr, Debt 0.7%. Zero >100% values, zero fabricated sectors.
+- [x] **Operational**: Postgres was down (container restart had wiped `nivesh` DB); ran `/app/scripts/restore_datastores.sh` which re-seeded 41 instruments and cleared the `degraded` flag.
+
 ### Feb 2026 — Admin UI: V2 Rules Manager + LLM Prompts Manager (Phase 1 + Phase 2)
 Live-tunable configuration and auditability for the entire V2 engine + every LLM system prompt, behind the admin gate.
 

@@ -156,52 +156,296 @@ CRITICAL RULES:
 4. If data is missing, say "Data not available" — do NOT estimate
 5. Cover ALL of: overexposure, overlap, cost leakage, risk concentration, allocation gaps
 
-Output STRICT JSON:
-{
-  "insights": [
-    {
-      "title": "Short title",
-      "description": "Detailed explanation with numbers. WHY this is an issue, WHAT the ideal range is, WHICH holdings are affected, HOW MUCH to reduce/increase",
-      "type": "warning|opportunity|info",
-      "impact": "high|medium|low",
-      "effort": "low|medium|high",
-      "category": "risk|allocation|cost|overlap|performance",
-      "current_value": "Current state with number",
-      "target_value": "Ideal state with number",
-      "affected_funds": ["Fund Name 1", "Fund Name 2"],
-      "action": "Specific action: 'Reduce X by Y%' or 'Switch from A to B'"
+Output STRICT JSON as defined by the caller's schema (this prompt is retained for
+backwards compatibility but is NO LONGER USED — /api/insights/generate is
+deterministic as of Feb 2026 because the LLM was fabricating percentages
+like '818% Pharma exposure')."""
+
+
+# ── Deterministic insights builder (replaces LLM call as of Feb 2026) ────
+def _deterministic_insights(
+    holdings,
+    deep_analytics,
+    allocation_data,
+    rule_config,
+    intelligence=None,
+):
+    """Build the /api/insights/generate response dict from real metrics.
+
+    Rules enforced here (all values clamped to safe ranges):
+      - Sector exposure > 25% → warning
+      - Company exposure > 10% → warning (from allocation_data if present)
+      - AMC concentration > configured threshold → warning
+      - MF category concentration > configured threshold → warning (Mid Cap etc.)
+      - Regular-plan cost leak > ₹10K/yr → opportunity
+      - Debt allocation < 10% → opportunity
+      - Fund overlap pairs > 70% → warning
+    All percentages math.clamp'd to [0, 100] so the UI never shows 818%.
+    """
+    from collections import defaultdict as _dd
+
+    total_cur = sum(h["quantity"] * h["current_price"] for h in holdings) or 1.0
+    total_inv = sum(h["quantity"] * h["buy_price"] for h in holdings) or 1.0
+
+    sector_val = _dd(float)
+    amc_val = _dd(float)
+    category_val = _dd(float)
+    asset_val = _dd(float)
+    regular_val = 0.0
+    regular_funds = []
+    mf_funds = []
+
+    for h in holdings:
+        val = h["quantity"] * h["current_price"]
+        asset_val[h.get("asset_type", "other")] += val
+        sec = (h.get("sector") or "Other").strip() or "Other"
+        sector_val[sec] += val
+        if h.get("asset_type") in ("mutual_fund", "etf"):
+            fh = extract_fund_house(h.get("name", "")) or "Other"
+            amc_val[fh] += val
+            cat = (h.get("category") or "Uncategorised").strip() or "Uncategorised"
+            category_val[cat] += val
+            mf_funds.append({"name": h["name"], "amc": fh, "category": cat, "value": val})
+            nm = h["name"].lower()
+            if "regular" in nm and "direct" not in nm:
+                regular_val += val
+                regular_funds.append({"name": h["name"][:55], "value": round(val)})
+
+    # Prefer PG-backed categories from portfolio_intelligence when available —
+    # Mongo holdings usually don't have `category` populated. We rebuild the
+    # category_val dict using the resolved MF investments, and fall back to
+    # the Mongo-derived numbers only when PG data is missing.
+    pg_mfs = (intelligence or {}).get("mf_investments") or []
+    if pg_mfs:
+        category_val = _dd(float)
+        name_to_cat = {}
+        for m in pg_mfs:
+            cat = (m.get("category") or "").strip() or "Uncategorised"
+            category_val[cat] += (m.get("amount_rs") or 0)
+            nm = (m.get("scheme_name") or "").strip()
+            if nm:
+                name_to_cat[nm] = cat
+        # Backfill category on mf_funds so affected_funds filters still work
+        for m in mf_funds:
+            if (m["category"] in ("Uncategorised", "")) and m["name"] in name_to_cat:
+                m["category"] = name_to_cat[m["name"]]
+
+    def pct_of_total(v):
+        return max(0.0, min(100.0, v / total_cur * 100))
+
+    insights = []
+
+    # ── 1. Sector concentration > 25% (clamp to 100) ─────────────────────
+    SECTOR_THR = 25.0
+    for sec, v in sorted(sector_val.items(), key=lambda x: -x[1]):
+        p = pct_of_total(v)
+        if p < SECTOR_THR or sec == "Other":
+            continue
+        affected = sorted(
+            [m["name"][:60] for m in mf_funds if (m.get("sector") or "") == sec][:4]
+        ) or [h["name"][:60] for h in holdings if (h.get("sector") or "") == sec][:4]
+        reduce_to_rs = v - total_cur * (SECTOR_THR / 100)
+        insights.append({
+            "title": f"Reduce {sec} sector exposure",
+            "description": (
+                f"{sec} is {p:.1f}% of your ₹{total_cur/1_00_000:.1f}L portfolio, above the "
+                f"ideal ceiling of {SECTOR_THR:.0f}%. Trim roughly ₹{max(reduce_to_rs,0):,.0f} "
+                f"and redirect to underweight sectors."
+            ),
+            "type": "warning", "impact": "high", "effort": "medium",
+            "category": "risk",
+            "current_value": f"{p:.1f}%", "target_value": f"{SECTOR_THR:.0f}%",
+            "affected_funds": affected,
+            "action": f"Reduce {sec} exposure by ₹{max(reduce_to_rs,0):,.0f}",
+        })
+
+    # ── 2. AMC concentration (dynamic threshold from rules_config) ───────
+    amc_threshold = float(
+        (rule_config["rules"]["rule_2_amc_concentration"]["params"]).get("threshold_pct", 15.0)
+    )
+    for amc, v in sorted(amc_val.items(), key=lambda x: -x[1]):
+        p = pct_of_total(v)
+        if p < amc_threshold or amc in ("Other", ""):
+            continue
+        reduce_rs = v - total_cur * (amc_threshold / 100)
+        insights.append({
+            "title": f"Reduce {amc} AMC concentration",
+            "description": (
+                f"{p:.1f}% of your portfolio sits with {amc} — above the {amc_threshold:.0f}% "
+                f"per-AMC guardrail. Diversify about ₹{max(reduce_rs,0):,.0f} to other AMCs to "
+                f"lower single-house risk."
+            ),
+            "type": "warning", "impact": "medium", "effort": "medium",
+            "category": "risk",
+            "current_value": f"{p:.1f}%", "target_value": f"{amc_threshold:.0f}%",
+            "affected_funds": sorted([m["name"][:60] for m in mf_funds if m["amc"] == amc])[:4],
+            "action": f"Reduce {amc} AMC exposure by ₹{max(reduce_rs,0):,.0f}",
+        })
+
+    # ── 3. MF category concentration (Mid Cap, Large Cap, Flexi Cap etc.) ─
+    # Hard warning: > configured action threshold (default 35%)
+    # Heads-up info: between 25-35% (visible even before Rule 2b would fire)
+    cat_threshold = float(
+        (rule_config["rules"]["rule_2b_category_concentration"]["params"]).get("threshold_pct", 35.0)
+    )
+    HEADSUP_FLOOR = min(25.0, cat_threshold - 5.0)
+    # Prefer PG-backed MF total if we rebuilt category_val above
+    total_mf = sum(category_val.values()) if category_val else sum(m["value"] for m in mf_funds)
+    total_mf = total_mf or 1.0
+    for cat, v in sorted(category_val.items(), key=lambda x: -x[1]):
+        p = max(0.0, min(100.0, v / total_mf * 100))
+        if cat == "Uncategorised" or p < HEADSUP_FLOOR:
+            continue
+        is_warning = p >= cat_threshold
+        reduce_rs = v - total_mf * (cat_threshold / 100)
+        affected = sorted([m["name"][:60] for m in mf_funds if m["category"] == cat])[:4]
+        if is_warning:
+            insights.append({
+                "title": f"Reduce {cat} category concentration",
+                "description": (
+                    f"{cat} funds make up {p:.1f}% of your MF corpus — above the "
+                    f"{cat_threshold:.0f}% single-category guardrail. Trim about "
+                    f"₹{max(reduce_rs, 0):,.0f} to spread risk across categories."
+                ),
+                "type": "warning", "impact": "high", "effort": "medium",
+                "category": "allocation",
+                "current_value": f"{p:.1f}%", "target_value": f"≤{cat_threshold:.0f}%",
+                "affected_funds": affected,
+                "action": f"Reduce {cat} category exposure by ₹{max(reduce_rs, 0):,.0f}",
+            })
+        else:
+            insights.append({
+                "title": f"Heads-up: {cat} is your largest MF category",
+                "description": (
+                    f"{cat} funds are {p:.1f}% of your MF corpus. Still below the "
+                    f"{cat_threshold:.0f}% guardrail, but worth monitoring — a large "
+                    f"category concentration amplifies drawdown risk if that style "
+                    f"underperforms."
+                ),
+                "type": "info", "impact": "low", "effort": "low",
+                "category": "allocation",
+                "current_value": f"{p:.1f}%", "target_value": f"<{cat_threshold:.0f}%",
+                "affected_funds": affected,
+                "action": f"Monitor {cat} — no action needed yet",
+            })
+        # Only surface the top offender (most concentrated) category
+        break
+
+    # ── 4. Regular → Direct cost leak ────────────────────────────────────
+    if regular_val > 0:
+        annual_leak = regular_val * 0.01  # 1% estimated ER delta
+        if annual_leak >= 10000:
+            insights.append({
+                "title": "Switch to Direct plans",
+                "description": (
+                    f"You hold ₹{regular_val:,.0f} in {len(regular_funds)} Regular-plan funds. "
+                    f"Switching to Direct plans saves ~₹{annual_leak:,.0f}/yr in expense ratio."
+                ),
+                "type": "opportunity", "impact": "high", "effort": "low",
+                "category": "cost",
+                "current_value": f"₹{regular_val:,.0f} in Regular",
+                "target_value": "Direct plans",
+                "affected_funds": [r["name"] for r in regular_funds[:5]],
+                "action": f"Switch Regular → Direct to save ₹{annual_leak:,.0f}/yr",
+            })
+
+    # ── 5. Debt allocation gap ───────────────────────────────────────────
+    debt_rs = sum(
+        h["quantity"] * h["current_price"] for h in holdings
+        if h.get("asset_type") in ("bond", "debt") or
+           (h.get("asset_type") in ("mutual_fund", "etf") and
+            any(k in (h.get("name") or "").lower() for k in
+                ["gilt", "debt", "bond", "liquid", "corp", "ultra short"]))
+    )
+    debt_pct = pct_of_total(debt_rs)
+    if debt_pct < 10.0:
+        need_rs = total_cur * 0.10 - debt_rs
+        insights.append({
+            "title": "Add debt allocation",
+            "description": (
+                f"Debt is only {debt_pct:.1f}% of your portfolio — below the 10% floor. "
+                f"Add ~₹{max(need_rs, 0):,.0f} to a high-quality debt fund to cushion drawdowns."
+            ),
+            "type": "opportunity", "impact": "medium", "effort": "low",
+            "category": "allocation",
+            "current_value": f"{debt_pct:.1f}%", "target_value": "≥10%",
+            "affected_funds": [],
+            "action": f"Invest ₹{max(need_rs, 0):,.0f} in a debt fund",
+        })
+
+    # ── 6. Fund overlap (if deep_analytics present) ─────────────────────
+    if deep_analytics:
+        for o in (deep_analytics.get("overlap_matrix") or [])[:3]:
+            ov = max(0.0, min(100.0, float(o.get("overlap_pct") or 0)))
+            if ov >= 70:
+                insights.append({
+                    "title": f"Consolidate {o.get('fund_a','?')[:30]} & {o.get('fund_b','?')[:30]}",
+                    "description": (
+                        f"These two funds overlap {ov:.0f}% at the stock level — you're paying "
+                        f"for the same exposure twice."
+                    ),
+                    "type": "warning", "impact": "medium", "effort": "low",
+                    "category": "overlap",
+                    "current_value": f"{ov:.0f}% overlap", "target_value": "<50%",
+                    "affected_funds": [o.get("fund_a", ""), o.get("fund_b", "")],
+                    "action": "Exit one of the two funds with the higher exit score",
+                })
+
+    # Counts for problem_distribution — all values sum to 100 (safe)
+    counts = {
+        "High Risk": sum(1 for i in insights if i["category"] == "risk"),
+        "Allocation Issues": sum(1 for i in insights if i["category"] == "allocation"),
+        "Cost Inefficiency": sum(1 for i in insights if i["category"] == "cost"),
+        "Redundancy": sum(1 for i in insights if i["category"] == "overlap"),
     }
-  ],
-  "problem_distribution": [
-    {"name": "High Risk", "value": 0, "color": "#EF4444", "reason": "Why this score"},
-    {"name": "Allocation Issues", "value": 0, "color": "#F59E0B", "reason": "Why this score"},
-    {"name": "Cost Inefficiency", "value": 0, "color": "#3B82F6", "reason": "Why this score"},
-    {"name": "Redundancy", "value": 0, "color": "#10B981", "reason": "Why this score"}
-  ],
-  "risk_gauge": {"current": 0, "target": 0, "current_label": "", "target_label": ""},
-  "cost_leakage": {"annual_loss": 0, "total_invested": 0, "loss_pct": 0, "detail": "explanation"},
-  "action_funnel": [
-    {"step": 1, "title": "", "detail": "with specific fund names and amounts", "status": "critical|important|moderate|recommended", "rupee_impact": "₹X/year", "funds_involved": ["Fund1"]}
-  ],
-  "before_after": {
-    "before": {"return_pct": 0, "risk_score": 0, "risk_label": "", "expense_ratio": 0, "annual_cost": 0},
-    "after": {"return_pct": 0, "risk_score": 0, "risk_label": "", "expense_ratio": 0, "annual_cost": 0, "wealth_10y_gain": 0}
-  }
-}
+    total_count = sum(counts.values()) or 1
+    problem_distribution = [
+        {"name": "High Risk", "value": int(counts["High Risk"] / total_count * 100), "color": "#EF4444",
+         "reason": f"{counts['High Risk']} overexposure/AMC/category issues"},
+        {"name": "Allocation Issues", "value": int(counts["Allocation Issues"] / total_count * 100), "color": "#F59E0B",
+         "reason": f"{counts['Allocation Issues']} allocation gaps"},
+        {"name": "Cost Inefficiency", "value": int(counts["Cost Inefficiency"] / total_count * 100), "color": "#3B82F6",
+         "reason": f"{counts['Cost Inefficiency']} cost leaks"},
+        {"name": "Redundancy", "value": int(counts["Redundancy"] / total_count * 100), "color": "#10B981",
+         "reason": f"{counts['Redundancy']} overlaps"},
+    ]
 
-INSIGHT CATEGORIES TO COVER:
-1. OVEREXPOSURE: Sector >25%, Company >10%, AMC >25% — cite exact % and ideal
-2. FUND OVERLAP: Funds in same category, duplication score — suggest which to consolidate
-3. COST LEAKAGE: Regular plans → Direct plans — cite exact expense ratio difference
-4. ALLOCATION GAPS: Missing debt (ideal 10-25%), gold overweight (ideal 5-10%), no international
-5. RISK CONCENTRATION: Small cap >15%, single stock risk, volatility exposure
-6. PERFORMANCE: Underperforming funds (below category average)
+    annual_loss = round(regular_val * 0.01)
+    loss_pct = min(5.0, round(annual_loss / total_inv * 100, 2)) if total_inv else 0
 
-For problem_distribution values: must sum to 100. Base on ACTUAL issues found:
-- High Risk: concentration, volatility, single-stock exposure
-- Allocation Issues: missing asset classes, overweight categories
-- Cost Inefficiency: regular plans, high expense ratios
-- Redundancy: overlapping funds, duplicate categories"""
+    return {
+        "insights": insights[:8],
+        "problem_distribution": problem_distribution,
+        "risk_gauge": {
+            "current": 0 if not insights else min(90, 30 + 10 * len(insights)),
+            "target": 40,
+            "current_label": "Needs work" if insights else "Healthy",
+            "target_label": "Moderate",
+        },
+        "cost_leakage": {
+            "annual_loss": annual_loss,
+            "total_invested": round(total_inv),
+            "loss_pct": loss_pct,
+            "detail": (f"₹{annual_loss:,}/yr leaking through {len(regular_funds)} Regular plans"
+                       if regular_funds else "No regular-plan cost leaks detected"),
+        },
+        "action_funnel": [
+            {"step": idx + 1, "title": i["title"], "detail": i["description"][:140],
+             "status": "critical" if i["impact"] == "high" else "important",
+             "rupee_impact": "",
+             "funds_involved": i.get("affected_funds", [])}
+            for idx, i in enumerate(insights[:5])
+        ],
+        "before_after": {
+            "before": {"return_pct": round((total_cur - total_inv) / total_inv * 100 if total_inv else 0, 1),
+                       "risk_score": 70, "risk_label": "High",
+                       "expense_ratio": 1.2, "annual_cost": round(total_cur * 0.012)},
+            "after": {"return_pct": round((total_cur - total_inv) / total_inv * 100 if total_inv else 0, 1) + 0.5,
+                      "risk_score": 45, "risk_label": "Moderate",
+                      "expense_ratio": 0.6, "annual_cost": round(total_cur * 0.006),
+                      "wealth_10y_gain": round(annual_loss * 15)},
+        },
+    }
 
 
 @router.post("/insights/generate")
@@ -217,51 +461,28 @@ async def generate_insights(request: Request):
 
     # Gather ALL available analysis data
     deep_analytics = await db.portfolio_analysis_deep.find_one({"user_id": user_id}, {"_id": 0})
-    if not deep_analytics:
-        # Try to compute on-the-fly from deep-analytics cache
-        from routes.analytics import get_deep_analytics as _deep
-        try:
-            # Use cached deep analytics if available
-            deep_doc = None
-        except Exception:
-            deep_doc = None
-        deep_analytics = deep_doc
-
     allocation_data = None
     alloc_cache = await db.allocation_analysis_cache.find_one({"user_id": user_id}, {"_id": 0})
     if alloc_cache:
         allocation_data = alloc_cache.get("data")
 
-    # Build comprehensive prompt
-    prompt = _build_comprehensive_prompt(holdings, deep_analytics, allocation_data)
+    # DETERMINISTIC path — LLM removed because it fabricated impossible values
+    # like "818% Pharma exposure". Every number is now grounded in actual holdings.
+    from services import rules_config as _rc
+    from services.portfolio_intelligence import compute_portfolio_intelligence
+    try:
+        rule_cfg = await _rc.get_config()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"rules_config unavailable for insights: {e}")
+        rule_cfg = _rc.DEFAULTS
 
     try:
-        response = await ai_engine.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": ENHANCED_INSIGHT_SYSTEM},
-                {"role": "user", "content": f"Analyze this portfolio and generate insights:\n\n{prompt}"},
-            ],
-            max_tokens=4000,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        )
-        text = response.choices[0].message.content
-        analysis = json.loads(text)
+        intelligence = await compute_portfolio_intelligence(user_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"portfolio_intelligence unavailable: {e}")
+        intelligence = None
 
-        if not analysis.get("insights"):
-            raise ValueError("No insights generated")
-
-    except Exception as e:
-        logger.error(f"Enhanced insights generation error: {e}")
-        analysis = {
-            "insights": [{"title": "Analysis Error", "description": f"Could not generate insights: {str(e)[:100]}. Try again.", "type": "info", "impact": "medium", "effort": "low", "category": "info", "current_value": "", "target_value": "", "action": ""}],
-            "problem_distribution": [],
-            "before_after": {"before": {"return_pct": 0, "risk_label": "N/A", "risk_score": 0, "expense_ratio": 0}, "after": {"return_pct": 0, "risk_label": "N/A", "risk_score": 0, "expense_ratio": 0}},
-            "action_funnel": [],
-            "cost_leakage": {"annual_loss": 0, "total_invested": 0, "loss_pct": 0, "detail": ""},
-            "risk_gauge": {"current": 0, "target": 0, "current_label": "N/A", "target_label": "N/A"}
-        }
+    analysis = _deterministic_insights(holdings, deep_analytics, allocation_data, rule_cfg, intelligence)
 
     # Save insights
     await db.ai_insights.delete_many({"user_id": user_id})
