@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import PlanCard from "./PlanCard";
+import PlanHeroCard from "./PlanHeroCard";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -183,6 +184,9 @@ const PlanBoardView = () => {
             </Button>
           </div>
         </div>
+
+        {/* V2.5 Hero Card — single-screen decision surface for the active plan */}
+        {activePlan && <PlanHeroCard plan={activePlan} />}
 
         {/* Plans Grid */}
         {filteredPlans.length === 0 ? (

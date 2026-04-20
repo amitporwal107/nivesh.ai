@@ -2,6 +2,18 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V2.5 Batch C: Plan Board Hero Card (UX one-screen decision)
+- [x] **New `PlanHeroCard.js`** surfaces the three numbers that actually matter on top of the Plan Board:
+  - Big portfolio-score donut (amber/emerald/red by tier) with "Healthy/Good/Needs work/Critical" label
+  - Confidence badge (shield icon · "98% · High")
+  - Plan summary text (2 lines)
+  - Before→After delta pills: Overlap / Top AMC / Debt / Save-per-year · pills are muted when a plan doesn't move the needle, emerald when improved
+  - Degraded banner (amber) when `plan.degraded=true`
+  - Do-Nothing celebratory card when `plan.do_nothing=true` (emerald gradient, "Nothing to fix right now · review next quarter")
+  - V2 ENGINE provenance badge
+- [x] Integrated into `PlanBoardView.js` — renders above the plans grid, driven by the active plan.
+- [x] Verified via screenshot: hero card renders with 64/100 amber donut, "6 recommended actions", confidence 98% · High, pills showing the real before→after state, and existing plan cards untouched below.
+
 ### Feb 2026 — V2.5 Decision Engine (Batch A + B)
 Implements the user's full V2.5 PRD:
 
