@@ -2,6 +2,15 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Nivesh Copilot Interactive Charts & Save-as-Plan
+- [x] **Replaced static prompt templates** with context-aware interactive cards driven by real portfolio signals.
+  - New `CopilotPromptCard.jsx` with 3 variants (hero / compact / tiny) — each renders a mini Recharts viz (MiniDonut / MiniBar / MiniGauge / MiniStat / MiniSplit) backed by `viz` payload from backend.
+  - Backend `_build_viz_for_prompt` in `routes/copilot_prompts.py` emits `{kind, series, headline, caption}` per prompt using real asset mix, top-3 overlaps, top-3 AMC exposure, action count, tax liability, underperformers.
+  - `context_summary` enriched with `top_overlaps`, `top_amcs`, `gold_pct`, `other_pct`, `fund_count`, `underperformer_count`, `plan_tax_liability`.
+- [x] **Input-bar chip strip** shows viz headline pills (e.g. `96%`, `6`, `77%`) next to each prompt label.
+- [x] **Save-as-Plan CTA** (`SaveAsPlanCard.jsx`) auto-injects under high-intent AI responses (heuristic-matched via `shouldShowSavePlan`). Click → POST `/api/plans/generate` → success state with action count + est. tax → "Open Plan Board" button navigates to `#plan_board`.
+- [x] Tested end-to-end via frontend testing agent: 100% backend + frontend pass (iteration_28).
+
 ### Apr 2026 — V2 Action Generation Rule Engine (6 Core Rules)
 - [x] **Implemented 6 explicit business logic rules** in `services/action_plan_manager._apply_action_rules` per user spec (see `/app/memory/V2_ACTION_GENERATION_RULES_COMPLETE.md`):
   - **Rule 1**: Regular → Direct consolidation (same fund, exit Regular plan)

@@ -110,12 +110,21 @@ const MiniGauge = ({ series, headline, size = 62 }) => {
 };
 
 const MiniStat = ({ headline, caption }) => (
-  <div className="flex flex-col items-center justify-center text-center min-w-[62px] px-2">
-    <span className="text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
+  <div className="flex flex-col items-center justify-center text-center min-w-[62px] px-2 gap-1">
+    {/* Decorative mini bars — keeps the visual footprint of stat-only cards
+        consistent with donut/bar/gauge siblings. */}
+    <div className="flex items-end gap-0.5 h-4">
+      <span className="w-1 h-1.5 rounded-sm bg-slate-300 dark:bg-slate-600" />
+      <span className="w-1 h-3 rounded-sm bg-slate-400 dark:bg-slate-500" />
+      <span className="w-1 h-2.5 rounded-sm bg-slate-300 dark:bg-slate-600" />
+      <span className="w-1 h-4 rounded-sm bg-emerald-500" />
+      <span className="w-1 h-2 rounded-sm bg-slate-300 dark:bg-slate-600" />
+    </div>
+    <span className="text-xl font-bold text-slate-800 dark:text-slate-100 tabular-nums leading-none">
       {headline}
     </span>
     {caption && (
-      <span className="text-[9px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-1">{caption}</span>
+      <span className="text-[9px] text-slate-500 dark:text-slate-400 line-clamp-1">{caption}</span>
     )}
   </div>
 );
