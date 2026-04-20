@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
+import UserProfileDropdown from "@/components/UserProfileDropdown";
 import DashboardOverview from "@/components/DashboardOverview";
 import PortfolioView from "@/components/PortfolioView";
 import ChatView from "@/components/ChatView";
@@ -148,9 +149,13 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
-        <div className="pt-16 md:pt-4 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        {/* Top bar with user-profile dropdown */}
+        <div className="sticky top-0 z-30 flex justify-end items-center px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
+          <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
+        </div>
+        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>
       </main>

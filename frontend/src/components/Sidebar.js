@@ -1,38 +1,26 @@
 import React, { useState } from "react";
-import { useAuth } from "@/context/AuthContext";
-import { useTheme } from "@/context/ThemeContext";
-import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, LogOut, TrendingUp, Menu, X, Users, Moon, Sun, ShieldCheck, Shield, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { LayoutDashboard, Briefcase, MessageSquare, Lightbulb, TrendingUp, Menu, X } from "lucide-react";
 
-const baseNavItems = [
+/**
+ * Slim sidebar — primary navigation only.
+ * Secondary items (Family, Risk Profile, Admin, Theme, Sign Out) live in
+ * `UserProfileDropdown` at the top-right of the page.
+ */
+const navItems = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "plan_board", label: "Plan Board", icon: TrendingUp, badge: "V2" },
-  { id: "family", label: "Family", icon: Users },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "chat", label: "AI Chat", icon: MessageSquare },
   { id: "insights", label: "Insights", icon: Lightbulb },
-  { id: "risk_profile", label: "Risk Profile", icon: Shield },
 ];
 
-const Sidebar = ({ activeTab, setActiveTab, user }) => {
-  const { logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+const Sidebar = ({ activeTab, setActiveTab }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  // Add Admin tab if user is admin
-  const navItems = user?.is_admin
-    ? [...baseNavItems, { id: "admin", label: "Admin", icon: ShieldCheck }]
-    : baseNavItems;
 
   const handleNav = (id) => {
     setActiveTab(id);
     setMobileOpen(false);
   };
-
-  const initials = user?.name
-    ? user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
-    : "U";
 
   return (
     <>
@@ -86,38 +74,8 @@ const Sidebar = ({ activeTab, setActiveTab, user }) => {
           ))}
         </nav>
 
-        {/* Theme Toggle */}
-        <div className="px-4 mb-2">
-          <button
-            data-testid="theme-toggle"
-            onClick={toggleTheme}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
-          >
-            {theme === "dark" ? <Sun className="w-4 h-4" strokeWidth={1.5} /> : <Moon className="w-4 h-4" strokeWidth={1.5} />}
-            <span className="text-sm">{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
-          </button>
-        </div>
-
-        <div className="p-4 border-t border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-3 mb-3 px-2">
-            <Avatar className="w-9 h-9">
-              <AvatarImage src={user?.picture} alt={user?.name} />
-              <AvatarFallback className="bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-400 text-xs font-semibold">{initials}</AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate">{user?.email}</p>
-            </div>
-          </div>
-          <Button
-            data-testid="logout-button"
-            variant="ghost"
-            onClick={logout}
-            className="w-full justify-start text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl h-10"
-          >
-            <LogOut className="w-4 h-4 mr-2" strokeWidth={1.5} />
-            <span className="text-sm">Sign Out</span>
-          </Button>
+        <div className="p-4 text-[11px] text-slate-400 dark:text-zinc-600">
+          Use the avatar in the top-right for Family, Risk Profile, Admin &amp; Sign Out.
         </div>
       </aside>
     </>
