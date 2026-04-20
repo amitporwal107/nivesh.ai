@@ -249,15 +249,17 @@ def test_rule_4_different_fund_overlap():
         _mk_holding("DSP Midcap - Direct Growth", qty=1250, price=100),
         _mk_holding("Tata Large Cap - Direct Growth", qty=1250, price=100),
     ]
+    # Diverse categories so Rule 2b (>35% single-category) does NOT fire and
+    # Rule 4 (different-fund overlap) is isolated.
     mf_investments = [
-        _mk_mf("pg-A", "Axis Large Cap - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-K", "Kotak Bluechip - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-N", "Nippon Focused - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-S", "SBI Multi Cap - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-U", "UTI Flexi - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-M", "Mirae Large Cap - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-D", "DSP Midcap - Direct Growth", amount_rs=125000),
-        _mk_mf("pg-T", "Tata Large Cap - Direct Growth", amount_rs=125000),
+        _mk_mf("pg-A", "Axis Large Cap - Direct Growth", amount_rs=125000, category="Large Cap"),
+        _mk_mf("pg-K", "Kotak Bluechip - Direct Growth", amount_rs=125000, category="Large Cap"),
+        _mk_mf("pg-N", "Nippon Focused - Direct Growth", amount_rs=125000, category="Focused"),
+        _mk_mf("pg-S", "SBI Multi Cap - Direct Growth", amount_rs=125000, category="Multi Cap"),
+        _mk_mf("pg-U", "UTI Flexi - Direct Growth", amount_rs=125000, category="Flexi Cap"),
+        _mk_mf("pg-M", "Mirae Emerging - Direct Growth", amount_rs=125000, category="Large & Mid Cap"),
+        _mk_mf("pg-D", "DSP Midcap - Direct Growth", amount_rs=125000, category="Mid Cap"),
+        _mk_mf("pg-T", "Tata Small Cap - Direct Growth", amount_rs=125000, category="Small Cap"),
     ]
     exit_candidates = [
         _mk_candidate("pg-A", "Axis Large Cap - Direct Growth", exit_score=6.0),
@@ -347,6 +349,82 @@ def test_rule_3_underperformer_replacement():
     # Expect an ADD action with a same-category (Small Cap) replacement
     small_cap_adds = [a for a in adds if "small cap" in a.get("asset_name", "").lower()]
     assert len(small_cap_adds) >= 1
+
+
+def test_rule_2b_category_concentration_trims_over_35_pct():
+    """When a single MF category >35% of corpus, Rule 2b must emit EXIT actions."""
+    m = ActionPlanManager()
+    # 6 holdings, all Mid Cap = 100% Mid Cap concentration, across different AMCs
+    # (each AMC <= ~17% so Rule 2 also triggers on two of them; Rule 2b runs after
+    # Rule 2 so it sees whatever remains). We pick 6 AMCs so each is ~16.7% < 15.5
+    # guard (AMC rule threshold is 15%). Keep AMCs below 15% by using 7 funds.
+    holdings = [
+        _mk_holding("Axis Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("Kotak Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("Nippon Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("SBI Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("UTI Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("Mirae Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("DSP Midcap - Direct Growth", qty=1000, price=100),
+    ]
+    mf_investments = [
+        _mk_mf("pg-A", "Axis Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-K", "Kotak Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-N", "Nippon Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-S", "SBI Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-U", "UTI Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-M", "Mirae Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-D", "DSP Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+    ]
+    # Exit candidate: DSP has the highest exit score
+    exit_candidates = [
+        _mk_candidate("pg-D", "DSP Midcap - Direct Growth", exit_score=9.0),
+        _mk_candidate("pg-A", "Axis Midcap - Direct Growth", exit_score=6.0),
+    ]
+    portfolio_intel = {
+        "mf_investments": mf_investments,
+        "pairwise_overlap": [],
+        "catalog": {},
+    }
+    actions = asyncio.run(m._apply_action_rules(
+        mf_holdings=holdings, mf_investments=mf_investments,
+        exit_candidates=exit_candidates, holdings=holdings,
+        portfolio_intelligence=portfolio_intel,
+        portfolio_context={"total_value": 700000, "mf_count": 7, "stock_count": 0},
+        signals=[],
+    ))
+    cat_exits = [a for a in actions if "CATEGORY_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])]
+    assert len(cat_exits) >= 1, f"Expected Rule 2b to fire; got actions: {[a.get('reason_codes') for a in actions]}"
+    # Highest exit_score in category is DSP — first trim target
+    assert "DSP Midcap" in cat_exits[0]["asset_name"], (
+        f"Expected DSP Midcap first; got {cat_exits[0]['asset_name']}"
+    )
+
+
+def test_rule_2b_skipped_when_category_under_threshold():
+    """No CATEGORY_CONCENTRATION_EXIT actions when categories are balanced."""
+    m = ActionPlanManager()
+    holdings = [
+        _mk_holding("Axis Large Cap - Direct Growth", qty=1000, price=100),
+        _mk_holding("DSP Midcap - Direct Growth", qty=1000, price=100),
+        _mk_holding("Tata Small Cap - Direct Growth", qty=1000, price=100),
+        _mk_holding("Nippon Corporate Bond Fund - Direct", qty=1000, price=100),
+    ]
+    mf_investments = [
+        _mk_mf("pg-A", "Axis Large Cap - Direct Growth", amount_rs=100000, category="Large Cap"),
+        _mk_mf("pg-D", "DSP Midcap - Direct Growth", amount_rs=100000, category="Mid Cap"),
+        _mk_mf("pg-T", "Tata Small Cap - Direct Growth", amount_rs=100000, category="Small Cap"),
+        _mk_mf("pg-N", "Nippon Corporate Bond Fund - Direct", amount_rs=100000, category="Corporate Bond"),
+    ]
+    actions = asyncio.run(m._apply_action_rules(
+        mf_holdings=holdings, mf_investments=mf_investments,
+        exit_candidates=[], holdings=holdings,
+        portfolio_intelligence={"mf_investments": mf_investments, "pairwise_overlap": [], "catalog": {}},
+        portfolio_context={"total_value": 400000, "mf_count": 4, "stock_count": 0},
+        signals=[],
+    ))
+    cat_exits = [a for a in actions if "CATEGORY_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])]
+    assert len(cat_exits) == 0
 
 
 if __name__ == "__main__":

@@ -2,6 +2,15 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Data-Accuracy Guardrails: Deterministic Insights + Rule 2b (VERIFIED)
+- [x] **Deterministic insights** — `services/ai_insights.generate_insights` now bypasses LLM completely and builds each insight from pre-computed metrics. Kills the "Banking 773%" / "Pharma 818%" hallucinations the user flagged. Sector % clamped to `[0, 100]` for defence-in-depth. Added a new `category_concentration` insight that flags any MF category > 35% of corpus.
+- [x] **Rule 2b — MF category concentration >35%** (`services/action_plan_manager._apply_action_rules`): if a single category (Mid Cap, Large Cap, etc.) exceeds 35% of total MF AUM, emit `CATEGORY_CONCENTRATION_EXIT` actions for the highest-exit-score funds in that category until under the threshold. Skips already-exited holdings; respects `priority_counter`.
+- [x] **Regression tests** (`backend/tests/test_action_rules.py`): added `test_rule_2b_category_concentration_trims_over_35_pct` (fires on 100% Mid Cap, picks DSP with top exit_score first) and `test_rule_2b_skipped_when_category_under_threshold` (no trim when balanced). Fixed `test_rule_4_different_fund_overlap` to use diverse categories so Rule 2b doesn't subsume Rule 4. **35/35 tests green.**
+- [x] **End-to-end verified** on `priyankamantri@gmail.com` (64 holdings, ₹64.90L):
+  - `GET /api/intelligence/portfolio` → 4 AI insights, all numbers within `[0, 100]`, no hallucinations.
+  - `POST /api/plans/generate` → engine v2.5, portfolio_score=64.2, confidence=98.2 High, 6 actions (5 Regular→Direct + 1 debt ADD).
+  - Rule 2b correctly silent since no category > 35% for this user.
+
 ### Feb 2026 — V2.5 Batch C: Plan Board Hero Card (UX one-screen decision)
 - [x] **New `PlanHeroCard.js`** surfaces the three numbers that actually matter on top of the Plan Board:
   - Big portfolio-score donut (amber/emerald/red by tier) with "Healthy/Good/Needs work/Critical" label
