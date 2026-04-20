@@ -139,7 +139,10 @@ class AIEngine:
 
     async def chat(self, message: str, portfolio_context: str, history: list, session_id: str) -> str:
         """Send a chat message with portfolio context. Uses gpt-4o-mini (cheap)."""
-        system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
+        from services import prompts_manager
+        system = await prompts_manager.get("financial_advisor_system", portfolio_context=portfolio_context)
+        if not system:
+            system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
 
         messages = [{"role": "system", "content": system}]
 
@@ -165,7 +168,10 @@ class AIEngine:
 
     async def chat_stream(self, message: str, portfolio_context: str, history: list, session_id: str):
         """Stream chat response token-by-token via async generator. Uses gpt-4o-mini."""
-        system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
+        from services import prompts_manager
+        system = await prompts_manager.get("financial_advisor_system", portfolio_context=portfolio_context)
+        if not system:
+            system = FINANCIAL_ADVISOR_SYSTEM.format(portfolio_context=portfolio_context)
 
         messages = [{"role": "system", "content": system}]
         for m in history:

@@ -18,6 +18,7 @@ from services import signal_detector, decision_engine, instrument_scoring, tax_c
 from services.instrument_scoring import (
     PORTFOLIO_HEALTHY_SCORE, MAX_ACTIONS_PER_PLAN,
 )
+from services import rules_config
 
 logger = logging.getLogger(__name__)
 
@@ -637,6 +638,9 @@ class ActionPlanManager:
 
         Each fund can only be selected for EXIT once (tracked via exited_ids set).
         """
+        # Load live rule config (admin-tunable)
+        rcfg = await rules_config.get_config()
+        rules_cfg = rcfg["rules"]
         actions: List[Dict[str, Any]] = []
         exited_ids: set = set()                  # instrument_ids already marked for exit
         exited_holding_keys: set = set()         # mongo holding keys (for Regular/Direct matches without IDs)
@@ -660,11 +664,13 @@ class ActionPlanManager:
             return candidate_by_name.get(h_norm)
 
         # ── RULE 1 + RULE 6: Regular vs Direct handling ─────────────────────
+        rule_1_enabled = rules_cfg["rule_1_regular_to_direct"]["enabled"]
+        rule_6_enabled = rules_cfg["rule_6_cost_leak_switch"]["enabled"]
         reg_dir_pairs = self._find_regular_direct_pairs(mf_holdings)
         logger.info(f"[Rule 1/6] Found {len(reg_dir_pairs)} Regular/Direct pairs")
 
         # Rule 1: Exit Regular when Direct exists for same fund
-        for pair in reg_dir_pairs:
+        for pair in (reg_dir_pairs if rule_1_enabled else []):
             regular = pair["regular"]
             direct = pair["direct"]
             reg_key = _holding_key(regular)
@@ -702,10 +708,13 @@ class ActionPlanManager:
                 leaks.append({"holding": reg, "leak": leak})
         total_leak = sum(item["leak"] for item in leaks)
         logger.info(f"[Rule 6] Total Regular→Direct cost leak: ₹{total_leak:,.0f}/yr across {len(leaks)} funds")
-        if total_leak >= 10000:
-            # Sort by largest leak first, cap at 3 switch actions to keep plan actionable
+        leak_cfg = rules_cfg["rule_6_cost_leak_switch"]["params"]
+        leak_threshold = float(leak_cfg.get("total_leak_threshold_rs", 10000.0))
+        max_switches = int(leak_cfg.get("max_switches", 3))
+        if rule_6_enabled and total_leak >= leak_threshold:
+            # Sort by largest leak first, cap at N switch actions to keep plan actionable
             leaks.sort(key=lambda x: x["leak"], reverse=True)
-            for leak_item in leaks[:3]:
+            for leak_item in leaks[:max_switches]:
                 reg = leak_item["holding"]
                 reg_key = _holding_key(reg)
                 if reg_key in exited_holding_keys:
@@ -732,7 +741,10 @@ class ActionPlanManager:
         amc_exposure = self._calculate_amc_exposure_from_mf_investments(
             mf_investments, portfolio_context["total_value"]
         )
-        over_concentrated_amcs = [(amc, pct) for amc, pct in amc_exposure.items() if pct > 15.0]
+        amc_cfg = rules_cfg["rule_2_amc_concentration"]["params"]
+        amc_threshold = float(amc_cfg.get("threshold_pct", 15.0))
+        rule_2_enabled = rules_cfg["rule_2_amc_concentration"]["enabled"]
+        over_concentrated_amcs = [(amc, pct) for amc, pct in amc_exposure.items() if pct > amc_threshold] if rule_2_enabled else []
         logger.info(f"[Rule 2] AMC exposure: {amc_exposure}; over-concentrated: {over_concentrated_amcs}")
 
         for amc_name, amc_pct in sorted(over_concentrated_amcs, key=lambda x: x[1], reverse=True):
@@ -751,9 +763,9 @@ class ActionPlanManager:
                 ranked.append({"mf": mf, "candidate": cand, "exit_score": score})
             ranked.sort(key=lambda x: x["exit_score"], reverse=True)
 
-            # Exit funds greedily until AMC exposure drops below 15%
+            # Exit funds greedily until AMC exposure drops below threshold
             current_pct = amc_pct
-            target_pct = 15.0
+            target_pct = amc_threshold
             total_pv = portfolio_context["total_value"]
             for item in ranked:
                 if current_pct <= target_pct:
@@ -792,10 +804,14 @@ class ActionPlanManager:
                 logger.info(f"[Rule 2] EXIT for AMC concentration: {mf.get('scheme_name','')[:40]} "
                             f"(new AMC pct ≈ {current_pct:.1f}%)")
 
-        # ── RULE 2b (NEW): MF Category Concentration > 35% ──────────────────
+        # ── RULE 2b (NEW): MF Category Concentration > threshold ────────────
         # User-flagged guardrail: no single category (Mid Cap, Large Cap, etc.)
-        # should exceed 35% of total MF corpus. Trims down the highest-exit-score
-        # funds in the offending category until under the threshold.
+        # should exceed the configured threshold of total MF corpus. Trims down
+        # the highest-exit-score funds in the offending category.
+        rule_2b_enabled = rules_cfg["rule_2b_category_concentration"]["enabled"]
+        CAT_CONCENTRATION_THRESHOLD = float(
+            rules_cfg["rule_2b_category_concentration"]["params"].get("threshold_pct", 35.0)
+        )
         from collections import defaultdict as _dd
         cat_totals: Dict[str, float] = _dd(float)
         cat_funds: Dict[str, List[Dict[str, Any]]] = _dd(list)
@@ -804,8 +820,7 @@ class ActionPlanManager:
             cn = (m.get("category") or "Uncategorised").strip() or "Uncategorised"
             cat_totals[cn] += (m.get("amount_rs") or 0)
             cat_funds[cn].append(m)
-        CAT_CONCENTRATION_THRESHOLD = 35.0
-        if total_mf_value > 0:
+        if rule_2b_enabled and total_mf_value > 0:
             over_cats = [
                 (cn, v / total_mf_value * 100)
                 for cn, v in cat_totals.items()
@@ -866,9 +881,11 @@ class ActionPlanManager:
 
         # ── RULE 3: Underperformer Replacement ──────────────────────────────
         # Use signal QUALITY_ISSUES + exit_score quality component to detect underperformers
-        underperformers = self._find_underperformers(mf_investments, portfolio_intelligence, exit_candidates)
+        rule_3_enabled = rules_cfg["rule_3_underperformer_replacement"]["enabled"]
+        max_replacements = int(rules_cfg["rule_3_underperformer_replacement"]["params"].get("max_replacements", 2))
+        underperformers = self._find_underperformers(mf_investments, portfolio_intelligence, exit_candidates) if rule_3_enabled else []
         logger.info(f"[Rule 3] Found {len(underperformers)} underperforming funds")
-        for under in underperformers[:2]:  # cap at top 2
+        for under in underperformers[:max_replacements]:
             mf = under["mf"]
             if mf.get("instrument_id") in exited_ids:
                 continue
@@ -930,10 +947,14 @@ class ActionPlanManager:
                 priority_counter[0] += 1
                 logger.info(f"[Rule 3] Replace {mf.get('scheme_name','')[:30]} → {replacement.get('scheme_name','')[:30]}")
 
-        # ── RULE 4: Different-Fund Overlap >60% ─────────────────────────────
-        pairs = portfolio_intelligence.get("pairwise_overlap", [])
+        # ── RULE 4: Different-Fund Overlap > threshold ──────────────────────
+        rule_4_enabled = rules_cfg["rule_4_different_fund_overlap"]["enabled"]
+        r4_params = rules_cfg["rule_4_different_fund_overlap"]["params"]
+        overlap_threshold = float(r4_params.get("overlap_threshold_pct", 60.0))
+        max_overlap_exits = int(r4_params.get("max_overlap_exits", 2))
+        pairs = portfolio_intelligence.get("pairwise_overlap", []) if rule_4_enabled else []
         for pair in pairs:
-            if pair.get("overlap_pct", 0) < 60:
+            if pair.get("overlap_pct", 0) < overlap_threshold:
                 continue
             id_a, id_b = pair.get("a"), pair.get("b")
             if id_a in exited_ids or id_b in exited_ids:
@@ -1001,19 +1022,26 @@ class ActionPlanManager:
                 exited_ids.add(victim_cand["instrument_id"])
             priority_counter[0] += 1
             logger.info(f"[Rule 4] EXIT for overlap: {victim_name[:40]} vs {partner_name[:40]}")
-            # Limit to 2 overlap resolutions to keep plan concise
-            if sum(1 for a in actions if "OVERLAP_CONSOLIDATION" in (a.get("reason_codes") or [])) >= 2:
+            # Limit to N overlap resolutions to keep plan concise
+            if sum(1 for a in actions if "OVERLAP_CONSOLIDATION" in (a.get("reason_codes") or [])) >= max_overlap_exits:
                 break
 
         # ── RULE 5: Asset Allocation Rebalancing (V2.5 Dynamic Debt Target) ─
-        if portfolio_context["total_value"] > 0:
+        rule_5_enabled = rules_cfg["rule_5_debt_allocation"]["enabled"]
+        r5_params = rules_cfg["rule_5_debt_allocation"]["params"]
+        if rule_5_enabled and portfolio_context["total_value"] > 0:
             asset_allocation = self._calculate_asset_allocation(holdings)
             portfolio_context["asset_allocation"] = asset_allocation
             equity_pct = asset_allocation.get("equity_pct", 0)
             debt_pct = asset_allocation.get("debt_pct", 0)
             # V2.5 — dynamic debt target by risk
             risk = (portfolio_context.get("risk_profile") or "medium").lower()
-            debt_target = 30 if risk in ("conservative", "low") else (10 if risk in ("aggressive", "high") else 20)
+            if risk in ("conservative", "low"):
+                debt_target = float(r5_params.get("debt_target_conservative_pct", 30.0))
+            elif risk in ("aggressive", "high"):
+                debt_target = float(r5_params.get("debt_target_aggressive_pct", 10.0))
+            else:
+                debt_target = float(r5_params.get("debt_target_medium_pct", 20.0))
             portfolio_context["debt_target_pct"] = debt_target
             needs_debt = debt_pct < debt_target
             logger.info(
@@ -1021,19 +1049,42 @@ class ActionPlanManager:
                 f"equity={equity_pct:.1f}% debt={debt_pct:.1f}% needs_debt={needs_debt}"
             )
             if needs_debt:
-                excluded_amcs = [amc for amc, pct in amc_exposure.items() if pct > 15.0]
+                excluded_amcs = [amc for amc, pct in amc_exposure.items() if pct > amc_threshold]
                 gap_pct = debt_target - debt_pct
                 suggested_amount = portfolio_context["total_value"] * (gap_pct / 100)
                 debt_suggestion = self._suggest_debt_fund(suggested_amount, excluded_amcs)
                 add_action = self._create_add_action_specific(
                     debt_suggestion,
                     priority_counter[0],
-                    f"Portfolio debt is {debt_pct:.0f}% — below your {debt_target}% target for a {risk} risk profile.",
+                    f"Portfolio debt is {debt_pct:.0f}% — below your {debt_target:.0f}% target for a {risk} risk profile.",
                     suggested_amount,
                 )
                 actions.append(add_action)
                 priority_counter[0] += 1
                 logger.info(f"[Rule 5] ADD debt fund: {debt_suggestion.get('fund_name','')}")
+
+        # ── CUSTOM RULES (Phase 2) ──────────────────────────────────────────
+        # Custom rules are evaluated last so built-ins take priority.
+        custom_rules = rcfg.get("custom_rules", []) or []
+        if custom_rules:
+            try:
+                custom_actions = self._apply_custom_rules(
+                    custom_rules=custom_rules,
+                    mf_holdings=mf_holdings,
+                    mf_investments=mf_investments,
+                    holdings=holdings,
+                    portfolio_intelligence=portfolio_intelligence,
+                    portfolio_context=portfolio_context,
+                    amc_exposure=amc_exposure,
+                    exit_candidates=exit_candidates,
+                    candidate_by_id=candidate_by_id,
+                    exited_ids=exited_ids,
+                    exited_holding_keys=exited_holding_keys,
+                    priority_counter=priority_counter,
+                )
+                actions.extend(custom_actions)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"custom rules evaluation failed: {e}")
 
         # Fallback: if no actions produced by rules, fall back to top exit candidates
         if not actions and exit_candidates:
@@ -1045,6 +1096,157 @@ class ActionPlanManager:
 
         logger.info(f"Rule engine produced {len(actions)} actions")
         return actions
+
+    def _apply_custom_rules(
+        self,
+        custom_rules: List[Dict[str, Any]],
+        mf_holdings: List[Dict[str, Any]],
+        mf_investments: List[Dict[str, Any]],
+        holdings: List[Dict[str, Any]],
+        portfolio_intelligence: Dict[str, Any],
+        portfolio_context: Dict[str, Any],
+        amc_exposure: Dict[str, float],
+        exit_candidates: List[Dict[str, Any]],
+        candidate_by_id: Dict[str, Any],
+        exited_ids: set,
+        exited_holding_keys: set,
+        priority_counter: List[int],
+    ) -> List[Dict[str, Any]]:
+        """Evaluate admin-defined custom rules via the safe DSL.
+
+        Each rule: {id, name, enabled, expression, action_type, target, reason_code, reason_text}
+        action_type ∈ {"EXIT_HIGHEST_EXIT_SCORE", "ADD_DEBT_FUND", "FLAG_ONLY"}
+        target scope: dict with optional filters (category, amc) for EXIT_* rules.
+
+        The expression is evaluated against a flat context:
+            portfolio_score, confidence_score, total_value,
+            equity_pct, debt_pct, gold_pct,
+            max_category_pct, max_amc_pct, avg_overlap_pct,
+            mf_count, stock_count, fund_count
+        """
+        from services.rules_dsl import safe_eval, SafeEvalError
+
+        # Build evaluation context
+        alloc = self._calculate_asset_allocation(holdings)
+        total_mf = sum((m.get("amount_rs") or 0) for m in mf_investments) or 0
+        cat_pcts: Dict[str, float] = {}
+        for m in mf_investments:
+            cn = (m.get("category") or "Uncategorised").strip() or "Uncategorised"
+            cat_pcts[cn] = cat_pcts.get(cn, 0) + ((m.get("amount_rs") or 0) / total_mf * 100 if total_mf else 0)
+        pairs = portfolio_intelligence.get("pairwise_overlap", []) or []
+        avg_overlap = sum(p.get("overlap_pct", 0) for p in pairs) / max(len(pairs), 1)
+
+        ctx = {
+            "portfolio_score": portfolio_context.get("portfolio_score", 0),
+            "confidence_score": portfolio_context.get("confidence_score", 0),
+            "total_value": portfolio_context.get("total_value", 0),
+            "equity_pct": alloc.get("equity_pct", 0),
+            "debt_pct": alloc.get("debt_pct", 0),
+            "gold_pct": alloc.get("gold_pct", 0),
+            "max_category_pct": max(cat_pcts.values()) if cat_pcts else 0,
+            "max_amc_pct": max(amc_exposure.values()) if amc_exposure else 0,
+            "avg_overlap_pct": round(avg_overlap, 2),
+            "mf_count": portfolio_context.get("mf_count", 0),
+            "stock_count": portfolio_context.get("stock_count", 0),
+            "fund_count": len(mf_investments),
+        }
+
+        out: List[Dict[str, Any]] = []
+        for rule in custom_rules:
+            if not rule.get("enabled", True):
+                continue
+            rid = rule.get("id", rule.get("name", "custom"))
+            expr = rule.get("expression", "")
+            try:
+                matched = bool(safe_eval(expr, ctx))
+            except SafeEvalError as e:
+                logger.warning(f"[Custom:{rid}] expression error: {e}")
+                continue
+            if not matched:
+                logger.info(f"[Custom:{rid}] condition not met")
+                continue
+
+            action_type = rule.get("action_type", "FLAG_ONLY")
+            reason_code = rule.get("reason_code", f"CUSTOM_{rid.upper()}")
+            reason_text = rule.get("reason_text") or rule.get("name") or "Custom rule"
+            target = rule.get("target") or {}
+
+            if action_type == "FLAG_ONLY":
+                out.append({
+                    "id": f"custom-{rid}-{priority_counter[0]}",
+                    "type": "REVIEW",
+                    "asset_name": "Portfolio",
+                    "asset_type": "portfolio",
+                    "priority": priority_counter[0],
+                    "reason_text": reason_text,
+                    "reason_codes": [reason_code],
+                    "source": "custom_rule",
+                    "custom_rule_id": rid,
+                })
+                priority_counter[0] += 1
+                logger.info(f"[Custom:{rid}] FLAG: {reason_text[:60]}")
+                continue
+
+            if action_type == "ADD_DEBT_FUND":
+                excluded_amcs = [a for a, p in amc_exposure.items() if p > 15.0]
+                amount = float(target.get("amount_rs", 0) or (portfolio_context.get("total_value", 0) * 0.05))
+                debt = self._suggest_debt_fund(amount, excluded_amcs)
+                add_action = self._create_add_action_specific(debt, priority_counter[0], reason_text, amount)
+                add_action["reason_codes"] = [reason_code]
+                add_action["source"] = "custom_rule"
+                add_action["custom_rule_id"] = rid
+                out.append(add_action)
+                priority_counter[0] += 1
+                logger.info(f"[Custom:{rid}] ADD_DEBT_FUND: {debt.get('fund_name','')}")
+                continue
+
+            if action_type == "EXIT_HIGHEST_EXIT_SCORE":
+                cat_filter = (target.get("category") or "").strip().lower()
+                amc_filter = (target.get("amc") or "").strip().lower()
+                cand_mfs = [
+                    m for m in mf_investments
+                    if (not cat_filter or (m.get("category") or "").strip().lower() == cat_filter)
+                    and (not amc_filter or self._extract_amc_from_name(m.get("scheme_name", "")).lower() == amc_filter)
+                    and m.get("instrument_id") not in exited_ids
+                ]
+                ranked = []
+                for mf in cand_mfs:
+                    cand = candidate_by_id.get(mf.get("instrument_id"))
+                    score = cand["exit_score"] if cand else 5.0
+                    ranked.append({"mf": mf, "candidate": cand, "exit_score": score})
+                ranked.sort(key=lambda x: x["exit_score"], reverse=True)
+
+                max_exits = int(target.get("max_exits", 1))
+                exits_made = 0
+                for item in ranked:
+                    if exits_made >= max_exits:
+                        break
+                    mf = item["mf"]
+                    h = next(
+                        (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
+                         _normalize_fund_name(mf.get("scheme_name", ""))), None
+                    )
+                    if not h:
+                        continue
+                    h_key = f"{h.get('user_id','')}::{_normalize_fund_name(h.get('name',''))}"
+                    if h_key in exited_holding_keys:
+                        continue
+                    action = self._build_exit_action_from_holding(
+                        holding=h, candidate=item["candidate"],
+                        priority=priority_counter[0], reason_prefix=reason_text,
+                        reason_code=reason_code,
+                    )
+                    action["source"] = "custom_rule"
+                    action["custom_rule_id"] = rid
+                    out.append(action)
+                    exited_holding_keys.add(h_key)
+                    if mf.get("instrument_id"):
+                        exited_ids.add(mf["instrument_id"])
+                    priority_counter[0] += 1
+                    exits_made += 1
+                    logger.info(f"[Custom:{rid}] EXIT {mf.get('scheme_name','')[:40]}")
+
+        return out
 
     # ── Rule helpers ────────────────────────────────────────────────────────
 

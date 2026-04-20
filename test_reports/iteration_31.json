@@ -1,0 +1,44 @@
+{
+  "summary": "Tested Phase-1 admin Rules Config + LLM Prompts management end-to-end. Backend: 20/21 integration tests passing (new file test_admin_rules_prompts_api.py against the public URL). Frontend: both `rules-config-section` and `prompts-section` render in Admin view with all 8 rule rows, 7 prompt rows, reset/save/add-custom-rule/validate/test wired up. LLM Test-prompt round-trip works and returns a BANANA response. One real bug found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/rules-config/custom/validate",
+        "issue": "validate_expression() in services/rules_dsl.py does NOT reject `lambda x: x` — returns {ok:true, names_used:['x']}. safe_eval() at execution time DOES reject lambdas (via unknown-node fallback), but the validator is lenient. Spec requires lambdas to return ok=false. Fix: in rules_dsl.py validate_expression(), add `if isinstance(node, (ast.Lambda, ast.FunctionDef, ast.ListComp, ast.GeneratorExp, ast.DictComp, ast.SetComp)): return ok=false` during ast.walk."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin / Plan Board modals", "issues": ["Radix warning: `DialogContent` requires a `DialogTitle` for screen readers. Seen on two dialogs. Non-blocking a11y fix — wrap title in VisuallyHidden or add DialogTitle."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_rules_prompts_api.py",
+    "/app/backend/tests/test_rules_admin.py",
+    "/app/test_reports/pytest/iter31_admin.xml"
+  ],
+  "action_items": [
+    "Fix validate_expression() to reject ast.Lambda (and other unsupported top-level constructs) so it stays consistent with safe_eval() — see backend_issues.minor.",
+    "Optional: add DialogTitle (or VisuallyHidden wrapper) to the 'pending actions' modal and rule-delete confirm dialog to clear Radix a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "rules_dsl.validate_expression vs safe_eval have drifted — validate is AST-walk-based and only checks Call nodes, while safe_eval has a whitelist of node types. Recommend extracting a shared set of allowed node types to avoid future drift.",
+    "admin_rules.test_prompt() has two branches (OpenAI vs emergentintegrations) — both OK but duplicated timeout/error handling. Consider a single _call_llm helper.",
+    "rules_config.save_overrides() silently drops unknown rule/param keys, which is safe but could return a warning list to the admin UI so mistyped keys don't disappear silently.",
+    "engine_version is only in plan.metadata.engine_version — not at plan top level. Consider also exposing it at plan.engine_version for easier client consumption (tests, UI badges)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin_rules_prompts_api.py (new, 21 test cases)"
+  ],
+  "success_rate": {"backend": "95% (20/21)", "frontend": "100%"},
+  "test_credentials": "priyankamantri@gmail.com / session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin)",
+  "seed_data_creation": "Test custom rules created and deleted per-test (prefix TEST_). Overridden prompt (financial_advisor_system) is reset in finally block. No residual state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Integration test file lives at /app/backend/tests/test_admin_rules_prompts_api.py and hits the public URL using admin session cookie. Re-run with: `cd /app/backend && python -m pytest tests/test_admin_rules_prompts_api.py -v`. The only red test asserts 'lambda x: x' should be rejected by validate — it currently passes as ok=true. Plan regression test reads engine_version from plan.metadata.engine_version (not plan.engine_version). Frontend admin page is at `/dashboard#admin` (NOT `/#admin`); cookie must be set before first navigation.",
+  "rca of the issue": "validate_expression() walks the AST and only flags nodes of type ast.Call where the function isn't a safe builtin. It never inspects ast.Lambda, ast.FunctionDef, or comprehensions. `lambda x: x` parses to ast.Lambda at the top level with an inner ast.Name ('x'), which the walker records as a name_used but doesn't reject. At runtime safe_eval would reject it (catch-all SafeEvalError), but since the UI uses validate before evaluate, admins can save a rule whose expression will crash at engine-time. Mitigation: add ast.Lambda (+ ast.FunctionDef/AsyncFunctionDef/ListComp/DictComp/SetComp/GeneratorExp) to the reject-list inside validate_expression's walk loop."
+}

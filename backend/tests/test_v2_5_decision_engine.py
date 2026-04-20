@@ -277,21 +277,12 @@ def test_rule3_flags_when_both_conditions_fail():
 # G. Rule 5 dynamic debt target
 # ─────────────────────────────────────────────────────────────────────────
 def test_rule5_debt_targets_by_risk_profile():
-    """Exercise the _find_allocation_gap path's dynamic target mapping."""
-    # Risk→target mapping comes from action_plan_manager.py line ~933:
-    #   conservative/low → 30, aggressive/high → 10, else → 20
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_apm", "/app/backend/services/action_plan_manager.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    # We don't need to load the whole module — just read the logic behaviourally.
-    # Verify via regex search that all three thresholds are present in source.
-    with open("/app/backend/services/action_plan_manager.py", "r") as f:
-        src = f.read()
-    assert "30 if risk in (\"conservative\", \"low\")" in src
-    assert "10 if risk in (\"aggressive\", \"high\")" in src
-    assert "else 20" in src
+    """V2.5 dynamic debt target — config-driven (rules_config.DEFAULTS)."""
+    from services import rules_config
+    params = rules_config.DEFAULTS["rules"]["rule_5_debt_allocation"]["params"]
+    assert params["debt_target_conservative_pct"] == 30.0
+    assert params["debt_target_medium_pct"] == 20.0
+    assert params["debt_target_aggressive_pct"] == 10.0
 
 
 # ─────────────────────────────────────────────────────────────────────────

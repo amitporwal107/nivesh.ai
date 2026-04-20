@@ -12,6 +12,8 @@ import SecretsSection from "@/components/admin/SecretsSection";
 import FeatureFlagsSection from "@/components/admin/FeatureFlagsSection";
 import MFDataSection from "@/components/admin/MFDataSection";
 import DatastoreSection from "@/components/admin/DatastoreSection";
+import RulesConfigSection from "@/components/admin/RulesConfigSection";
+import PromptsSection from "@/components/admin/PromptsSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -182,6 +184,8 @@ const AdminView = () => {
       {/* CAS Parser API Config */}
       <SecretsSection />
       <FeatureFlagsSection />
+      <RulesConfigSection />
+      <PromptsSection />
       <DatastoreSection />
       <MFDataSection />
 
