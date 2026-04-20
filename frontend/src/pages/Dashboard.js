@@ -3,6 +3,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import UserProfileDropdown from "@/components/UserProfileDropdown";
+import NiveshCopilotDrawer from "@/components/NiveshCopilotDrawer";
+import { Sparkles } from "lucide-react";
 import DashboardOverview from "@/components/DashboardOverview";
 import PortfolioView from "@/components/PortfolioView";
 import ChatView from "@/components/ChatView";
@@ -46,6 +48,7 @@ const Dashboard = () => {
   const [dataLoading, setDataLoading] = useState(true);
   const [userProfile, setUserProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [copilotOpen, setCopilotOpen] = useState(false);
   const [showActionPrompt, setShowActionPrompt] = useState(false);
 
   const fetchProfile = useCallback(async () => {
@@ -135,7 +138,9 @@ const Dashboard = () => {
       case "portfolio":
         return <PortfolioView holdings={holdings} onRefresh={fetchData} portfolios={portfolios} />;
       case "chat":
-        return <ChatView />;
+        // Legacy: if someone still lands on #chat, open the drawer instead of rendering inline
+        if (!copilotOpen) setCopilotOpen(true);
+        return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
       case "insights":
         return <InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />;
       case "risk_profile":
@@ -151,8 +156,17 @@ const Dashboard = () => {
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
-        {/* Top bar with user-profile dropdown */}
-        <div className="sticky top-0 z-30 flex justify-end items-center px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
+        {/* Top bar with Copilot trigger + user-profile dropdown */}
+        <div className="sticky top-0 z-30 flex justify-end items-center gap-3 px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
+          <button
+            data-testid="nivesh-copilot-trigger"
+            onClick={() => setCopilotOpen(true)}
+            className="flex items-center gap-2 pl-3 pr-4 py-1.5 rounded-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-sm hover:shadow-md transition-all"
+            aria-label="Open Nivesh Copilot"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span className="text-sm font-semibold tracking-wide">Nivesh Copilot</span>
+          </button>
           <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -160,6 +174,9 @@ const Dashboard = () => {
         </div>
       </main>
       
+      {/* Nivesh Copilot slide-out drawer */}
+      <NiveshCopilotDrawer open={copilotOpen} onClose={() => setCopilotOpen(false)} />
+
       {/* Action Prompt Modal */}
       <ActionPromptModal 
         open={showActionPrompt}
