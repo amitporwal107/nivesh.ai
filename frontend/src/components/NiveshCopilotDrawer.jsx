@@ -17,7 +17,7 @@ const MAX_WIDTH_VW = 0.95;  // never let user drag past 95% of viewport width
  * • Maximise (detached full-screen) mode via the expand icon in header.
  * • Closes via: X button, backdrop click, Escape.
  */
-const NiveshCopilotDrawer = ({ open, onClose }) => {
+const NiveshCopilotDrawer = ({ open, onClose, onNavigateToPlanBoard }) => {
   // Persisted width
   const readPersistedWidth = () => {
     try {
@@ -164,7 +164,7 @@ const NiveshCopilotDrawer = ({ open, onClose }) => {
 
         {/* Chat body */}
         <div className="flex-1 overflow-hidden">
-          {open && <ChatView />}
+          {open && <ChatView onNavigateToPlanBoard={onNavigateToPlanBoard} />}
         </div>
       </aside>
     </>,

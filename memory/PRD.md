@@ -2,6 +2,11 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Save-as-Plan flow fixes
+- [x] **Fix: "Save as Plan" now activates the plan.** Previously `/plans/generate` only created a preview (`status="preview"`) but PlanBoardView only reads `status="active"`, so users saw nothing. `SaveAsPlanCard.handleGenerate` now chains `/plans/generate` → `/plans/{id}/save` to promote preview→active (archiving any prior active plan).
+- [x] **Fix: "Open Plan Board" navigation works.** `window.location.hash = "plan_board"` wasn't triggering react-router's `useLocation`. The drawer now receives an `onNavigateToPlanBoard` prop from Dashboard that calls `setActiveTab("plan_board")` + closes the copilot. Hard fallback uses `history.pushState` + `hashchange` event.
+- [x] Threaded prop: `Dashboard → NiveshCopilotDrawer → ChatView → SaveAsPlanCard`.
+
 ### Feb 2026 — Phase A: Holistic Asset Coverage + ClearTax Tax Engine + Editable Buy Date
 - [x] **Copilot is no longer equity-only** — `_build_context` classifies ETFs (GOLDBEES/SGB → gold, LIQUIDBEES/GILT/BHARAT BOND → debt, rest → equity), bonds/FDs → debt, direct equity+MF → equity. Fixed `other_pct=100%` math bug.
 - [x] **`portfolio_intelligence.compute_portfolio_intelligence`** now always returns a holistic `total_value` + `asset_allocation{equity_pct, debt_pct, gold_pct, other_pct, *_rs}` covering MF+equity+ETF+debt+gold (was MF-only). AMC/overlap stays MF-only by design.

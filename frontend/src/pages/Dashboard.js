@@ -177,7 +177,11 @@ const Dashboard = () => {
           <span className="text-sm font-semibold tracking-wide hidden sm:inline">Nivesh Copilot</span>
         </button>
       )}
-      <NiveshCopilotDrawer open={copilotOpen} onClose={() => setCopilotOpen(false)} />
+      <NiveshCopilotDrawer
+        open={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        onNavigateToPlanBoard={() => { setCopilotOpen(false); setActiveTab("plan_board"); }}
+      />
 
       {/* Action Prompt Modal */}
       <ActionPromptModal 

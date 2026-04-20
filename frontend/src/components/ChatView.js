@@ -147,7 +147,7 @@ const SessionItem = ({ session, isActive, onClick, onDelete }) => (
   </div>
 );
 
-const ChatView = () => {
+const ChatView = ({ onNavigateToPlanBoard } = {}) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [suggestedPrompts, setSuggestedPrompts] = useState([]);
@@ -708,7 +708,7 @@ const ChatView = () => {
                         </div>
                         {/* Save-as-Plan CTA (high-intent responses only) */}
                         {msg.role === "assistant" && msg.message_id !== "temp_ai" && shouldShowSavePlan(msg.content, prevUser) && (
-                          <SaveAsPlanCard />
+                          <SaveAsPlanCard onNavigateToPlanBoard={onNavigateToPlanBoard} />
                         )}
                         {/* Action buttons for AI messages */}
                         {msg.role === "assistant" && msg.message_id !== "temp_ai" && (

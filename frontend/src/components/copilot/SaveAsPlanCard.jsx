@@ -39,11 +39,30 @@ const SaveAsPlanCard = ({ onNavigateToPlanBoard }) => {
     setStatus("loading");
     setError("");
     try {
-      const res = await axios.post(`${API}/plans/generate`, {}, { withCredentials: true });
-      setPlan(res.data?.plan || null);
+      // 1. Generate the plan — backend creates it with status="preview"
+      const gen = await axios.post(`${API}/plans/generate`, {}, { withCredentials: true });
+      const newPlan = gen.data?.plan || null;
+      if (!newPlan?.plan_id) throw new Error("Plan generation returned no plan_id");
+
+      // 2. Promote preview → active so PlanBoardView (which reads
+      //    /api/plans/active) actually shows it. Without this step the
+      //    user clicks "Open Plan Board" and sees the previously-active
+      //    plan (or nothing), which is the bug the user reported.
+      try {
+        const save = await axios.post(
+          `${API}/plans/${newPlan.plan_id}/save`,
+          {},
+          { withCredentials: true }
+        );
+        setPlan(save.data?.plan || newPlan);
+      } catch (saveErr) {
+        // Not fatal — keep the preview plan visible so user can still click through
+        console.warn("Plan save (promote) failed:", saveErr);
+        setPlan(newPlan);
+      }
       setStatus("success");
     } catch (e) {
-      setError(e?.response?.data?.detail || "Failed to generate plan");
+      setError(e?.response?.data?.detail || e?.message || "Failed to generate plan");
       setStatus("error");
     }
   };
@@ -51,9 +70,17 @@ const SaveAsPlanCard = ({ onNavigateToPlanBoard }) => {
   const handleGoToBoard = () => {
     if (onNavigateToPlanBoard) {
       onNavigateToPlanBoard();
-    } else {
-      // Hash-based fallback (Dashboard.js reads location.hash)
-      window.location.hash = "plan_board";
+      return;
+    }
+    // Hard fallback — trigger both the hash change AND a hashchange event so
+    // any router listening to it re-evaluates. The Dashboard's useLocation()
+    // doesn't pick up a raw location.hash assignment, which was the bug.
+    try {
+      const target = "/dashboard#plan_board";
+      window.history.pushState({}, "", target);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    } catch {
+      window.location.href = "/dashboard#plan_board";
     }
   };
 
