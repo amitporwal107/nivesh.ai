@@ -23,6 +23,12 @@ const PlanBoardView = () => {
 
   useEffect(() => {
     fetchPlans();
+    // Refetch when a plan is saved from anywhere (Copilot Save-as-Plan, etc.)
+    // so the already-mounted board doesn't show stale data.
+    const onPlanSaved = () => { fetchPlans(); };
+    window.addEventListener("nivesh:plan-saved", onPlanSaved);
+    return () => window.removeEventListener("nivesh:plan-saved", onPlanSaved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchPlans = async () => {

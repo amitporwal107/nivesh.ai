@@ -55,10 +55,20 @@ const SaveAsPlanCard = ({ onNavigateToPlanBoard }) => {
           { withCredentials: true }
         );
         setPlan(save.data?.plan || newPlan);
+        // Broadcast so any already-mounted PlanBoardView refetches instead of
+        // showing stale data (user might have been on plan_board tab already).
+        try {
+          window.dispatchEvent(new CustomEvent("nivesh:plan-saved", {
+            detail: { plan_id: newPlan.plan_id },
+          }));
+        } catch { /* noop */ }
       } catch (saveErr) {
-        // Not fatal — keep the preview plan visible so user can still click through
-        console.warn("Plan save (promote) failed:", saveErr);
-        setPlan(newPlan);
+        // Surface the failure instead of silently pretending success — the user
+        // reported "not saving" because a 500 here was masked as ✓ PLAN READY.
+        const msg = saveErr?.response?.data?.detail || saveErr?.message || "Plan save failed";
+        setError(`Could not activate plan: ${msg}`);
+        setStatus("error");
+        return;
       }
       setStatus("success");
     } catch (e) {
