@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 29 — Phase A (tax engine + buy_date pipeline + inline edit UI) validated end-to-end. 10/11 backend tests pass; all 6 frontend UI checks pass. One real bug found: PUT /api/portfolio/holdings/{id} with {buy_date: null} returns 400 'No fields to update' because the handler filters out null values. Everything else (ClearTax rates, per-action tax_impact, context_summary pcts, inline edit UI, toast, persistence) works as intended.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PUT /api/portfolio/holdings/{holding_id}",
+        "issue": "Sending {buy_date: null} (or any null field) returns 400 'No fields to update'. Review request explicitly states null should clear buy_date to None. Root cause: /app/backend/routes/portfolio.py line 106 — `update_data = {k: v for k, v in holding.model_dump().items() if v is not None}` strips null values before building the $set. Should use model_dump(exclude_unset=True) and preserve explicit nulls so clients can clear fields."
+      },
+      {
+        "endpoint": "CAS-imported holdings back-fill buy_date = today",
+        "issue": "63 of 64 priyankamantri holdings still have buy_date = '2026-04-18' (the upload date). The parser fix is in place for FUTURE uploads (cas_api_client._extract_buy_date_from_transactions + routes/portfolio.py line 95 no longer back-filling), but existing persisted data from before the fix is still inaccurate. Users will need to manually correct via the new inline edit, or a one-time back-population job must be run. Flag as data-hygiene item, not a code regression."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Portfolio table", "issues": ["Radix DialogContent a11y warning still present in console (DialogTitle missing) — carried over from iter 28; does not affect UX."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration29_tax_and_buydate.py",
+    "/app/test_reports/pytest/iteration_29.xml"
+  ],
+  "action_items": [
+    "[HIGH] In /app/backend/routes/portfolio.py::update_holding, change update_data construction so that explicit nulls clear the field instead of 400-ing. Suggested: `update_data = holding.model_dump(exclude_unset=True)` (Pydantic v2). This unlocks the review spec 'Sending {buy_date: null} should clear to None'.",
+    "[MEDIUM] Back-populate buy_date for existing holdings where uploaded_at == buy_date (back-fill bug artifact) by re-running CAS parse OR expose a bulk 'I don't know' action.",
+    "[LOW, a11y] Wrap NiveshCopilotDrawer's DialogContent with VisuallyHidden DialogTitle to silence repeating console warning."
+  ],
+  "critical_code_review_comments": [
+    "services/tax_calculator.py — calculate_tax_impact is clean, correctly implements ClearTax FY 25-26 rates (equity STCG 20%, equity LTCG 12.5% w/ ₹1.25L exemption, debt post-Apr23 always slab, gold LTCG 12.5% > 24m, pending state when buy_date missing). Unit tests pass.",
+    "routes/portfolio.py line 106 — naive `if v is not None` filter makes it impossible to clear optional fields. This is the single real bug from Phase A.",
+    "routes/portfolio.py line 95 — `holding.buy_date or None` correctly stores null when empty string comes through. Good.",
+    "Frontend InlineBuyDateCell renders on click, saves on blur, shows sonner toast 'Buy date updated' — observed working. HTML date input used (not shadcn Calendar) — acceptable for inline editing but consider a small calendar popover for UX parity.",
+    "copilot_prompts._build_context now produces allocation pcts that sum to ~100 and non-zero gold/debt classification from ETF names. Good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "91% (10/11 pytest)", "frontend": "100% (6/6 UI checks)"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings, MODERATE risk)",
+  "seed_data_creation": "None. One test holding created+deleted during POST buy_date=null test. Restored all mutated buy_dates where possible (best-effort) for holdings we edited — but the end-to-end test did change hold_b14f2a9d9108 buy_date from 2026-04-18 to 2024-03-15 (not restored). Not critical — can be re-edited via UI.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth: set cookie domain='portfolio-plan-board.preview.emergentagent.com', path=/, sameSite=None BEFORE navigating to /dashboard. The app routes via sidebar nav-portfolio (not tabs). Buy-Date cells selector: [data-testid^='buy-date-cell-']. Inline input: [data-testid='buy-date-input-<holding_id>'] (HTML type=date). Toast: Sonner, text 'Buy date updated'. Ambuja Cements is the sanity anchor (2023-06-15).",
+  "rca of the issue": "Bug: PUT /api/portfolio/holdings/{id} rejects {buy_date: null}. RCA: routes/portfolio.py line 106 uses Python dict comprehension `{k: v for k, v in holding.model_dump().items() if v is not None}` which drops ALL null fields from the update payload, then line 107-108 throws 400 when the resulting dict is empty. Since Pydantic defaults unset optional fields to None in v2, this filter cannot distinguish 'client explicitly sent null to clear' from 'client did not send this field'. Fix: use `holding.model_dump(exclude_unset=True)` instead — then nulls sent explicitly are preserved, and unsent fields are naturally excluded. Repro: `curl -X PUT .../api/portfolio/holdings/<id> -d '{\"buy_date\": null}'` → 400. Mitigation: apply Pydantic exclude_unset pattern across all PUT/PATCH handlers."
+}

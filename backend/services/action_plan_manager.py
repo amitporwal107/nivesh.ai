@@ -1155,13 +1155,23 @@ class ActionPlanManager:
         # Extract data from candidate (exit_result includes mf_investment, holding, tax_impact)
         mf_investment = candidate.get("mf_investment", {})
         holding = candidate.get("holding", {})
-        tax_impact = candidate.get("tax_impact", {})
-        
+        tax_impact = candidate.get("tax_impact") or {}
+
         # Calculate amount from MF investment
         exit_amount = mf_investment.get("amount_rs", 0)
         if exit_amount == 0:
             # Fallback: calculate from holding
             exit_amount = holding.get("quantity", 0) * holding.get("current_price", 0)
+
+        # If candidate didn't pre-compute tax_impact, do it now from the
+        # holding — otherwise every EXIT action would carry tax=0.
+        if not tax_impact or "tax_liability" not in tax_impact:
+            try:
+                from services import tax_calculator as _tc
+                tax_impact = _tc.calculate_tax_impact(holding, exit_amount_rs=exit_amount) or {}
+            except Exception as _e:
+                logger.debug(f"fallback tax_impact calc failed: {_e}")
+                tax_impact = {}
         
         tax_liability = tax_impact.get("tax_liability", 0)
         post_tax_proceeds = tax_impact.get("post_tax_proceeds", exit_amount - tax_liability)
@@ -1392,31 +1402,78 @@ class ActionPlanManager:
         }
     
     def _calculate_total_tax_impact(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Calculate total tax impact across all EXIT actions."""
-        total_ltcg = 0
-        total_stcg = 0
-        
+        """Aggregate total tax impact across all EXIT actions.
+
+        Uses ClearTax FY 2025-26 rates (see services/tax_calculator.py):
+          Equity LTCG 12.5% on gains > ₹1.25L
+          Equity STCG 20%
+          Non-equity LTCG 12.5%, STCG at slab (default 30%)
+
+        Pending entries (missing buy_date) are counted separately so the plan
+        doesn't silently assume ₹0 tax when we genuinely don't know.
+        """
+        from services.tax_calculator import (
+            EQUITY_LTCG_EXEMPTION, EQUITY_LTCG_RATE, EQUITY_STCG_RATE,
+            NON_EQUITY_LTCG_RATE, DEFAULT_SLAB_RATE,
+        )
+        eq_lt = 0.0
+        eq_st = 0.0
+        ne_lt = 0.0  # non-equity LTCG gains
+        ne_st = 0.0  # non-equity STCG gains (taxed at slab)
+        pending = 0
+        total_liability_from_actions = 0.0
+
         for action in actions:
-            if action["type"] == "EXIT" and action["tax_impact"]:
-                total_ltcg += action["tax_impact"].get("capital_gain", 0) if action["tax_impact"].get("is_long_term") else 0
-                total_stcg += action["tax_impact"].get("capital_gain", 0) if not action["tax_impact"].get("is_long_term") else 0
-        
-        # Apply ₹1L LTCG exemption
-        exemption_used = min(100000, total_ltcg)
-        taxable_ltcg = max(0, total_ltcg - 100000)
-        
-        ltcg_tax = taxable_ltcg * 0.10
-        stcg_tax = total_stcg * 0.15
-        total_tax = ltcg_tax + stcg_tax
-        
+            if action.get("type") != "EXIT":
+                continue
+            ti = action.get("tax_impact") or {}
+            if not ti:
+                continue
+            if ti.get("tax_impact_pending"):
+                pending += 1
+                continue
+            gain = ti.get("capital_gain", 0) or 0
+            if gain <= 0:
+                continue
+            asset_class = ti.get("asset_class") or "equity"
+            is_lt = bool(ti.get("is_long_term"))
+            if asset_class == "equity":
+                if is_lt:
+                    eq_lt += gain
+                else:
+                    eq_st += gain
+            else:
+                if is_lt:
+                    ne_lt += gain
+                else:
+                    ne_st += gain
+            total_liability_from_actions += ti.get("tax_liability", 0) or 0
+
+        # Re-apply equity ₹1.25L exemption on aggregate (plan-level)
+        exemption_used = min(EQUITY_LTCG_EXEMPTION, eq_lt)
+        taxable_eq_lt = max(0, eq_lt - EQUITY_LTCG_EXEMPTION)
+
+        ltcg_tax = taxable_eq_lt * EQUITY_LTCG_RATE + ne_lt * NON_EQUITY_LTCG_RATE
+        stcg_tax = eq_st * EQUITY_STCG_RATE + ne_st * DEFAULT_SLAB_RATE
+        total_tax = round(ltcg_tax + stcg_tax, 2)
+
         return {
-            "total_ltcg": round(total_ltcg, 2),
-            "total_stcg": round(total_stcg, 2),
+            # Plan-level aggregate tax (this is what UI/Copilot reads)
+            "total_tax_liability": total_tax,
+            "total_tax": total_tax,  # legacy alias
+            # Gain breakdown
+            "total_ltcg": round(eq_lt + ne_lt, 2),
+            "total_stcg": round(eq_st + ne_st, 2),
+            "equity_ltcg": round(eq_lt, 2),
+            "equity_stcg": round(eq_st, 2),
+            "non_equity_ltcg": round(ne_lt, 2),
+            "non_equity_stcg": round(ne_st, 2),
             "exemption_used": round(exemption_used, 2),
-            "taxable_ltcg": round(taxable_ltcg, 2),
+            "taxable_ltcg": round(taxable_eq_lt + ne_lt, 2),
             "ltcg_tax": round(ltcg_tax, 2),
             "stcg_tax": round(stcg_tax, 2),
-            "total_tax": round(total_tax, 2),
+            "pending_actions": pending,
+            "sum_per_action_liability": round(total_liability_from_actions, 2),
         }
     
     def _calculate_amc_exposure_from_mf_investments(

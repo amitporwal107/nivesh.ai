@@ -231,6 +231,45 @@ def _num(v, default: float = 0.0) -> float:
         return default
 
 
+def _extract_buy_date_from_transactions(row: dict) -> Optional[str]:
+    """Scan the `transactions` array on a CAS scheme/holding and return the
+    earliest purchase/investment date in ISO YYYY-MM-DD form.
+
+    casparser.in emits per-scheme transactions with fields:
+      date, description, type, amount, units, nav, balance
+    Purchase-side txn types include 'PURCHASE', 'PURCHASE_SIP', etc.
+    We also accept any txn where `units > 0` AND `amount > 0` as a purchase.
+    """
+    txns = row.get("transactions") or []
+    if not isinstance(txns, list) or not txns:
+        return None
+    earliest: Optional[str] = None
+    for t in txns:
+        if not isinstance(t, dict):
+            continue
+        t_date = t.get("date") or t.get("txn_date") or t.get("transaction_date")
+        if not t_date:
+            continue
+        t_type = (t.get("type") or t.get("description") or "").upper()
+        # Skip explicit redemption / sell / tax / stamp duty
+        if any(k in t_type for k in ("REDEMPTION", "REDEEM", "SELL", "SALE", "STT", "STAMP", "REVERSAL", "CANCEL")):
+            continue
+        try:
+            units = float(t.get("units") or 0)
+            amt = float(t.get("amount") or 0)
+        except (TypeError, ValueError):
+            units = 0.0
+            amt = 0.0
+        # Keep only txns that look like a buy (positive units OR positive amount)
+        if units <= 0 and amt <= 0:
+            continue
+        # Normalise date to YYYY-MM-DD
+        t_date_str = str(t_date)[:10]
+        if earliest is None or t_date_str < earliest:
+            earliest = t_date_str
+    return earliest
+
+
 def _holding_from_equity(row: dict) -> Optional[Dict]:
     isin = (row.get("isin") or "").strip()
     name = (row.get("name") or row.get("company_name") or "").strip()
@@ -242,6 +281,7 @@ def _holding_from_equity(row: dict) -> Optional[Dict]:
     if not isin or not name:
         return None
     is_etf = any(k in name.lower() for k in ["etf", "bees"])
+    bd = _extract_buy_date_from_transactions(row) or row.get("buy_date") or row.get("purchase_date")
     return {
         "name": name,
         "ticker": isin,
@@ -251,6 +291,7 @@ def _holding_from_equity(row: dict) -> Optional[Dict]:
         "current_price": round(price, 4),
         "sector": _classify_sector(name) if is_etf else "Other",
         "parsed_by": "api",
+        "buy_date": bd,
     }
 
 
@@ -266,6 +307,7 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
         return None
     plan, option = _classify_mf(name)
     is_etf = any(k in name.lower() for k in ["etf", "bees"])
+    bd = _extract_buy_date_from_transactions(row) or row.get("buy_date") or row.get("purchase_date")
     return {
         "name": name,
         "ticker": isin,
@@ -277,6 +319,7 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
         "plan": plan,
         "option": option,
         "parsed_by": "api",
+        "buy_date": bd,
     }
 
 
@@ -295,6 +338,7 @@ def _holding_from_bond(row: dict, asset_type: str = "bond") -> Optional[Dict]:
         final_type = "gold"
     else:
         final_type = asset_type
+    bd = _extract_buy_date_from_transactions(row) or row.get("buy_date") or row.get("allotment_date") or row.get("purchase_date")
     return {
         "name": name,
         "ticker": isin,
@@ -303,6 +347,7 @@ def _holding_from_bond(row: dict, asset_type: str = "bond") -> Optional[Dict]:
         "buy_price": round(price, 4),
         "current_price": round(price, 4),
         "sector": "Gold" if final_type == "gold" else "Debt",
+        "buy_date": bd,
     }
 
 
@@ -324,6 +369,7 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
         return None
     plan, option = _classify_mf(name)
     is_etf = any(k in name.lower() for k in ["etf", "bees"])
+    bd = _extract_buy_date_from_transactions(row) or row.get("buy_date") or row.get("purchase_date")
     return {
         "name": name,
         "ticker": isin,
@@ -335,6 +381,7 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
         "plan": plan,
         "option": option,
         "parsed_by": "api",
+        "buy_date": bd,
     }
 
 

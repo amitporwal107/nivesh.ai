@@ -92,7 +92,7 @@ async def add_holding(request: Request, holding: HoldingCreate):
         "buy_price": holding.buy_price,
         "current_price": holding.current_price,
         "sector": holding.sector or "Other",
-        "buy_date": holding.buy_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "buy_date": holding.buy_date or None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.holdings.insert_one(holding_doc)

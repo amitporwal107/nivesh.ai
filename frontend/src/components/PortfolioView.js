@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import axios from "axios";
-import { Plus, Upload, Trash2, Pencil, FileText, File, FileSpreadsheet, Search, ArrowUpDown, Filter, Lock, ChevronDown } from "lucide-react";
+import { Plus, Upload, Trash2, Pencil, FileText, File, FileSpreadsheet, Search, ArrowUpDown, Filter, Lock, ChevronDown, Calendar, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,6 +29,76 @@ const ASSET_TYPES = [
 const SECTORS = ["IT","Banking","Pharma","FMCG","Auto","Energy","Metals","Realty","Telecom","Infrastructure","Financial Services","Healthcare","Media","Large Cap","Mid Cap","Small Cap","Flexi Cap","Multi Cap","Balanced","Index","ELSS","Debt","Gold","International","Other"];
 
 const ASSET_LABELS = { equity: "Equity", mutual_fund: "Mutual Fund", etf: "ETF", bond: "Bond", gold: "Gold", fd: "FD", other: "Other" };
+
+/**
+ * Inline editor for a holding's buy_date.
+ *
+ * Click-to-edit: shows the date, or "—" + "Set" hint when missing.
+ * Saves onBlur / Enter, cancels on Escape.
+ */
+const InlineBuyDateCell = ({ value, holdingId, onSaved }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState((value || "").slice(0, 10));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setDraft((value || "").slice(0, 10)); }, [value]);
+
+  const commit = async () => {
+    if (saving) return;
+    if (draft === (value || "").slice(0, 10)) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await axios.put(`${API}/portfolio/holdings/${holdingId}`,
+        { buy_date: draft || null },
+        { withCredentials: true }
+      );
+      toast.success("Buy date updated");
+      onSaved && onSaved();
+    } catch {
+      toast.error("Couldn't save buy date");
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          data-testid={`buy-date-input-${holdingId}`}
+          type="date"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") { setDraft((value || "").slice(0, 10)); setEditing(false); }
+          }}
+          className="h-7 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 w-[130px]"
+        />
+        {saving && <Check className="w-3 h-3 text-emerald-500 animate-pulse" />}
+      </div>
+    );
+  }
+
+  const display = value ? String(value).slice(0, 10) : null;
+  return (
+    <button
+      data-testid={`buy-date-cell-${holdingId}`}
+      onClick={() => setEditing(true)}
+      title="Click to edit buy date (affects LTCG/STCG calculations)"
+      className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors group"
+    >
+      <Calendar className="w-3 h-3 text-slate-400 group-hover:text-emerald-500" strokeWidth={2} />
+      {display
+        ? <span className="tabular-nums">{display}</span>
+        : <span className="italic text-amber-600 dark:text-amber-400">Set date</span>}
+    </button>
+  );
+};
+
 const TAB_FILTERS = [
   { id: "all", label: "All" },
   { id: "equity", label: "Equity" },
@@ -376,6 +446,7 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10">Type</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10 cursor-pointer" onClick={() => toggleSort("quantity")}>Qty</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10">Buy</TableHead>
+                <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10">Buy Date</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10">CMP</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10 cursor-pointer" onClick={() => toggleSort("value")}>Value</TableHead>
                 <TableHead className="text-[10px] font-bold tracking-[0.1em] uppercase text-slate-400 h-10 cursor-pointer" onClick={() => toggleSort("returns")}>P&L</TableHead>
@@ -402,6 +473,13 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
                     <TableCell><span className="text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">{ASSET_LABELS[h.asset_type] || h.asset_type}</span></TableCell>
                     <TableCell className="text-sm text-slate-700 dark:text-slate-300">{h.quantity.toLocaleString(undefined, {maximumFractionDigits: 3})}</TableCell>
                     <TableCell className="text-sm text-slate-700 dark:text-slate-300">₹{h.buy_price.toLocaleString()}</TableCell>
+                    <TableCell>
+                      <InlineBuyDateCell
+                        value={h.buy_date}
+                        holdingId={h.holding_id}
+                        onSaved={onRefresh}
+                      />
+                    </TableCell>
                     <TableCell className="text-sm text-slate-700 dark:text-slate-300">
                       <span className={`${(h.buy_price > 0 && Math.abs(h.buy_price - h.current_price) < 0.01) ? "text-amber-600 dark:text-amber-400" : ""}`}>
                         ₹{h.current_price.toLocaleString()}

@@ -47,7 +47,64 @@ def _overlap(a: Dict[str, float], b: Dict[str, float]) -> float:
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
+async def _compute_holistic_allocation(user_id: str) -> Dict[str, Any]:
+    """Scan ALL holdings (not just MF) to compute total value + allocation.
+
+    Used to enrich the intelligence response so downstream callers
+    (Copilot prompts, Insights widgets, tax engine) can see the full picture
+    even when the MF-only overlap/AMC analytics don't apply.
+    """
+    total = 0.0
+    equity = 0.0
+    debt = 0.0
+    gold = 0.0
+    other = 0.0
+    async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
+        val = _amount(h)
+        if val <= 0:
+            continue
+        total += val
+        at = (h.get("asset_type") or "").lower()
+        name = (h.get("name") or "").lower()
+        if at == "gold" or "gold" in name or "sgb" in name or "sovereign gold" in name:
+            gold += val
+            continue
+        is_debt_mf_or_etf = at in ("mutual_fund", "etf") and any(
+            k in name for k in [
+                "liquid", "gilt", "bond", "corporate bond", "short term",
+                "overnight", "banking & psu", "low duration", "ultra short",
+                "medium duration", "long duration", "credit risk",
+                "floater", "dynamic bond", "debt",
+            ]
+        )
+        if at in ("bond", "debt", "fd", "deposit") or is_debt_mf_or_etf:
+            debt += val
+            continue
+        if at in ("equity", "stock", "mutual_fund", "mutual fund", "etf"):
+            equity += val
+            continue
+        other += val
+    if total <= 0:
+        return {"total_value": 0, "asset_allocation": None}
+    return {
+        "total_value": round(total, 2),
+        "asset_allocation": {
+            "equity_pct": round(equity / total * 100, 1),
+            "debt_pct":   round(debt / total * 100, 1),
+            "gold_pct":   round(gold / total * 100, 1),
+            "other_pct":  round(other / total * 100, 1),
+            "equity_rs":  round(equity, 2),
+            "debt_rs":    round(debt, 2),
+            "gold_rs":    round(gold, 2),
+            "other_rs":   round(other, 2),
+        },
+    }
+
+
 async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
+    # Holistic allocation + total value (all asset types, not just MF)
+    holistic = await _compute_holistic_allocation(user_id)
+
     # 1. MF investments from Mongo
     mf_holdings = await db.holdings.find(
         {"user_id": user_id, "asset_type": {"$in": ["mutual_fund", "MUTUAL_FUND"]}},
@@ -55,12 +112,19 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
     ).to_list(500)
 
     if not mf_holdings:
-        return _empty_response("No mutual fund holdings found")
+        resp = _empty_response("No mutual fund holdings found")
+        # Still carry holistic totals so Copilot/Insights can use them
+        resp["total_value"] = holistic.get("total_value", 0)
+        resp["asset_allocation"] = holistic.get("asset_allocation")
+        return resp
 
     # 2. Resolve each MF → Postgres instrument_id + pull holdings + metadata
     pool = await pg_client.get_pool()
     if pool is None:
-        return _empty_response("Postgres not configured")
+        resp = _empty_response("Postgres not configured")
+        resp["total_value"] = holistic.get("total_value", 0)
+        resp["asset_allocation"] = holistic.get("asset_allocation")
+        return resp
 
     mf_investments: List[Dict[str, Any]] = []
     catalog: Dict[str, Dict[str, Any]] = {}     # instrument_id → {...}
@@ -199,6 +263,9 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
         "sector_exposure": sector_exp,
         "redundancy_suggestions": redund,
         "catalog": catalog,
+        # Holistic allocation across all asset types (MF + equity + ETF + debt + gold)
+        "total_value": holistic.get("total_value", 0),
+        "asset_allocation": holistic.get("asset_allocation"),
     }
 
 

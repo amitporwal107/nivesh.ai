@@ -1,163 +1,288 @@
-"""Tax Calculator — LTCG/STCG calculation for holdings with FIFO logic.
+"""Tax Calculator — LTCG/STCG for holdings using ClearTax rules.
 
-Handles Indian tax rules (as of 2026):
-- STCG (≤ 12 months): 15% (for equity/MF)
-- LTCG (> 12 months): 10% on gains above ₹1L per year (for equity/MF)
-- FIFO (First-In-First-Out) for partial sells
-- Aggregated ₹1L exemption across all equity/MF
+Implements Indian capital gains tax rules per
+https://cleartax.in/s/capital-gains-income (FY 2025-26, post 23-Jul-2024):
 
-Implements:
-1. FIFO-based gain calculation per lot
-2. Separate LTCG/STCG tracking
-3. Loss offset rules
-4. Portfolio-level tax aggregation
+Equity MF / Listed Equity / Equity ETF:
+    STCG (≤ 12 months): 20%
+    LTCG (>  12 months): 12.5% on gains exceeding ₹1,25,000 / FY
+
+Debt MF acquired on/after 01-Apr-2023: taxed at slab rate (always)
+Debt MF acquired before 01-Apr-2023:
+    STCG (≤ 24 months): slab
+    LTCG (>  24 months): 12.5%
+
+Gold / Gold ETF / SGB / Property:
+    STCG (≤ 24 months): slab
+    LTCG (>  24 months): 12.5%
+
+Bonds (listed):
+    STCG (≤ 12 months): 20%
+    LTCG (>  12 months): 12.5%
+
+When user's income slab is unknown, we default to `DEFAULT_SLAB_RATE` (30% —
+conservative). When `buy_date` is missing on a holding, the tax impact is
+flagged `tax_impact_pending` (True) and excluded from plan-level aggregates
+instead of fabricating a number.
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, date
 from typing import Dict, Any, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Tax rates (Indian equity/MF)
-STCG_RATE = 0.15  # 15%
-LTCG_RATE = 0.10  # 10%
-LTCG_EXEMPTION = 100000  # ₹1L exemption per financial year
+# ──────────────────────────────────────────────────────────────────────
+# ClearTax FY 2025-26 rates (https://cleartax.in/s/capital-gains-income)
+# ──────────────────────────────────────────────────────────────────────
+EQUITY_STCG_RATE = 0.20          # 20% (Sec 111A)
+EQUITY_LTCG_RATE = 0.125         # 12.5% (Sec 112A)
+EQUITY_LTCG_EXEMPTION = 125000   # ₹1.25L per FY, aggregated across equity
 
-# Holding period thresholds
-LTCG_THRESHOLD_DAYS = 365  # > 365 days = LTCG (12 months)
+NON_EQUITY_LTCG_RATE = 0.125     # Gold/SGB/listed bonds/debt-pre-Apr23
+
+DEFAULT_SLAB_RATE = 0.30         # fallback when user slab unknown
+
+# Holding period thresholds (days)
+THRESHOLD_EQUITY_DAYS = 365      # 12 months
+THRESHOLD_OTHERS_DAYS = 730      # 24 months (close enough; tax year calendar OK)
+
+# Debt-MF cutover date (post-Finance Act 2023 — always short-term / slab)
+DEBT_MF_SLAB_CUTOVER = date(2023, 4, 1)
+
+# Legacy constants kept for backward compat (other modules may import)
+STCG_RATE = EQUITY_STCG_RATE
+LTCG_RATE = EQUITY_LTCG_RATE
+LTCG_EXEMPTION = EQUITY_LTCG_EXEMPTION
+LTCG_THRESHOLD_DAYS = THRESHOLD_EQUITY_DAYS
 
 
-def calculate_holding_period_days(buy_date: str) -> int:
-    """Calculate holding period in days from buy_date to today."""
+# ──────────────────────────────────────────────────────────────────────
+# Asset classification
+# ──────────────────────────────────────────────────────────────────────
+
+def _is_equity_like(asset_type: str, name: str = "") -> bool:
+    at = (asset_type or "").lower()
+    n = (name or "").lower()
+    if at in ("equity", "stock"):
+        return True
+    if at in ("mutual_fund", "mf"):
+        # debt funds flagged via name/sector; default MF → equity
+        if any(k in n for k in ["liquid", "gilt", "bond fund", "corporate bond", "short term", "overnight", "banking & psu", "low duration", "ultra short", "medium duration", "long duration", "credit risk", "floater", "dynamic bond", "debt"]):
+            return False
+        return True
+    if at == "etf":
+        if any(k in n for k in ["gold", "sgb", "liquid", "gilt", "bond"]):
+            return False
+        return True
+    return False
+
+
+def _is_gold_like(asset_type: str, name: str = "") -> bool:
+    at = (asset_type or "").lower()
+    n = (name or "").lower()
+    return at == "gold" or "gold" in n or "sgb" in n or "sovereign gold" in n
+
+
+def _is_debt_like(asset_type: str, name: str = "") -> bool:
+    at = (asset_type or "").lower()
+    n = (name or "").lower()
+    if at in ("bond", "debt", "fd", "deposit"):
+        return True
+    if at in ("mutual_fund", "etf") and any(k in n for k in ["liquid", "gilt", "bond", "corporate bond", "short term", "overnight", "banking & psu", "low duration", "ultra short", "medium duration", "long duration", "credit risk", "floater", "dynamic bond", "debt"]):
+        return True
+    return False
+
+
+def _classify_asset(asset_type: str, name: str = "") -> str:
+    """Return one of: 'equity', 'debt', 'gold', 'other'."""
+    if _is_gold_like(asset_type, name):
+        return "gold"
+    if _is_debt_like(asset_type, name):
+        return "debt"
+    if _is_equity_like(asset_type, name):
+        return "equity"
+    return "other"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Date helpers
+# ──────────────────────────────────────────────────────────────────────
+
+def calculate_holding_period_days(buy_date) -> Optional[int]:
+    """Calculate holding period in days from buy_date to today.
+
+    Returns None when buy_date is missing / unparseable — caller must treat
+    this as 'tax pending' rather than STCG=0.
+    """
+    if not buy_date:
+        return None
     try:
         if isinstance(buy_date, str):
-            # Parse ISO format date
-            buy_dt = datetime.fromisoformat(buy_date.replace('Z', '+00:00'))
-        else:
+            buy_dt = datetime.fromisoformat(buy_date.replace("Z", "+00:00"))
+        elif isinstance(buy_date, datetime):
             buy_dt = buy_date
-        
-        now = datetime.now(timezone.utc)
-        delta = now - buy_dt
-        return delta.days
+        elif isinstance(buy_date, date):
+            buy_dt = datetime.combine(buy_date, datetime.min.time(), tzinfo=timezone.utc)
+        else:
+            return None
+        if buy_dt.tzinfo is None:
+            buy_dt = buy_dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - buy_dt).days
     except Exception as e:
-        logger.warning(f"Error parsing buy_date {buy_date}: {e}")
-        return 0
+        logger.warning(f"Error parsing buy_date {buy_date!r}: {e}")
+        return None
 
 
-def is_long_term(holding_period_days: int, asset_type: str = "equity") -> bool:
-    """Check if holding qualifies as long-term capital gain.
-    
-    Rules:
-    - Equity/MF: > 365 days (12 months)
-    - Debt: > 3 years (1095 days) - not implemented
-    """
-    # For equity/MF: > 365 days = LTCG
-    # For debt: > 1095 days (not implemented yet)
-    return holding_period_days > LTCG_THRESHOLD_DAYS
+def _parse_date(buy_date) -> Optional[date]:
+    if not buy_date:
+        return None
+    try:
+        if isinstance(buy_date, str):
+            return datetime.fromisoformat(buy_date.replace("Z", "+00:00")).date()
+        if isinstance(buy_date, datetime):
+            return buy_date.date()
+        if isinstance(buy_date, date):
+            return buy_date
+    except Exception:
+        return None
+    return None
 
 
-def calculate_capital_gain(
-    buy_price: float,
-    current_price: float,
-    quantity: float,
-) -> float:
-    """Calculate absolute capital gain in rupees."""
-    invested = buy_price * quantity
-    current_value = current_price * quantity
+def is_long_term(holding_period_days: Optional[int], asset_class: str = "equity") -> bool:
+    """Check if the holding qualifies as long-term per ClearTax rules."""
+    if holding_period_days is None:
+        return False
+    if asset_class == "equity":
+        return holding_period_days > THRESHOLD_EQUITY_DAYS
+    return holding_period_days > THRESHOLD_OTHERS_DAYS
+
+
+def calculate_capital_gain(buy_price: float, current_price: float, quantity: float) -> float:
+    invested = (buy_price or 0) * (quantity or 0)
+    current_value = (current_price or 0) * (quantity or 0)
     return current_value - invested
 
+
+# ──────────────────────────────────────────────────────────────────────
+# Main entry point
+# ──────────────────────────────────────────────────────────────────────
 
 def calculate_tax_impact(
     holding: Dict[str, Any],
     exit_amount_rs: Optional[float] = None,
+    user_slab_rate: float = DEFAULT_SLAB_RATE,
+    ltcg_exemption_used: float = 0,
 ) -> Dict[str, Any]:
-    """Calculate tax impact for exiting a holding.
-    
+    """Calculate tax impact for exiting a holding using ClearTax FY 25-26 rules.
+
     Args:
-        holding: Portfolio holding with buy_date, buy_price, current_price, quantity
-        exit_amount_rs: Optional specific amount to exit (default: full holding)
-    
-    Returns:
-        {
-            "holding_period_days": int,
-            "is_long_term": bool,
-            "capital_gain": float,
-            "taxable_gain": float,
-            "tax_liability": float,
-            "tax_rate": float,
-            "post_tax_proceeds": float,
-            "tax_score": float,  # 0-10 for decision engine
-        }
+        holding: dict with buy_date, buy_price, current_price, quantity, asset_type, name
+        exit_amount_rs: optional partial exit (default: full value)
+        user_slab_rate: user's income tax slab (for debt/gold STCG). Default 30%.
+        ltcg_exemption_used: amount of ₹1.25L exemption already consumed in this FY
+                             (aggregated across all equity exits in the same plan).
+
+    Returns dict with holding_period_days/is_long_term/capital_gain/taxable_gain/
+    tax_liability/tax_rate/exit_amount_rs/post_tax_proceeds/tax_score/tax_regime/
+    tax_impact_pending.
     """
     try:
-        # Extract holding details
-        buy_price = float(holding.get("buy_price", 0))
-        current_price = float(holding.get("current_price", 0))
-        quantity = float(holding.get("quantity", 0))
+        buy_price = float(holding.get("buy_price", 0) or 0)
+        current_price = float(holding.get("current_price", 0) or 0)
+        quantity = float(holding.get("quantity", 0) or 0)
         buy_date = holding.get("buy_date")
-        
-        if not buy_date or buy_price == 0 or current_price == 0:
-            return _empty_tax_result("Missing price or date data")
-        
-        # Calculate holding period
-        holding_period_days = calculate_holding_period_days(buy_date)
-        is_lt = is_long_term(holding_period_days)
-        
-        # Calculate capital gain
+        asset_type = holding.get("asset_type") or ""
+        name = holding.get("name") or ""
+
+        asset_class = _classify_asset(asset_type, name)
         total_invested = buy_price * quantity
         total_current = current_price * quantity
         total_gain = total_current - total_invested
-        
-        # If partial exit specified, prorate the gain
-        if exit_amount_rs:
-            exit_ratio = exit_amount_rs / total_current if total_current > 0 else 0
-            capital_gain = total_gain * exit_ratio
+
+        if exit_amount_rs and total_current > 0:
+            exit_amount_rs = min(exit_amount_rs, total_current)
+            capital_gain = total_gain * (exit_amount_rs / total_current)
         else:
-            capital_gain = total_gain
             exit_amount_rs = total_current
-        
-        # Calculate tax
+            capital_gain = total_gain
+
+        # ── Pending state: no buy_date OR no prices ──
+        holding_period_days = calculate_holding_period_days(buy_date)
+        if holding_period_days is None or buy_price == 0 or current_price == 0:
+            return {
+                "holding_period_days": holding_period_days,
+                "holding_period_years": (round(holding_period_days / 365, 2) if holding_period_days else None),
+                "is_long_term": None,
+                "capital_gain": round(capital_gain, 2) if buy_price and current_price else 0.0,
+                "taxable_gain": 0.0,
+                "tax_liability": 0.0,
+                "tax_rate": 0.0,
+                "exit_amount_rs": round(exit_amount_rs, 2),
+                "post_tax_proceeds": round(exit_amount_rs, 2),
+                "tax_efficiency_pct": 100.0,
+                "tax_score": 5.0,  # neutral (unknown)
+                "tax_regime": "pending",
+                "asset_class": asset_class,
+                "tax_impact_pending": True,
+                "pending_reason": (
+                    "purchase_date_missing" if not buy_date else "price_missing"
+                ),
+            }
+
+        # ── Debt MF cutover: post-Apr-2023 always slab (STCG-like) ──
+        buy_dt = _parse_date(buy_date)
+        if asset_class == "debt" and buy_dt and buy_dt >= DEBT_MF_SLAB_CUTOVER:
+            is_lt = False
+            tax_regime = "debt_slab_always"
+        else:
+            is_lt = is_long_term(holding_period_days, asset_class)
+            tax_regime = f"{asset_class}_{'ltcg' if is_lt else 'stcg'}"
+
         if capital_gain <= 0:
-            # No tax on losses
-            tax_liability = 0
-            taxable_gain = 0
-            tax_rate = 0
-            tax_score = 0.0  # Best score - no tax hit (exit freely)
-        elif is_lt:
-            # LTCG: 10% on gains above ₹1L
-            taxable_gain = max(0, capital_gain - LTCG_EXEMPTION)
-            tax_liability = taxable_gain * LTCG_RATE
-            tax_rate = LTCG_RATE
-            
-            # Tax score based on actual tax impact
+            tax_liability = 0.0
+            taxable_gain = 0.0
+            tax_rate = 0.0
+            tax_score = 0.0  # free exit
+        else:
+            if asset_class == "equity":
+                if is_lt:
+                    effective_exemption = max(0, EQUITY_LTCG_EXEMPTION - ltcg_exemption_used)
+                    taxable_gain = max(0, capital_gain - effective_exemption)
+                    tax_rate = EQUITY_LTCG_RATE
+                else:
+                    taxable_gain = capital_gain
+                    tax_rate = EQUITY_STCG_RATE
+            elif asset_class == "debt":
+                # Debt: STCG at slab; LTCG (pre-Apr23 only, >24m) at 12.5%
+                if is_lt:
+                    taxable_gain = capital_gain
+                    tax_rate = NON_EQUITY_LTCG_RATE
+                else:
+                    taxable_gain = capital_gain
+                    tax_rate = user_slab_rate
+            else:  # gold / other
+                if is_lt:
+                    taxable_gain = capital_gain
+                    tax_rate = NON_EQUITY_LTCG_RATE
+                else:
+                    taxable_gain = capital_gain
+                    tax_rate = user_slab_rate
+
+            tax_liability = taxable_gain * tax_rate
+
+            # Tax score (0-10) — proportional to tax hit as % of exit amount
             tax_pct_of_exit = (tax_liability / exit_amount_rs * 100) if exit_amount_rs > 0 else 0
             if tax_pct_of_exit < 2:
-                tax_score = 1.0  # Very low tax
+                tax_score = 1.0
             elif tax_pct_of_exit < 5:
-                tax_score = 2.0 + (tax_pct_of_exit - 2) / 3 * 2  # 2-4
+                tax_score = 2.0 + (tax_pct_of_exit - 2) / 3 * 2
             elif tax_pct_of_exit < 10:
-                tax_score = 4.0 + (tax_pct_of_exit - 5) / 5 * 3  # 4-7
+                tax_score = 4.0 + (tax_pct_of_exit - 5) / 5 * 3
             else:
-                tax_score = min(10.0, 7.0 + (tax_pct_of_exit - 10) / 5 * 3)  # 7-10
-        else:
-            # STCG: 15% on all gains
-            taxable_gain = capital_gain
-            tax_liability = taxable_gain * STCG_RATE
-            tax_rate = STCG_RATE
-            
-            # Tax score based on actual tax impact (NOT hardcoded 10.0)
-            tax_pct_of_exit = (tax_liability / exit_amount_rs * 100) if exit_amount_rs > 0 else 0
-            if tax_pct_of_exit < 3:
-                tax_score = 2.0  # Low tax despite STCG
-            elif tax_pct_of_exit < 7:
-                tax_score = 3.0 + (tax_pct_of_exit - 3) / 4 * 3  # 3-6
-            elif tax_pct_of_exit < 12:
-                tax_score = 6.0 + (tax_pct_of_exit - 7) / 5 * 3  # 6-9
-            else:
-                tax_score = min(10.0, 9.0 + (tax_pct_of_exit - 12) / 3)  # 9-10
-        
+                tax_score = min(10.0, 7.0 + (tax_pct_of_exit - 10) / 5 * 3)
+
         post_tax_proceeds = exit_amount_rs - tax_liability
-        
+
         return {
             "holding_period_days": holding_period_days,
             "holding_period_years": round(holding_period_days / 365, 2),
@@ -165,16 +290,19 @@ def calculate_tax_impact(
             "capital_gain": round(capital_gain, 2),
             "taxable_gain": round(taxable_gain, 2),
             "tax_liability": round(tax_liability, 2),
-            "tax_rate": tax_rate,
+            "tax_rate": round(tax_rate, 4),
             "exit_amount_rs": round(exit_amount_rs, 2),
             "post_tax_proceeds": round(post_tax_proceeds, 2),
             "tax_efficiency_pct": round((post_tax_proceeds / exit_amount_rs * 100) if exit_amount_rs > 0 else 0, 2),
-            "tax_score": round(tax_score, 2),  # 0-10 for decision engine
+            "tax_score": round(tax_score, 2),
+            "tax_regime": tax_regime,
+            "asset_class": asset_class,
+            "tax_impact_pending": False,
         }
-    
+
     except Exception as e:
         logger.error(f"Tax calculation error: {e}")
-        return _empty_tax_result(f"Calculation error: {str(e)}")
+        return _empty_tax_result(f"Calculation error: {e}")
 
 
 

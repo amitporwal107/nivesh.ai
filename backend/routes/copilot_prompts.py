@@ -278,9 +278,17 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
             ctx["equity_pct"] = alloc.get("equity_pct", 0) or 0
             ctx["debt_pct"] = alloc.get("debt_pct", 0) or 0
             ctx["gold_pct"] = alloc.get("gold_pct", 0) or 0
-            ctx["other_pct"] = alloc.get("other_pct", 0) or max(
-                0, 100 - ctx["equity_pct"] - ctx["debt_pct"] - ctx["gold_pct"]
-            )
+            # Derive other_pct as the residual if not explicitly returned
+            explicit_other = alloc.get("other_pct")
+            if explicit_other is not None:
+                ctx["other_pct"] = explicit_other
+            elif alloc:
+                ctx["other_pct"] = max(0, round(
+                    100 - ctx["equity_pct"] - ctx["debt_pct"] - ctx["gold_pct"], 1
+                ))
+            else:
+                # intel didn't give allocation — leave 0; fallback block will recompute
+                ctx["other_pct"] = 0
             # Overlap — keep top pairs for viz
             pairs = intel.get("pairwise_overlap") or []
             if pairs:
@@ -315,32 +323,57 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
         total = 0.0
         equity = 0.0
         debt = 0.0
+        gold = 0.0
+        other = 0.0
         for h in holdings:
             val = float(h.get("quantity", 0) or 0) * float(h.get("current_price", 0) or 0)
+            if val <= 0:
+                continue
             total += val
             at = (h.get("asset_type") or "").lower()
-            if at in ("equity", "stock", "mutual_fund", "mutual fund"):
-                equity += val
-            elif "debt" in at or at == "bond":
+            name = (h.get("name") or "").lower()
+            # ── Gold bucket (SGBs, gold ETFs, gold MF) ──
+            if at == "gold" or "gold" in name or "sgb" in name or "sovereign gold" in name:
+                gold += val
+                continue
+            # ── Debt bucket (bonds, debt MF/ETF, FDs) ──
+            is_debt_mf_or_etf = at in ("mutual_fund", "etf") and any(
+                k in name for k in [
+                    "liquid", "gilt", "bond", "corporate bond", "short term",
+                    "overnight", "banking & psu", "low duration", "ultra short",
+                    "medium duration", "long duration", "credit risk",
+                    "floater", "dynamic bond", "debt",
+                ]
+            )
+            if at in ("bond", "debt", "fd", "deposit") or is_debt_mf_or_etf:
                 debt += val
+                continue
+            # ── Equity bucket (equity MF, stocks, equity ETFs) ──
+            if at in ("equity", "stock", "mutual_fund", "mutual fund", "etf"):
+                equity += val
+                continue
+            # ── Everything else (NPS, cash, REITs, AIFs) ──
+            other += val
         ctx["total_value"] = total
         if total > 0:
             ctx["equity_pct"] = round(equity / total * 100, 1)
             ctx["debt_pct"] = round(debt / total * 100, 1)
+            ctx["gold_pct"] = round(gold / total * 100, 1)
+            ctx["other_pct"] = round(other / total * 100, 1)
 
     # Active plan — actions count, exit flag, tax liability
     try:
         plan = await db.action_plans.find_one(
             {"user_id": user_id, "status": "active"},
-            {"_id": 0, "actions": 1, "tax_impact": 1},
+            {"_id": 0, "actions": 1, "total_tax_impact": 1, "tax_impact": 1},
             sort=[("created_at", -1)],
         )
         if plan:
             actions = plan.get("actions") or []
             ctx["action_count"] = len(actions)
             ctx["has_exit_actions"] = any((a.get("type") == "EXIT") for a in actions)
-            tax = plan.get("tax_impact") or {}
-            ctx["plan_tax_liability"] = tax.get("total_tax_liability", 0) or 0
+            tax = plan.get("total_tax_impact") or plan.get("tax_impact") or {}
+            ctx["plan_tax_liability"] = tax.get("total_tax_liability") or tax.get("total_tax") or 0
             # Underperformer count from action reason codes
             ctx["underperformer_count"] = sum(
                 1 for a in actions
