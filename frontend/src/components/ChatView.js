@@ -6,6 +6,7 @@ import {
   Send, Trash2, Bot, User, Plus, MessageSquare, ChevronLeft,
   Clock, TrendingUp, Shield, BarChart3, Lightbulb, ArrowRight,
   Zap, RefreshCw, Wrench, Layers, ArrowRightCircle, AlertTriangle, Target,
+  Maximize2, Minimize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -148,6 +149,8 @@ const ChatView = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [suggestedPrompts, setSuggestedPrompts] = useState([]);
+  const [tieredPrompts, setTieredPrompts] = useState({ primary: [], secondary: [], advanced: [], journey: "returning" });
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -176,9 +179,15 @@ const ChatView = () => {
     try {
       const res = await axios.get(`${API}/copilot/suggested-prompts`, { withCredentials: true });
       setSuggestedPrompts(res.data?.prompts || []);
+      setTieredPrompts({
+        primary: res.data?.primary || [],
+        secondary: res.data?.secondary || [],
+        advanced: res.data?.advanced || [],
+        journey: res.data?.journey || "returning",
+      });
     } catch (err) {
-      // Fallback to empty; user can still type
       setSuggestedPrompts([]);
+      setTieredPrompts({ primary: [], secondary: [], advanced: [], journey: "returning" });
     } finally {
       setSuggestionsLoading(false);
     }
@@ -552,19 +561,21 @@ const ChatView = () => {
                 <ChatMessageSkeleton />
               </div>
             ) : messages.length === 0 && !streaming ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-10 px-2">
-                <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-5">
+              <div className="flex flex-col items-center justify-start h-full py-8 px-2 overflow-y-auto">
+                <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-4">
                   <Bot className="w-7 h-7 text-emerald-600" strokeWidth={1.5} />
                 </div>
-                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  What would you like to fix today?
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white text-center mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  {tieredPrompts.journey === "first_time" ? "Welcome — let me start you off right." :
+                   tieredPrompts.journey === "post_action" ? "You have pending actions. What next?" :
+                   "What should we tackle today?"}
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md">
-                  I've looked at your portfolio. Tap any of these to get a direct answer — no typing needed.
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-5 max-w-md text-center">
+                  Tap a decision below to get a direct answer — no typing needed.
                 </p>
                 {suggestionsLoading ? (
                   <div className="flex items-center gap-2 text-slate-400 text-xs"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analysing your portfolio…</div>
-                ) : suggestedPrompts.length === 0 ? (
+                ) : (tieredPrompts.primary.length === 0 && tieredPrompts.secondary.length === 0) ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
                     {intentQuestions.map((q) => (
                       <button
@@ -581,38 +592,113 @@ const ChatView = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-2.5 max-w-lg w-full">
-                    {suggestedPrompts.map((p) => {
+                  <div className="w-full max-w-xl space-y-4">
+                    {/* ── PRIMARY (hero) ───────────────────────────── */}
+                    {tieredPrompts.primary.map((p) => {
                       const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
                       const c = PROMPT_COLORS[p.color] || PROMPT_COLORS.emerald;
                       return (
                         <button
                           key={p.id}
-                          data-testid={`copilot-prompt-${p.id}`}
+                          data-testid={`copilot-prompt-primary-${p.id}`}
                           onClick={() => runSuggestedPrompt(p)}
                           disabled={streaming}
-                          className={`group flex items-start gap-3 text-left p-3 rounded-xl border ${c.bg} ${c.border} ${c.hover} transition-all disabled:opacity-60`}
+                          className={`group relative w-full flex items-start gap-3.5 text-left p-4 rounded-2xl border-2 ${c.bg} ${c.border} ${c.hover} shadow-sm hover:shadow-md transition-all disabled:opacity-60`}
                         >
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-white/70 dark:bg-white/5 ${c.text}`}>
-                            <Icon className="w-4 h-4" strokeWidth={1.8} />
+                          <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-white/80 dark:bg-white/10 ${c.text}`}>
+                            <Icon className="w-5 h-5" strokeWidth={2} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={`text-sm font-semibold ${c.text}`}>{p.label}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${c.bg} ${c.text} border ${c.border}`}>
+                                Start here
+                              </span>
                               {p.badge && (
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text} whitespace-nowrap`}>
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text}`}>
                                   {p.badge}
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2">
-                              {p.query}
+                            <p className={`text-base font-bold mt-1 ${c.text}`}>{p.label}</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                              → {p.outcome}
                             </p>
                           </div>
-                          <ArrowRight className={`w-4 h-4 mt-1 ${c.text} opacity-0 group-hover:opacity-100 transition-opacity`} />
+                          <ArrowRight className={`w-5 h-5 mt-1 ${c.text} opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all`} />
                         </button>
                       );
                     })}
+
+                    {/* ── SECONDARY ─────────────────────────────────── */}
+                    {tieredPrompts.secondary.length > 0 && (
+                      <div className="grid grid-cols-1 gap-2">
+                        {tieredPrompts.secondary.map((p) => {
+                          const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
+                          const c = PROMPT_COLORS[p.color] || PROMPT_COLORS.emerald;
+                          return (
+                            <button
+                              key={p.id}
+                              data-testid={`copilot-prompt-secondary-${p.id}`}
+                              onClick={() => runSuggestedPrompt(p)}
+                              disabled={streaming}
+                              className={`group flex items-start gap-3 text-left p-3 rounded-xl border ${c.bg} ${c.border} ${c.hover} transition-all disabled:opacity-60`}
+                            >
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-white/70 dark:bg-white/5 ${c.text}`}>
+                                <Icon className="w-4 h-4" strokeWidth={1.8} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-sm font-semibold ${c.text}`}>{p.label}</span>
+                                  {p.badge && (
+                                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text}`}>
+                                      {p.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                                  → {p.outcome}
+                                </p>
+                              </div>
+                              <ArrowRight className={`w-4 h-4 mt-1 ${c.text} opacity-0 group-hover:opacity-100 transition-opacity`} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* ── ADVANCED (collapsed by default) ───────────── */}
+                    {tieredPrompts.advanced.length > 0 && (
+                      <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                        <button
+                          data-testid="copilot-prompts-advanced-toggle"
+                          onClick={() => setShowAdvanced((v) => !v)}
+                          className="w-full flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-white uppercase tracking-wider px-1"
+                        >
+                          <span>Advanced · for deeper dives</span>
+                          {showAdvanced ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                        </button>
+                        {showAdvanced && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                            {tieredPrompts.advanced.map((p) => {
+                              const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
+                              const c = PROMPT_COLORS[p.color] || PROMPT_COLORS.emerald;
+                              return (
+                                <button
+                                  key={p.id}
+                                  data-testid={`copilot-prompt-advanced-${p.id}`}
+                                  onClick={() => runSuggestedPrompt(p)}
+                                  disabled={streaming}
+                                  className={`group flex items-center gap-2 text-left p-2.5 rounded-lg border ${c.bg} ${c.border} ${c.hover} transition-all disabled:opacity-60`}
+                                >
+                                  <Icon className={`w-3.5 h-3.5 ${c.text} flex-shrink-0`} strokeWidth={2} />
+                                  <span className={`text-xs font-medium ${c.text} truncate`}>{p.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -132,8 +132,10 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "fix_portfolio",
         "bucket": "fix",
-        "label": "Fix My Portfolio",
-        "query": "Fix my portfolio. What are the top 3 actions I should take based on my current holdings?",
+        "tier": "primary",
+        "label": "Let's clean up my portfolio",
+        "outcome": "Get 3 tax-smart actions to fix overlap, cost, and risk",
+        "query": "Fix my portfolio. What are the top 3 actions I should take based on my current holdings? Include estimated tax impact and annual savings.",
         "icon": "Wrench",
         "color": "rose",
         "scorer": _score_fix_portfolio,
@@ -141,7 +143,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "overlap",
         "bucket": "fix",
-        "label": "Reduce Overlap",
+        "tier": "secondary",
+        "label": "Fix overlap in my funds",
+        "outcome": "Find duplicate funds and which to exit with lowest tax hit",
         "query": "Which funds or stocks in my portfolio are overlapping the most, and which ones should I remove with minimal tax impact?",
         "icon": "Layers",
         "color": "purple",
@@ -150,7 +154,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "risk_allocation",
         "bucket": "risk",
-        "label": "Rebalance Risk",
+        "tier": "secondary",
+        "label": "Rebalance my risk",
+        "outcome": "See equity/debt/gold mix and a rebalance plan",
         "query": "Is my portfolio properly balanced across equity, debt, and gold? What should I change to reduce volatility without hurting returns?",
         "icon": "Shield",
         "color": "sky",
@@ -159,7 +165,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "exit_lowest_tax",
         "bucket": "exit",
-        "label": "What to Sell First",
+        "tier": "secondary",
+        "label": "Which fund should I exit first",
+        "outcome": "Rank my funds by exit-priority and show tax savings",
         "query": "If I want to exit some investments, which ones should I sell first with the lowest tax impact? Show tax-aware analysis.",
         "icon": "ArrowRightCircle",
         "color": "amber",
@@ -168,7 +176,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "where_to_invest",
         "bucket": "add",
-        "label": "Where to Invest ₹1L",
+        "tier": "secondary",
+        "label": "Where should I invest ₹1L",
+        "outcome": "Get a specific fund suggestion that fills my portfolio gaps",
         "query": "Based on my current portfolio gaps, where should I invest ₹1 lakh of fresh money to improve diversification?",
         "icon": "TrendingUp",
         "color": "emerald",
@@ -177,7 +187,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "performance",
         "bucket": "deep",
-        "label": "Find Underperformers",
+        "tier": "advanced",
+        "label": "Find my weak performers",
+        "outcome": "Spot funds lagging their benchmark and get replacements",
         "query": "Which investments in my portfolio are underperforming their benchmarks? Should I replace them?",
         "icon": "BarChart3",
         "color": "violet",
@@ -186,7 +198,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "concentration",
         "bucket": "risk",
-        "label": "Concentration Risk",
+        "tier": "advanced",
+        "label": "Check my concentration risk",
+        "outcome": "See if any sector, stock, or AMC is eating too much of my portfolio",
         "query": "Am I overexposed to any single sector, stock, or fund house? Show me the concentration risk and how to reduce it.",
         "icon": "AlertTriangle",
         "color": "red",
@@ -195,7 +209,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "what_if",
         "bucket": "deep",
-        "label": "What If I Follow The Plan",
+        "tier": "advanced",
+        "label": "Simulate my plan",
+        "outcome": "Preview how my portfolio changes if I follow every action",
         "query": "What happens if I follow your recommended actions? How will my portfolio look after — show before vs after allocation, risk, and expected returns.",
         "icon": "Zap",
         "color": "indigo",
@@ -204,7 +220,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "tax_optimize",
         "bucket": "deep",
-        "label": "Optimise Taxes",
+        "tier": "advanced",
+        "label": "Optimise my taxes",
+        "outcome": "Minimise STCG/LTCG on any rebalance + surface 80C opportunities",
         "query": "How can I optimise taxes in my portfolio if I rebalance now? Include STCG/LTCG breakdown and 80C opportunities.",
         "icon": "Lightbulb",
         "color": "yellow",
@@ -213,7 +231,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "long_term",
         "bucket": "deep",
-        "label": "Long-Term Strategy",
+        "tier": "advanced",
+        "label": "Am I on track for long-term wealth",
+        "outcome": "Check if my mix fits a 10-year compounding goal",
         "query": "Is my portfolio aligned with long-term wealth creation (10+ year horizon)? What should I change today to get there?",
         "icon": "Target",
         "color": "teal",
@@ -315,19 +335,43 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
 
 @router.get("/copilot/suggested-prompts")
 async def suggested_prompts(request: Request) -> Dict[str, Any]:
-    """Return the top 5 most relevant prompts for this user right now."""
+    """Return the top 5 most relevant prompts for this user right now,
+    grouped into 3 tiers: primary (1) · secondary (2-3) · advanced (collapsed).
+    """
     user = await get_current_user(request)
     ctx = await _build_context(user["user_id"])
+
+    # User-journey awareness — affects which prompt becomes "primary"
+    total_value = ctx.get("total_value", 0)
+    action_count = ctx.get("action_count", 0)
+    try:
+        chat_sessions = await db.chat_sessions.count_documents({"user_id": user["user_id"]})
+    except Exception:
+        chat_sessions = 0
+    is_first_time = (chat_sessions == 0 and total_value > 0)
+    has_active_plan = action_count > 0
+    if is_first_time:
+        journey = "first_time"
+    elif has_active_plan:
+        journey = "post_action"   # user has an existing plan → nudge them to act
+    else:
+        journey = "returning"
 
     scored = []
     for tpl in _PROMPT_TEMPLATES:
         score, badge = tpl["scorer"](ctx)
         if score <= 0:
             continue
+        # Journey boost — primary prompt stays primary, but first-time users
+        # get an explicit "Start here" nudge on fix_portfolio
+        if journey == "first_time" and tpl["id"] == "fix_portfolio":
+            score += 20  # lock it to the very top
         scored.append({
             "id": tpl["id"],
             "bucket": tpl["bucket"],
+            "tier": tpl.get("tier", "secondary"),
             "label": tpl["label"],
+            "outcome": tpl.get("outcome", ""),
             "query": tpl["query"],
             "icon": tpl["icon"],
             "color": tpl["color"],
@@ -335,10 +379,26 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
             "score": score,
         })
     scored.sort(key=lambda p: p["score"], reverse=True)
-    top = scored[:_MAX_PROMPTS]
 
+    # Enforce tier shape: 1 primary · 2-3 secondary · up to 3 advanced (collapsed)
+    primary = [p for p in scored if p["tier"] == "primary"][:1]
+    secondary = [p for p in scored if p["tier"] == "secondary"][:3]
+    advanced = [p for p in scored if p["tier"] == "advanced"][:3]
+
+    # If no primary slot filled, elevate the top secondary
+    if not primary and secondary:
+        promoted = secondary.pop(0)
+        promoted["tier"] = "primary"
+        primary = [promoted]
+
+    ordered = primary + secondary + advanced
+    top = ordered[:_MAX_PROMPTS + 3]  # primary(1) + secondary(up to 3) + advanced(up to 3) → ~7 max
     return {
         "prompts": top,
+        "journey": journey,
+        "primary": primary,
+        "secondary": secondary,
+        "advanced": advanced,
         "context_summary": {
             "total_value": ctx["total_value"],
             "equity_pct": ctx["equity_pct"],
