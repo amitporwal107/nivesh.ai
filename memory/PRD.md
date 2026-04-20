@@ -2,6 +2,13 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V2 degradation fix + full logic spec
+- [x] **Root cause of "only 1 action" bug**: admin secret `POSTGRES_URL` was missing after container restart → `pg_client.get_pool()` returned None → `portfolio_intelligence` returned `_empty_response` → only Rule 5 (debt gap, the only rule that doesn't need PG) fired. Plan Board showed just "ADD SBI Magnum Gilt".
+- [x] **Fix**: `pg_client.get_pool()` now falls back to `postgresql://postgres:postgres@localhost:5432/nivesh` when the secret is missing (matches the bootstrap script's DB). Also hydrates `POSTGRES_URL` and `REDIS_URL` into admin secrets so auto-recovery is permanent.
+- [x] **Transparency**: `compute_portfolio_intelligence` now logs `V2 DEGRADED` error and sets `response.degraded = true, degraded_reason = "..."` when Postgres is unreachable so the UI can show a warning instead of silent-fail.
+- [x] **Verified**: plan regenerated → 6 actions (5 Rule 1 Regular→Direct + 1 Rule 5 debt gap). Previously: 1 action.
+- [x] **Full V2 logic spec written** to `/app/memory/V2_COMPLETE_LOGIC.md` — scoring weights, rule priorities, failure modes, public APIs, Phase B gaps.
+
 ### Feb 2026 — V2 is the single source of truth (AI grounding fix)
 - [x] **Critical architecture fix**: Copilot AI was fabricating recommendations (e.g. "sell IRB Infrastructure for tax-loss harvesting") that V2 Decision Engine never produced. Resulting plan actions never matched AI's narrative.
 - [x] Rewrote `FINANCIAL_ADVISOR_SYSTEM` prompt in `services/ai_engine.py` with hard grounding rules: AI cannot invent stocks, funds, exits, switches, or numbers outside V2's output; must cite V2 action or deflect.

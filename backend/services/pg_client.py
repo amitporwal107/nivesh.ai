@@ -33,11 +33,17 @@ async def get_pool() -> Optional[asyncpg.Pool]:
 
     If the URL changed (admin updated secret), the pool is rebuilt.
     Returns None if URL is not configured or connection fails.
+
+    Falls back to a local-postgres default so V2 keeps working when the
+    admin secret hasn't been hydrated yet (container cold-start / fork).
     """
     global _pool, _last_url
-    url = _secrets.get("POSTGRES_URL")
+    import os
+    url = _secrets.get("POSTGRES_URL") or os.environ.get("POSTGRES_URL")
     if not url:
-        return None
+        # Local default — matches the auto-recovery script's bootstrapped DB.
+        url = "postgresql://postgres:postgres@localhost:5432/nivesh"
+        logger.warning("POSTGRES_URL secret/env missing — falling back to local default")
     if _pool is not None and _last_url == url:
         return _pool
     # Tear down old pool

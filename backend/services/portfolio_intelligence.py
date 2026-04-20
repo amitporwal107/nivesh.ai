@@ -121,9 +121,19 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
     # 2. Resolve each MF → Postgres instrument_id + pull holdings + metadata
     pool = await pg_client.get_pool()
     if pool is None:
+        logger.error(
+            "V2 DEGRADED: Postgres unavailable — overlap/AMC/quality analytics "
+            "skipped for user %s. Only Rule 5 (debt allocation) will fire.",
+            user_id,
+        )
         resp = _empty_response("Postgres not configured")
         resp["total_value"] = holistic.get("total_value", 0)
         resp["asset_allocation"] = holistic.get("asset_allocation")
+        resp["degraded"] = True
+        resp["degraded_reason"] = (
+            "Postgres is unavailable — V2's overlap / AMC / quality checks "
+            "are skipped until the datastore is restored."
+        )
         return resp
 
     mf_investments: List[Dict[str, Any]] = []
