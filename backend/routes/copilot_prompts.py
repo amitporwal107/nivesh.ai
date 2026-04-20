@@ -252,14 +252,19 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
         "total_value": 0,
         "equity_pct": 0,
         "debt_pct": 0,
+        "gold_pct": 0,
+        "other_pct": 0,
         "max_overlap_pct": 0,
         "overlap_pair_count": 0,
+        "top_overlaps": [],         # [{a, b, overlap_pct}, ...] top 3
         "top_amc_name": None,
         "top_amc_pct": 0,
+        "top_amcs": [],             # [{name, pct}, ...] top 3
         "action_count": 0,
         "has_exit_actions": False,
         "plan_tax_liability": 0,
         "underperformer_count": 0,
+        "fund_count": 0,
     }
 
     # Portfolio intelligence — gives overlap, AMC, asset allocation
@@ -272,17 +277,35 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
             alloc = intel.get("asset_allocation") or {}
             ctx["equity_pct"] = alloc.get("equity_pct", 0) or 0
             ctx["debt_pct"] = alloc.get("debt_pct", 0) or 0
-            # Overlap
+            ctx["gold_pct"] = alloc.get("gold_pct", 0) or 0
+            ctx["other_pct"] = alloc.get("other_pct", 0) or max(
+                0, 100 - ctx["equity_pct"] - ctx["debt_pct"] - ctx["gold_pct"]
+            )
+            # Overlap — keep top pairs for viz
             pairs = intel.get("pairwise_overlap") or []
             if pairs:
                 ctx["overlap_pair_count"] = len(pairs)
-                ctx["max_overlap_pct"] = max((p.get("overlap_pct", 0) for p in pairs), default=0)
-            # AMC concentration — pick top
+                sorted_pairs = sorted(pairs, key=lambda p: p.get("overlap_pct", 0), reverse=True)
+                ctx["max_overlap_pct"] = sorted_pairs[0].get("overlap_pct", 0) if sorted_pairs else 0
+                ctx["top_overlaps"] = [
+                    {
+                        "a": (p.get("fund_a") or p.get("a") or "Fund A")[:28],
+                        "b": (p.get("fund_b") or p.get("b") or "Fund B")[:28],
+                        "overlap_pct": round(p.get("overlap_pct", 0) or 0, 1),
+                    }
+                    for p in sorted_pairs[:3]
+                ]
+            # AMC concentration — pick top 3
             amc_exposure = intel.get("amc_exposure") or {}
             if amc_exposure:
-                top = max(amc_exposure.items(), key=lambda x: x[1])
-                ctx["top_amc_name"] = top[0]
-                ctx["top_amc_pct"] = top[1]
+                sorted_amcs = sorted(amc_exposure.items(), key=lambda x: x[1], reverse=True)
+                ctx["top_amc_name"] = sorted_amcs[0][0]
+                ctx["top_amc_pct"] = round(sorted_amcs[0][1] or 0, 1)
+                ctx["top_amcs"] = [
+                    {"name": name[:20], "pct": round(pct or 0, 1)}
+                    for name, pct in sorted_amcs[:3]
+                ]
+            ctx["fund_count"] = len(intel.get("dedup_holdings") or intel.get("holdings") or [])
     except Exception as e:
         logger.debug(f"portfolio_intelligence unavailable: {e}")
 
@@ -333,6 +356,177 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
 # API
 # ──────────────────────────────────────────────────────────────────────────
 
+# Color palette — mirrors frontend Insights Dashboard theme (emerald/sky/amber/rose…)
+_VIZ_PALETTE = {
+    "equity": "#10b981",    # emerald-500
+    "debt":   "#0ea5e9",    # sky-500
+    "gold":   "#f59e0b",    # amber-500
+    "other":  "#94a3b8",    # slate-400
+    "danger": "#ef4444",    # red-500
+    "warn":   "#f97316",    # orange-500
+    "accent": "#8b5cf6",    # violet-500
+    "pos":    "#10b981",
+    "neg":    "#ef4444",
+    "muted":  "#cbd5e1",
+}
+
+
+def _build_viz_for_prompt(prompt_id: str, ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return a compact viz payload for a prompt card.
+
+    Schema:
+      { "kind": "donut"|"bar"|"gauge"|"stat"|"split",
+        "series": [ {"label":str, "value":float, "color":str} ],
+        "headline": str,             # large number shown on the card
+        "caption": str }             # tiny descriptor
+    Returns None when no portfolio data is available to visualise.
+    """
+    total = ctx.get("total_value", 0) or 0
+    if total <= 0:
+        return None
+
+    eq = ctx.get("equity_pct", 0) or 0
+    dt = ctx.get("debt_pct", 0) or 0
+    gd = ctx.get("gold_pct", 0) or 0
+    ot = ctx.get("other_pct", 0) or max(0, 100 - eq - dt - gd)
+
+    # Defensive rounding for display
+    eq_r, dt_r, gd_r, ot_r = round(eq, 1), round(dt, 1), round(gd, 1), round(ot, 1)
+
+    if prompt_id == "fix_portfolio":
+        # Donut of current asset-mix with action_count as headline
+        actions = ctx.get("action_count", 0) or 0
+        return {
+            "kind": "donut",
+            "series": [
+                {"label": "Equity", "value": eq_r, "color": _VIZ_PALETTE["equity"]},
+                {"label": "Debt",   "value": dt_r, "color": _VIZ_PALETTE["debt"]},
+                {"label": "Gold",   "value": gd_r, "color": _VIZ_PALETTE["gold"]},
+                {"label": "Other",  "value": ot_r, "color": _VIZ_PALETTE["other"]},
+            ],
+            "headline": f"{actions}" if actions else f"{eq_r:.0f}%",
+            "caption": f"{actions} actions pending" if actions else "Asset mix today",
+        }
+
+    if prompt_id == "risk_allocation":
+        return {
+            "kind": "donut",
+            "series": [
+                {"label": "Equity", "value": eq_r, "color": _VIZ_PALETTE["equity"]},
+                {"label": "Debt",   "value": dt_r, "color": _VIZ_PALETTE["debt"]},
+                {"label": "Gold",   "value": gd_r, "color": _VIZ_PALETTE["gold"]},
+                {"label": "Other",  "value": ot_r, "color": _VIZ_PALETTE["other"]},
+            ],
+            "headline": f"{eq_r:.0f}%",
+            "caption": "Equity share",
+        }
+
+    if prompt_id == "overlap":
+        pairs = ctx.get("top_overlaps") or []
+        if not pairs:
+            return None
+        return {
+            "kind": "bar",
+            "series": [
+                {
+                    "label": f"{p['a']} × {p['b']}",
+                    "value": p["overlap_pct"],
+                    "color": _VIZ_PALETTE["accent"] if p["overlap_pct"] >= 60 else _VIZ_PALETTE["muted"],
+                }
+                for p in pairs
+            ],
+            "headline": f"{ctx.get('max_overlap_pct', 0):.0f}%",
+            "caption": f"{len(pairs)} overlapping pairs",
+        }
+
+    if prompt_id == "concentration":
+        amcs = ctx.get("top_amcs") or []
+        if not amcs:
+            return None
+        return {
+            "kind": "bar",
+            "series": [
+                {
+                    "label": a["name"],
+                    "value": a["pct"],
+                    "color": _VIZ_PALETTE["danger"] if a["pct"] >= 25 else (_VIZ_PALETTE["warn"] if a["pct"] >= 15 else _VIZ_PALETTE["muted"]),
+                }
+                for a in amcs
+            ],
+            "headline": f"{ctx.get('top_amc_pct', 0):.0f}%",
+            "caption": f"in {ctx.get('top_amc_name') or 'top AMC'}",
+        }
+
+    if prompt_id == "where_to_invest":
+        # Gauge: debt gap vs target 25%
+        target = 25.0
+        gap = max(0, target - dt_r)
+        return {
+            "kind": "gauge",
+            "series": [
+                {"label": "Debt today", "value": dt_r, "color": _VIZ_PALETTE["debt"]},
+                {"label": "Gap to target", "value": gap, "color": _VIZ_PALETTE["muted"]},
+            ],
+            "headline": f"{dt_r:.0f}%",
+            "caption": f"Debt today · target {target:.0f}%",
+        }
+
+    if prompt_id == "exit_lowest_tax":
+        actions = ctx.get("action_count", 0) or 0
+        if not actions:
+            return None
+        return {
+            "kind": "stat",
+            "series": [],
+            "headline": f"{actions}",
+            "caption": "Tax-smart exits ready",
+        }
+
+    if prompt_id == "performance":
+        underp = ctx.get("underperformer_count", 0) or 0
+        return {
+            "kind": "split",
+            "series": [
+                {"label": "Weak",   "value": underp,                       "color": _VIZ_PALETTE["neg"]},
+                {"label": "Strong", "value": max(0, (ctx.get('fund_count', 0) or 0) - underp), "color": _VIZ_PALETTE["pos"]},
+            ],
+            "headline": f"{underp}",
+            "caption": "Underperforming funds",
+        }
+
+    if prompt_id == "what_if":
+        actions = ctx.get("action_count", 0) or 0
+        return {
+            "kind": "stat",
+            "series": [],
+            "headline": f"{actions}",
+            "caption": "Actions to simulate",
+        }
+
+    if prompt_id == "tax_optimize":
+        tax = ctx.get("plan_tax_liability", 0) or 0
+        return {
+            "kind": "stat",
+            "series": [],
+            "headline": f"₹{tax/1000:.0f}k" if tax >= 1000 else f"₹{int(tax)}",
+            "caption": "Est. tax liability",
+        }
+
+    if prompt_id == "long_term":
+        # A simple progress — equity share as a proxy for long-term alignment
+        return {
+            "kind": "gauge",
+            "series": [
+                {"label": "Equity",  "value": eq_r,          "color": _VIZ_PALETTE["equity"]},
+                {"label": "Non-equity", "value": max(0, 100 - eq_r), "color": _VIZ_PALETTE["muted"]},
+            ],
+            "headline": f"{eq_r:.0f}%",
+            "caption": "Equity tilt (10y)",
+        }
+
+    return None
+
+
 @router.get("/copilot/suggested-prompts")
 async def suggested_prompts(request: Request) -> Dict[str, Any]:
     """Return the top 5 most relevant prompts for this user right now,
@@ -377,6 +571,7 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
             "color": tpl["color"],
             "badge": badge,
             "score": score,
+            "viz": _build_viz_for_prompt(tpl["id"], ctx),
         })
     scored.sort(key=lambda p: p["score"], reverse=True)
 
@@ -403,8 +598,17 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
             "total_value": ctx["total_value"],
             "equity_pct": ctx["equity_pct"],
             "debt_pct": ctx["debt_pct"],
+            "gold_pct": ctx["gold_pct"],
+            "other_pct": ctx["other_pct"],
+            "top_amc_name": ctx["top_amc_name"],
             "top_amc_pct": ctx["top_amc_pct"],
+            "top_amcs": ctx["top_amcs"],
             "max_overlap_pct": ctx["max_overlap_pct"],
+            "top_overlaps": ctx["top_overlaps"],
             "action_count": ctx["action_count"],
+            "has_exit_actions": ctx["has_exit_actions"],
+            "plan_tax_liability": ctx["plan_tax_liability"],
+            "underperformer_count": ctx["underperformer_count"],
+            "fund_count": ctx["fund_count"],
         },
     }

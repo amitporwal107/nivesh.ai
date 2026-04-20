@@ -1,0 +1,37 @@
+{
+  "summary": "Tested Nivesh Copilot interactive prompt cards (backend + frontend). All 8 review items PASS. Backend /api/copilot/suggested-prompts returns viz payloads (donut/bar/gauge/stat) and enriched context_summary. Frontend: FAB opens drawer, maximize works, empty-state shows primary hero card with Recharts donut, 3 secondary cards (bar/donut/stat), 3 advanced tiny chips, clicking primary streams AI reply, Save-as-Plan CTA appears, POST /api/plans/generate succeeds (~2s), PLAN READY state shows, Open Plan Board navigates to #plan_board and PlanBoardView renders.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/copilot/suggested-prompts", "issue": "context_summary.top_amcs is empty [] and fund_count is 0 for user_f087c6332922 despite 64 holdings. portfolio_intelligence.amc_exposure and dedup_holdings/holdings appear empty. As a result, the 'concentration' prompt never surfaces and the 'Check my concentration risk' tier isn't available to this test user. Not a regression of this feature, but limits the viz coverage users see."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Nivesh Copilot drawer", "issues": ["Radix Dialog accessibility warning in console: 'DialogContent requires a DialogTitle for the component to be accessible for screen reader users' — wrap missing title with VisuallyHidden or add aria-describedby. Does not break UX, but shows up repeatedly in console."]},
+      {"screen": "Secondary card 'Which fund should I exit first'", "issues": ["Uses kind=stat viz (just a big '6' + caption). Renders fine but visually lighter than donut/bar siblings — consider a mini progress/split variant for visual parity with the other secondary cards."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_28.json"],
+  "action_items": [
+    "(Minor) Populate amc_exposure / dedup_holdings for priyankamantri in portfolio_intelligence so concentration prompt and fund_count render with real data.",
+    "(Minor, a11y) Add DialogTitle (or VisuallyHidden) inside NiveshCopilotDrawer's DialogContent to silence Radix a11y warning.",
+    "(Optional polish) Give stat-only secondary cards (exit_lowest_tax, what_if, tax_optimize) a small decorative chart so the secondary row has consistent visual weight."
+  ],
+  "critical_code_review_comments": [
+    "copilot_prompts.py _build_viz_for_prompt is clean and defensive (None when no total_value). Good.",
+    "SaveAsPlanCard correctly uses REACT_APP_BACKEND_URL + withCredentials for POST /api/plans/generate. Good.",
+    "CopilotPromptCard is well-structured with 3 variants; isAnimationActive={false} on charts is correct for drawer performance.",
+    "shouldShowSavePlan heuristic matches on userQuery OR content, which is robust for the fix_portfolio flow."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings, active plan with 6 actions)",
+  "seed_data_creation": "None — used existing priyankamantri user.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth flow: set cookie session_token then navigate to /dashboard (not /). Landing page shows only if cookie missing. Dashboard auto-opens ActionPromptModal — click 'Review Later' before using the FAB. Click FAB via page.evaluate (direct click intercepted). To reach empty state with prompt cards, click sidebar 'New Chat' inside the drawer. Primary card is `copilot-prompt-primary-fix_portfolio`. Save-as-plan CTA appears only after the AI reply streams (~6-15s).",
+  "rca of the issue": "No bugs found in this iteration. The only observed data gap (empty top_amcs) is a portfolio_intelligence dataset issue for this user, not a feature-implementation regression."
+}
