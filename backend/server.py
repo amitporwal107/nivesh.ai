@@ -28,6 +28,7 @@ from deps import db, client, seed_admin_and_whitelist
 # Import all route modules
 from routes.auth import router as auth_router
 from routes.admin import router as admin_router
+from routes.admin_datastores import router as admin_datastores_router
 from routes.gmail import router as gmail_router
 from routes.portfolio import router as portfolio_router
 from routes.upload import router as upload_router
@@ -49,6 +50,7 @@ app = FastAPI(title="nivesh.ai API", version="2.0")
 # Include all routers
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(admin_datastores_router)
 app.include_router(gmail_router)
 app.include_router(portfolio_router)
 app.include_router(upload_router)

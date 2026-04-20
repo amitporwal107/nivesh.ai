@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import SecretsSection from "@/components/admin/SecretsSection";
 import FeatureFlagsSection from "@/components/admin/FeatureFlagsSection";
 import MFDataSection from "@/components/admin/MFDataSection";
+import DatastoreSection from "@/components/admin/DatastoreSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -181,6 +182,7 @@ const AdminView = () => {
       {/* CAS Parser API Config */}
       <SecretsSection />
       <FeatureFlagsSection />
+      <DatastoreSection />
       <MFDataSection />
 
       {/* Add Email Form */}
