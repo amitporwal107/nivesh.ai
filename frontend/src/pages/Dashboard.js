@@ -156,17 +156,8 @@ const Dashboard = () => {
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
-        {/* Top bar with Copilot trigger + user-profile dropdown */}
+        {/* Top bar with user-profile dropdown */}
         <div className="sticky top-0 z-30 flex justify-end items-center gap-3 px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
-          <button
-            data-testid="nivesh-copilot-trigger"
-            onClick={() => setCopilotOpen(true)}
-            className="flex items-center gap-2 pl-3 pr-4 py-1.5 rounded-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-sm hover:shadow-md transition-all"
-            aria-label="Open Nivesh Copilot"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span className="text-sm font-semibold tracking-wide">Nivesh Copilot</span>
-          </button>
           <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
@@ -174,7 +165,18 @@ const Dashboard = () => {
         </div>
       </main>
       
-      {/* Nivesh Copilot slide-out drawer */}
+      {/* Nivesh Copilot floating FAB (bottom-right) + slide-out drawer (from right) */}
+      {!copilotOpen && (
+        <button
+          data-testid="nivesh-copilot-trigger"
+          onClick={() => setCopilotOpen(true)}
+          aria-label="Open Nivesh Copilot"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 pl-4 pr-5 py-3 rounded-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5"
+        >
+          <Sparkles className="w-5 h-5" />
+          <span className="text-sm font-semibold tracking-wide hidden sm:inline">Nivesh Copilot</span>
+        </button>
+      )}
       <NiveshCopilotDrawer open={copilotOpen} onClose={() => setCopilotOpen(false)} />
 
       {/* Action Prompt Modal */}
