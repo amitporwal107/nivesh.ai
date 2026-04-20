@@ -1,0 +1,47 @@
+{
+  "summary": "V2.5 Decision Engine backend tests — 23/23 pytest passing. Validated (a) POST /api/plans/generate returns engine_version=v2.5 with all new fields [portfolio_score, portfolio_score_breakdown (5 keys), confidence_score + confidence_breakdown.label, plan_summary, improvements, do_nothing, degraded]; (b) hard cap at 6 actions; (c) Rule 3 stricter trigger (quality>=6.5 AND both ret_1y<8 AND ret_3y<10 — only-one-condition funds NOT flagged); (d) Rule 5 dynamic debt target mapping (30/20/10 by risk); (e) Rule 7 Do-Nothing plan_summary format; (f) EXIT guardrails — quality≥7.5 + overlap<80% blocks EXIT (guardrail_blocked=true, BLOCKED_HIGH_QUALITY_FLOOR); tax_efficiency_score<1.0 blocks (BLOCKED_TAX_EXCEEDS_BENEFIT); (g) score_mf_hold returns {hold_score, strong_hold, high_quality, low_overlap, tax_penalty}; (h) score_mf_switch returns all 9 fields incl. tax_efficiency_score/annual_benefit_rs; (i) MF_QUALITY_WEIGHTS has exactly the 6 specified components summing to 1.0; (j) MF_ADD_WEIGHTS.need=0.15 (no 'headroom'); (k) score_mf_add debt branch uses portfolio_context.debt_target_pct; (l) tax_calculator.calculate_tax_impact includes tax_efficiency_score field; (m) /api/plans/active and /api/plans/{id}/save preserve V2.5 fields; (n) /api/copilot/suggested-prompts still works. Live plan against priyankamantri: engine_version=v2.5, score=64.2, confidence=98.2 (High), 6 actions at cap, do_nothing=false, plan_summary='6 actions to improve your portfolio score. Save ₹4,302/yr in costs. Raise debt from 1% → 21%. Est. tax impact: ₹19,675.'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "action_plan_manager._compute_improvements (via /api/plans/generate)",
+        "issue": "On live priyankamantri plan (26 MFs), improvements.overlap_pct = {before:95.8, after:95.8} — no reduction. Root cause: plan emits 5 REGULAR_DIRECT_DUPLICATE exits (reason_codes) but _compute_improvements only counts OVERLAP_CONSOLIDATION / UNDERPERFORMER_REPLACEMENT for overlap reduction, so regular→direct switches (which do keep the same fund exposure) correctly aren't counted. BUT then overlap_pct shows 0 improvement even though the plan claims to improve the portfolio. Consider either (a) dropping overlap_pct from summary when delta=0, or (b) estimating residual after switch target selection."
+      },
+      {
+        "endpoint": "action_plan_manager._compute_improvements",
+        "issue": "improvements.top_amc_pct before/after are both 0 for priyankamantri even though she has 26 MFs. Root cause: portfolio_intelligence.amc_exposure is empty (not populated) when building the plan. Non-blocking, but undermines the AMC concentration narrative in plan_summary."
+      },
+      {
+        "endpoint": "action_plan_manager.generate_plan (line 210)",
+        "issue": "Rule 7 Do-Nothing gating uses `a.get('priority') == 'high'` (string) to detect high-priority actions, but live actions are emitted with INTEGER priority (1, 2, 3, …). As a result, if portfolio_score ≥ 75, Rule 7 would erroneously fire even when integer-priority high actions exist. Either normalize priority to a string, or compare against 1 / {'high','HIGH',1}. Currently masked by score=64.2 < 75 on the test user."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_v2_5_decision_engine.py",
+    "/app/test_reports/pytest/iteration_30.xml"
+  ],
+  "action_items": [
+    "[MEDIUM] action_plan_manager.generate_plan line ~210 — unify priority type (int vs string) so Rule 7 Do-Nothing check `priority == 'high'` works. Suggestion: define helper `_is_high_priority(a)` accepting 'high'/'HIGH'/1.",
+    "[LOW] _compute_improvements should factor regular→direct switches into overlap_pct after (they preserve exposure, so overlap stays same — maybe drop that line from summary when no change).",
+    "[LOW] Populate portfolio_intelligence.amc_exposure so top_amc_pct improvements are meaningful (currently empty for priyankamantri, leading to top_amc_pct=0/0)."
+  ],
+  "critical_code_review_comments": [
+    "services/instrument_scoring.py — MF_QUALITY_WEIGHTS (6 comps sum=1.0), MF_ADD_WEIGHTS (sum=1.0 with need=0.15) are clean. EXIT guardrails correctly implement BOTH (quality_score<=2.5 AND overlap<80) AND tax_efficiency<1.0 paths.",
+    "services/instrument_scoring.py — score_mf_switch has slight API asymmetry vs score_mf_exit (score_mf_exit takes `tax_result`, score_mf_switch takes `tax_result_from`). Minor but worth documenting.",
+    "services/action_plan_manager.py::_find_underperformers (Rule 3) correctly requires BOTH weak_q (>=6.5) AND weak_1y AND (weak_3y OR no 3Y data) — stricter than V2.",
+    "services/action_plan_manager.py line 933 — debt target mapping `30 if risk in (conservative,low) else (10 if risk in (aggressive,high) else 20)` matches spec exactly.",
+    "services/action_plan_manager.py line ~210 — Do-Nothing gating uses string 'high' but actions have integer priority. Latent bug; masked today because test user score<75.",
+    "services/action_plan_manager.py line 230 — hard cap uses priority+score sort, correct behaviour.",
+    "services/tax_calculator.py::calculate_tax_impact now always returns tax_efficiency_score key (None by default, filled by SWITCH/ADD callers) — consistent schema."
+  ],
+  "updated_files": ["/app/backend/tests/test_v2_5_decision_engine.py"],
+  "success_rate": {"backend": "100% (23/23 pytest)", "frontend": "not tested (review_request: backend only)"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 26 MFs, MODERATE risk)",
+  "seed_data_creation": "None. Test suite creates preview plans and saves one (no destructive writes on holdings).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All V2.5 schema + scoring primitive + rule 3/4/5/7 + guardrail + hard-cap tests live in /app/backend/tests/test_v2_5_decision_engine.py. Re-run via `pytest /app/backend/tests/test_v2_5_decision_engine.py -v`. Uses REACT_APP_BACKEND_URL. SessionToken hardcoded for priyankamantri in file — update if user rotates. The three minor issues above are non-blocking. When main agent normalizes priority type (string vs int), the Rule 7 do-nothing test harness in test_rule7_do_nothing_summary_format still passes because it directly calls _generate_plan_summary with do_nothing=True.",
+  "rca of the issue": "No critical bugs. One latent issue documented: priority type mismatch in Rule 7 gate (string 'high' compared against integer action.priority). Non-triggering today because live portfolio_score=64.2 < 75. Reproduction requires seeding a healthy portfolio (score≥75) with at least one int-priority=1 action — Rule 7 would wrongly set do_nothing=true and emit a HOLD action. Mitigation: define `_priority_is_high(a) -> bool` returning `a.get('priority') in ('high','HIGH',1)` and use throughout."
+}

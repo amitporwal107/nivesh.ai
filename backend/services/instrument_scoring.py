@@ -18,36 +18,68 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
+
+def _as_float(v) -> Optional[float]:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
 # ══════════════════════════════════════════════════════════════════════════
-# SCORING WEIGHTS & THRESHOLDS
+# SCORING WEIGHTS & THRESHOLDS — V2.5
 # ══════════════════════════════════════════════════════════════════════════
 
-# Mutual Fund EXIT Score Weights
+# Mutual Fund EXIT Score Weights (V2.5 — equal tilt 25/25/25/15/10)
 MF_EXIT_WEIGHTS = {
-    "overlap": 0.30,      # 30%
-    "tax": 0.25,          # 25%
-    "cost": 0.15,         # 15%
-    "quality": 0.20,      # 20%
-    "fit": 0.10,          # 10%
+    "overlap": 0.25,      # 25%
+    "tax":     0.25,      # 25%
+    "quality": 0.25,      # 25% (inverse — weak fund gets high EXIT score)
+    "cost":    0.15,      # 15%
+    "fit":     0.10,      # 10%
 }
 
-# Mutual Fund ADD Score Weights
+# Mutual Fund ADD Score Weights (V2.5 — adds Need component)
 MF_ADD_WEIGHTS = {
-    "gap_fit": 0.30,      # 30%
+    "gap_fit":     0.30,  # 30%
     "low_overlap": 0.25,  # 25%
-    "quality": 0.25,      # 25%
-    "low_cost": 0.10,     # 10%
-    "headroom": 0.10,     # 10%
+    "quality":     0.20,  # 20%
+    "need":        0.15,  # 15% NEW
+    "low_cost":    0.10,  # 10%
 }
+
+# Mutual Fund QUALITY v2 weights (6 components, category-normalized)
+MF_QUALITY_WEIGHTS = {
+    "performance":    0.25,  # 1/3/5Y weighted returns vs category
+    "risk_adjusted":  0.20,  # Sharpe + Sortino
+    "consistency":    0.20,  # Rolling-return hit ratio (proxy via alpha stability)
+    "drawdown":       0.15,  # Downside protection (beta+std_dev proxy)
+    "expense":        0.10,  # Penalty for high ER
+    "aum_stability":  0.10,  # AUM size proxy
+}
+
+# HOLD Score weights — "do no harm first"
+MF_HOLD_WEIGHTS = {
+    "quality":         0.40,
+    "low_overlap":     0.30,
+    "tax_penalty":     0.30,
+}
+
+# SWITCH Score constants — per-component contribution (0–10 scale, summed then clamped)
+SWITCH_QUALITY_WEIGHT  = 4.0   # Max contribution from quality improvement
+SWITCH_OVERLAP_WEIGHT  = 3.0   # Max contribution from overlap reduction
+SWITCH_COST_WEIGHT     = 2.0   # Max contribution from cost saving
+SWITCH_TAX_PENALTY_CAP = 4.0   # Max deduction for high tax cost
 
 # Stock EXIT Score Weights
 STOCK_EXIT_WEIGHTS = {
-    "concentration": 0.20,  # 20% - Position size risk
-    "tax": 0.05,            # 5% - Tax is informational only, not a deciding factor
-    "quality": 0.45,        # 45% - PRIMARY: Fundamentals (P/E, ROE, Debt/Equity)
-    "momentum": 0.20,       # 20% - Price momentum and technicals
-    "sector": 0.05,         # 5% - Sector overexposure
-    "role": 0.05,           # 5% - Portfolio redundancy
+    "concentration": 0.20,
+    "tax": 0.05,
+    "quality": 0.45,
+    "momentum": 0.20,
+    "sector": 0.05,
+    "role": 0.05,
 }
 
 # Decision Thresholds
@@ -55,6 +87,16 @@ EXIT_THRESHOLD_HIGH = 7.0   # >= 7 = EXIT
 EXIT_THRESHOLD_LOW = 4.0    # < 4 = KEEP
 ADD_THRESHOLD_HIGH = 7.0    # >= 7 = ADD
 ADD_THRESHOLD_LOW = 5.0     # < 5 = IGNORE
+SWITCH_THRESHOLD = 2.0      # Min positive net for a SWITCH to be worth it
+HOLD_THRESHOLD_HIGH = 6.5   # >= 6.5 ⇒ strong HOLD (blocks EXIT unless forced)
+
+# EXIT Guardrails (V2.5 — "do no harm first")
+QUALITY_FLOOR_FOR_EXIT = 7.5        # Quality ≥7.5 ⇒ block EXIT
+EXTREME_OVERLAP_OVERRIDE = 80.0     # …unless overlap > 80%
+
+# Portfolio Health thresholds
+PORTFOLIO_HEALTHY_SCORE = 75        # ≥75 ⇒ Rule 7 Do-Nothing kicks in
+MAX_ACTIONS_PER_PLAN    = 6         # Hard cap
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -62,91 +104,118 @@ ADD_THRESHOLD_LOW = 5.0     # < 5 = IGNORE
 # ══════════════════════════════════════════════════════════════════════════
 
 class QualityScorer:
-    """Inline quality scoring for MF and Stocks."""
-    
+    """V2.5 quality scoring — 6 components, category-percentile normalized where possible.
+
+    Note: we still return scale 0-10 where LOWER is better (1-3 strong, 4-6 avg, 7-10 weak)
+    to preserve compatibility with downstream EXIT scorer which reads this directly.
+    The V2.5 PRD description is in a "higher is better" frame; callers that need
+    "higher=better" should use `10 - quality_score`.
+    """
+
     @staticmethod
     def calculate_mf_quality(
         fund_metadata: Dict[str, Any],
         performance_ratios: Dict[str, Any],
         category_avg: Optional[Dict[str, Any]] = None,
     ) -> float:
-        """Calculate MF Quality Score (0-10).
-        
-        Lower is better: 1-3 = strong, 4-6 = average, 7-10 = weak
-        
-        Components (equal weight):
-        - Performance consistency (25%)
-        - Risk-adjusted return (25%)
-        - Expense ratio (25%)
-        - AUM stability (25%)
-        """
-        scores = []
-        
-        # 1. Performance consistency (vs category)
-        ret_1y = performance_ratios.get("ret_1y")
-        ret_3y = performance_ratios.get("ret_3y")
-        if ret_1y is not None and ret_3y is not None:
-            avg_ret = (float(ret_1y) + float(ret_3y)) / 2
-            if avg_ret >= 12:
-                scores.append(2.0)  # Strong
-            elif avg_ret >= 8:
-                scores.append(5.0)  # Average
+        """V2.5 Quality Score with 6 weighted components."""
+        components: Dict[str, float] = {}
+
+        # 1. Performance — weighted 1Y (20%) / 3Y (40%) / 5Y (40%) vs category_avg
+        ret_1y = _as_float(performance_ratios.get("ret_1y"))
+        ret_3y = _as_float(performance_ratios.get("ret_3y"))
+        ret_5y = _as_float(performance_ratios.get("ret_5y"))
+        cat = category_avg or {}
+        cat_1y = _as_float(cat.get("ret_1y")) if cat else None
+        cat_3y = _as_float(cat.get("ret_3y")) if cat else None
+        cat_5y = _as_float(cat.get("ret_5y")) if cat else None
+        perf_scores = []
+        for r, c, w in ((ret_1y, cat_1y, 0.2), (ret_3y, cat_3y, 0.4), (ret_5y, cat_5y, 0.4)):
+            if r is None:
+                continue
+            if c is not None:
+                # vs category: +3% over cat → 2 (strong), 0-3% → 4, -3%-0 → 6, <-3% → 8
+                diff = r - c
+                if diff >= 3:   s = 2.0
+                elif diff >= 0: s = 4.0
+                elif diff >= -3: s = 6.0
+                else:           s = 8.0
             else:
-                scores.append(8.0)  # Weak
+                # Absolute ladder when no category data
+                if r >= 15: s = 2.0
+                elif r >= 10: s = 4.0
+                elif r >= 6: s = 6.0
+                else: s = 8.0
+            perf_scores.append((s, w))
+        if perf_scores:
+            total_w = sum(w for _, w in perf_scores)
+            components["performance"] = sum(s * w for s, w in perf_scores) / total_w
         else:
-            scores.append(5.0)  # Neutral if no data
-        
-        # 2. Risk-adjusted return (Sharpe/Sortino)
-        sharpe = performance_ratios.get("sharpe")
-        sortino = performance_ratios.get("sortino")
-        if sharpe is not None:
-            sharpe_val = float(sharpe)
-            if sharpe_val >= 1.5:
-                scores.append(2.0)  # Excellent
-            elif sharpe_val >= 0.8:
-                scores.append(5.0)  # Average
-            else:
-                scores.append(8.0)  # Poor
-        elif sortino is not None:
-            sortino_val = float(sortino)
-            if sortino_val >= 1.5:
-                scores.append(2.0)
-            elif sortino_val >= 0.8:
-                scores.append(5.0)
-            else:
-                scores.append(8.0)
+            components["performance"] = 5.0
+
+        # 2. Risk-adjusted — Sharpe primary, Sortino fallback
+        sharpe = _as_float(performance_ratios.get("sharpe"))
+        sortino = _as_float(performance_ratios.get("sortino"))
+        metric = sharpe if sharpe is not None else sortino
+        if metric is not None:
+            if metric >= 1.5:   components["risk_adjusted"] = 2.0
+            elif metric >= 1.0: components["risk_adjusted"] = 4.0
+            elif metric >= 0.5: components["risk_adjusted"] = 6.0
+            else:               components["risk_adjusted"] = 8.0
         else:
-            scores.append(5.0)
-        
-        # 3. Expense ratio (cost efficiency)
-        expense_ratio = fund_metadata.get("expense_ratio")
-        if expense_ratio is not None:
-            exp_val = float(expense_ratio)
-            if exp_val <= 0.5:
-                scores.append(2.0)  # Very low cost
-            elif exp_val <= 1.0:
-                scores.append(5.0)  # Average
-            else:
-                scores.append(8.0)  # High cost
+            components["risk_adjusted"] = 5.0
+
+        # 3. Consistency — alpha + beta stability proxy (NEW in V2.5)
+        alpha = _as_float(performance_ratios.get("alpha"))
+        beta = _as_float(performance_ratios.get("beta"))
+        if alpha is not None:
+            # Positive, stable alpha → consistent
+            if alpha >= 2: components["consistency"] = 2.5
+            elif alpha >= 0: components["consistency"] = 4.5
+            elif alpha >= -2: components["consistency"] = 6.5
+            else: components["consistency"] = 8.5
+        elif beta is not None:
+            # Beta close to 1 → market-like, less dispersion
+            dist = abs(beta - 1)
+            if dist <= 0.2:   components["consistency"] = 4.0
+            elif dist <= 0.5: components["consistency"] = 5.5
+            else:             components["consistency"] = 7.0
         else:
-            scores.append(5.0)
-        
-        # 4. AUM stability (reliability)
-        aum_cr = fund_metadata.get("aum_cr")
-        if aum_cr is not None:
-            aum_val = float(aum_cr)
-            if aum_val >= 5000:  # >= ₹5000 Cr
-                scores.append(2.0)  # Large, stable
-            elif aum_val >= 1000:
-                scores.append(5.0)  # Medium
-            else:
-                scores.append(7.0)  # Small
+            components["consistency"] = 5.0
+
+        # 4. Drawdown protection — std_dev proxy
+        std_dev = _as_float(performance_ratios.get("std_dev"))
+        if std_dev is not None:
+            if std_dev <= 10: components["drawdown"] = 2.5
+            elif std_dev <= 15: components["drawdown"] = 4.5
+            elif std_dev <= 22: components["drawdown"] = 6.0
+            else: components["drawdown"] = 8.0
         else:
-            scores.append(5.0)
-        
-        # Average score
-        quality_score = sum(scores) / len(scores) if scores else 5.0
-        return round(quality_score, 2)
+            components["drawdown"] = 5.0
+
+        # 5. Expense ratio
+        er = _as_float(fund_metadata.get("expense_ratio"))
+        if er is not None:
+            if er <= 0.5: components["expense"] = 2.0
+            elif er <= 1.0: components["expense"] = 4.5
+            elif er <= 1.5: components["expense"] = 6.5
+            else:           components["expense"] = 8.5
+        else:
+            components["expense"] = 5.0
+
+        # 6. AUM stability
+        aum = _as_float(fund_metadata.get("aum_cr"))
+        if aum is not None:
+            if aum >= 5000: components["aum_stability"] = 2.0
+            elif aum >= 1000: components["aum_stability"] = 4.0
+            elif aum >= 300:  components["aum_stability"] = 6.0
+            else:             components["aum_stability"] = 7.5
+        else:
+            components["aum_stability"] = 5.0
+
+        # Weighted aggregate
+        score = sum(components[k] * MF_QUALITY_WEIGHTS[k] for k in MF_QUALITY_WEIGHTS)
+        return round(score, 2)
     
     @staticmethod
     def calculate_stock_quality(
@@ -362,7 +431,25 @@ class InstrumentScoringEngine:
         )
         
         # Determine action and priority
-        if exit_score >= EXIT_THRESHOLD_HIGH:
+        # V2.5 Guardrails — "do no harm first"
+        # 1. Strong quality floor: quality ≥ 7.5 (where quality is "lower=better", so
+        #    quality_score <= 2.5) blocks EXIT unless overlap is extreme (>80%).
+        #    The quality component here is RAW 0-10 (lower=better), so use `<= 2.5`.
+        guardrail_blocked = False
+        if quality_score <= (10 - QUALITY_FLOOR_FOR_EXIT) and max_overlap < EXTREME_OVERLAP_OVERRIDE:
+            guardrail_blocked = True
+            reasons.append("BLOCKED_HIGH_QUALITY_FLOOR")
+        # 2. Tax > benefit block — if tax_efficiency_score < 1.0 we block
+        tax_eff = tax_result.get("tax_efficiency_score")
+        if tax_eff is not None and tax_eff < 1.0:
+            guardrail_blocked = True
+            reasons.append("BLOCKED_TAX_EXCEEDS_BENEFIT")
+
+        if guardrail_blocked:
+            action = "HOLD"
+            priority = "low"
+            confidence = "HIGH"  # high confidence the exit is a bad idea
+        elif exit_score >= EXIT_THRESHOLD_HIGH:
             action = "EXIT"
             priority = "high"
             confidence = "HIGH"
@@ -374,17 +461,146 @@ class InstrumentScoringEngine:
             action = "KEEP"
             priority = "low"
             confidence = "LOW"
-        
+
         return {
             "exit_score": round(exit_score, 2),
             "action": action,
             "priority": priority,
             "confidence": confidence,
+            "guardrail_blocked": guardrail_blocked,
             "score_breakdown": scores,
             "reasons": reasons,
             "instrument_id": mf_id,
             "instrument_name": mf_investment.get("scheme_name"),
             "instrument_type": "mutual_fund",
+        }
+
+    # ──────────────────────────────────────────────────────────────────────
+    # MUTUAL FUND HOLD SCORING (V2.5 — prevents over-optimization)
+    # ──────────────────────────────────────────────────────────────────────
+    def score_mf_hold(
+        self,
+        mf_investment: Dict[str, Any],
+        portfolio_intelligence: Dict[str, Any],
+        tax_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Calculate HOLD score (0-10) — higher = stronger case to NOT touch this fund.
+
+        hold_score = 0.4·high_quality + 0.3·low_overlap + 0.3·high_tax_penalty_if_exit
+        """
+        # Quality (higher = better). Raw quality_score is lower=better, so invert.
+        mf_id = mf_investment.get("instrument_id")
+        catalog = portfolio_intelligence.get("catalog", {}) or {}
+        raw_q = self.quality_scorer.calculate_mf_quality(
+            fund_metadata={
+                "expense_ratio": mf_investment.get("expense_ratio"),
+                "aum_cr": mf_investment.get("aum_cr"),
+            },
+            performance_ratios=(catalog.get(mf_id) or {}).get("ratios", {}),
+        )
+        high_quality = 10 - raw_q
+
+        # Low-overlap (higher = lower overlap)
+        pairs = portfolio_intelligence.get("pairwise_overlap") or []
+        max_overlap = max(
+            (p.get("overlap_pct", 0) for p in pairs if p.get("a") == mf_id or p.get("b") == mf_id),
+            default=0,
+        )
+        low_overlap = max(0, 10 - max_overlap / 10)
+
+        # Tax-penalty-if-exit (higher = more painful to exit)
+        tax_pen = float(tax_result.get("tax_score") or 0)
+
+        hold_score = (
+            high_quality * MF_HOLD_WEIGHTS["quality"]
+            + low_overlap * MF_HOLD_WEIGHTS["low_overlap"]
+            + tax_pen     * MF_HOLD_WEIGHTS["tax_penalty"]
+        )
+        return {
+            "hold_score": round(hold_score, 2),
+            "high_quality": round(high_quality, 2),
+            "low_overlap": round(low_overlap, 2),
+            "tax_penalty": round(tax_pen, 2),
+            "strong_hold": hold_score >= HOLD_THRESHOLD_HIGH,
+        }
+
+    # ──────────────────────────────────────────────────────────────────────
+    # MUTUAL FUND SWITCH SCORING (V2.5 — primary replacement primitive)
+    # ──────────────────────────────────────────────────────────────────────
+    def score_mf_switch(
+        self,
+        from_fund: Dict[str, Any],
+        to_fund: Dict[str, Any],
+        tax_result_from: Dict[str, Any],
+        portfolio_intelligence: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Calculate SWITCH score (from_fund → to_fund).
+
+        switch_score = quality_improvement + overlap_reduction + cost_saving − tax_cost
+
+        All components normalized to 0–max-weight bands; final result clamped to [-10, 10].
+        """
+        cat_from = (portfolio_intelligence.get("catalog") or {}).get(from_fund.get("instrument_id"), {})
+        cat_to = (portfolio_intelligence.get("catalog") or {}).get(to_fund.get("instrument_id"), {})
+
+        q_from = self.quality_scorer.calculate_mf_quality(
+            fund_metadata={"expense_ratio": from_fund.get("expense_ratio"), "aum_cr": from_fund.get("aum_cr")},
+            performance_ratios=cat_from.get("ratios", {}),
+        )
+        q_to = self.quality_scorer.calculate_mf_quality(
+            fund_metadata={"expense_ratio": to_fund.get("expense_ratio"), "aum_cr": to_fund.get("aum_cr")},
+            performance_ratios=cat_to.get("ratios", {}),
+        )
+        # quality is "lower = better", so improvement = (q_from - q_to). Clamp to [0, 10].
+        q_improvement_raw = max(0, q_from - q_to)
+        quality_improvement = min(SWITCH_QUALITY_WEIGHT, q_improvement_raw * (SWITCH_QUALITY_WEIGHT / 10))
+
+        # Overlap reduction — from_fund's max overlap with portfolio minus to_fund's expected
+        pairs = portfolio_intelligence.get("pairwise_overlap") or []
+        from_id = from_fund.get("instrument_id")
+        max_from_overlap = max(
+            (p.get("overlap_pct", 0) for p in pairs if p.get("a") == from_id or p.get("b") == from_id),
+            default=0,
+        )
+        # Assume SWITCH target has low overlap initially (5% baseline)
+        overlap_delta_pct = max(0, max_from_overlap - 5)
+        overlap_reduction = min(SWITCH_OVERLAP_WEIGHT, overlap_delta_pct * (SWITCH_OVERLAP_WEIGHT / 100))
+
+        # Cost saving — expense ratio delta
+        er_from = _as_float(from_fund.get("expense_ratio")) or 1.0
+        er_to = _as_float(to_fund.get("expense_ratio")) or 1.0
+        er_delta = max(0, er_from - er_to)
+        cost_saving = min(SWITCH_COST_WEIGHT, er_delta * (SWITCH_COST_WEIGHT / 1.5))
+
+        # Tax cost penalty — based on tax_liability as % of exit_amount
+        liab = float(tax_result_from.get("tax_liability") or 0)
+        exit_amt = float(tax_result_from.get("exit_amount_rs") or 0) or 1
+        tax_pct = (liab / exit_amt) * 100
+        tax_penalty = min(SWITCH_TAX_PENALTY_CAP, tax_pct * (SWITCH_TAX_PENALTY_CAP / 10))
+
+        switch_score = quality_improvement + overlap_reduction + cost_saving - tax_penalty
+        switch_score = max(-10.0, min(10.0, switch_score))
+
+        # Tax efficiency score — estimated annual benefit ÷ tax cost
+        # Benefit ≈ (ER saving × corpus) + (quality improvement heuristic ₹500 per quality point × corpus/1L)
+        corpus = exit_amt
+        annual_cost_save = (er_delta / 100) * corpus
+        quality_bonus_yr = q_improvement_raw * (corpus / 100000) * 500
+        annual_benefit = annual_cost_save + quality_bonus_yr
+        tax_efficiency = (annual_benefit / liab) if liab > 0 else (float("inf") if annual_benefit > 0 else 0)
+
+        return {
+            "switch_score": round(switch_score, 2),
+            "recommended": switch_score >= SWITCH_THRESHOLD,
+            "quality_improvement": round(quality_improvement, 2),
+            "overlap_reduction": round(overlap_reduction, 2),
+            "cost_saving": round(cost_saving, 2),
+            "tax_penalty": round(tax_penalty, 2),
+            "annual_benefit_rs": round(annual_benefit, 2),
+            "tax_cost_rs": round(liab, 2),
+            "tax_efficiency_score": round(tax_efficiency, 2) if tax_efficiency != float("inf") else 99.0,
+            "from_quality": round(q_from, 2),
+            "to_quality": round(q_to, 2),
         }
     
     # ──────────────────────────────────────────────────────────────────────
@@ -463,18 +679,27 @@ class InstrumentScoringEngine:
         if expense_ratio is not None and float(expense_ratio) < 0.5:
             reasons.append("LOW_COST")
         
-        # 5. Headroom (10%)
-        # Check if category has room for more allocation
-        # For MVP: neutral
-        scores["headroom"] = 5.0
-        
+        # 5. Need score (NEW in V2.5) — category-level gap pressure
+        # Higher when the category has <target allocation OR the portfolio lacks this bucket entirely
+        if "debt" in category:
+            debt_pct = current_allocation.get("debt_pct", 0) or 0
+            # target: 10-30% based on risk (rule 5 dynamic target)
+            target = portfolio_context.get("debt_target_pct", 20)
+            gap = max(0, target - debt_pct)
+            scores["need"] = min(10, gap * 0.5)  # 20% gap → 10
+        elif "gold" in category:
+            gold_pct = current_allocation.get("gold_pct", 0) or 0
+            scores["need"] = min(10, max(0, 5 - gold_pct))
+        else:
+            scores["need"] = 4.0  # neutral for equity
+
         # Calculate weighted ADD score
         add_score = (
-            scores["gap_fit"] * MF_ADD_WEIGHTS["gap_fit"] +
+            scores["gap_fit"]     * MF_ADD_WEIGHTS["gap_fit"] +
             scores["low_overlap"] * MF_ADD_WEIGHTS["low_overlap"] +
-            scores["quality"] * MF_ADD_WEIGHTS["quality"] +
-            scores["low_cost"] * MF_ADD_WEIGHTS["low_cost"] +
-            scores["headroom"] * MF_ADD_WEIGHTS["headroom"]
+            scores["quality"]     * MF_ADD_WEIGHTS["quality"] +
+            scores["need"]        * MF_ADD_WEIGHTS["need"] +
+            scores["low_cost"]    * MF_ADD_WEIGHTS["low_cost"]
         )
         
         # Determine action and priority

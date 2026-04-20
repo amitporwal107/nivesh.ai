@@ -15,6 +15,9 @@ import logging
 
 from deps import db
 from services import signal_detector, decision_engine, instrument_scoring, tax_calculator
+from services.instrument_scoring import (
+    PORTFOLIO_HEALTHY_SCORE, MAX_ACTIONS_PER_PLAN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,10 +149,20 @@ class ActionPlanManager:
         
         # Score stocks (DISABLED - MF-only action plans)
         # Stocks are excluded from action recommendations
+
+        # Load user's risk profile for V2.5 Rule 5 dynamic target
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+        risk_profile = (
+            user_doc.get("risk_profile")
+            or (user_doc.get("profile") or {}).get("risk_profile")
+            or "medium"
+        )
+
         portfolio_context = {
             "total_value": portfolio_data["total_value"],
             "mf_count": len(mf_holdings),
             "stock_count": len(stock_holdings),
+            "risk_profile": risk_profile,
         }
         
         # NOTE: Stock scoring disabled - focus on MF optimization only
@@ -180,8 +193,57 @@ class ActionPlanManager:
         # 6. Calculate freed capital
         freed_capital = sum(a["amount"] for a in actions if a["type"] == "EXIT")
         post_tax_proceeds = freed_capital - total_tax_impact["total_tax"]
-        
-        # 7. Create plan object
+
+        # 7. V2.5 — Portfolio Health + Confidence + Plan Summary (+ Rule 7 Do-Nothing)
+        portfolio_score, portfolio_score_breakdown = self._calculate_portfolio_health_score(
+            portfolio_intelligence=portfolio_intelligence,
+            holdings=holdings,
+            actions=actions,
+        )
+        confidence_score, confidence_breakdown = self._calculate_confidence_score(
+            portfolio_intelligence=portfolio_intelligence,
+            holdings=holdings,
+            actions=actions,
+        )
+        # Rule 7 — Do-Nothing: strip actions when portfolio already healthy
+        do_nothing = False
+        if portfolio_score >= PORTFOLIO_HEALTHY_SCORE and not any(a.get("priority") == "high" for a in actions):
+            do_nothing = True
+            actions = []  # replaced with a synthetic HOLD action below
+            actions.append({
+                "action_id": f"act_{uuid4().hex[:10]}",
+                "type": "HOLD",
+                "priority": "low",
+                "asset_name": "Your portfolio",
+                "asset_type": "portfolio",
+                "amount": 0,
+                "reason_codes": ["PORTFOLIO_HEALTHY"],
+                "reason_text": "Your portfolio already scores ≥75/100. No action needed right now.",
+                "status": "pending",
+                "tax_impact": None,
+            })
+            total_tax_impact = self._calculate_total_tax_impact(actions)
+            freed_capital = 0
+            post_tax_proceeds = 0
+
+        # Hard cap actions at MAX_ACTIONS_PER_PLAN
+        if len(actions) > MAX_ACTIONS_PER_PLAN:
+            actions = sorted(
+                actions,
+                key=lambda a: (0 if a.get("priority") == "high" else (1 if a.get("priority") == "medium" else 2),
+                               -(a.get("score") or 0)),
+            )[:MAX_ACTIONS_PER_PLAN]
+
+        plan_summary = self._generate_plan_summary(
+            actions=actions,
+            portfolio_score=portfolio_score,
+            total_tax_impact=total_tax_impact,
+            portfolio_intelligence=portfolio_intelligence,
+            do_nothing=do_nothing,
+        )
+        improvements = self._compute_improvements(portfolio_intelligence, actions)
+
+        # 8. Create plan object
         plan_id = f"plan_{datetime.now(timezone.utc).strftime('%Y%m%d')}_{uuid4().hex[:8]}"
         
         plan = {
@@ -201,14 +263,25 @@ class ActionPlanManager:
             "freed_capital": freed_capital,
             "total_tax_impact": total_tax_impact,
             "post_tax_proceeds": post_tax_proceeds,
+            # V2.5 additions
+            "plan_summary": plan_summary,
+            "portfolio_score": portfolio_score,
+            "portfolio_score_breakdown": portfolio_score_breakdown,
+            "confidence_score": confidence_score,
+            "confidence_breakdown": confidence_breakdown,
+            "improvements": improvements,
+            "do_nothing": do_nothing,
+            "degraded": bool(portfolio_intelligence.get("degraded")),
+            "degraded_reason": portfolio_intelligence.get("degraded_reason"),
             "metadata": {
                 "source": "auto_generated",
-                "generation_time_ms": 0,  # TODO: track
+                "generation_time_ms": 0,
                 "portfolio_value_at_creation": portfolio_data["total_value"],
+                "engine_version": "v2.5",
             },
         }
         
-        logger.info(f"Plan generated: {plan_id} with {len(actions)} actions")
+        logger.info(f"Plan generated: {plan_id} with {len(actions)} actions · score={portfolio_score} · conf={confidence_score}")
         return plan
     
     # ══════════════════════════════════════════════════════════════════════
@@ -798,6 +871,25 @@ class ActionPlanManager:
             else:
                 victim_cand, victim_name = cand_b, name_b
                 partner_name = name_a
+
+            # V2.5 — Require positive switch_score: only consolidate if the move
+            # actually creates net value (quality gain + cost saving > tax penalty).
+            # When we don't have a clean replacement in hand, estimate a proxy:
+            # net = |exit_score_of_victim - 5| - (tax_penalty estimated from victim's ti)
+            if victim_cand:
+                vti = victim_cand.get("tax_impact") or {}
+                exit_amt = (vti.get("exit_amount_rs") or 0) or (
+                    (h_tmp.get("quantity", 0) * h_tmp.get("current_price", 0)
+                     if (h_tmp := next((x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) == _normalize_fund_name(victim_name)), None)) else 0)
+                )
+                tax_pct = ((vti.get("tax_liability") or 0) / exit_amt * 10) if exit_amt else 0
+                proxy_switch_score = (victim_cand["exit_score"] - 5.0) - tax_pct
+                if proxy_switch_score <= 0:
+                    logger.info(
+                        f"[Rule 4] SKIP overlap exit — proxy switch score {proxy_switch_score:.2f} "
+                        f"<= 0 for {victim_name[:40]}"
+                    )
+                    continue
             h = next(
                 (x for x in mf_holdings if _normalize_fund_name(x.get("name", "")) ==
                  _normalize_fund_name(victim_name)),
@@ -830,24 +922,30 @@ class ActionPlanManager:
             if sum(1 for a in actions if "OVERLAP_CONSOLIDATION" in (a.get("reason_codes") or [])) >= 2:
                 break
 
-        # ── RULE 5: Asset Allocation Rebalancing (Debt Gap) ─────────────────
+        # ── RULE 5: Asset Allocation Rebalancing (V2.5 Dynamic Debt Target) ─
         if portfolio_context["total_value"] > 0:
             asset_allocation = self._calculate_asset_allocation(holdings)
             portfolio_context["asset_allocation"] = asset_allocation
             equity_pct = asset_allocation.get("equity_pct", 0)
             debt_pct = asset_allocation.get("debt_pct", 0)
-            # Strict user rule: Equity > 90% AND Debt < 10%
-            # Relax to Debt < 10% alone since MFs lump as equity in _calculate_asset_allocation
-            needs_debt = debt_pct < 10
-            logger.info(f"[Rule 5] Equity={equity_pct:.1f}%, Debt={debt_pct:.1f}%, needs_debt={needs_debt}")
+            # V2.5 — dynamic debt target by risk
+            risk = (portfolio_context.get("risk_profile") or "medium").lower()
+            debt_target = 30 if risk in ("conservative", "low") else (10 if risk in ("aggressive", "high") else 20)
+            portfolio_context["debt_target_pct"] = debt_target
+            needs_debt = debt_pct < debt_target
+            logger.info(
+                f"[Rule 5] risk={risk} target={debt_target}% "
+                f"equity={equity_pct:.1f}% debt={debt_pct:.1f}% needs_debt={needs_debt}"
+            )
             if needs_debt:
                 excluded_amcs = [amc for amc, pct in amc_exposure.items() if pct > 15.0]
-                suggested_amount = portfolio_context["total_value"] * 0.10
+                gap_pct = debt_target - debt_pct
+                suggested_amount = portfolio_context["total_value"] * (gap_pct / 100)
                 debt_suggestion = self._suggest_debt_fund(suggested_amount, excluded_amcs)
                 add_action = self._create_add_action_specific(
                     debt_suggestion,
                     priority_counter[0],
-                    "Portfolio lacks debt allocation for risk management",
+                    f"Portfolio debt is {debt_pct:.0f}% — below your {debt_target}% target for a {risk} risk profile.",
                     suggested_amount,
                 )
                 actions.append(add_action)
@@ -1000,15 +1098,23 @@ class ActionPlanManager:
             fund_data = catalog.get(mf.get("instrument_id"), {})
             ratios = fund_data.get("ratios", {})
             ret_1y = ratios.get("ret_1y")
+            ret_3y = ratios.get("ret_3y")
             ret_1y_val = float(ret_1y) if ret_1y is not None else None
-            # Underperformer criteria: weak quality (>=7) OR 1Y return < 8%
-            is_weak = (quality >= 7.0) or (ret_1y_val is not None and ret_1y_val < 8.0)
-            if is_weak:
+            ret_3y_val = float(ret_3y) if ret_3y is not None else None
+            # V2.5 stricter: weak quality (raw >= 6.5, i.e. "higher=better" < 5)
+            # AND underperformance in BOTH 1Y & 3Y vs 8%/10% benchmarks.
+            weak_q = quality >= 6.5
+            weak_1y = ret_1y_val is not None and ret_1y_val < 8.0
+            weak_3y = ret_3y_val is not None and ret_3y_val < 10.0
+            # When 3Y data is absent, fall back to 1Y-only (graceful degradation)
+            underperf = weak_1y and (weak_3y or ret_3y_val is None)
+            if weak_q and underperf:
                 out.append({
                     "mf": mf,
                     "candidate": cand,
                     "quality_score": quality,
                     "ret_1y": round(ret_1y_val, 2) if ret_1y_val is not None else "N/A",
+                    "ret_3y": round(ret_3y_val, 2) if ret_3y_val is not None else "N/A",
                 })
         # Rank by worst quality first (highest = worst)
         out.sort(key=lambda x: (x["quality_score"], -(x["ret_1y"] if isinstance(x["ret_1y"], (int, float)) else -100)), reverse=True)
@@ -1401,6 +1507,177 @@ class ActionPlanManager:
             "gold_pct": round(gold_value / total_value * 100, 2) if total_value > 0 else 0,
         }
     
+    # ══════════════════════════════════════════════════════════════════════
+    # V2.5 — Portfolio Health Score / Confidence / Plan Summary / Improvements
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _calculate_portfolio_health_score(
+        self,
+        portfolio_intelligence: Dict[str, Any],
+        holdings: List[Dict[str, Any]],
+        actions: List[Dict[str, Any]],
+    ) -> tuple:
+        """Portfolio Health Score (0-100). Higher = healthier.
+
+        25% Diversification · 25% Overlap reduction · 20% AMC concentration
+        15% Cost efficiency · 15% Asset allocation balance
+        """
+        mfs = portfolio_intelligence.get("mf_investments") or []
+        unique_cats = len({(m.get("category") or "").lower() for m in mfs if m.get("category")})
+        div_score = min(100.0, unique_cats * 20)
+
+        pairs = portfolio_intelligence.get("pairwise_overlap") or []
+        max_ov = max((p.get("overlap_pct", 0) or 0 for p in pairs), default=0)
+        overlap_score = max(0.0, 100.0 - max_ov)
+
+        amc_exposure = portfolio_intelligence.get("amc_exposure") or {}
+        total_mf = sum(amc_exposure.values()) or 1
+        top_amc_pct = (max(amc_exposure.values()) / total_mf * 100) if amc_exposure else 0
+        if top_amc_pct <= 15: amc_score = 100.0
+        elif top_amc_pct <= 25: amc_score = 75.0
+        elif top_amc_pct <= 40: amc_score = 45.0
+        else: amc_score = 15.0
+
+        total_corpus = sum((m.get("amount_rs") or 0) for m in mfs) or 1
+        weighted_er = sum(
+            ((m.get("amount_rs") or 0) * (m.get("expense_ratio") or 0)) for m in mfs
+        ) / total_corpus if total_corpus > 0 else 0
+        if weighted_er <= 0.5: cost_score = 100.0
+        elif weighted_er <= 1.0: cost_score = 75.0
+        elif weighted_er <= 1.5: cost_score = 50.0
+        else: cost_score = 25.0
+
+        alloc = portfolio_intelligence.get("asset_allocation") or {}
+        eq = alloc.get("equity_pct", 0) or 0
+        dt = alloc.get("debt_pct", 0) or 0
+        gd = alloc.get("gold_pct", 0) or 0
+        dist = abs(eq - 60) + abs(dt - 25) + abs(gd - 10)
+        alloc_score = max(0.0, 100.0 - dist)
+
+        total = (
+            0.25 * div_score + 0.25 * overlap_score + 0.20 * amc_score +
+            0.15 * cost_score + 0.15 * alloc_score
+        )
+        return round(total, 1), {
+            "diversification": round(div_score, 1),
+            "overlap": round(overlap_score, 1),
+            "amc_concentration": round(amc_score, 1),
+            "cost_efficiency": round(cost_score, 1),
+            "asset_allocation": round(alloc_score, 1),
+        }
+
+    def _calculate_confidence_score(
+        self,
+        portfolio_intelligence: Dict[str, Any],
+        holdings: List[Dict[str, Any]],
+        actions: List[Dict[str, Any]],
+    ) -> tuple:
+        """Confidence Score (0-100) — how trustworthy is this plan?"""
+        degraded = bool(portfolio_intelligence.get("degraded"))
+        system_health = 50.0 if degraded else 95.0
+
+        total_h = len(holdings) or 1
+        with_date = sum(1 for h in holdings if h.get("buy_date"))
+        data_completeness = (with_date / total_h) * 100
+
+        exit_actions = [a for a in actions if a.get("type") in ("EXIT", "SELL", "SWITCH")]
+        if exit_actions:
+            tax_certain = sum(
+                1 for a in exit_actions
+                if a.get("tax_impact") and not a.get("tax_impact", {}).get("tax_impact_pending")
+            )
+            tax_cert = (tax_certain / len(exit_actions)) * 100
+        else:
+            tax_cert = 100.0
+
+        freshness = 100.0
+        total = (
+            0.35 * system_health + 0.25 * data_completeness +
+            0.25 * tax_cert + 0.15 * freshness
+        )
+        label = "High" if total >= 80 else ("Medium" if total >= 60 else "Low")
+        return round(total, 1), {
+            "system_health": round(system_health, 1),
+            "data_completeness": round(data_completeness, 1),
+            "tax_certainty": round(tax_cert, 1),
+            "freshness": round(freshness, 1),
+            "label": label,
+        }
+
+    def _compute_improvements(
+        self,
+        portfolio_intelligence: Dict[str, Any],
+        actions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        pairs = portfolio_intelligence.get("pairwise_overlap") or []
+        before_overlap = max((p.get("overlap_pct", 0) or 0 for p in pairs), default=0)
+        cuts = sum(
+            1 for a in actions
+            if any(r in (a.get("reason_codes") or [])
+                   for r in ("OVERLAP_CONSOLIDATION", "UNDERPERFORMER_REPLACEMENT"))
+        )
+        after_overlap = max(0, before_overlap - 15 * cuts)
+
+        amc_exposure = portfolio_intelligence.get("amc_exposure") or {}
+        total_mf = sum(amc_exposure.values()) or 1
+        before_amc = (max(amc_exposure.values()) / total_mf * 100) if amc_exposure else 0
+        amc_cuts = sum(
+            1 for a in actions
+            if "AMC_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])
+        )
+        after_amc = max(0, before_amc - 8 * amc_cuts)
+
+        cost_saving_yr = 0.0
+        for a in actions:
+            if any(r in (a.get("reason_codes") or []) for r in ("REGULAR_DIRECT_DUPLICATE", "COST_LEAK_SWITCH")):
+                amt = float(a.get("amount") or a.get("exit_amount_rs") or 0)
+                er_delta = float(a.get("er_delta_pct") or 0.75) / 100
+                cost_saving_yr += amt * er_delta
+
+        alloc = portfolio_intelligence.get("asset_allocation") or {}
+        before_debt = alloc.get("debt_pct", 0) or 0
+        after_debt = before_debt
+        for a in actions:
+            if "ALLOCATION_GAP" in (a.get("reason_codes") or []) and a.get("asset_type") in ("mutual_fund","bond","debt"):
+                total_val = portfolio_intelligence.get("total_value") or 1
+                after_debt += (float(a.get("amount") or 0) / total_val) * 100
+
+        return {
+            "overlap_pct": {"before": round(before_overlap, 1), "after": round(after_overlap, 1)},
+            "top_amc_pct": {"before": round(before_amc, 1), "after": round(after_amc, 1)},
+            "debt_pct":    {"before": round(before_debt, 1), "after": round(after_debt, 1)},
+            "annual_cost_saving_rs": round(cost_saving_yr, 0),
+        }
+
+    def _generate_plan_summary(
+        self,
+        actions: List[Dict[str, Any]],
+        portfolio_score: float,
+        total_tax_impact: Dict[str, Any],
+        portfolio_intelligence: Dict[str, Any],
+        do_nothing: bool,
+    ) -> str:
+        if do_nothing:
+            return (
+                f"Your portfolio scores {portfolio_score:.0f}/100 — healthy. "
+                "Nothing to fix right now. Stay invested, review next quarter."
+            )
+        imp = self._compute_improvements(portfolio_intelligence, actions)
+        bits = [f"{len(actions)} action{'s' if len(actions) != 1 else ''} to improve your portfolio score."]
+        if imp["overlap_pct"]["before"] != imp["overlap_pct"]["after"]:
+            bits.append(f"Reduce overlap {imp['overlap_pct']['before']:.0f}% → {imp['overlap_pct']['after']:.0f}%.")
+        if imp["top_amc_pct"]["before"] != imp["top_amc_pct"]["after"]:
+            bits.append(f"Cut AMC concentration {imp['top_amc_pct']['before']:.0f}% → {imp['top_amc_pct']['after']:.0f}%.")
+        if imp["annual_cost_saving_rs"] > 0:
+            bits.append(f"Save ₹{imp['annual_cost_saving_rs']:,.0f}/yr in costs.")
+        if imp["debt_pct"]["before"] != imp["debt_pct"]["after"]:
+            bits.append(f"Raise debt from {imp['debt_pct']['before']:.0f}% → {imp['debt_pct']['after']:.0f}%.")
+        tax_liab = total_tax_impact.get("total_tax_liability") or total_tax_impact.get("total_tax") or 0
+        if tax_liab > 0:
+            bits.append(f"Est. tax impact: ₹{tax_liab:,.0f}.")
+        return " ".join(bits)
+
+
     def _calculate_total_tax_impact(self, actions: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Aggregate total tax impact across all EXIT actions.
 

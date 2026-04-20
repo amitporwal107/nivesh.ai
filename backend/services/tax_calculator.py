@@ -283,6 +283,11 @@ def calculate_tax_impact(
 
         post_tax_proceeds = exit_amount_rs - tax_liability
 
+        # Tax efficiency score — benefit per ₹ of tax cost.
+        # When caller can't yet estimate benefit (per-action), we return a neutral
+        # placeholder; the SWITCH scorer overrides this with a proper ratio.
+        tax_efficiency_score = None  # filled by SWITCH/ADD callers
+
         return {
             "holding_period_days": holding_period_days,
             "holding_period_years": round(holding_period_days / 365, 2),
@@ -294,6 +299,7 @@ def calculate_tax_impact(
             "exit_amount_rs": round(exit_amount_rs, 2),
             "post_tax_proceeds": round(post_tax_proceeds, 2),
             "tax_efficiency_pct": round((post_tax_proceeds / exit_amount_rs * 100) if exit_amount_rs > 0 else 0, 2),
+            "tax_efficiency_score": tax_efficiency_score,
             "tax_score": round(tax_score, 2),
             "tax_regime": tax_regime,
             "asset_class": asset_class,
