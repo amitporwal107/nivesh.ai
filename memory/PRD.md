@@ -2,6 +2,15 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Plan Generation on Unresolved Funds (fix for "action plan not generating")
+User reported: insights now show 5 clean issues (Mid Cap 26%, HDFC 20.4%, ICICI 15%, etc.) but the **V2 Plan Board** only shows 1 ADD action. Investigation revealed:
+
+- **Root cause**: `_calculate_amc_exposure_from_mf_investments` and the Rule 2 AMC-exit loop both skipped MF investments where `resolved == False`. When a user's holdings aren't yet mapped to PG `instrument_master` (common for freshly parsed CAS data or niche funds), the entire AMC rule became silent. Rule 2b (category) had the same blind spot because `category` is `None` for unresolved funds.
+- **Fix**: removed the `resolved` gate from both paths. AMC is now extracted purely from `scheme_name` (name-based, always works). Added `_infer_category_from_name` helper that maps keywords ("Mid Cap", "Flexi Cap", "Bluechip", "Corporate Bond", etc.) to SEBI categories so Rule 2b fires on unresolved funds too.
+- **Impact on `nivessh.ai@gmail.com`**: active plan went from 1 action (ADD debt) → 2 actions (EXIT HDFC Mid Cap via Rule 2 + ADD debt) with portfolio_score 62.2 → 77.2.
+- **Tests locked in**: `test_rule_2_amc_fires_for_unresolved_funds` (reproduces the exact bug), `test_category_inferred_from_scheme_name` (Rule 2b on inferred categories), `test_infer_category_helper` (keyword matcher unit test). Full suite 60/60 green.
+- **UX note**: `POST /api/plans/generate` creates a *preview* plan; the user must hit `POST /api/plans/{plan_id}/save` (or the "Save as Plan" button in UI) to activate. Existing users with stale active plans need to click "Regenerate plan" to see the new rules apply.
+
 ### Feb 2026 — /api/insights/generate: LLM → deterministic (hallucination kill #2)
 User reported a second hallucination path: **818% Pharma exposure**, **Banking 773%**, phantom action "Reduce Banking ₹10L" tagged to wrong funds. Root cause: `routes/insights.py` was a *different* codepath using GPT-4o-mini with `response_format=json_object`. Despite a grounded prompt, the model fabricated impossible percentages and mismatched affected_funds.
 

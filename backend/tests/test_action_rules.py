@@ -427,5 +427,91 @@ def test_rule_2b_skipped_when_category_under_threshold():
     assert len(cat_exits) == 0
 
 
+def test_rule_2_amc_fires_for_unresolved_funds():
+    """Reg: when PG has no record, AMC rule must still fire based on scheme_name.
+
+    Reproduces the nivessh.ai@gmail.com bug: 12 MF holdings all unresolved,
+    previous code skipped them with `if not mf.get('resolved'): continue` so
+    Rule 2 never ran and only the debt-ADD action was emitted.
+    """
+    m = ActionPlanManager()
+    holdings = [
+        _mk_holding("HDFC Mid Cap Fund - Direct - Growth", qty=5725, price=100),
+        _mk_holding("HDFC Flexi Cap Fund - Direct", qty=5000, price=100),
+        _mk_holding("ICICI Prudential Value Fund - Direct", qty=4200, price=100),
+        _mk_holding("Nippon India Large Cap Fund - Direct", qty=2700, price=100),
+        _mk_holding("Mirae Asset Emerging Bluechip - Direct", qty=1000, price=100),
+    ]
+    # Unresolved — no instrument_id, no category (what the scraper returns
+    # when PG doesn't have the fund)
+    mf_investments = [
+        {"instrument_id": None, "scheme_name": h["name"], "amount_rs": h["quantity"] * h["current_price"],
+         "category": None, "resolved": False}
+        for h in holdings
+    ]
+    actions = asyncio.run(m._apply_action_rules(
+        mf_holdings=holdings, mf_investments=mf_investments,
+        exit_candidates=[], holdings=holdings,
+        portfolio_intelligence={"mf_investments": mf_investments, "pairwise_overlap": [], "catalog": {}},
+        portfolio_context={"total_value": sum(h["quantity"] * h["current_price"] for h in holdings),
+                           "mf_count": len(holdings), "stock_count": 0},
+        signals=[],
+    ))
+    amc_exits = [a for a in actions if "AMC_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])]
+    # HDFC = 1072500/1862500 = 57.6% — well over 15% threshold → must fire
+    assert len(amc_exits) >= 1, f"Expected AMC_CONCENTRATION_EXIT on unresolved funds; got {[a.get('reason_codes') for a in actions]}"
+    assert any("HDFC" in a.get("asset_name", "") for a in amc_exits), (
+        f"Expected HDFC exit; got {[a.get('asset_name') for a in amc_exits]}"
+    )
+
+
+def test_category_inferred_from_scheme_name():
+    """Rule 2b must use _infer_category_from_name when category is None/missing."""
+    m = ActionPlanManager()
+    # 8 Mid Cap funds across 8 AMCs → each AMC = 12.5% (< 15% threshold, Rule 2
+    # stays silent) but category = 100% Mid Cap (> 35% → Rule 2b fires).
+    holdings = [
+        _mk_holding("Axis Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("SBI Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("DSP Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("Kotak Emerging Equity Fund - Direct", qty=1000, price=100),
+        _mk_holding("Tata Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("UTI Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("Mirae Midcap Fund - Direct", qty=1000, price=100),
+        _mk_holding("Invesco Midcap Fund - Direct", qty=1000, price=100),
+    ]
+    # First 3 inferrable as Mid Cap (3/4 = 75% > 35% threshold)
+    mf_investments = [
+        {"instrument_id": None, "scheme_name": h["name"],
+         "amount_rs": h["quantity"] * h["current_price"],
+         "category": None, "resolved": False}
+        for h in holdings
+    ]
+    actions = asyncio.run(m._apply_action_rules(
+        mf_holdings=holdings, mf_investments=mf_investments,
+        exit_candidates=[], holdings=holdings,
+        portfolio_intelligence={"mf_investments": mf_investments, "pairwise_overlap": [], "catalog": {}},
+        portfolio_context={"total_value": 800000, "mf_count": 8, "stock_count": 0},
+        signals=[],
+    ))
+    cat_exits = [a for a in actions if "CATEGORY_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])]
+    assert len(cat_exits) >= 1, (
+        f"Expected Rule 2b to fire on inferred Mid Cap; got {[a.get('reason_codes') for a in actions]}"
+    )
+
+
+def test_infer_category_helper():
+    """Unit test for _infer_category_from_name keyword matcher."""
+    m = ActionPlanManager()
+    assert m._infer_category_from_name("HDFC Mid Cap Fund") == "Mid Cap"
+    assert m._infer_category_from_name("ICICI Large & Mid Cap Fund") == "Large & Mid Cap"
+    assert m._infer_category_from_name("Axis Bluechip Fund - Direct") == "Large Cap"
+    assert m._infer_category_from_name("Parag Parikh Flexi Cap Fund") == "Flexi Cap"
+    assert m._infer_category_from_name("Quant Small Cap Fund") == "Small Cap"
+    assert m._infer_category_from_name("Nippon Corporate Bond Fund") == "Corporate Bond"
+    assert m._infer_category_from_name("SBI Gold ETF") == "Gold"
+    assert m._infer_category_from_name("Random Alpha Fund") is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

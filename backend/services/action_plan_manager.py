@@ -748,12 +748,12 @@ class ActionPlanManager:
         logger.info(f"[Rule 2] AMC exposure: {amc_exposure}; over-concentrated: {over_concentrated_amcs}")
 
         for amc_name, amc_pct in sorted(over_concentrated_amcs, key=lambda x: x[1], reverse=True):
-            # Find all MF investments in this AMC (not yet exited)
+            # Find all MF investments in this AMC (not yet exited). Works for
+            # unresolved funds too — AMC is derived from scheme_name.
             amc_funds = [
                 m for m in mf_investments
-                if m.get("resolved")
-                and self._extract_amc_from_name(m.get("scheme_name", "")) == amc_name
-                and m.get("instrument_id") not in exited_ids
+                if self._extract_amc_from_name(m.get("scheme_name", "")) == amc_name
+                and (m.get("instrument_id") is None or m.get("instrument_id") not in exited_ids)
             ]
             # Rank by exit_score (descending)
             ranked = []
@@ -817,7 +817,15 @@ class ActionPlanManager:
         cat_funds: Dict[str, List[Dict[str, Any]]] = _dd(list)
         total_mf_value = sum((m.get("amount_rs") or 0) for m in mf_investments)
         for m in mf_investments:
-            cn = (m.get("category") or "Uncategorised").strip() or "Uncategorised"
+            # Prefer PG-backed category, fall back to scheme-name inference
+            cn = (m.get("category") or "").strip()
+            if not cn or cn == "Uncategorised":
+                inferred = self._infer_category_from_name(m.get("scheme_name", ""))
+                if inferred:
+                    cn = inferred
+                    m["category"] = inferred  # persist for downstream rules in this run
+                else:
+                    cn = "Uncategorised"
             cat_totals[cn] += (m.get("amount_rs") or 0)
             cat_funds[cn].append(m)
         if rule_2b_enabled and total_mf_value > 0:
@@ -2047,6 +2055,7 @@ class ActionPlanManager:
         """Calculate AMC concentration from MF investments data.
         
         Uses scheme_name from portfolio intelligence MF data.
+        Works for unresolved funds too (AMC extraction is purely name-based).
         Returns dict mapping AMC name to exposure percentage.
         Example: {"HDFC": 35.1, "ICICI": 14.6, ...}
         """
@@ -2056,15 +2065,11 @@ class ActionPlanManager:
         amc_values = {}
         
         for mf in mf_investments:
-            if not mf.get("resolved"):
-                continue
-                
             scheme_name = mf.get("scheme_name", "")
             amount = mf.get("amount_rs", 0)
-            
-            # Extract AMC from scheme name
+            if not scheme_name or not amount:
+                continue
             amc = self._extract_amc_from_name(scheme_name)
-            
             if amc:
                 amc_values[amc] = amc_values.get(amc, 0) + amount
         
@@ -2076,6 +2081,73 @@ class ActionPlanManager:
         
         return amc_exposure
     
+    def _infer_category_from_name(self, name: str) -> Optional[str]:
+        """Best-effort category inference from scheme name when PG lookup fails.
+
+        Matches common SEBI category keywords. Conservative — returns None
+        for ambiguous names so Rule 2b stays silent rather than miscategorise.
+        """
+        if not name:
+            return None
+        n = name.upper()
+        # Order matters — more specific first
+        patterns = [
+            ("LARGE & MID CAP", "Large & Mid Cap"),
+            ("LARGE AND MID", "Large & Mid Cap"),
+            ("MID CAP", "Mid Cap"),
+            ("MIDCAP", "Mid Cap"),
+            ("SMALL CAP", "Small Cap"),
+            ("SMALLCAP", "Small Cap"),
+            ("LARGE CAP", "Large Cap"),
+            ("LARGECAP", "Large Cap"),
+            ("BLUECHIP", "Large Cap"),
+            ("FLEXI CAP", "Flexi Cap"),
+            ("FLEXICAP", "Flexi Cap"),
+            ("MULTI CAP", "Multi Cap"),
+            ("MULTICAP", "Multi Cap"),
+            ("FOCUSED", "Focused"),
+            ("VALUE", "Value Oriented"),
+            ("CONTRA", "Contra"),
+            ("ELSS", "ELSS"),
+            ("TAX SAV", "ELSS"),
+            ("INDEX", "Index"),
+            ("NIFTY", "Index"),
+            ("SENSEX", "Index"),
+            ("BALANCED ADVANTAGE", "Dynamic Asset Allocation"),
+            ("BALANCED", "Hybrid"),
+            ("HYBRID", "Hybrid"),
+            ("AGGRESSIVE HYBRID", "Hybrid"),
+            ("CONSERVATIVE HYBRID", "Hybrid"),
+            ("ARBITRAGE", "Arbitrage"),
+            ("LIQUID", "Liquid"),
+            ("OVERNIGHT", "Liquid"),
+            ("GILT", "Gilt"),
+            ("CORPORATE BOND", "Corporate Bond"),
+            ("CREDIT RISK", "Credit Risk"),
+            ("SHORT DURATION", "Short Duration"),
+            ("MEDIUM DURATION", "Medium Duration"),
+            ("LONG DURATION", "Long Duration"),
+            ("ULTRA SHORT", "Ultra Short Duration"),
+            ("LOW DURATION", "Low Duration"),
+            ("MONEY MARKET", "Money Market"),
+            ("DEBT", "Debt"),
+            ("BOND", "Debt"),
+            ("GOLD", "Gold"),
+            ("SILVER", "Commodity"),
+            ("PHARMA", "Sectoral - Pharma"),
+            ("BANKING", "Sectoral - Banking"),
+            ("TECH", "Sectoral - IT"),
+            ("INFRA", "Sectoral - Infra"),
+            ("FMCG", "Sectoral - FMCG"),
+            ("EMERGING", "Thematic"),
+            ("INTERNATIONAL", "International"),
+            ("GLOBAL", "International"),
+        ]
+        for pat, out in patterns:
+            if pat in n:
+                return out
+        return None
+
     def _extract_amc_from_name(self, name: str) -> Optional[str]:
         """Extract AMC name from fund/scheme name.
         
