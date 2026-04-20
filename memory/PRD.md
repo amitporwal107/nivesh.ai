@@ -2,6 +2,21 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Light-Mode Fix for PortfolioIntelligenceTab
+User flagged: "light mode is broken in most of the app". Audit revealed the **Fund & Overlap Insights** tab (`components/insights/PortfolioIntelligenceTab.jsx`) was authored dark-only — hardcoded `bg-slate-900`, `border-slate-800`, `text-white`, `text-slate-300/400`, `bg-black/20`, `border-white/5/20` without any `dark:` variants. In light mode the cards stayed pitch black and the hero gradient text went invisible (white text on near-white gradient).
+
+- **Fix**: systematically added `dark:` variants to every hardcoded dark-theme utility in `PortfolioIntelligenceTab.jsx`. Mapping used:
+  - `text-white` → `text-slate-900 dark:text-white`
+  - `border-slate-800` → `border-slate-200 dark:border-slate-800`
+  - `bg-slate-800/{50,30,40}` → `bg-slate-100 dark:bg-slate-800/{50,30,40}`
+  - `text-slate-300` → `text-slate-600 dark:text-slate-300`
+  - `text-slate-400` → `text-slate-500 dark:text-slate-400`
+  - `bg-black/20` → `bg-slate-100 dark:bg-black/20`
+  - `border-white/{5,20}` → `border-slate-{200,300} dark:border-white/{5,20}`
+  - `bg-white/10`, `hover:bg-white/20` (buttons) → slate-100/200 equivalents in light
+- **Verified**: light mode now renders clean white hero gradient with dark text, card backgrounds switch properly between bg-white (light) and bg-slate-900 (dark). Dark mode regression-checked — identical to previous design.
+- **Other components already theme-aware** (verified by audit): `InsightsView.js`, `PlanBoardView.js`, `PlanHeroCard.js`, `ScenarioCard.jsx`, `RulesConfigSection.jsx`, `PromptsSection.jsx`, `AICopilotView.jsx`. Remaining `text-white` instances are all intentional white text on colored CTA buttons/badges (`bg-emerald-600 text-white`, `bg-red-600 text-white` etc.) which are correct in both themes.
+
 ### Feb 2026 — Insights↔Engine Consistency: CRITICAL flag now always ships with an action
 User reported: insights flag "Reduce ICICI Prudential AMC concentration — CRITICAL (15.0%)" but the V2 Action Plan had no ICICI exit. Same pattern suspected for other users. Three discrete bugs found + fixed:
 

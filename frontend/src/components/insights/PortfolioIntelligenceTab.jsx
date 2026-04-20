@@ -54,7 +54,7 @@ const CompressionHero = ({ narrative, compression }) => {
           {/* Ring */}
           <div className="relative w-32 h-32 shrink-0" data-testid="pi-compression-ring">
             <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-              <circle cx="50" cy="50" r="44" className="stroke-slate-800/40" strokeWidth="8" fill="none" />
+              <circle cx="50" cy="50" r="44" className="stroke-slate-200 dark:stroke-slate-800/40" strokeWidth="8" fill="none" />
               <circle
                 cx="50" cy="50" r="44"
                 className={`stroke-current transition-all duration-500`}
@@ -64,33 +64,33 @@ const CompressionHero = ({ narrative, compression }) => {
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="text-3xl font-bold text-white" data-testid="pi-compression-score">{score.toFixed(0)}</div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-300">Efficiency</div>
+              <div className="text-3xl font-bold text-slate-900 dark:text-white" data-testid="pi-compression-score">{score.toFixed(0)}</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-600 dark:text-slate-300">Efficiency</div>
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-xs uppercase tracking-wider text-slate-300 mb-2">{label}</div>
-            <h2 className="text-xl sm:text-2xl font-semibold text-white leading-snug mb-2">
+            <div className="text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2">{label}</div>
+            <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-white leading-snug mb-2">
               Your {fmt(narrative?.total_invested_rs)} portfolio behaves like {fmt(narrative?.behaves_like_rs)} due to overlap.
             </h2>
-            <div className="text-sm text-slate-200/90">
+            <div className="text-sm text-slate-700 dark:text-slate-200/90">
               You hold <b>{narrative?.unique_stocks}</b> unique stocks, but risk-and-return effectively come from just{" "}
               <b>{compression?.effective_stocks}</b> of them.
             </div>
             <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="bg-black/20 rounded-xl px-3 py-2 border border-white/5">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Top 10 stocks</div>
-                <div className="text-lg font-semibold text-white">{compression?.top_10_exposure_pct}%</div>
+              <div className="bg-slate-100 dark:bg-black/20 rounded-xl px-3 py-2 border border-slate-200 dark:border-white/5">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Top 10 stocks</div>
+                <div className="text-lg font-semibold text-slate-900 dark:text-white">{compression?.top_10_exposure_pct}%</div>
               </div>
-              <div className="bg-black/20 rounded-xl px-3 py-2 border border-white/5">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Top 20 stocks</div>
-                <div className="text-lg font-semibold text-white">{compression?.top_20_exposure_pct}%</div>
+              <div className="bg-slate-100 dark:bg-black/20 rounded-xl px-3 py-2 border border-slate-200 dark:border-white/5">
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">Top 20 stocks</div>
+                <div className="text-lg font-semibold text-slate-900 dark:text-white">{compression?.top_20_exposure_pct}%</div>
               </div>
             </div>
             <Button 
               data-testid="view-action-plan-intel-btn"
               onClick={() => navigate('/dashboard#plan_board')}
-              className="mt-4 bg-white/10 hover:bg-white/20 text-white border border-white/20"
+              className="mt-4 bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-900 dark:text-white border border-slate-300 dark:border-white/20"
               size="sm"
             >
               <ExternalLink className="w-4 h-4 mr-2" />
@@ -113,14 +113,14 @@ const ICONS_BY_TYPE = {
 const InsightCard = ({ ins }) => {
   const Icon = ICONS_BY_TYPE[ins.type] || Sparkles;
   return (
-    <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 hover:border-slate-600 transition"
+    <div className="flex items-start gap-3 p-4 rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition"
          data-testid={`pi-insight-${ins.type}`}>
       <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex items-center justify-center shrink-0">
         <Icon className="w-4 h-4 text-indigo-300" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-white leading-snug">{ins.headline}</div>
-        {ins.detail && <div className="text-xs text-slate-400 mt-1">{ins.detail}</div>}
+        <div className="text-sm font-medium text-slate-900 dark:text-white leading-snug">{ins.headline}</div>
+        {ins.detail && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{ins.detail}</div>}
       </div>
     </div>
   );
@@ -128,13 +128,13 @@ const InsightCard = ({ ins }) => {
 
 // ── Top stocks table ─────────────────────────────────────────────────────
 const TopStocksPanel = ({ stocks }) => (
-  <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+  <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
     <CardContent className="p-5">
       <div className="flex items-center gap-2 mb-3">
         <Target className="w-4 h-4 text-amber-400" />
-        <h3 className="text-sm font-semibold text-white">Top stock exposure (look-through)</h3>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Top stock exposure (look-through)</h3>
       </div>
-      <p className="text-xs text-slate-400 mb-4">
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
         Aggregate of every underlying stock across all your mutual funds.
       </p>
       {stocks.length === 0 ? (
@@ -142,10 +142,10 @@ const TopStocksPanel = ({ stocks }) => (
       ) : (
         <div className="space-y-2">
           {stocks.slice(0, 10).map((s, i) => (
-            <div key={s.key} className="grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-800 last:border-b-0"
+            <div key={s.key} className="grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-200 dark:border-slate-800 last:border-b-0"
                  data-testid={`pi-top-stock-${i}`}>
               <div className="col-span-5 min-w-0">
-                <div className="text-white truncate font-medium">{s.name}</div>
+                <div className="text-slate-900 dark:text-white truncate font-medium">{s.name}</div>
                 <div className="text-[10px] text-slate-500">{s.sector || "—"}</div>
               </div>
               <div className="col-span-5">
@@ -155,7 +155,7 @@ const TopStocksPanel = ({ stocks }) => (
                 </div>
               </div>
               <div className="col-span-2 text-right">
-                <div className="text-white font-mono">{s.exposure_pct.toFixed(2)}%</div>
+                <div className="text-slate-900 dark:text-white font-mono">{s.exposure_pct.toFixed(2)}%</div>
                 <div className="text-[10px] text-slate-500">{fmt(s.exposure_rs)} · {s.fund_count}f</div>
               </div>
             </div>
@@ -185,13 +185,13 @@ const PairsHeatmap = ({ pairs, catalog }) => {
   };
 
   return (
-    <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+    <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
       <CardContent className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <Layers className="w-4 h-4 text-indigo-400" />
-          <h3 className="text-sm font-semibold text-white">Fund-to-fund overlap (real stock-level)</h3>
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Fund-to-fund overlap (real stock-level)</h3>
         </div>
-        <p className="text-xs text-slate-400 mb-4">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
           Overlap(A,B) = Σ min(weight_A, weight_B). Red pairs are candidates for consolidation. Click to see details.
         </p>
         {top.length === 0 ? (
@@ -205,13 +205,13 @@ const PairsHeatmap = ({ pairs, catalog }) => {
                 <div key={pairKey} data-testid={`pi-pair-${i}`}>
                   <button
                     onClick={() => togglePair(pairKey)}
-                    className="w-full grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-800 hover:bg-slate-800/30 transition cursor-pointer"
+                    className="w-full grid grid-cols-12 gap-2 items-center text-xs py-1.5 border-b border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:bg-slate-800/30 transition cursor-pointer"
                   >
-                    <div className="col-span-5 min-w-0 text-white truncate text-left">{p.a_name}</div>
+                    <div className="col-span-5 min-w-0 text-slate-900 dark:text-white truncate text-left">{p.a_name}</div>
                     <div className="col-span-1 text-center text-slate-500">↔</div>
-                    <div className="col-span-4 min-w-0 text-white truncate text-left">{p.b_name}</div>
+                    <div className="col-span-4 min-w-0 text-slate-900 dark:text-white truncate text-left">{p.b_name}</div>
                     <div className="col-span-2 text-right">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${colorFor(p.overlap_pct)} text-white`}>
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${colorFor(p.overlap_pct)} text-slate-900 dark:text-white`}>
                         {p.overlap_pct.toFixed(1)}%
                       </span>
                       <div className="text-[10px] text-slate-500 mt-0.5">{p.shared_count} shared</div>
@@ -220,7 +220,7 @@ const PairsHeatmap = ({ pairs, catalog }) => {
                   
                   {/* Drill-down details */}
                   {isExpanded && (
-                    <div className="mt-2 p-3 rounded-xl bg-slate-800/40 border border-slate-700/50 space-y-2"
+                    <div className="mt-2 p-3 rounded-xl bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2"
                          data-testid={`pi-pair-drilldown-${i}`}>
                       <div className="text-xs font-medium text-indigo-300 mb-2">
                         Shared stocks ({p.shared_count}):
@@ -232,7 +232,7 @@ const PairsHeatmap = ({ pairs, catalog }) => {
                         const isDeadB = holdingB?.holding_type?.toLowerCase() === "dead";
                         
                         return (
-                          <div key={idx} className="grid grid-cols-12 gap-2 text-[10px] py-1.5 border-b border-slate-700/50 last:border-0">
+                          <div key={idx} className="grid grid-cols-12 gap-2 text-[10px] py-1.5 border-b border-slate-200 dark:border-slate-700 last:border-0">
                             <div className="col-span-5 text-slate-200">
                               {stock.key}
                               {(isDeadA || isDeadB) && (
@@ -251,7 +251,7 @@ const PairsHeatmap = ({ pairs, catalog }) => {
                                 ({holdingB?.holding_type?.includes("Direct") ? "Direct" : "Regular"})
                               </span>
                             </div>
-                            <div className="col-span-1 text-right text-slate-400">
+                            <div className="col-span-1 text-right text-slate-500 dark:text-slate-400">
                               {stock.shared_w.toFixed(1)}
                             </div>
                           </div>
@@ -259,7 +259,7 @@ const PairsHeatmap = ({ pairs, catalog }) => {
                       })}
                       
                       {p.reasons && p.reasons.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-slate-700/50">
+                        <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                           <div className="text-[10px] text-amber-300">
                             ⚠️ {p.reasons.join(" · ")}
                           </div>
@@ -279,13 +279,13 @@ const PairsHeatmap = ({ pairs, catalog }) => {
 
 // ── Redundancy suggestions ──────────────────────────────────────────────
 const RedundancyPanel = ({ items, onSimulate, simulating, simRemoved }) => (
-  <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+  <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
     <CardContent className="p-5">
       <div className="flex items-center gap-2 mb-3">
         <Minus className="w-4 h-4 text-rose-400" />
-        <h3 className="text-sm font-semibold text-white">Redundancy — remove to optimise</h3>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Redundancy — remove to optimise</h3>
       </div>
-      <p className="text-xs text-slate-400 mb-4">
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
         Click a fund to simulate removing it. Lower sector drift = safer removal.
       </p>
       {items.length === 0 ? (
@@ -302,16 +302,16 @@ const RedundancyPanel = ({ items, onSimulate, simulating, simRemoved }) => (
                 className={`w-full text-left p-3 rounded-xl border transition ${
                   active
                     ? "bg-rose-500/10 border-rose-400/50"
-                    : "bg-slate-800/50 border-slate-700 hover:border-slate-500"
+                    : "bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-slate-500"
                 } disabled:opacity-50`}
                 data-testid={`pi-redund-${r.remove_id}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-white font-medium truncate">
+                    <div className="text-sm text-slate-900 dark:text-white font-medium truncate">
                       {active ? "Removed · " : ""}{r.remove_name}
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                       {fmt(r.remove_amount_rs)} · sector drift {r.sector_l1_drift_pct}%
                     </div>
                   </div>
@@ -335,11 +335,11 @@ const RedundancyPanel = ({ items, onSimulate, simulating, simRemoved }) => (
 const CategoryStrip = ({ items, ratings }) => {
   const ratingByCat = Object.fromEntries((ratings || []).map(r => [r.category, r]));
   return (
-    <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+    <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
       <CardContent className="p-5">
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-4 h-4 text-amber-400" />
-          <h3 className="text-sm font-semibold text-white">Category ratings & efficiency</h3>
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Category ratings & efficiency</h3>
         </div>
         {(items.length === 0 && (ratings?.length || 0) === 0) ? (
           <div className="text-xs text-slate-500">No category data yet.</div>
@@ -353,11 +353,11 @@ const CategoryStrip = ({ items, ratings }) => {
                            r.rating >= 2 ? "text-amber-400" : "text-rose-400";
               return (
                 <div key={r.category}
-                     className="border-b border-slate-800 last:border-b-0 pb-3 last:pb-0"
+                     className="border-b border-slate-200 dark:border-slate-800 last:border-b-0 pb-3 last:pb-0"
                      data-testid={`pi-cat-${r.category}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="text-sm text-white font-medium">{r.category}</div>
+                      <div className="text-sm text-slate-900 dark:text-white font-medium">{r.category}</div>
                       <div className="text-[10px] text-slate-500">
                         {r.funds_count} funds · {fmt(r.invested_rs)}
                         {r.avg_pair_overlap != null && ` · ${r.avg_pair_overlap}% avg overlap`}
@@ -365,7 +365,7 @@ const CategoryStrip = ({ items, ratings }) => {
                     </div>
                     <div className={`text-sm font-semibold ${tone} tracking-wider shrink-0`}>{stars}</div>
                   </div>
-                  {r.reason && <div className="text-[11px] text-slate-400 mt-1.5 leading-snug">{r.reason}</div>}
+                  {r.reason && <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">{r.reason}</div>}
                 </div>
               );
             })}
@@ -377,22 +377,22 @@ const CategoryStrip = ({ items, ratings }) => {
 };
 
 const SectorStrip = ({ items }) => (
-  <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+  <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
     <CardContent className="p-5">
       <div className="flex items-center gap-2 mb-3">
         <TrendingUp className="w-4 h-4 text-sky-400" />
-        <h3 className="text-sm font-semibold text-white">Look-through sector exposure</h3>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Look-through sector exposure</h3>
       </div>
       <div className="space-y-1.5">
         {items.slice(0, 8).map((s) => (
           <div key={s.sector} className="grid grid-cols-12 gap-2 items-center text-xs" data-testid={`pi-sec-${s.sector}`}>
-            <div className="col-span-4 truncate text-white">{s.sector}</div>
+            <div className="col-span-4 truncate text-slate-900 dark:text-white">{s.sector}</div>
             <div className="col-span-6">
               <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
                 <div className="h-full bg-sky-500" style={{ width: `${Math.min(s.pct * 3, 100)}%` }} />
               </div>
             </div>
-            <div className="col-span-2 text-right text-slate-300 font-mono">{s.pct.toFixed(1)}%</div>
+            <div className="col-span-2 text-right text-slate-600 dark:text-slate-300 font-mono">{s.pct.toFixed(1)}%</div>
           </div>
         ))}
       </div>
@@ -484,10 +484,10 @@ export default function PortfolioIntelligenceTab() {
 
   if (data?.empty) {
     return (
-      <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+      <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
         <CardContent className="p-10 text-center">
           <Info className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-          <div className="text-sm text-slate-300">{data.reason || "No mutual fund data yet."}</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">{data.reason || "No mutual fund data yet."}</div>
           <div className="text-xs text-slate-500 mt-1">Upload your CAS statement to unlock portfolio intelligence.</div>
         </CardContent>
       </Card>
@@ -518,11 +518,11 @@ export default function PortfolioIntelligenceTab() {
 
       {/* AI insights */}
       {view?.ai_insights?.length > 0 && (
-        <Card className="bg-slate-900 border-slate-800 rounded-2xl">
+        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
           <CardContent className="p-5">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-sm font-semibold text-white">AI Insights</h3>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">AI Insights</h3>
               <Badge variant="outline" className="ml-auto text-[10px]">GPT-4o</Badge>
               <Button variant="ghost" size="sm" onClick={load} data-testid="pi-refresh">
                 <RefreshCw className="w-3.5 h-3.5" />
