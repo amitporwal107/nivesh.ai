@@ -103,7 +103,9 @@ async def add_holding(request: Request, holding: HoldingCreate):
 @router.put("/portfolio/holdings/{holding_id}")
 async def update_holding(request: Request, holding_id: str, holding: HoldingUpdate):
     user = await get_current_user(request)
-    update_data = {k: v for k, v in holding.model_dump().items() if v is not None}
+    # Use exclude_unset so the caller can explicitly set buy_date=null to clear it.
+    # Without exclude_unset we couldn't distinguish "not passed" from "passed as null".
+    update_data = holding.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
     await db.holdings.update_one(

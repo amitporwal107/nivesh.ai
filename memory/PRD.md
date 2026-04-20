@@ -2,6 +2,31 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Phase A: Holistic Asset Coverage + ClearTax Tax Engine + Editable Buy Date
+- [x] **Copilot is no longer equity-only** — `_build_context` classifies ETFs (GOLDBEES/SGB → gold, LIQUIDBEES/GILT/BHARAT BOND → debt, rest → equity), bonds/FDs → debt, direct equity+MF → equity. Fixed `other_pct=100%` math bug.
+- [x] **`portfolio_intelligence.compute_portfolio_intelligence`** now always returns a holistic `total_value` + `asset_allocation{equity_pct, debt_pct, gold_pct, other_pct, *_rs}` covering MF+equity+ETF+debt+gold (was MF-only). AMC/overlap stays MF-only by design.
+- [x] **`tax_calculator` rewritten to ClearTax FY 25-26 rules** (https://cleartax.in/s/capital-gains-income):
+  - Equity STCG 20% (≤12m), Equity LTCG 12.5% over ₹1.25L exemption (>12m)
+  - Debt MF acquired ≥ 1-Apr-2023 → always slab (default 30%); pre-Apr-2023 → 12.5% LTCG >24m
+  - Gold/SGB → slab STCG, 12.5% LTCG >24m
+  - Asset-class classifier (`_classify_asset`) drives rate selection
+  - **When `buy_date` is missing**, returns `tax_impact_pending=True` instead of fabricating ₹0
+- [x] **`action_plan_manager`**:
+  - `_create_exit_action_with_tax_analysis` now falls back to `tax_calculator.calculate_tax_impact(holding)` when the candidate didn't pre-compute `tax_impact` → every EXIT action now carries `tax_liability`, `asset_class`, `tax_regime`
+  - `_calculate_total_tax_impact` rewritten to aggregate per asset class with new rates; returns `total_tax_liability` (read by Copilot/UI), keeping `total_tax` as legacy alias
+- [x] **CAS parser `buy_date` extraction** — `cas_api_client._extract_buy_date_from_transactions` scans per-scheme `transactions[*].date`, picks the earliest purchase date, and populates `buy_date` on every `_holding_from_*` builder (MF, demat MF, equity, bond/SGB). `routes/portfolio.py` no longer back-fills `datetime.now()`; missing dates stay `None` → taxed as pending.
+- [x] **PUT `/api/portfolio/holdings/{id}`** uses `exclude_unset=True` so callers can explicitly clear `buy_date` with `null` without hitting 400 "No fields to update".
+- [x] **Editable Buy Date UI** — new `InlineBuyDateCell` in `PortfolioView.js` adds a dedicated **Buy Date** column; calendar-icon cell with "Set date" hint for missing values; click → native date picker; Enter/blur persists (toast: "Buy date updated"); Escape cancels.
+- [x] **Verified** (iteration_29): `plan_tax_liability` moved from ₹0 → ₹19,675; `gold_pct` 0→18.8%, `debt_pct` 0→0.7%, `other_pct` 100→0% for the test user.
+
+### Phase B (parked plan — not in this release)
+- Factor equity ETFs into overlap analysis (treat equity ETFs as MF-like containers).
+- Factor direct-stock concentration into "concentration" prompt (e.g., "30% of portfolio in 1 stock").
+- FIFO lot-wise tax using the full `transactions` array per holding.
+- Accept user's income slab as a profile field so slab-rate debt/gold STCG uses the real rate (currently default 30%).
+- One-click "Apply current NAV as buy date" for legacy holdings where CAS didn't provide transaction history.
+- Back-populate tool: re-run CAS parse for existing users to repair the `buy_date = upload_date` artifact on already-imported portfolios.
+
 ### Feb 2026 — Nivesh Copilot Interactive Charts & Save-as-Plan
 - [x] **Replaced static prompt templates** with context-aware interactive cards driven by real portfolio signals.
   - New `CopilotPromptCard.jsx` with 3 variants (hero / compact / tiny) — each renders a mini Recharts viz (MiniDonut / MiniBar / MiniGauge / MiniStat / MiniSplit) backed by `viz` payload from backend.
