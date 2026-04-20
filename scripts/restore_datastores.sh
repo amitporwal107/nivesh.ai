@@ -178,6 +178,23 @@ else
     log_error "Redis connection test: FAILED"
 fi
 
+# Step 8b: Apply PG schema + restore data from MongoDB mirror
+# MongoDB is persistent across forks; PG is wiped. This brings PG back to life.
+echo ""
+echo "🔁 Step 8b: Applying PG schema + restoring from MongoDB mirror..."
+SCHEMA_FILE="/app/backend/migrations/001_phase2_mf_schema.sql"
+if [ -f "$SCHEMA_FILE" ]; then
+    PGPASSWORD=postgres psql -h localhost -U postgres -d nivesh -f "$SCHEMA_FILE" > /dev/null 2>&1 \
+        && log_info "PG schema applied (idempotent)" \
+        || log_warn "PG schema apply had issues (may already exist)"
+fi
+if [ -f "/app/backend/scripts/restore_pg_from_mongo.py" ]; then
+    cd /app/backend && /root/.venv/bin/python -m scripts.restore_pg_from_mongo 2>&1 | tail -5 | sed 's/^/    /'
+    log_info "PG data restore from Mongo mirror attempted"
+else
+    log_warn "restore_pg_from_mongo.py not found — skipping PG data restore"
+fi
+
 # Step 9: Restart backend to reconnect to datastores
 echo ""
 echo "🚀 Step 9: Restarting backend application..."
