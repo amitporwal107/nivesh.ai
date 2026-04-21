@@ -17,14 +17,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
+def _resolve_gmail_redirect_uri(request: Request) -> str:
+    """Build the OAuth redirect URI.
+
+    Priority:
+      1. `GMAIL_REDIRECT_URI` env/secret override (explicit production value)
+      2. Dynamic construction from the incoming request's base URL
+         → works across preview, custom domains, and production without
+         requiring a per-environment override.
+    """
+    if GMAIL_REDIRECT_URI:
+        return GMAIL_REDIRECT_URI
+    # `request.base_url` includes trailing slash; rstrip to normalise
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/oauth/gmail/callback"
+
+
 @router.get("/gmail/connect")
 async def gmail_connect(request: Request):
     """Start Gmail OAuth flow."""
     user = await get_current_user(request)
 
-    redirect_uri = GMAIL_REDIRECT_URI
-    if not redirect_uri:
-        raise HTTPException(status_code=500, detail="GMAIL_REDIRECT_URI not configured")
+    redirect_uri = _resolve_gmail_redirect_uri(request)
 
     state = f"{user['user_id']}_{uuid.uuid4().hex[:8]}"
     await db.gmail_oauth_states.insert_one({
@@ -70,9 +84,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     code_verifier = state_doc.get("code_verifier")
     await db.gmail_oauth_states.delete_one({"state": state})
 
-    redirect_uri = GMAIL_REDIRECT_URI
-    if not redirect_uri:
-        return RedirectResponse(url="/dashboard?gmail_error=config_error")
+    redirect_uri = _resolve_gmail_redirect_uri(request)
 
     try:
         tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier)
