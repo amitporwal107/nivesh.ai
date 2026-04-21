@@ -124,6 +124,180 @@ def _parse_launch_date(s: Optional[str]) -> Optional[str]:
         return None
 
 
+def _parse_iso_date(s: Optional[str]) -> Optional[str]:
+    """'2013-01-01' or '2022-07-28T18:30:00.788Z' → '2013-01-01'. None on failure."""
+    if not s:
+        return None
+    s = str(s).split("T")[0]
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return s
+    except ValueError:
+        return None
+
+
+def _years_between(iso_from: Optional[str], iso_to: Optional[str] = None) -> Optional[float]:
+    """Years between two ISO dates (or iso_from → today) to 1 decimal place."""
+    if not iso_from:
+        return None
+    try:
+        start = datetime.strptime(iso_from, "%Y-%m-%d").date()
+        end = (
+            datetime.strptime(iso_to, "%Y-%m-%d").date() if iso_to
+            else datetime.now(timezone.utc).date()
+        )
+        days = (end - start).days
+        if days < 0:
+            return 0.0
+        return round(days / 365.25, 1)
+    except ValueError:
+        return None
+
+
+def _extract_v3_primitives(nd: Dict[str, Any], holdings: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """V3 Phase 0b: pull every primitive Groww already exposes.
+
+    Feeds Quality / Health / Portfolio-Fit composite scores directly — no LLM,
+    no compute. Deterministic parse from __NEXT_DATA__.
+    """
+    # Fund age from allotment_date (preferred) or launch_date
+    allotment_iso = _parse_iso_date(nd.get("allotment_date")) or _parse_launch_date(
+        nd.get("launch_date")
+    )
+    fund_age_years = _years_between(allotment_iso) if allotment_iso else None
+
+    # Fund managers — shape: list of {person_name, date_from, education, experience, funds_managed[]}
+    managers: List[Dict[str, Any]] = []
+    for m in nd.get("fund_manager_details") or []:
+        since_iso = _parse_iso_date(m.get("date_from"))
+        managers.append({
+            "name": m.get("person_name"),
+            "since": since_iso,
+            "tenure_years": _years_between(since_iso),
+            "education": m.get("education"),
+            "experience": m.get("experience"),
+            "funds_managed_count": len(m.get("funds_managed") or []),
+        })
+    # Primary manager = longest current tenure
+    primary = max(
+        (m for m in managers if m["tenure_years"] is not None),
+        key=lambda m: m["tenure_years"],
+        default=None,
+    )
+
+    # Historic expense — latest vs ~3y ago. Groww sorts newest → oldest.
+    hfe = nd.get("historic_fund_expense") or []
+    latest_exp: Optional[Dict[str, Any]] = hfe[0] if hfe else None
+    # Find the entry closest to 3 years ago
+    exp_3y_ago: Optional[Dict[str, Any]] = None
+    if latest_exp and _parse_iso_date(latest_exp.get("as_on_date")):
+        try:
+            latest_date = datetime.strptime(
+                _parse_iso_date(latest_exp["as_on_date"]), "%Y-%m-%d"
+            ).date()
+            target_days = 3 * 365
+            best = None
+            best_delta = None
+            for e in hfe:
+                eiso = _parse_iso_date(e.get("as_on_date"))
+                if not eiso:
+                    continue
+                d = (latest_date - datetime.strptime(eiso, "%Y-%m-%d").date()).days
+                # target 3y ago (±90 days tolerance, else closest)
+                delta = abs(d - target_days)
+                if best_delta is None or delta < best_delta:
+                    best, best_delta = e, delta
+            exp_3y_ago = best
+        except ValueError:
+            exp_3y_ago = None
+
+    expense_trend_delta: Optional[float] = None
+    if latest_exp and exp_3y_ago:
+        a, b = _num(latest_exp.get("expense_ratio")), _num(exp_3y_ago.get("expense_ratio"))
+        if a is not None and b is not None:
+            expense_trend_delta = round(a - b, 2)
+
+    # Turnover — first non-null in historic_fund_expense (top-level `portfolio_turnover`
+    # is stale; the rows array is the authoritative history).
+    turnover_latest: Optional[float] = None
+    turnover_as_of: Optional[str] = None
+    for e in hfe:
+        t = _num(e.get("turn_over_ratio"))
+        if t is not None:
+            turnover_latest = t
+            turnover_as_of = _parse_iso_date(e.get("as_on_date"))
+            break
+    if turnover_latest is None:
+        turnover_latest = _num(nd.get("portfolio_turnover"))
+
+    # Category peer stats & rank
+    cat_avg = {"1y": None, "3y": None, "5y": None}
+    cat_rank = {"1y": None, "3y": None, "5y": None}
+    for s in nd.get("stats") or []:
+        if s.get("type") == "CATEGORY_AVG_RETURN":
+            cat_avg = {"1y": _num(s.get("stat_1y")), "3y": _num(s.get("stat_3y")), "5y": _num(s.get("stat_5y"))}
+        elif s.get("type") == "RANK_WITHIN_CATEGORY":
+            cat_rank = {
+                "1y": int(s["stat_1y"]) if s.get("stat_1y") is not None else None,
+                "3y": int(s["stat_3y"]) if s.get("stat_3y") is not None else None,
+                "5y": int(s["stat_5y"]) if s.get("stat_5y") is not None else None,
+            }
+
+    # Top-10 concentration
+    top10_concentration = round(
+        sum(h.get("pct", 0.0) or 0.0 for h in holdings[:10]), 2
+    ) if holdings else None
+
+    # Sibling plan slug (opposite plan type)
+    plan_type = (nd.get("plan_type") or "").strip().lower()
+    sibling_slug: Optional[str] = None
+    if plan_type == "direct":
+        sibling_slug = nd.get("regular_search_id")
+    elif plan_type == "regular":
+        sibling_slug = nd.get("direct_search_id")
+
+    # Analysis (PROS / CONS bullets)
+    analysis = [
+        {
+            "type": a.get("analysis_type"),
+            "subject": a.get("analysis_subject"),
+            "desc": a.get("analysis_desc"),
+            "rating": _num(a.get("rating")),
+        }
+        for a in (nd.get("analysis") or [])
+    ]
+
+    # Truncate historic expense to last 36 monthly entries for persistence
+    historic_expense_trunc = [
+        {
+            "expense_ratio": _num(e.get("expense_ratio")),
+            "turnover_ratio": _num(e.get("turn_over_ratio")),
+            "as_on_date": _parse_iso_date(e.get("as_on_date")),
+            "frequency": e.get("frequency"),
+        }
+        for e in hfe[:36]
+    ]
+
+    return {
+        "allotment_date": allotment_iso,
+        "fund_age_years": fund_age_years,
+        "fund_managers": managers,
+        "primary_manager": primary,
+        "expense_ratio_latest": _num(latest_exp.get("expense_ratio")) if latest_exp else None,
+        "expense_ratio_3y_ago": _num(exp_3y_ago.get("expense_ratio")) if exp_3y_ago else None,
+        "expense_trend_delta": expense_trend_delta,
+        "historic_expense": historic_expense_trunc,
+        "turnover_ratio": turnover_latest,
+        "turnover_as_of": turnover_as_of,
+        "category_avg_returns": cat_avg,
+        "rank_within_category": cat_rank,
+        "top10_concentration_pct": top10_concentration,
+        "sibling_slug": sibling_slug,
+        "plan_type": nd.get("plan_type"),
+        "analysis": analysis,
+    }
+
+
 def parse_next_data(nd: Dict[str, Any]) -> Dict[str, Any]:
     """Structured parse from __NEXT_DATA__.mfServerSideData."""
     # Holdings
@@ -215,6 +389,7 @@ def parse_next_data(nd: Dict[str, Any]) -> Dict[str, Any]:
         "split": split,
         "ratios": ratios,
         "metadata": metadata,
+        "v3_primitives": _extract_v3_primitives(nd, holdings),
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "source": "groww",
     }
@@ -319,3 +494,47 @@ async def fetch_fund(scheme_name: str, explicit_slug: Optional[str] = None) -> O
     parsed["slug"] = slug
     parsed["scheme_name"] = parsed.get("metadata", {}).get("scheme_name") or scheme_name
     return validate(parsed)
+
+
+async def fetch_fund_with_sibling(
+    scheme_name: str, explicit_slug: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """V3 Phase 0b: fetch the primary plan, then its sibling (regular ⇄ direct)
+    to populate BOTH expense ratios natively (no compute).
+
+    Returns the primary scrape with two extra fields stitched in:
+      parsed["metadata"]["expense_ratio_direct"]
+      parsed["metadata"]["expense_ratio_regular"]
+
+    The sibling scrape itself is attached at parsed["sibling"] for callers
+    that want to persist both rows.
+    """
+    primary = await fetch_fund(scheme_name, explicit_slug)
+    if not primary:
+        return None
+
+    v3 = primary.get("v3_primitives") or {}
+    sibling_slug = v3.get("sibling_slug")
+    plan_type = (v3.get("plan_type") or "").strip().lower()
+    primary_expense = _num((primary.get("metadata") or {}).get("expense_ratio"))
+
+    meta = primary.setdefault("metadata", {})
+    # Seed with whichever plan we fetched
+    if plan_type == "direct":
+        meta["expense_ratio_direct"] = primary_expense
+    elif plan_type == "regular":
+        meta["expense_ratio_regular"] = primary_expense
+
+    if sibling_slug:
+        sibling = await fetch_fund(primary.get("scheme_name") or scheme_name, explicit_slug=sibling_slug)
+        if sibling:
+            primary["sibling"] = sibling
+            sib_meta = sibling.get("metadata") or {}
+            sib_expense = _num(sib_meta.get("expense_ratio"))
+            sib_plan = (sib_meta.get("plan_type") or "").strip().lower()
+            if sib_plan == "direct":
+                meta["expense_ratio_direct"] = sib_expense
+            elif sib_plan == "regular":
+                meta["expense_ratio_regular"] = sib_expense
+
+    return primary

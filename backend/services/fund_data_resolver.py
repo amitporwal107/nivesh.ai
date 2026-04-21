@@ -157,7 +157,7 @@ async def get_fund_data(
 
     # Scrape inline
     slug = explicit_slug or await redis_client.get_slug(key)
-    fresh = await groww_client.fetch_fund(canonical_name, slug)
+    fresh = await groww_client.fetch_fund_with_sibling(canonical_name, slug)
     duration_ms = int((time.time() - t0) * 1000)
 
     if not fresh:
@@ -231,7 +231,7 @@ async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
     for item in pending:
         t0 = time.time()
         try:
-            fresh = await groww_client.fetch_fund(
+            fresh = await groww_client.fetch_fund_with_sibling(
                 item["scheme_name"], item.get("slug")
             )
             dur = int((time.time() - t0) * 1000)

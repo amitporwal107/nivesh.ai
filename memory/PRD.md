@@ -2,6 +2,56 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 Engine Phase 0b: Groww scraper expansion (all scoring primitives sourced, zero compute)
+
+User direction: **"source from Groww, don't compute"**. Groww's `__NEXT_DATA__` payload was audited and found to expose every V3 Excel input natively. Phase 0b extracts them all in one scrape per plan, plus the sibling plan (regular ⇄ direct) to get both expense ratios without any post-processing.
+
+**New Postgres columns on `mutual_fund_metadata`** (`migrations/003_v3_phase0b_scrape_fields.sql`, additive / idempotent):
+- **Fund identity**: `allotment_date`, `fund_age_years`
+- **Fund manager**: `manager_since`, `manager_education`, `manager_funds_count`, `fund_managers` (JSONB — full roster with tenure per person)
+- **Expense trend**: `expense_ratio_3y_ago`, `expense_trend_delta`, `historic_expense_json` (last 36 monthly entries)
+- **Turnover**: `turnover_ratio`, `turnover_as_of`
+- **Category peers**: `category_avg_1y/3y/5y`, `rank_within_category_1y/3y/5y`
+- **Concentration**: `top10_concentration_pct`
+- **Sibling plan**: `sibling_slug` (for expense parity / cost-leak rule)
+- **Analysis**: `analysis_json` (Groww PROS/CONS bullets)
+
+**Parser** (`services/groww_client._extract_v3_primitives`):
+- Reads `allotment_date` (falls back to `launch_date`), computes fund_age with `_years_between()` helper
+- Iterates `fund_manager_details`, computes tenure per person from `date_from`, flags the longest-tenured as `primary_manager`
+- Walks `historic_fund_expense` (1,000+ entries in HDFC sample) to find latest + closest-to-3y-ago entry → `expense_trend_delta`
+- Pulls turnover from the first non-null entry in the history (top-level `portfolio_turnover` is stale)
+- Maps Groww `stats[type=CATEGORY_AVG_RETURN]` and `stats[type=RANK_WITHIN_CATEGORY]` into structured dicts
+- Sums `pct` across top-10 holdings for `top10_concentration_pct`
+- Picks `regular_search_id` or `direct_search_id` (whichever is opposite of current `plan_type`) as `sibling_slug`
+
+**Sibling-aware fetch** (`services/groww_client.fetch_fund_with_sibling`):
+- Fetches primary plan, then chases `sibling_slug` to fetch the opposite plan
+- Stitches `expense_ratio_direct` + `expense_ratio_regular` onto `metadata` — both expense ratios are now **sourced, not estimated**
+- Attaches the full sibling scrape at `parsed["sibling"]` for downstream persistence
+
+**Persistence** (`services/pg_writer.persist_scrape`):
+- Upserts all 20 new V3 columns in a single SQL statement
+- Recursively persists the sibling plan so both instrument_master rows (Regular + Direct) get their own V3 metadata records with cross-filled expense pair
+- Uses `COALESCE(EXCLUDED, existing)` for expense_ratio_direct/regular so a partial scrape never nulls out a previously-filled value
+
+**Resolver wiring** (`services/fund_data_resolver`):
+- Live inline scrape path: `fetch_fund` → `fetch_fund_with_sibling`
+- Off-hours drain path: same swap
+- Every user-triggered fund resolution now pulls both plans automatically
+
+**Coverage vs V3 Excel spec (Sheet1 inputs)**:
+- ✅ Sourced natively (no compute): fund_age, manager_name + tenure, expense_direct, expense_regular, expense_trend, turnover_ratio, category_avg_1y/3y/5y, rank_within_category, top10_concentration, sharpe, sortino, alpha, beta, std_dev, returns_1y/3y/5y, aum, nav, allotment_date (17 of 24 primitives)
+- ⏳ Accumulating via AMFI cron (Phase 0a): will unlock max_drawdown, consistency_score, downside_capture once history builds
+- 📋 Phase 1 compute: `benchmark_isin` mapping (34 indices seeded in `benchmark_master`) → alpha/beta recomputation for validation
+
+**Verified live on 3 funds** (HDFC Balanced Advantage, SBI Contra, Parag Parikh Flexi Cap):
+- HDFC BAF: age=13.3y, manager=Anil Bamboli (3.7y, 6-person team), expense D/R=0.75/1.36, trend=-0.12, turnover=14.58%, cat_avg_3y=11.87, rank=2/category, top10=30.81%, 36 monthly expense entries + 3 analysis bullets
+- SBI Contra Direct: age=13.3y, manager=Dinesh Balachandran (8.0y), expense D/R=0.75/1.53, trend=-0.15, top10=33.84% — **sibling Regular plan also auto-persisted** with same cross-filled expense pair
+- Parag Parikh Flexi Cap: age=12.9y, manager=Rajeev Thakkar (12.9y — founder), expense D/R=0.62/1.27, top10=49.82%
+
+**Testing**: 15 pytest unit tests (`tests/test_groww_v3_primitives.py`) — all pass, zero network/DB dependencies. Locks parser contract against future `__NEXT_DATA__` schema drift.
+
 ### Feb 2026 — V3 Engine Phase 0a: NAV/AUM history + extended metadata + benchmark master
 
 Foundational data-layer work for the V3 engine. No backfill per user direction — data accumulates forward from today.

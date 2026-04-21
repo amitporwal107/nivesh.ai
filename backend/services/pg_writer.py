@@ -129,12 +129,29 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
                 return None
 
             # Metadata
+            v3 = data.get("v3_primitives") or {}
+            primary_mgr = v3.get("primary_manager") or {}
+            cat_avg = v3.get("category_avg_returns") or {}
+            cat_rank = v3.get("rank_within_category") or {}
+            import json as _json
             await conn.execute(
                 """
                 INSERT INTO mutual_fund_metadata
                     (instrument_id, groww_slug, aum_cr, nav, nav_date, expense_ratio,
-                     rating, risk_label, category, last_scraped_at, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+                     rating, risk_label, category, last_scraped_at, updated_at,
+                     allotment_date, fund_age_years,
+                     manager_name, manager_since, manager_tenure_years,
+                     manager_education, manager_funds_count, fund_managers,
+                     expense_ratio_direct, expense_ratio_regular,
+                     expense_ratio_3y_ago, expense_trend_delta, historic_expense_json,
+                     turnover_ratio, turnover_as_of,
+                     category_avg_1y, category_avg_3y, category_avg_5y,
+                     rank_within_category_1y, rank_within_category_3y, rank_within_category_5y,
+                     top10_concentration_pct, sibling_slug, analysis_json,
+                     sub_category, launch_date)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),
+                        $10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+                        $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
                 ON CONFLICT (instrument_id) DO UPDATE SET
                     groww_slug = EXCLUDED.groww_slug,
                     aum_cr = EXCLUDED.aum_cr,
@@ -145,7 +162,33 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
                     risk_label = EXCLUDED.risk_label,
                     category = EXCLUDED.category,
                     last_scraped_at = NOW(),
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    allotment_date = EXCLUDED.allotment_date,
+                    fund_age_years = EXCLUDED.fund_age_years,
+                    manager_name = EXCLUDED.manager_name,
+                    manager_since = EXCLUDED.manager_since,
+                    manager_tenure_years = EXCLUDED.manager_tenure_years,
+                    manager_education = EXCLUDED.manager_education,
+                    manager_funds_count = EXCLUDED.manager_funds_count,
+                    fund_managers = EXCLUDED.fund_managers,
+                    expense_ratio_direct = COALESCE(EXCLUDED.expense_ratio_direct, mutual_fund_metadata.expense_ratio_direct),
+                    expense_ratio_regular = COALESCE(EXCLUDED.expense_ratio_regular, mutual_fund_metadata.expense_ratio_regular),
+                    expense_ratio_3y_ago = EXCLUDED.expense_ratio_3y_ago,
+                    expense_trend_delta = EXCLUDED.expense_trend_delta,
+                    historic_expense_json = EXCLUDED.historic_expense_json,
+                    turnover_ratio = EXCLUDED.turnover_ratio,
+                    turnover_as_of = EXCLUDED.turnover_as_of,
+                    category_avg_1y = EXCLUDED.category_avg_1y,
+                    category_avg_3y = EXCLUDED.category_avg_3y,
+                    category_avg_5y = EXCLUDED.category_avg_5y,
+                    rank_within_category_1y = EXCLUDED.rank_within_category_1y,
+                    rank_within_category_3y = EXCLUDED.rank_within_category_3y,
+                    rank_within_category_5y = EXCLUDED.rank_within_category_5y,
+                    top10_concentration_pct = EXCLUDED.top10_concentration_pct,
+                    sibling_slug = EXCLUDED.sibling_slug,
+                    analysis_json = EXCLUDED.analysis_json,
+                    sub_category = EXCLUDED.sub_category,
+                    launch_date = EXCLUDED.launch_date
                 """,
                 mf_id,
                 data.get("slug"),
@@ -156,6 +199,33 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
                 int(meta.get("groww_rating")) if meta.get("groww_rating") else None,
                 meta.get("risk_label"),
                 meta.get("sub_category") or meta.get("category"),
+                # V3 primitives
+                _parse_date(v3.get("allotment_date")),
+                v3.get("fund_age_years"),
+                primary_mgr.get("name"),
+                _parse_date(primary_mgr.get("since")),
+                primary_mgr.get("tenure_years"),
+                primary_mgr.get("education"),
+                primary_mgr.get("funds_managed_count"),
+                _json.dumps(v3.get("fund_managers") or []),
+                meta.get("expense_ratio_direct"),
+                meta.get("expense_ratio_regular"),
+                v3.get("expense_ratio_3y_ago"),
+                v3.get("expense_trend_delta"),
+                _json.dumps(v3.get("historic_expense") or []),
+                v3.get("turnover_ratio"),
+                _parse_date(v3.get("turnover_as_of")),
+                cat_avg.get("1y"),
+                cat_avg.get("3y"),
+                cat_avg.get("5y"),
+                cat_rank.get("1y"),
+                cat_rank.get("3y"),
+                cat_rank.get("5y"),
+                v3.get("top10_concentration_pct"),
+                v3.get("sibling_slug"),
+                _json.dumps(v3.get("analysis") or []),
+                meta.get("sub_category"),
+                _parse_date(meta.get("launch_date")),
             )
 
             # Ratios
@@ -210,6 +280,27 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
                         _to_numeric(h.get("pct"), 5, 2),
                         h.get("rank", rank), today,
                     )
+
+    # Recursively persist sibling plan (its own instrument_id, its own metadata row,
+    # but carries the cross-filled expense_ratio_direct/regular).
+    sibling = data.get("sibling")
+    if sibling and sibling.get("valid"):
+        sib_meta = sibling.setdefault("metadata", {})
+        # Propagate the expense pair we already resolved on the primary
+        prim_meta = data.get("metadata") or {}
+        sib_meta["expense_ratio_direct"] = (
+            sib_meta.get("expense_ratio_direct") or prim_meta.get("expense_ratio_direct")
+        )
+        sib_meta["expense_ratio_regular"] = (
+            sib_meta.get("expense_ratio_regular") or prim_meta.get("expense_ratio_regular")
+        )
+        # Avoid infinite recursion: strip the sibling's own sibling reference
+        sibling_copy = {k: v for k, v in sibling.items() if k != "sibling"}
+        try:
+            await persist_scrape(sibling_copy)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"sibling persist failed for {sibling.get('slug')}: {e}")
+
     return mf_id
 
 
