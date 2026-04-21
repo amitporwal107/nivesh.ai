@@ -130,8 +130,6 @@ async def rate_single_fund(request: Request, instrument_id: str):
             }
     # Generate
     result = await ai_insights.rate_fund(detail)
-    # Cache back — always cache (including null) to avoid hammering broken LLM.
-    # For null results we use a short-lived marker; success persists until next re-rate.
     if pool:
         async with pool.acquire() as conn:
             await conn.execute(
@@ -140,3 +138,109 @@ async def rate_single_fund(request: Request, instrument_id: str):
                 result["rating"], result.get("reason"), instrument_id,
             )
     return {**result, "cached": False}
+
+
+# ── V3 Engine Phase 1 ────────────────────────────────────────────────────
+from services import v3_scoring, nav_analytics  # noqa: E402
+
+
+async def _load_fund_primitives(instrument_id: str) -> Optional[dict]:
+    """Pull every V3 input field from PG into one flat dict for scoring."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT
+              im.instrument_name, im.isin,
+              mfmd.category, mfmd.sub_category, mfmd.benchmark_index,
+              mfmd.aum_cr::float, mfmd.fund_age_years::float,
+              mfmd.expense_ratio::float, mfmd.expense_ratio_direct::float,
+              mfmd.expense_ratio_regular::float, mfmd.expense_trend_delta::float,
+              mfmd.manager_name, mfmd.manager_tenure_years::float,
+              mfmd.turnover_ratio::float, mfmd.top10_concentration_pct::float,
+              mfmd.category_avg_1y::float, mfmd.category_avg_3y::float, mfmd.category_avg_5y::float,
+              mfmd.max_drawdown_pct::float, mfmd.consistency_score::float,
+              mfmd.downside_capture_pct::float, mfmd.aum_trend_score::float,
+              mfpr.ret_1y::float, mfpr.ret_3y::float, mfpr.ret_5y::float,
+              mfpr.alpha::float, mfpr.sharpe::float, mfpr.sortino::float, mfpr.std_dev::float
+            FROM mutual_fund_metadata mfmd
+            JOIN instrument_master im ON im.instrument_id = mfmd.instrument_id
+            LEFT JOIN LATERAL (
+              SELECT * FROM mutual_fund_performance_ratios
+              WHERE instrument_id = mfmd.instrument_id
+              ORDER BY ratios_date DESC LIMIT 1
+            ) mfpr ON TRUE
+            WHERE mfmd.instrument_id = $1::uuid
+            """,
+            instrument_id,
+        )
+    if not row:
+        return None
+    d = dict(row)
+    d["instrument_id"] = instrument_id
+    return d
+
+
+@router.get("/intelligence/v3-score/{instrument_id}")
+async def get_v3_score(request: Request, instrument_id: str, refresh: bool = Query(False)):
+    """Return V3 Engine scores for a single fund.
+
+    Returns all 5 composite scores (Quality, Health, Exit, Add, Portfolio-Fit)
+    with per-component breakdown, missing primitives, and effective weights
+    after redistribution. Pass ?refresh=true to recompute NAV analytics first.
+    """
+    await require_admin(request)
+    if refresh:
+        await nav_analytics.refresh_all_analytics(instrument_id)
+
+    f = await _load_fund_primitives(instrument_id)
+    if not f:
+        raise HTTPException(status_code=404, detail="Fund not found")
+
+    # Minimal portfolio ctx with conservative defaults — callers that want
+    # user-aware Exit/Add scores should use the action_plan_manager directly.
+    empty_ctx: dict = {
+        "overlap_pct": None, "tax_liability_rs": None, "tax_benefit_rs": None,
+        "quality_score": None, "portfolio_fit_score": None,
+        "gap_fit_0_10": None, "avg_overlap_pct_with_portfolio": None,
+        "need_score_0_10": None,
+    }
+
+    quality = v3_scoring.compute_quality_score(f)
+    health = v3_scoring.compute_health_score(f)
+    # Re-run exit/add with quality_score + portfolio_fit filled in so components
+    # that depend on those propagate correctly.
+    portfolio_proxy = {
+        "diversification_0_10": None, "avg_overlap_pct": None, "top_amc_pct": None,
+        "avg_expense_ratio": f.get("expense_ratio_direct"), "asset_alloc_fit_0_10": None,
+    }
+    pfit = v3_scoring.compute_portfolio_fit_score(portfolio_proxy)
+    ctx_exit = {**empty_ctx,
+                "quality_score": quality["score"],
+                "portfolio_fit_score": pfit["score"]}
+    ctx_add = {**empty_ctx, "quality_score": quality["score"]}
+    exit_ = v3_scoring.compute_exit_score(f, ctx_exit)
+    add = v3_scoring.compute_add_score(f, ctx_add)
+
+    return {
+        "instrument_id": instrument_id,
+        "scheme_name": f.get("instrument_name"),
+        "isin": f.get("isin"),
+        "category": f.get("category"),
+        "engine_version": v3_scoring.ENGINE_VERSION,
+        "scores": {
+            "quality": quality, "health": health,
+            "exit": exit_, "add": add,
+            "portfolio_fit": pfit,
+        },
+        "primitives_used": {k: v for k, v in f.items() if v is not None and k != "instrument_id"},
+    }
+
+
+@router.post("/intelligence/v3-score/{instrument_id}/refresh-analytics")
+async def refresh_nav_analytics(request: Request, instrument_id: str):
+    """Recompute max_drawdown/consistency/downside_capture/aum_trend from NAV+AUM history."""
+    await require_admin(request)
+    return await nav_analytics.refresh_all_analytics(instrument_id)

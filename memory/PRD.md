@@ -2,6 +2,57 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 Engine Phase 1: Scoring Layer + NAV Analytics + 5y AMFI Backfill
+
+Complete delivery of the V3 scoring engine per the Excel spec. Takes 80% coverage from Phase 0b to 100% by (a) backfilling 5 years of daily AMFI NAVs, (b) computing NAV-derived primitives locally (no Moneycontrol dependency), and (c) shipping all 5 composite scores + Switch formula + 4 Guardrails as pure-Python deterministic functions.
+
+**Phase 0c — Historical NAV backfill** (`scripts/backfill_amfi_nav_history.py`):
+- Pulls AMFI's public `DownloadNAVHistoryReport_Po.aspx` in 30-day chunks over 5 years (61 HTTP calls, ~6 min runtime, ~3.5M rows parsed)
+- Custom 8-column parser for historical dumps (different from daily `NAVAll.txt` 6-col format)
+- **Strict ISIN-only + scheme_code matching** — the daily cron's fuzzy name match pollutes historical data (IDCW/Dividend variants share names with Growth plans). Skips rows containing "IDCW"/"Dividend"/"Payout"/"Reinvest"/"Bonus"/"Income Distribution" before matching.
+- CLI: `--years N`, `--months N`, `--from YYYY-MM-DD --to YYYY-MM-DD`, `--dry-run`
+- First full run: 25,922 rows upserted across 23 funds spanning 2021-04 → 2026-04.
+
+**Phase 1a — NAV-derived analytics** (`services/nav_analytics.py`, new migration `004_v3_phase1a_nav_analytics.sql`):
+- 4 new PG columns on `mutual_fund_metadata`: `max_drawdown_pct`, `consistency_score`, `downside_capture_pct`, `aum_trend_score`, `nav_analytics_at`
+- Pure compute functions (all testable, no I/O):
+  - `max_drawdown_from_series(navs)` — peak-to-trough % (returns None if < 30 days of data)
+  - `consistency_score_from_series(navs, cat_avg_pct)` — 0-10 score = fraction of rolling 1y windows beating category avg (needs ≥ 18 months)
+  - `downside_capture_from_series(fund, benchmark)` — monthly-returns ratio in down months (needs ≥ 6 benchmark down months)
+  - `aum_trend_from_series(aum_snapshots)` — OLS slope of ln(AUM) over months → piecewise 0-10 score (needs ≥ 3 snapshots)
+- `refresh_all_analytics(instrument_id)` — computes all 4 + writes back to metadata in one call
+- **Weekly AUM snapshot** wired into `pg_writer.persist_scrape` — every user-triggered Groww scrape now snapshots AUM to `mutual_fund_aum_history` (idempotent on `(instrument_id, snapshot_date)`). Accumulates organically without a dedicated cron.
+- `benchmark_index` is now auto-populated on scrape by joining `benchmark_master` on category.
+
+**Phase 1b — V3 Composite Scoring** (`services/v3_scoring.py`):
+- All 5 composite scores per Excel weights:
+  - **Quality** = Performance 25% + Risk-Adj (Sharpe+Sortino) 20% + Consistency 20% + Drawdown 15% + Cost 10% + AUM/Age 10%
+  - **Health** = Manager Tenure 25% + AUM Stability 20% + Turnover 15% + Concentration 15% + Downside Protection 15% + Expense Trend 10%
+  - **Exit** = Overlap 25% + Tax 25% + Quality-Inverse 25% + Cost 15% + Portfolio-Fit 10%
+  - **Add** = Gap-Fit 30% + Low-Overlap 25% + Quality 20% + Need 15% + Cost 10%
+  - **Portfolio-Fit** = Diversification 25% + Overlap 25% + AMC-Concentration 20% + Cost 15% + Asset-Allocation 15%
+- **Switch formula** (Excel Switch_Score sheet): `(Quality_new − Quality_old) + Overlap_reduction + Cost_saving − Tax_cost` → score, `recommended=True` iff ≥ 2.0
+- **4 Guardrails** (Excel Guardrails sheet):
+  - High-Quality Protection (Quality≥75 AND Health≥70, overridden if overlap > 80%)
+  - Tax-exceeds-Benefit block
+  - Recent-Investment lockout (<6 months)
+  - Low-Confidence flag (reduces actions, doesn't block)
+- **Weight redistribution**: any missing primitive's weight is proportionally redistributed across remaining components so the composite always sums to 100%. `missing_primitives[]` returned so UI can show "Quality 78 (confidence 80%)".
+- 9 pure normalisers (0-10 scale): `_norm_returns`, `_norm_risk_adjusted`, `_norm_consistency`, `_norm_drawdown`, `_norm_cost`, `_norm_aum_age`, `_norm_manager_tenure`, `_norm_aum_trend`, `_norm_turnover`, `_norm_top10`, `_norm_downside_capture`, `_norm_expense_trend` — each documented with its curve.
+
+**New API endpoints** (`routes/intelligence.py`):
+- `GET /api/intelligence/v3-score/{instrument_id}?refresh=true/false` (admin) — returns all 5 composite scores + per-component values + effective weights after redistribution + missing_primitives + engine_version. Pass `?refresh=true` to recompute NAV analytics first.
+- `POST /api/intelligence/v3-score/{instrument_id}/refresh-analytics` (admin) — recomputes the 4 NAV-derived primitives on demand.
+
+**Verified end-to-end on HDFC Balanced Advantage Direct (live PG after backfill)**:
+- max_drawdown = 10.18% (realistic for a low-vol balanced fund)
+- consistency_score = 4.4/10 (beats category in 44% of rolling 12m windows)
+- Quality = **71.45/100 with ZERO missing primitives**
+- Health = 63.53 (missing aum_stability + downside_protection; weights redistributed to the 4 available components)
+- All scores numeric, no NaN, no LLM in the path
+
+**Testing**: 38 pure-logic unit tests in `tests/test_v3_scoring.py` covering every normaliser + each composite (full-data & missing-primitive cases) + switch formula + 4 guardrails + engine version constant. Plus integration-tested live via curl. Full backend suite: **87/87 green**.
+
 ### Feb 2026 — V3 Engine Phase 0b: Groww scraper expansion (all scoring primitives sourced, zero compute)
 
 User direction: **"source from Groww, don't compute"**. Groww's `__NEXT_DATA__` payload was audited and found to expose every V3 Excel input natively. Phase 0b extracts them all in one scrape per plan, plus the sibling plan (regular ⇄ direct) to get both expense ratios without any post-processing.

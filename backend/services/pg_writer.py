@@ -228,6 +228,32 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
                 _parse_date(meta.get("launch_date")),
             )
 
+            # V3 Phase 1a: snapshot current AUM into history (monthly granularity).
+            # Idempotent by (instrument_id, snapshot_date) — one row per day.
+            if meta.get("aum_cr"):
+                await conn.execute(
+                    """
+                    INSERT INTO mutual_fund_aum_history (instrument_id, snapshot_date, aum_cr, source)
+                    VALUES ($1, $2, $3, 'groww')
+                    ON CONFLICT (instrument_id, snapshot_date) DO UPDATE SET aum_cr = EXCLUDED.aum_cr
+                    """,
+                    mf_id, today, meta.get("aum_cr"),
+                )
+
+            # Persist benchmark_index from benchmark_master (keyed by category)
+            cat_for_bench = meta.get("sub_category") or meta.get("category")
+            if cat_for_bench:
+                await conn.execute(
+                    """
+                    UPDATE mutual_fund_metadata SET benchmark_index = b.benchmark_name
+                    FROM benchmark_master b
+                    WHERE mutual_fund_metadata.instrument_id = $1
+                      AND b.category = $2
+                      AND mutual_fund_metadata.benchmark_index IS NULL
+                    """,
+                    mf_id, cat_for_bench,
+                )
+
             # Ratios
             r = data.get("ratios") or {}
             if any(v is not None for v in r.values()):
