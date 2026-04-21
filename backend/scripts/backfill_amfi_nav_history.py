@@ -125,7 +125,41 @@ async def _resolve_by_isin_only(conn, isin: str, scheme_code: str) -> Optional[s
     return None
 
 
-async def _ingest_chunk(conn, body: str, dry_run: bool) -> Tuple[int, int, int]:
+async def _load_resolver_maps(conn) -> Tuple[dict, dict]:
+    """Pre-load every ISIN + scheme_code → instrument_id mapping into memory.
+
+    Critical for remote DBs (Neon / RDS) where each row-level lookup is a
+    ~100ms roundtrip. With a pre-loaded map, chunk ingestion goes from
+    ~3min to ~2s.
+    """
+    isin_map: dict = {}
+    sym_map: dict = {}
+
+    rows = await conn.fetch(
+        "SELECT instrument_id::text AS id, isin, symbol "
+        "FROM instrument_master WHERE instrument_type = 'MUTUAL_FUND'"
+    )
+    for r in rows:
+        if r["isin"]:
+            isin_map[r["isin"]] = r["id"]
+        if r["symbol"]:
+            sym_map[r["symbol"]] = r["id"]
+
+    # Also include amfi_scheme_code → instrument_id (for funds where symbol is ISIN but
+    # the metadata table carries amfi_scheme_code separately).
+    rows = await conn.fetch(
+        "SELECT instrument_id::text AS id, amfi_scheme_code "
+        "FROM mutual_fund_metadata WHERE amfi_scheme_code IS NOT NULL"
+    )
+    for r in rows:
+        sym_map.setdefault(r["amfi_scheme_code"], r["id"])
+
+    return isin_map, sym_map
+
+
+async def _ingest_chunk(conn, body: str, dry_run: bool,
+                        isin_map: Optional[dict] = None,
+                        sym_map: Optional[dict] = None) -> Tuple[int, int, int]:
     """Parse one AMFI historical dump, upsert matched rows. Returns (parsed, upserted, skipped)."""
     parsed = upserted = skipped = 0
     BATCH = 1000
@@ -154,7 +188,15 @@ async def _ingest_chunk(conn, body: str, dry_run: bool) -> Tuple[int, int, int]:
         if key in cache:
             iid = cache[key]
         else:
-            iid = await _resolve_by_isin_only(conn, isin, scheme_code)
+            # Preferred path: in-memory maps (pre-loaded once, no DB roundtrips)
+            iid = None
+            if isin_map is not None and isin:
+                iid = isin_map.get(isin)
+            if iid is None and sym_map is not None and scheme_code:
+                iid = sym_map.get(scheme_code)
+            # Fallback: per-row DB lookup (only when maps not supplied — legacy path)
+            if iid is None and isin_map is None and sym_map is None:
+                iid = await _resolve_by_isin_only(conn, isin, scheme_code)
             cache[key] = iid
         if not iid:
             skipped += 1
@@ -178,6 +220,12 @@ async def run(start: date, end: date, step_days: int = CHUNK_DAYS, dry_run: bool
     tot_parsed = tot_upserted = tot_skipped = 0
     t_start = time.time()
 
+    # Pre-load ISIN / scheme_code → instrument_id maps ONCE. Avoids ~14k
+    # round-trips per chunk against remote PG (3min/chunk → ~2s/chunk).
+    async with pool.acquire() as conn:
+        isin_map, sym_map = await _load_resolver_maps(conn)
+    log.info(f"Pre-loaded resolver: {len(isin_map):,} ISINs + {len(sym_map):,} scheme_codes")
+
     async with httpx.AsyncClient() as client:
         for i, (frm, to) in enumerate(chunks, 1):
             t0 = time.time()
@@ -197,7 +245,7 @@ async def run(start: date, end: date, step_days: int = CHUNK_DAYS, dry_run: bool
                 continue
 
             async with pool.acquire() as conn:
-                p, u, s = await _ingest_chunk(conn, body, dry_run)
+                p, u, s = await _ingest_chunk(conn, body, dry_run, isin_map, sym_map)
             tot_parsed += p; tot_upserted += u; tot_skipped += s
             log.info(
                 f"[{i}/{len(chunks)}] {frm}→{to}: parsed={p:,} upserted={u:,} skipped={s:,} "
