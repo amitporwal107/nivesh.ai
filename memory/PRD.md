@@ -2,6 +2,39 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — NIFTY index-tracker proxies seeded → downside_capture unlocked
+
+Final gap-close on the V3 analytics pipeline. Seeded 6 canonical NIFTY index-tracker funds as benchmark proxies for `downside_capture` computation:
+
+**Seeded** (via `scripts/seed_benchmark_trackers_v2.py`, direct insertion using verified AMFI scheme codes + ISINs — bypasses Groww search which returned wrong matches):
+
+| Tracker | AMFI Code | ISIN | Benchmarks Covered |
+|---|---|---|---|
+| UTI Nifty 50 Index Fund Direct Growth | 120716 | INF789F01XA0 | NIFTY 50 TRI |
+| UTI Nifty Next 50 Index Fund Direct Growth | 143341 | INF789FC12T1 | NIFTY Next 50 TRI |
+| HDFC NIFTY 100 Index Fund Direct Growth | 149868 | INF179KC1BY3 | NIFTY 100 TRI |
+| Nippon India Nifty Midcap 150 Direct Growth | 148726 | INF204KB18Z7 | NIFTY Midcap 150 TRI + LargeMidcap 250 TRI |
+| Nippon India Nifty Smallcap 250 Direct Growth | 148519 | INF204KB15W0 | NIFTY Smallcap 250 TRI |
+| ICICI Prudential Nifty 500 Direct Growth | 153161 | INF109KC16Y3 | NIFTY 500 TRI + NIFTY 500 Multicap 50:25:25 TRI |
+
+**Schema change** (`migrations/006_benchmark_proxy_mapping.sql`):
+- Added `proxy_instrument_id UUID` FK column to `benchmark_master`
+- 21 of 34 benchmark categories now wired to a proxy (every major equity + hybrid category). 13 debt/gold/sectoral categories remain unmapped (no NIFTY proxy applies — downside_capture redistributes their weight in Health score).
+
+**NAV backfill**: re-ran 5y AMFI backfill → added 8,072 NAV rows for the 6 new trackers (total now 33,994 rows across 30 funds). Every equity tracker has a full ~1,231-day series (2021-04 → 2026-04). ICICI Nifty 500 has ~326 days (fund launched Dec 2024 — backfill captured everything available).
+
+**Code wiring** (`services/nav_analytics.py`):
+- `refresh_all_analytics()` now uses explicit `benchmark_master.proxy_instrument_id` lookup first, fuzzy name-match only as fallback
+- Computes `downside_capture_pct` = (sum of fund returns during benchmark-down months) / (sum of benchmark returns during those same down months) × 100
+
+**Live-verified impact**:
+- Analytics sweep now fills downside_capture for **26 of 31 funds in PG**
+- Priyankamantri's portfolio: **20 of 21 scored funds have downside_protection** in their Health score (up from 0)
+- Portfolio avg Health: 68.66 → **69.16**
+- Top performer with new primitive: Parag Parikh Flexi Cap (Quality 78.71, downside_capture **52.23%** — world-class capital preservation)
+- SBI Small Cap: 72.18%, HDFC Flexi Cap: 75.21%, Franklin Small Cap: 83.98%
+- Numbers confirm the Excel spec's rule-of-thumb (<100% = protects capital, 100% = matches benchmark losses, >100% = amplifies)
+
 ### Feb 2026 — V3 Engine Ops Layer: Parallel Sweep + Redis Cache + Admin Monitor
 
 Nightly analytics pipeline that keeps V3 scores fresh automatically, with full admin-observable ops:

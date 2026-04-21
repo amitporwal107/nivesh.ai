@@ -270,20 +270,25 @@ async def refresh_all_analytics(instrument_id: str) -> dict:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT mfmd.category_avg_3y::float AS cat_avg_3y, mfmd.benchmark_index
+            SELECT mfmd.category_avg_3y::float AS cat_avg_3y,
+                   mfmd.benchmark_index,
+                   mfmd.sub_category, mfmd.category,
+                   bm.proxy_instrument_id::text AS proxy_iid
             FROM mutual_fund_metadata mfmd
+            LEFT JOIN benchmark_master bm
+              ON bm.category = COALESCE(mfmd.sub_category, mfmd.category)
             WHERE mfmd.instrument_id = $1::uuid
             """,
             instrument_id,
         )
         cat_avg = row["cat_avg_3y"] if row else None
-
-        # Pick benchmark MF by name match (best-effort; returns None if not in our DB)
-        bench_iid: Optional[str] = None
-        if row and row["benchmark_index"]:
+        # Prefer explicit proxy mapping from benchmark_master
+        bench_iid: Optional[str] = row["proxy_iid"] if row and row.get("proxy_iid") else None
+        # Fallback to fuzzy name match if no proxy mapping
+        if not bench_iid and row and row["benchmark_index"]:
             b = await conn.fetchrow(
                 """
-                SELECT instrument_id FROM instrument_master
+                SELECT instrument_id::text FROM instrument_master
                 WHERE instrument_type = 'MUTUAL_FUND'
                   AND lower(instrument_name) LIKE lower('%' || $1 || '%')
                 LIMIT 1
@@ -291,7 +296,7 @@ async def refresh_all_analytics(instrument_id: str) -> dict:
                 row["benchmark_index"].split(" TRI")[0],
             )
             if b:
-                bench_iid = str(b["instrument_id"])
+                bench_iid = b["instrument_id"]
 
     mdd = await compute_max_drawdown(instrument_id)
     cons = await compute_consistency_score(instrument_id, cat_avg)
