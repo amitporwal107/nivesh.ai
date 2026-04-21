@@ -76,6 +76,19 @@ async def _stale_refresh_job():
         logger.warning(f"stale_refresh error: {e}")
 
 
+async def _amfi_navs_job():
+    """Daily AMFI EOD NAV ingestion — runs 22:00 IST (after AMFI publishes)."""
+    try:
+        from scripts.fetch_amfi_navs import run as _run_amfi
+        res = await _run_amfi(dry_run=False)
+        logger.info(
+            f"amfi_navs ok: parsed={res.get('parsed')} upserted={res.get('upserted')} "
+            f"skipped={res.get('skipped_no_match')} dur_ms={res.get('duration_ms')}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"amfi_navs error: {e}")
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -96,6 +109,11 @@ def start():
     _scheduler.add_job(
         _stale_refresh_job, CronTrigger(day_of_week="mon-fri", hour=3, minute=0),
         id="stale_refresh", replace_existing=True, max_instances=1,
+    )
+    # AMFI NAV ingestion: daily 22:00 IST (AMFI publishes EOD NAVs ~20:30 IST)
+    _scheduler.add_job(
+        _amfi_navs_job, CronTrigger(hour=22, minute=0),
+        id="amfi_navs_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

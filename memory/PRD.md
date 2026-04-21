@@ -2,6 +2,40 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 Engine Phase 0a: NAV/AUM history + extended metadata + benchmark master
+
+Foundational data-layer work for the V3 engine. No backfill per user direction — data accumulates forward from today.
+
+**New Postgres schema** (`migrations/002_v3_engine_schema.sql`):
+- `mutual_fund_nav_history (instrument_id, nav_date, nav, source, created_at)` — PK on `(instrument_id, nav_date)`. Daily AMFI EOD NAV store.
+- `mutual_fund_aum_history (instrument_id, snapshot_date, aum_cr, source, created_at)` — PK on `(instrument_id, snapshot_date)`. Monthly AUM snapshots (to start accumulating).
+- `mutual_fund_metadata` extended with: `launch_date`, `manager_name`, `manager_tenure_years`, `expense_ratio_direct`, `expense_ratio_regular`, `benchmark_index`, `sub_category`, `amfi_scheme_code`.
+- `benchmark_master (category → benchmark_name, benchmark_symbol, notes)` — **34 SEBI-standard categories seeded** (NIFTY 100 TRI for Large Cap, NIFTY Midcap 150 TRI for Mid Cap, CRISIL Liquid Fund Index for Liquid, etc.).
+- `amfi_nav_fetch_log` — audit trail for each ingestion run.
+
+**AMFI daily NAV ingestion** (`backend/scripts/fetch_amfi_navs.py`):
+- Pulls `https://portal.amfiindia.com/spages/NAVAll.txt` (1.6 MB EOD dump, ~14K schemes).
+- Resolves each scheme to `instrument_master.instrument_id` via ISIN → scheme_code → fuzzy name match (pg_trgm similarity ≥0.55).
+- Batch upserts (500/tx) with `ON CONFLICT (instrument_id, nav_date)` for idempotency.
+- Logs every run to `amfi_nav_fetch_log`. CLI supports `--dry-run`.
+- **First real run**: parsed 13,968 NAVs, upserted 470 rows matched to our 735-fund catalog.
+
+**Scheduling**:
+- Registered in existing `services/mf_scheduler.py` (APScheduler, `Asia/Kolkata` TZ).
+- `_amfi_navs_job` triggers daily at `22:00 IST` (AMFI publishes EOD NAVs ~20:30 IST).
+- Runs in the same supervisor backend process — no OS-level cron required.
+
+**Why PG (not Mongo) for NAV history**:
+- NAV data is inherently time-series tabular; PG window functions (`LAG`, `ROWS BETWEEN`) make rolling returns / drawdowns trivial.
+- Mongo aggregation pipelines are painful for the same. Index lookups ~1ms at projected 5M-row scale (4K MFs × 5y × 252 trading days).
+
+**V3 primitives unlocked (future)**:
+- NAV history → once accumulated: `max_drawdown`, `consistency_score`, `downside_capture`, rolling returns.
+- AUM history → `aum_trend` after 3+ months of snapshots.
+- Benchmark master → category → benchmark lookups for Alpha/Beta comparison.
+
+**Turnover ratio — deferred to V1.1**: scraping complexity (SEBI annual factsheets PDF-only, AMC-specific formats) doesn't justify blocking V3. Health score will redistribute the 15% Turnover weight across other components. User confirmed.
+
 ### Feb 2026 — Light-Mode Fix for PortfolioIntelligenceTab
 User flagged: "light mode is broken in most of the app". Audit revealed the **Fund & Overlap Insights** tab (`components/insights/PortfolioIntelligenceTab.jsx`) was authored dark-only — hardcoded `bg-slate-900`, `border-slate-800`, `text-white`, `text-slate-300/400`, `bg-black/20`, `border-white/5/20` without any `dark:` variants. In light mode the cards stayed pitch black and the hero gradient text went invisible (white text on near-white gradient).
 
