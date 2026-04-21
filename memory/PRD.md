@@ -2,6 +2,47 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 Engine Ops Layer: Parallel Sweep + Redis Cache + Admin Monitor
+
+Nightly analytics pipeline that keeps V3 scores fresh automatically, with full admin-observable ops:
+
+**Parallel sweep jobs** (`services/nav_analytics_sweep.py`):
+- `run_analytics_sweep()` — recomputes max_drawdown / consistency / downside_capture / aum_trend for every fund with ≥180 days of NAV history. Fund-level work dispatched via `asyncio.gather` bounded by a semaphore (default 8 workers, env `V3_SWEEP_CONCURRENCY`).
+- `run_v3_rescore()` — parallel Quality+Health composite recompute → writes to `mutual_fund_metadata.quality_score/health_score/v3_scored_at` (durable fallback) AND Redis cache.
+- **Measured**: 22 funds swept in 56ms, 24 funds rescored in 18ms — ~2.5ms per fund with parallelism.
+- Both jobs write audit rows to `nav_analytics_job_log` with status, counts, duration, error_msg.
+
+**Scheduler wiring** (`services/mf_scheduler.py`) — now runs 3 nightly cron jobs back-to-back:
+- 22:00 IST — `amfi_navs_daily` (raw NAV ingest)
+- 22:30 IST — `analytics_sweep_daily` (NEW)
+- 22:45 IST — `v3_rescore_daily` (NEW)
+
+**Redis composite-score cache** (`services/v3_score_cache.py`):
+- Key format: `v3:score:{instrument_id}`, TTL: 24h (env `V3_SCORE_TTL_S`)
+- Eviction: TTL + explicit `invalidate()` / `invalidate_many()` / `invalidate_all()` (the sweep job auto-invalidates funds whose primitives just changed)
+- `/api/intelligence/v3-score/{id}` reads cache first; `?refresh=true` bypasses both cache and recomputes primitives
+- Non-blocking `scan_iter` + batch delete for admin "invalidate all"
+- Graceful fallback to PG columns when Redis is unreachable
+
+**Admin Data Pipeline Monitor** (`routes/admin_data_pipeline.py` + `components/admin/DataPipelineMonitor.jsx`):
+- Endpoints: `GET /status`, `GET /logs?job=&limit=`, `POST /trigger/{job}`, `POST /cache/invalidate`
+- UI: 3 job tiles (NAV cron / Analytics sweep / V3 rescore) with status badge, last-success timestamp ("2m ago"), processed/total counts, failure count, duration, and per-job Retrigger button. Concurrent-run guard returns 409 if the same job is mid-execution.
+- Scheduler tile showing all 5 APScheduler jobs + next-run times
+- Redis cache tile with key count, TTL, "Invalidate all" button
+- Paginated recent-runs log table with filter buttons (all / nav_cron / analytics_sweep / v3_rescore), inline error-message tooltip, auto-refresh every 15s
+- Every interactive element carries `data-testid` (`job-tile-nav_cron`, `trigger-analytics_sweep`, `invalidate-cache-btn`, `pipeline-logs`, `log-row-*`, `filter-*`, etc.)
+
+**Migration** `005_v3_phase2b_sweep_log.sql` — creates `nav_analytics_job_log` table + adds `quality_score`, `health_score`, `exit_score_baseline`, `add_score_baseline`, `v3_scored_at` to `mutual_fund_metadata`.
+
+**Live-verified end-to-end on priyankamantri**:
+- Analytics sweep: 22/22 funds processed, 0 failures, 56ms
+- V3 rescore: 24/24 funds processed, 0 failures, 18ms
+- Redis cache: 24 keys populated, 24h TTL
+- Admin `/api/admin/data-pipeline/status` returns full dashboard data
+- Cache invalidate button wiped 24 keys cleanly
+
+**Testing**: **92/92 backend tests green** (`test_v3_scoring.py`, `test_groww_v3_primitives.py`, `test_action_rules.py`, `test_rules_admin.py`, `test_deterministic_insights.py`). No regressions.
+
 ### Feb 2026 — V3 Engine Phases 2 & 3: Rules Migration + UI Integration
 
 Phase 2 ports the V2.5 action-rule engine to consume V3 composite scores and guardrails. Phase 3 surfaces V3 scores in the PlanCard UI and adds a dedicated V3 panel to the Insights tab.

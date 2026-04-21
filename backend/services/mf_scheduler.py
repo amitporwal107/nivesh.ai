@@ -89,6 +89,26 @@ async def _amfi_navs_job():
         logger.warning(f"amfi_navs error: {e}")
 
 
+async def _analytics_sweep_job():
+    """Parallel NAV-analytics refresh — runs 22:30 IST (30 min after NAV cron)."""
+    try:
+        from services.nav_analytics_sweep import run_analytics_sweep
+        res = await run_analytics_sweep()
+        logger.info(f"analytics_sweep {res}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"analytics_sweep error: {e}")
+
+
+async def _v3_rescore_job():
+    """Parallel V3 composite rescore — runs 22:45 IST (after analytics sweep)."""
+    try:
+        from services.nav_analytics_sweep import run_v3_rescore
+        res = await run_v3_rescore()
+        logger.info(f"v3_rescore {res}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"v3_rescore error: {e}")
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -114,6 +134,18 @@ def start():
     _scheduler.add_job(
         _amfi_navs_job, CronTrigger(hour=22, minute=0),
         id="amfi_navs_daily", replace_existing=True, max_instances=1,
+    )
+    # NAV analytics sweep: daily 22:30 IST — recompute max_drawdown,
+    # consistency, downside_capture, aum_trend for every eligible fund.
+    _scheduler.add_job(
+        _analytics_sweep_job, CronTrigger(hour=22, minute=30),
+        id="analytics_sweep_daily", replace_existing=True, max_instances=1,
+    )
+    # V3 composite rescore: daily 22:45 IST — recompute Quality+Health
+    # from fresh primitives, write to PG + Redis cache.
+    _scheduler.add_job(
+        _v3_rescore_job, CronTrigger(hour=22, minute=45),
+        id="v3_rescore_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

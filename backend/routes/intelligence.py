@@ -187,13 +187,21 @@ async def _load_fund_primitives(instrument_id: str) -> Optional[dict]:
 async def get_v3_score(request: Request, instrument_id: str, refresh: bool = Query(False)):
     """Return V3 Engine scores for a single fund.
 
-    Returns all 5 composite scores (Quality, Health, Exit, Add, Portfolio-Fit)
-    with per-component breakdown, missing primitives, and effective weights
-    after redistribution. Pass ?refresh=true to recompute NAV analytics first.
+    Cache: reads from Redis first (24h TTL). Pass ?refresh=true to bypass
+    cache AND recompute NAV analytics before scoring.
     """
     await require_admin(request)
+    from services import v3_score_cache
+
     if refresh:
+        await v3_score_cache.invalidate(instrument_id)
         await nav_analytics.refresh_all_analytics(instrument_id)
+    else:
+        cached = await v3_score_cache.get(instrument_id)
+        if cached:
+            cached["cached"] = True
+            cached["instrument_id"] = instrument_id
+            return cached
 
     f = await _load_fund_primitives(instrument_id)
     if not f:
@@ -210,21 +218,17 @@ async def get_v3_score(request: Request, instrument_id: str, refresh: bool = Que
 
     quality = v3_scoring.compute_quality_score(f)
     health = v3_scoring.compute_health_score(f)
-    # Re-run exit/add with quality_score + portfolio_fit filled in so components
-    # that depend on those propagate correctly.
     portfolio_proxy = {
         "diversification_0_10": None, "avg_overlap_pct": None, "top_amc_pct": None,
         "avg_expense_ratio": f.get("expense_ratio_direct"), "asset_alloc_fit_0_10": None,
     }
     pfit = v3_scoring.compute_portfolio_fit_score(portfolio_proxy)
-    ctx_exit = {**empty_ctx,
-                "quality_score": quality["score"],
-                "portfolio_fit_score": pfit["score"]}
+    ctx_exit = {**empty_ctx, "quality_score": quality["score"], "portfolio_fit_score": pfit["score"]}
     ctx_add = {**empty_ctx, "quality_score": quality["score"]}
     exit_ = v3_scoring.compute_exit_score(f, ctx_exit)
     add = v3_scoring.compute_add_score(f, ctx_add)
 
-    return {
+    payload = {
         "instrument_id": instrument_id,
         "scheme_name": f.get("instrument_name"),
         "isin": f.get("isin"),
@@ -237,6 +241,14 @@ async def get_v3_score(request: Request, instrument_id: str, refresh: bool = Que
         },
         "primitives_used": {k: v for k, v in f.items() if v is not None and k != "instrument_id"},
     }
+    # Cache the score-only subset (primitives can be huge)
+    await v3_score_cache.set(instrument_id, {
+        "engine_version": v3_scoring.ENGINE_VERSION,
+        "scheme_name": f.get("instrument_name"),
+        "scores": payload["scores"],
+    })
+    payload["cached"] = False
+    return payload
 
 
 @router.post("/intelligence/v3-score/{instrument_id}/refresh-analytics")
