@@ -150,7 +150,7 @@ const TopStocksPanel = ({ stocks }) => (
                 <div className="text-[10px] text-slate-500">{s.sector || "—"}</div>
               </div>
               <div className="col-span-5">
-                <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                   <div className={`h-full ${colorFor(s.exposure_pct * 4)}`}
                        style={{ width: `${Math.min(s.exposure_pct * 10, 100)}%` }} />
                 </div>
@@ -389,7 +389,7 @@ const SectorStrip = ({ items }) => (
           <div key={s.sector} className="grid grid-cols-12 gap-2 items-center text-xs" data-testid={`pi-sec-${s.sector}`}>
             <div className="col-span-4 truncate text-slate-900 dark:text-white">{s.sector}</div>
             <div className="col-span-6">
-              <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+              <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                 <div className="h-full bg-sky-500" style={{ width: `${Math.min(s.pct * 3, 100)}%` }} />
               </div>
             </div>

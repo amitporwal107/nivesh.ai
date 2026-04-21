@@ -290,8 +290,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             onClick={() => setActiveTab(tab.id)}
             className={`flex-shrink-0 sm:flex-1 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
               activeTab === tab.id
-                ? "bg-[#27272A] text-slate-900 dark:text-white shadow-sm"
-                : "text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:text-zinc-300"
+                ? "bg-slate-900 dark:bg-[#27272A] text-white shadow-sm"
+                : "text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300"
             }`}
           >
             {tab.label}
