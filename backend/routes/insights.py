@@ -536,7 +536,7 @@ async def get_analysis(request: Request):
 
 
 # ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────
-from services import v3_integration, v3_scoring  # noqa: E402
+from services import v3_integration, v3_scoring, v3_explainer  # noqa: E402
 
 
 @router.get("/insights/v3-portfolio")
@@ -544,7 +544,8 @@ async def v3_portfolio_summary(request: Request):
     """Portfolio-level V3 scoring.
 
     Returns:
-      - Per-fund V3 composite scores (Quality, Health, Exit, Add)
+      - Per-fund V3 composite scores (Quality, Health, Exit, Add, Switch)
+      - Per-fund danger-zone classification + deterministic explanation
       - Portfolio-level averages (value-weighted)
       - Flagged funds (low-quality / blocked by guardrails)
       - Coverage confidence: % of AUM that has full V3 scores
@@ -579,7 +580,20 @@ async def v3_portfolio_summary(request: Request):
         portfolio_intelligence={},
     )
 
-    from services.action_plan_manager import _normalize_fund_name
+    from services.action_plan_manager import ActionPlanManager, _normalize_fund_name  # noqa: E402, F401
+    apm = ActionPlanManager()
+    # Precompute Regular/Direct pairs + leaked ₹/yr per Regular fund
+    reg_pairs = apm._find_regular_direct_pairs(mf_holdings)
+    solo_regs = apm._find_regular_without_direct_pair(mf_holdings, reg_pairs)
+    reg_leak_by_name: dict = {}
+    for p in reg_pairs:
+        reg = p["regular"]
+        leak = apm._estimate_cost_leak(reg, p["direct"], mf_investments)
+        reg_leak_by_name[_normalize_fund_name(reg.get("name", ""))] = leak
+    for reg in solo_regs:
+        leak = apm._estimate_cost_leak(reg, None, mf_investments)
+        reg_leak_by_name[_normalize_fund_name(reg.get("name", ""))] = leak
+
     total_aum = sum(m["value"] for m in mf_investments) or 1.0
     covered_aum = 0.0
     funds_out = []
@@ -588,29 +602,68 @@ async def v3_portfolio_summary(request: Request):
     quality_weights = 0.0
     health_weights = 0.0
     flagged: list = []
+    n_danger_critical = 0
+    n_danger_warning = 0
 
     for m in mf_investments:
         iid = m.get("instrument_id")
         name = m.get("scheme_name", "")
         v3 = v3_integration.lookup_v3(iid, name, v3_by_key)
+        plan_type = apm._classify_plan_type(name)
+        cost_leak = reg_leak_by_name.get(_normalize_fund_name(name))
+        # Compute Switch score (Regular plans only — Direct is already optimal)
+        switch_score = None
+        if v3 and plan_type == "regular" and cost_leak:
+            try:
+                sw = v3_scoring.compute_switch_score(
+                    quality_new=None, quality_old=None,
+                    overlap_reduction_pct=0,
+                    cost_saving_rs_per_yr=float(cost_leak),
+                    tax_cost_rs=0,  # tax impact folded in by action plan, not here
+                )
+                switch_score = sw["score"]
+            except Exception:  # noqa: BLE001
+                switch_score = None
+
         entry = {
             "scheme_name": name,
             "instrument_id": iid,
             "value_rs": round(m["value"], 2),
+            "plan_type": plan_type,
+            "cost_leak_rs_per_yr": round(cost_leak, 0) if cost_leak else None,
             "scores": None,
         }
         if v3:
+            bundle = {**v3, "switch_score": switch_score}
             entry["scores"] = {
                 "quality": v3.get("quality_score"),
                 "health": v3.get("health_score"),
                 "exit": v3.get("exit_score"),
                 "add": v3.get("add_score"),
+                "switch": switch_score,
                 "quality_missing": v3.get("quality_missing"),
                 "health_missing": v3.get("health_missing"),
             }
+            entry["quality_components"] = v3.get("quality_components")
+            entry["health_components"] = v3.get("health_components")
             entry["primitives"] = v3.get("v3_primitives")
             entry["guardrail_blocked"] = v3.get("guardrail_blocked")
             entry["guardrail_reasons"] = v3.get("guardrail_reasons")
+
+            # Danger classification + deterministic explanation
+            danger = v3_explainer.classify_danger(bundle)
+            entry["danger"] = danger
+            entry["explanation"] = v3_explainer.build_explanation(
+                bundle,
+                scheme_name=name,
+                plan_type=plan_type,
+                cost_leak_rs=cost_leak,
+            )
+            if danger["level"] == "critical":
+                n_danger_critical += 1
+            elif danger["level"] == "warning":
+                n_danger_warning += 1
+
             covered_aum += m["value"]
             if v3.get("quality_score") is not None:
                 quality_weighted += v3["quality_score"] * m["value"]
@@ -618,7 +671,7 @@ async def v3_portfolio_summary(request: Request):
             if v3.get("health_score") is not None:
                 health_weighted += v3["health_score"] * m["value"]
                 health_weights += m["value"]
-            # Flagging: quality < 50 or health < 50 or guardrail_blocked
+            # Flagging (legacy field for existing UI blocks)
             if (v3.get("quality_score") or 100) < 50:
                 flagged.append({"scheme_name": name, "reason": "low_quality",
                                 "value_rs": round(m["value"], 2),
@@ -627,6 +680,9 @@ async def v3_portfolio_summary(request: Request):
                 flagged.append({"scheme_name": name, "reason": "low_health",
                                 "value_rs": round(m["value"], 2),
                                 "health_score": v3.get("health_score")})
+        else:
+            entry["danger"] = {"level": "ok", "reasons": [], "is_danger": False}
+            entry["explanation"] = "No V3 data available for this fund yet."
         funds_out.append(entry)
 
     portfolio = {
@@ -635,14 +691,19 @@ async def v3_portfolio_summary(request: Request):
         "n_funds": len(mf_investments),
         "n_scored": sum(1 for f in funds_out if f.get("scores")),
         "n_flagged": len(flagged),
+        "n_danger_critical": n_danger_critical,
+        "n_danger_warning": n_danger_warning,
     }
     coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
 
-    # Sort funds by quality descending so UI can render leaderboard
-    funds_out.sort(
-        key=lambda f: (f.get("scores") or {}).get("quality") or -1,
-        reverse=True,
-    )
+    # Sort: critical first, then warning, then by descending quality so
+    # funds needing attention float to the top of the per-fund table.
+    def _sort_key(f):
+        level = (f.get("danger") or {}).get("level", "ok")
+        danger_rank = {"critical": 0, "warning": 1, "ok": 2}.get(level, 2)
+        q = (f.get("scores") or {}).get("quality")
+        return (danger_rank, -(q or -1))
+    funds_out.sort(key=_sort_key)
 
     return {
         "engine_version": v3_scoring.ENGINE_VERSION,

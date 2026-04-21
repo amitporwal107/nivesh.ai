@@ -3,7 +3,8 @@ import axios from 'axios';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Award, RefreshCw, Shield } from 'lucide-react';
+import { AlertTriangle, Award, RefreshCw, Shield, AlertOctagon } from 'lucide-react';
+import V3FundBreakdown from './V3FundBreakdown';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -125,19 +126,22 @@ export default function V3PortfolioInsights() {
           className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:bg-slate-900 dark:border-slate-700"
         >
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3 h-3 text-amber-500" />
+            <AlertOctagon className="w-3 h-3 text-rose-500" />
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-              Flagged
+              Danger zone
             </span>
           </div>
           <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold tabular-nums text-amber-700">
-              {portfolio.n_flagged}
+            <span className="text-2xl font-bold tabular-nums text-rose-700">
+              {portfolio.n_danger_critical || 0}
             </span>
-            <span className="text-xs text-slate-400 mb-1">funds</span>
+            <span className="text-sm text-amber-700 mb-0.5 font-semibold">
+              +{portfolio.n_danger_warning || 0}
+            </span>
+            <span className="text-xs text-slate-400 mb-1 ml-1">critical / warn</span>
           </div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Quality &lt; 50 or Health &lt; 50
+            Funds needing review
           </span>
         </div>
       </div>
@@ -229,6 +233,11 @@ export default function V3PortfolioInsights() {
             </ul>
           </div>
         )}
+      </Card>
+
+      {/* Per-fund V3 breakdown with danger-zone highlights + deterministic explanations */}
+      <Card className="p-5 dark:bg-slate-900 dark:border-slate-700">
+        <V3FundBreakdown funds={funds || []} portfolio={portfolio} />
       </Card>
     </div>
   );
