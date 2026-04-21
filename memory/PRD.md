@@ -2,6 +2,50 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 Engine Phases 2 & 3: Rules Migration + UI Integration
+
+Phase 2 ports the V2.5 action-rule engine to consume V3 composite scores and guardrails. Phase 3 surfaces V3 scores in the PlanCard UI and adds a dedicated V3 panel to the Insights tab.
+
+**Phase 2 — Rules Layer** (`services/v3_integration.py` — NEW):
+- `enrich_candidates_with_v3(mf_investments, exit_candidates, mf_holdings, portfolio_intelligence)` — one-shot batch enrichment. Loads every V3 primitive from PG for all holdings, computes Quality / Health / Exit / Add composites + guardrails. Returns a dual-keyed dict (`instrument_id` AND normalised scheme_name) so callers can look up by either.
+- **Name-based fallback resolution**: when a holding has no `instrument_id` (common for CAS-parsed portfolios), fuzzy-matches scheme name against `instrument_master` via pg_trgm. For priyankamantri this lifted coverage from 0% → 100% (26/26 funds scored).
+- Safeguards: UUID regex filter so synthetic test IDs like `pg-A`/`pg-K` don't poison PG queries; graceful `None` return when PG is unreachable.
+
+**`_apply_action_rules` patches** (`services/action_plan_manager.py`):
+- Single V3 enrichment call at the top of the rule loop; results reused by every rule.
+- **V3 guardrail pre-filter**: High-Quality-Protection, Tax-Exceeds-Benefit, Recent-Investment-Lockout checks drop protected holdings from the EXIT candidate pool before any rule fires.
+- **Rule 1 (Reg → Direct)**: now gated on `switch_score ≥ 1.0` (configurable via `rules_config`). Formula: `cost_saving_per_yr/₹10K − tax_cost/₹10K`. Score stamped onto the action.
+- **Rule 6 (Cost-leak switch)**: same V3 switch-score gate. Both rules degrade gracefully to legacy always-fire behaviour when V3 data is unavailable (tests / fresh deploys).
+- **Rule 2 (AMC), Rule 2b (category), Rule 4 (overlap)**: ranking now prefers V3 composite `exit_score` (scaled to 0-10) over the legacy heuristic. `_v3_exit_rank(iid, legacy, name)` helper does the lookup-or-fallback.
+- Every generated action gets `a["v3_scores"] = {quality, health, exit, add, quality_missing, health_missing}` and `a["switch_score"]` (when relevant) for UI / audit transparency.
+
+**Rules-config updates** (`services/rules_config.py`):
+- `rule_1_regular_to_direct.params.min_switch_score` = 1.0
+- `rule_6_cost_leak_switch.params.min_switch_score` = 1.0
+- Tuneable live via existing Admin Rules UI.
+
+**Phase 3 — UI Layer**:
+- **`V3ScoreBadges.js`** (NEW component): compact 4-pill badge cluster (Q / H / E / A) with colour-coded tiers (≥75 emerald · ≥55 amber · <55 rose) + missing-primitive tooltip + guardrail badge. Mounted inline in `PlanCard.js` below the reason text.
+- Actions with `switch_score` now show a dedicated indicator line ("Switch score: 2.3 — threshold 1.0, higher = stronger net benefit").
+- **`V3PortfolioInsights.jsx`** (NEW): full portfolio-level V3 panel on the Insights tab. Shows avg Quality / avg Health / coverage % / flagged-fund count tiles, a Top-3 / Bottom-3 leaderboard by Quality, and a "Review recommended" list for funds scoring below 50 on either axis. Refresh button re-queries `/api/insights/v3-portfolio`.
+- All components are dark-mode safe (dark: prefixes throughout) and carry `data-testid` hooks (`v3-portfolio-insights`, `v3-leaderboard`, `v3-flagged-list`, `v3-quality`, `v3-health`, `v3-exit`, `v3-add`, `v3-guardrail-flag`, `switch-score-indicator`, `v3-avg-quality`, `v3-avg-health`, `v3-coverage-tile`, `v3-flagged-tile`, `v3-refresh-button`).
+
+**New Insights API endpoint** (`routes/insights.py`):
+- `GET /api/insights/v3-portfolio` — user-scoped. Runs V3 enrichment across every MF holding in the portfolio. Returns:
+  - `engine_version`, `coverage_pct`
+  - `portfolio`: `{avg_quality_score, avg_health_score, n_funds, n_scored, n_flagged}` (value-weighted averages)
+  - `funds[]`: per-fund scores + components + primitives (sorted by quality desc)
+  - `flagged[]`: funds with Quality<50 or Health<50 + reason
+
+**Live-verified on priyankamantri** (after Phase 0c backfill + Phase 0b scrape):
+- `/api/insights/v3-portfolio`: **coverage = 100%, 26/26 funds scored**
+- avg_quality = 63.35, avg_health = 68.66
+- 5 funds auto-flagged: Parag Parikh Large Cap (Regular), UTI Balanced Advantage (×2 lots), Quant Multi-Asset, Sundaram Value Fund
+- Top performers: HDFC Flexi Cap Direct (Q=80.45), HDFC Focused Direct (Q=80.45), Parag Parikh Flexi Cap Direct (Q=80.08)
+- Action plan regenerated: V3 scores stamped on matching EXIT actions
+
+**Testing**: **92/92 backend pytest green** across `test_v3_scoring.py`, `test_groww_v3_primitives.py`, `test_action_rules.py`, `test_rules_admin.py`, `test_deterministic_insights.py`. Every rule retested with V3 gating on and off. No regressions to the V2.5 fallback path.
+
 ### Feb 2026 — V3 Engine Phase 1: Scoring Layer + NAV Analytics + 5y AMFI Backfill
 
 Complete delivery of the V3 scoring engine per the Excel spec. Takes 80% coverage from Phase 0b to 100% by (a) backfilling 5 years of daily AMFI NAVs, (b) computing NAV-derived primitives locally (no Moneycontrol dependency), and (c) shipping all 5 composite scores + Switch formula + 4 Guardrails as pure-Python deterministic functions.

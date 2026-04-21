@@ -25,8 +25,10 @@ DEFAULTS: Dict[str, Any] = {
         "rule_1_regular_to_direct": {
             "enabled": True,
             "label": "Rule 1 · Regular → Direct consolidation",
-            "description": "When a Direct plan of the same fund exists in the portfolio, exit the Regular plan.",
-            "params": {},
+            "description": "When a Direct plan of the same fund exists in the portfolio, exit the Regular plan (subject to V3 switch score threshold).",
+            "params": {
+                "min_switch_score": 1.0,
+            },
         },
         "rule_2_amc_concentration": {
             "enabled": True,
@@ -74,10 +76,11 @@ DEFAULTS: Dict[str, Any] = {
         "rule_6_cost_leak_switch": {
             "enabled": True,
             "label": "Rule 6 · Regular → Direct cost-leak switch",
-            "description": "Switch Regular funds (no Direct twin) to Direct when aggregate annual cost leak exceeds threshold.",
+            "description": "Switch Regular funds (no Direct twin) to Direct when aggregate annual cost leak exceeds threshold (subject to V3 switch score).",
             "params": {
                 "total_leak_threshold_rs": 10000.0,
                 "max_switches": 3,
+                "min_switch_score": 1.0,
             },
         },
         "rule_7_do_nothing": {

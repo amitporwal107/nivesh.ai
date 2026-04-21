@@ -15,6 +15,7 @@ import {
   RefreshCw, Minus, ChevronRight, Info, ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
+import V3PortfolioInsights from "./V3PortfolioInsights";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -545,6 +546,11 @@ export default function PortfolioIntelligenceTab() {
           <CategoryStrip items={view?.cats || []} ratings={view?.ratings || []} />
           <SectorStrip items={view?.sectors || []} />
         </div>
+      </div>
+
+      {/* V3 Engine — fund-level composite scoring (Quality/Health/Exit/Add) */}
+      <div data-testid="pi-v3-section">
+        <V3PortfolioInsights />
       </div>
     </div>
   );

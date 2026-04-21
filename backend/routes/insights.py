@@ -533,3 +533,121 @@ async def get_analysis(request: Request):
     if doc and "analysis" in doc:
         return doc["analysis"]
     return None
+
+
+# ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────
+from services import v3_integration, v3_scoring  # noqa: E402
+
+
+@router.get("/insights/v3-portfolio")
+async def v3_portfolio_summary(request: Request):
+    """Portfolio-level V3 scoring.
+
+    Returns:
+      - Per-fund V3 composite scores (Quality, Health, Exit, Add)
+      - Portfolio-level averages (value-weighted)
+      - Flagged funds (low-quality / blocked by guardrails)
+      - Coverage confidence: % of AUM that has full V3 scores
+    """
+    user = await get_current_user(request)
+    uid = user["user_id"]
+
+    # Load MF holdings
+    mf_holdings = await db.holdings.find(
+        {"user_id": uid, "asset_type": "mutual_fund"},
+        {"_id": 0},
+    ).to_list(500)
+    if not mf_holdings:
+        return {"coverage_pct": 0, "funds": [], "portfolio": {},
+                "engine_version": v3_scoring.ENGINE_VERSION}
+
+    # Build mf_investments-shape list (what enrich_candidates_with_v3 expects)
+    mf_investments = [
+        {
+            "scheme_name": h.get("name"),
+            "instrument_id": h.get("instrument_id"),
+            "value": float(h.get("quantity", 0)) * float(h.get("current_price", 0)),
+        }
+        for h in mf_holdings
+    ]
+
+    # Enrich (reuses the same bulk V3 pipeline as action plans)
+    v3_by_key = await v3_integration.enrich_candidates_with_v3(
+        mf_investments=mf_investments,
+        exit_candidates=[],
+        mf_holdings=mf_holdings,
+        portfolio_intelligence={},
+    )
+
+    from services.action_plan_manager import _normalize_fund_name
+    total_aum = sum(m["value"] for m in mf_investments) or 1.0
+    covered_aum = 0.0
+    funds_out = []
+    quality_weighted = 0.0
+    health_weighted = 0.0
+    quality_weights = 0.0
+    health_weights = 0.0
+    flagged: list = []
+
+    for m in mf_investments:
+        iid = m.get("instrument_id")
+        name = m.get("scheme_name", "")
+        v3 = v3_integration.lookup_v3(iid, name, v3_by_key)
+        entry = {
+            "scheme_name": name,
+            "instrument_id": iid,
+            "value_rs": round(m["value"], 2),
+            "scores": None,
+        }
+        if v3:
+            entry["scores"] = {
+                "quality": v3.get("quality_score"),
+                "health": v3.get("health_score"),
+                "exit": v3.get("exit_score"),
+                "add": v3.get("add_score"),
+                "quality_missing": v3.get("quality_missing"),
+                "health_missing": v3.get("health_missing"),
+            }
+            entry["primitives"] = v3.get("v3_primitives")
+            entry["guardrail_blocked"] = v3.get("guardrail_blocked")
+            entry["guardrail_reasons"] = v3.get("guardrail_reasons")
+            covered_aum += m["value"]
+            if v3.get("quality_score") is not None:
+                quality_weighted += v3["quality_score"] * m["value"]
+                quality_weights += m["value"]
+            if v3.get("health_score") is not None:
+                health_weighted += v3["health_score"] * m["value"]
+                health_weights += m["value"]
+            # Flagging: quality < 50 or health < 50 or guardrail_blocked
+            if (v3.get("quality_score") or 100) < 50:
+                flagged.append({"scheme_name": name, "reason": "low_quality",
+                                "value_rs": round(m["value"], 2),
+                                "quality_score": v3.get("quality_score")})
+            elif (v3.get("health_score") or 100) < 50:
+                flagged.append({"scheme_name": name, "reason": "low_health",
+                                "value_rs": round(m["value"], 2),
+                                "health_score": v3.get("health_score")})
+        funds_out.append(entry)
+
+    portfolio = {
+        "avg_quality_score": round(quality_weighted / quality_weights, 2) if quality_weights else None,
+        "avg_health_score": round(health_weighted / health_weights, 2) if health_weights else None,
+        "n_funds": len(mf_investments),
+        "n_scored": sum(1 for f in funds_out if f.get("scores")),
+        "n_flagged": len(flagged),
+    }
+    coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
+
+    # Sort funds by quality descending so UI can render leaderboard
+    funds_out.sort(
+        key=lambda f: (f.get("scores") or {}).get("quality") or -1,
+        reverse=True,
+    )
+
+    return {
+        "engine_version": v3_scoring.ENGINE_VERSION,
+        "coverage_pct": coverage_pct,
+        "portfolio": portfolio,
+        "funds": funds_out,
+        "flagged": flagged,
+    }

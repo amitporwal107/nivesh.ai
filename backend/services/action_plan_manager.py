@@ -19,6 +19,7 @@ from services.instrument_scoring import (
     PORTFOLIO_HEALTHY_SCORE, MAX_ACTIONS_PER_PLAN,
 )
 from services import rules_config
+from services import v3_integration
 
 logger = logging.getLogger(__name__)
 
@@ -690,6 +691,40 @@ class ActionPlanManager:
         exited_holding_keys: set = set()         # mongo holding keys (for Regular/Direct matches without IDs)
         priority_counter = [1]                   # mutable int for shared incrementing
 
+        # ── V3 Phase 2: Enrich with composite scores + guardrails ───────────
+        # Returns {instrument_id: {quality_score, health_score, exit_score,
+        #                          add_score, guardrail_blocked, guardrail_reasons}}
+        v3_scores_by_id = await v3_integration.enrich_candidates_with_v3(
+            mf_investments=mf_investments,
+            exit_candidates=exit_candidates,
+            mf_holdings=mf_holdings,
+            portfolio_intelligence=portfolio_intelligence,
+        )
+        # Apply V3 guardrails: any candidate blocked by High-Quality-Protection,
+        # Tax-Exceeds-Benefit, or Recent-Investment-Lockout is dropped from the
+        # EXIT pool entirely. Guardrail results are also stashed so actions can
+        # report them in reason text.
+        pre_filter = len(exit_candidates)
+        exit_candidates = [
+            c for c in exit_candidates
+            if not (
+                c.get("instrument_id") and
+                v3_scores_by_id.get(c["instrument_id"], {}).get("guardrail_blocked")
+            )
+        ]
+        dropped_by_guardrail = pre_filter - len(exit_candidates)
+        if dropped_by_guardrail:
+            logger.info(
+                f"[V3 guardrails] blocked {dropped_by_guardrail} exit candidate(s) "
+                f"(protected by quality/tax/recent-investment rules)"
+            )
+
+        def _v3_exit_rank(iid: Optional[str], legacy: float, name: Optional[str] = None) -> float:
+            """Unified ranking score. Prefer V3 exit_score (scaled to 0-10)
+            when available (by iid or fuzzy name match); else fall back to
+            legacy heuristic."""
+            return v3_integration.v3_exit_score_or_legacy(iid, legacy, v3_scores_by_id, name)
+
         # Fast lookup helpers
         candidate_by_id = {
             c.get("instrument_id"): c
@@ -721,8 +756,29 @@ class ActionPlanManager:
             if reg_key in exited_holding_keys:
                 continue
             cost_leak = self._estimate_cost_leak(regular, direct, mf_investments)
+            # V3 Phase 2: gate on switch_score ≥ threshold, BUT only when V3
+            # enrichment returned data. When PG/scraper data is unavailable
+            # (unit tests, fresh deploys), fall back to legacy always-fire
+            # behaviour so the rule still works.
+            switch_s: Optional[float] = None
+            if v3_scores_by_id:
+                switch_threshold = float(
+                    rules_cfg["rule_1_regular_to_direct"]["params"].get("min_switch_score", 1.0)
+                )
+                switch_s = v3_integration.compute_reg_to_direct_switch_score(
+                    regular_holding=regular, cost_leak_rs=cost_leak,
+                    v3_scores_by_id=v3_scores_by_id, mf_investments=mf_investments,
+                )
+                if switch_s < switch_threshold:
+                    logger.info(
+                        f"[Rule 1 · V3] SKIP {regular.get('name','')[:40]} — "
+                        f"switch_score={switch_s:.2f} < {switch_threshold}"
+                    )
+                    continue
             reason_extra = (
-                f"Direct plan of same fund exists in portfolio (expense saving ≈ ₹{cost_leak:,.0f}/yr). "
+                f"Direct plan of same fund exists in portfolio (expense saving ≈ ₹{cost_leak:,.0f}/yr"
+                + (f", switch score {switch_s:.1f}" if switch_s is not None else "")
+                + "). "
                 if cost_leak > 0 else
                 "Direct plan of same fund exists in portfolio (lower expense ratio). "
             )
@@ -734,13 +790,18 @@ class ActionPlanManager:
                 reason_prefix=reason_extra + "Regular → Direct consolidation.",
                 reason_code="REGULAR_DIRECT_DUPLICATE",
             )
+            if switch_s is not None:
+                action["switch_score"] = switch_s
             actions.append(action)
             exited_holding_keys.add(reg_key)
             mf_match = _resolve_candidate(regular) or {}
             if mf_match.get("instrument_id"):
                 exited_ids.add(mf_match["instrument_id"])
             priority_counter[0] += 1
-            logger.info(f"[Rule 1] EXIT Regular: {regular.get('name','')[:40]}")
+            logger.info(
+                f"[Rule 1] EXIT Regular: {regular.get('name','')[:40]}"
+                + (f" (switch={switch_s:.2f})" if switch_s is not None else "")
+            )
 
         # Rule 6: Cost leak — if annual leak > ₹10K total across Regular funds without Direct pair,
         # generate switch (EXIT Regular + ADD Direct) actions for each such Regular fund
@@ -763,23 +824,46 @@ class ActionPlanManager:
                 reg_key = _holding_key(reg)
                 if reg_key in exited_holding_keys:
                     continue
+                # V3 Phase 2: gate on switch_score — only when V3 data available
+                switch_s: Optional[float] = None
+                if v3_scores_by_id:
+                    switch_threshold = float(
+                        rules_cfg["rule_6_cost_leak_switch"]["params"].get("min_switch_score", 1.0)
+                    )
+                    switch_s = v3_integration.compute_reg_to_direct_switch_score(
+                        regular_holding=reg, cost_leak_rs=leak_item["leak"],
+                        v3_scores_by_id=v3_scores_by_id, mf_investments=mf_investments,
+                    )
+                    if switch_s < switch_threshold:
+                        logger.info(
+                            f"[Rule 6 · V3] SKIP {reg.get('name','')[:40]} — "
+                            f"switch_score={switch_s:.2f} < {switch_threshold}"
+                        )
+                        continue
                 cand = _resolve_candidate(reg)
                 action = self._build_exit_action_from_holding(
                     holding=reg,
                     candidate=cand,
                     priority=priority_counter[0],
                     reason_prefix=(
-                        f"Switch to Direct plan saves ₹{leak_item['leak']:,.0f}/year in expense ratio. "
-                        f"(Total portfolio cost leak: ₹{total_leak:,.0f}/yr.)"
+                        f"Switch to Direct plan saves ₹{leak_item['leak']:,.0f}/year in expense ratio"
+                        + (f" (switch score {switch_s:.1f})" if switch_s is not None else "")
+                        + f". (Total portfolio cost leak: ₹{total_leak:,.0f}/yr.)"
                     ),
                     reason_code="COST_LEAK_SWITCH_TO_DIRECT",
                 )
+                if switch_s is not None:
+                    action["switch_score"] = switch_s
                 actions.append(action)
                 exited_holding_keys.add(reg_key)
                 if cand and cand.get("instrument_id"):
                     exited_ids.add(cand["instrument_id"])
                 priority_counter[0] += 1
-                logger.info(f"[Rule 6] SWITCH (EXIT Regular): {reg.get('name','')[:40]} saves ₹{leak_item['leak']:,.0f}/yr")
+                logger.info(
+                    f"[Rule 6] SWITCH (EXIT Regular): {reg.get('name','')[:40]} "
+                    f"saves ₹{leak_item['leak']:,.0f}/yr"
+                    + (f" (switch={switch_s:.2f})" if switch_s is not None else "")
+                )
 
         # ── RULE 2: AMC Concentration >15% ──────────────────────────────────
         amc_exposure = self._calculate_amc_exposure_from_mf_investments(
@@ -801,11 +885,12 @@ class ActionPlanManager:
                 if self._extract_amc_from_name(m.get("scheme_name", "")) == amc_name
                 and (m.get("instrument_id") is None or m.get("instrument_id") not in exited_ids)
             ]
-            # Rank by exit_score (descending)
+            # Rank by exit_score (descending) — V3 composite preferred
             ranked = []
             for mf in amc_funds:
                 cand = candidate_by_id.get(mf.get("instrument_id"))
-                score = cand["exit_score"] if cand else 5.0
+                legacy = cand["exit_score"] if cand else 5.0
+                score = _v3_exit_rank(mf.get("instrument_id"), legacy, mf.get("scheme_name"))
                 ranked.append({"mf": mf, "candidate": cand, "exit_score": score})
             ranked.sort(key=lambda x: x["exit_score"], reverse=True)
 
@@ -886,10 +971,11 @@ class ActionPlanManager:
                     if mf.get("instrument_id") in exited_ids:
                         continue
                     cand = candidate_by_id.get(mf.get("instrument_id"))
+                    legacy = cand["exit_score"] if cand else 5.0
                     ranked_funds.append({
                         "mf": mf,
                         "candidate": cand,
-                        "exit_score": cand["exit_score"] if cand else 5.0,
+                        "exit_score": _v3_exit_rank(mf.get("instrument_id"), legacy, mf.get("scheme_name")),
                     })
                 ranked_funds.sort(key=lambda x: x["exit_score"], reverse=True)
                 current_pct = cat_pct
@@ -1008,11 +1094,16 @@ class ActionPlanManager:
             name_b = pair.get("b_name", "")
             if self._normalize_base_scheme_name(name_a) == self._normalize_base_scheme_name(name_b):
                 continue
-            # Pick fund with higher exit_score
+            # Pick fund with higher exit_score — V3 composite preferred
             cand_a = candidate_by_id.get(id_a)
             cand_b = candidate_by_id.get(id_b)
-            score_a = cand_a["exit_score"] if cand_a else 5.0
-            score_b = cand_b["exit_score"] if cand_b else 5.0
+            legacy_a = cand_a["exit_score"] if cand_a else 5.0
+            legacy_b = cand_b["exit_score"] if cand_b else 5.0
+            # Use candidate scheme_name if available, else fall back to pair name
+            lookup_name_a = (cand_a.get("scheme_name") if cand_a else None) or name_a
+            lookup_name_b = (cand_b.get("scheme_name") if cand_b else None) or name_b
+            score_a = _v3_exit_rank(id_a, legacy_a, lookup_name_a)
+            score_b = _v3_exit_rank(id_b, legacy_b, lookup_name_b)
             if score_a >= score_b:
                 victim_cand, victim_name = cand_a, name_a
                 partner_name = name_b
@@ -1134,7 +1225,31 @@ class ActionPlanManager:
                 actions.append(action)
                 priority_counter[0] += 1
 
-        logger.info(f"Rule engine produced {len(actions)} actions")
+        # ── V3 Phase 2: Stamp composite scores onto EXIT actions ────────────
+        # Each EXIT action carries (quality / health / exit / add) for its target
+        # fund so the UI / audit log / action card can surface it.
+        for a in actions:
+            iid = a.get("instrument_id") or (a.get("target") or {}).get("instrument_id")
+            name = a.get("asset_name") or a.get("fund_name") or a.get("scheme_name") \
+                or (a.get("target") or {}).get("fund_name")
+            v3 = v3_integration.lookup_v3(iid, name, v3_scores_by_id)
+            if v3:
+                a["v3_scores"] = {
+                    "quality": v3.get("quality_score"),
+                    "health": v3.get("health_score"),
+                    "exit": v3.get("exit_score"),
+                    "add": v3.get("add_score"),
+                    "quality_missing": v3.get("quality_missing"),
+                    "health_missing": v3.get("health_missing"),
+                }
+                if v3.get("guardrail_reasons"):
+                    a["v3_guardrail_reasons"] = v3["guardrail_reasons"]
+
+        logger.info(
+            f"Rule engine produced {len(actions)} actions "
+            f"(V3 enrichment: {len(v3_scores_by_id)} funds scored, "
+            f"{dropped_by_guardrail} blocked by guardrails)"
+        )
         return actions
 
     def _apply_custom_rules(

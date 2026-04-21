@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import axios from "axios";
+import V3ScoreBadges from "./V3ScoreBadges";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -494,6 +495,24 @@ const PlanCard = ({ plan, isActive, onRefresh, compactMode = false }) => {
                 <p className="text-xs text-slate-600 mt-2 mb-3">
                   <span className="font-medium">Reason:</span> {action.reason_text}
                 </p>
+
+                {/* V3 Engine score badges (Quality/Health/Exit/Add + guardrails) */}
+                <V3ScoreBadges scores={action.v3_scores} guardrails={action.v3_guardrail_reasons} />
+
+                {action.switch_score != null && (
+                  <div
+                    data-testid="switch-score-indicator"
+                    className="mt-2 text-[11px] text-slate-600"
+                  >
+                    <span className="font-semibold text-slate-800">Switch score:</span>{' '}
+                    <span className="tabular-nums text-emerald-700">
+                      {Number(action.switch_score).toFixed(1)}
+                    </span>{' '}
+                    <span className="text-slate-500">
+                      (threshold 2.0 — higher = stronger net benefit)
+                    </span>
+                  </div>
+                )}
                 
                 {/* Feedback Section */}
                 {!feedbackStates[action.action_id]?.submitted && !action.feedback ? (
