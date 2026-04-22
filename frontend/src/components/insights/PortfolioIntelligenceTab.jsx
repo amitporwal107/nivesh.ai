@@ -412,7 +412,11 @@ export default function PortfolioIntelligenceTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/intelligence/portfolio?narrate=true`, { credentials: "include" });
+      // Bust any intermediate HTTP cache with a per-call timestamp param.
+      const r = await fetch(`${API}/intelligence/portfolio?narrate=true&_=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (!r.ok) throw new Error(r.statusText);
       const d = await r.json();
       setData(d);
@@ -422,6 +426,19 @@ export default function PortfolioIntelligenceTab() {
       setLoading(false);
     }
   }, []);
+
+  // Re-fetch when the tab becomes visible again — defeats stale React state
+  // on tabs that have been idle since before a backend reconfig (the
+  // "Postgres not configured" ghost state after admins wire secrets).
+  useEffect(() => {
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", load);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", load);
+    };
+  }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
