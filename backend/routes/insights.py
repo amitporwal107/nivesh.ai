@@ -602,8 +602,9 @@ async def v3_portfolio_summary(request: Request):
     quality_weights = 0.0
     health_weights = 0.0
     flagged: list = []
-    n_danger_critical = 0
-    n_danger_warning = 0
+    n_exit_recs = 0
+    n_switch_recs = 0
+    n_review_recs = 0
 
     for m in mf_investments:
         iid = m.get("instrument_id")
@@ -650,19 +651,24 @@ async def v3_portfolio_summary(request: Request):
             entry["guardrail_blocked"] = v3.get("guardrail_blocked")
             entry["guardrail_reasons"] = v3.get("guardrail_reasons")
 
-            # Danger classification + deterministic explanation
-            danger = v3_explainer.classify_danger(bundle)
-            entry["danger"] = danger
+            # Deterministic per-fund recommendation (EXIT/SWITCH/REVIEW/BUY/HOLD)
+            recommendation = v3_explainer.derive_recommendation(
+                bundle, plan_type=plan_type, cost_leak_rs=cost_leak,
+            )
+            entry["recommendation"] = recommendation
             entry["explanation"] = v3_explainer.build_explanation(
                 bundle,
                 scheme_name=name,
                 plan_type=plan_type,
                 cost_leak_rs=cost_leak,
             )
-            if danger["level"] == "critical":
-                n_danger_critical += 1
-            elif danger["level"] == "warning":
-                n_danger_warning += 1
+            action = recommendation["action"]
+            if action == "EXIT":
+                n_exit_recs += 1
+            elif action == "SWITCH":
+                n_switch_recs += 1
+            elif action == "REVIEW":
+                n_review_recs += 1
 
             covered_aum += m["value"]
             if v3.get("quality_score") is not None:
@@ -681,7 +687,11 @@ async def v3_portfolio_summary(request: Request):
                                 "value_rs": round(m["value"], 2),
                                 "health_score": v3.get("health_score")})
         else:
-            entry["danger"] = {"level": "ok", "reasons": [], "is_danger": False}
+            entry["recommendation"] = {
+                "action": "HOLD",
+                "label": "Hold",
+                "reason": "No V3 data available for this fund yet.",
+            }
             entry["explanation"] = "No V3 data available for this fund yet."
         funds_out.append(entry)
 
@@ -691,18 +701,19 @@ async def v3_portfolio_summary(request: Request):
         "n_funds": len(mf_investments),
         "n_scored": sum(1 for f in funds_out if f.get("scores")),
         "n_flagged": len(flagged),
-        "n_danger_critical": n_danger_critical,
-        "n_danger_warning": n_danger_warning,
+        "n_exit_recs": n_exit_recs,
+        "n_switch_recs": n_switch_recs,
+        "n_review_recs": n_review_recs,
     }
     coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
 
-    # Sort: critical first, then warning, then by descending quality so
-    # funds needing attention float to the top of the per-fund table.
+    # Sort by recommendation priority (EXIT → SWITCH → REVIEW → HOLD → BUY),
+    # then by descending quality so actionable funds float to the top.
     def _sort_key(f):
-        level = (f.get("danger") or {}).get("level", "ok")
-        danger_rank = {"critical": 0, "warning": 1, "ok": 2}.get(level, 2)
+        action = (f.get("recommendation") or {}).get("action", "HOLD")
+        rank = {"EXIT": 0, "SWITCH": 1, "REVIEW": 2, "HOLD": 3, "BUY": 4}.get(action, 3)
         q = (f.get("scores") or {}).get("quality")
-        return (danger_rank, -(q or -1))
+        return (rank, -(q or -1))
     funds_out.sort(key=_sort_key)
 
     return {

@@ -119,3 +119,95 @@ def test_explanation_handles_missing_primitives_gracefully():
     e = v3_explainer.build_explanation(b)
     # Should not raise; returns empty or minimal string
     assert isinstance(e, str)
+
+
+# ── derive_recommendation ────────────────────────────────────────────────
+def test_recommendation_exit_on_high_exit_score():
+    r = v3_explainer.derive_recommendation(_bundle(quality=60, health=60, exit_s=80))
+    assert r["action"] == "EXIT"
+    assert "Exit" in r["label"]
+    assert "80" in r["reason"]
+
+
+def test_recommendation_review_when_exit_is_guardrail_blocked():
+    """High exit but blocked by tax-exceeds-benefit → downgrade to REVIEW."""
+    r = v3_explainer.derive_recommendation(_bundle(
+        quality=50, health=50, exit_s=80,
+        blocked=True, reasons=["tax_exceeds_benefit"],
+    ))
+    assert r["action"] == "REVIEW"
+    assert "locked" in r["reason"].lower()
+
+
+def test_recommendation_review_when_exit_locked_out():
+    r = v3_explainer.derive_recommendation(_bundle(
+        quality=50, health=50, exit_s=85,
+        blocked=True, reasons=["recent_investment_lockout"],
+    ))
+    assert r["action"] == "REVIEW"
+    assert "lockout" in r["reason"].lower() or "locked" in r["reason"].lower()
+
+
+def test_recommendation_switch_on_regular_with_strong_switch_score():
+    r = v3_explainer.derive_recommendation(
+        _bundle(quality=70, health=70, exit_s=30, switch=2.5),
+        plan_type="regular", cost_leak_rs=5000,
+    )
+    assert r["action"] == "SWITCH"
+    assert "Direct" in r["label"]
+    assert "5,000" in r["reason"] or "5000" in r["reason"]
+
+
+def test_recommendation_no_switch_for_direct_plan_even_if_switch_high():
+    r = v3_explainer.derive_recommendation(
+        _bundle(quality=70, health=70, exit_s=30, switch=2.5),
+        plan_type="direct",
+    )
+    assert r["action"] != "SWITCH"
+
+
+def test_recommendation_review_on_low_quality():
+    r = v3_explainer.derive_recommendation(_bundle(quality=45, health=70, exit_s=30))
+    assert r["action"] == "REVIEW"
+    assert "Quality 45" in r["reason"]
+
+
+def test_recommendation_review_on_low_health():
+    r = v3_explainer.derive_recommendation(_bundle(quality=70, health=45, exit_s=30))
+    assert r["action"] == "REVIEW"
+    assert "Health 45" in r["reason"]
+
+
+def test_recommendation_review_on_elevated_exit():
+    r = v3_explainer.derive_recommendation(_bundle(quality=70, health=70, exit_s=65))
+    assert r["action"] == "REVIEW"
+    assert "Exit 65" in r["reason"]
+
+
+def test_recommendation_buy_on_strong_fund():
+    r = v3_explainer.derive_recommendation(_bundle(quality=82, health=75, exit_s=25))
+    assert r["action"] == "BUY"
+    assert "Strong" in r["reason"] or "best" in r["reason"].lower()
+
+
+def test_recommendation_hold_default():
+    r = v3_explainer.derive_recommendation(_bundle(quality=65, health=65, exit_s=40))
+    assert r["action"] == "HOLD"
+
+
+def test_recommendation_priority_exit_beats_switch():
+    """If both high exit and high switch signals, EXIT wins."""
+    r = v3_explainer.derive_recommendation(
+        _bundle(quality=40, health=40, exit_s=80, switch=2.5),
+        plan_type="regular", cost_leak_rs=5000,
+    )
+    assert r["action"] == "EXIT"
+
+
+def test_recommendation_has_required_fields():
+    r = v3_explainer.derive_recommendation(_bundle(quality=65, health=65, exit_s=40))
+    assert set(r.keys()) == {"action", "label", "reason"}
+    assert r["action"] in {"EXIT", "SWITCH", "REVIEW", "HOLD", "BUY"}
+    assert isinstance(r["label"], str) and r["label"]
+    assert isinstance(r["reason"], str) and r["reason"]
+

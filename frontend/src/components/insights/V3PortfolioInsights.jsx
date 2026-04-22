@@ -128,20 +128,25 @@ export default function V3PortfolioInsights() {
           <div className="flex items-center gap-2">
             <AlertOctagon className="w-3 h-3 text-rose-500" />
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-              Danger zone
+              Action signals
             </span>
           </div>
-          <div className="flex items-end gap-1">
-            <span className="text-2xl font-bold tabular-nums text-rose-700">
-              {portfolio.n_danger_critical || 0}
+          <div className="flex items-end gap-1 flex-wrap">
+            <span className="text-2xl font-bold tabular-nums text-rose-700" data-testid="v3-n-exit">
+              {portfolio.n_exit_recs || 0}
             </span>
-            <span className="text-sm text-amber-700 mb-0.5 font-semibold">
-              +{portfolio.n_danger_warning || 0}
+            <span className="text-xs text-rose-700 mb-1">exit</span>
+            <span className="text-sm text-indigo-700 mb-0.5 ml-1 font-semibold" data-testid="v3-n-switch">
+              +{portfolio.n_switch_recs || 0}
             </span>
-            <span className="text-xs text-slate-400 mb-1 ml-1">critical / warn</span>
+            <span className="text-xs text-indigo-700 mb-1">switch</span>
+            <span className="text-sm text-amber-700 mb-0.5 ml-1 font-semibold" data-testid="v3-n-review">
+              +{portfolio.n_review_recs || 0}
+            </span>
+            <span className="text-xs text-amber-700 mb-1">review</span>
           </div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Funds needing review
+            Funds with actionable recommendations
           </span>
         </div>
       </div>
@@ -235,7 +240,7 @@ export default function V3PortfolioInsights() {
         )}
       </Card>
 
-      {/* Per-fund V3 breakdown with danger-zone highlights + deterministic explanations */}
+      {/* Per-fund V3 breakdown with action recommendations + deterministic explanations */}
       <Card className="p-5 dark:bg-slate-900 dark:border-slate-700">
         <V3FundBreakdown funds={funds || []} portfolio={portfolio} />
       </Card>

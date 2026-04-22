@@ -193,6 +193,101 @@ def classify_danger(bundle: Dict[str, Any]) -> Dict[str, Any]:
     return {"level": level, "reasons": reasons, "is_danger": level != "ok"}
 
 
+# ── Recommendation (EXIT / SWITCH / REVIEW / HOLD / BUY) ─────────────────
+def derive_recommendation(
+    bundle: Dict[str, Any],
+    plan_type: str = "regular",
+    cost_leak_rs: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Return a deterministic per-fund action recommendation.
+
+    Priority: EXIT > SWITCH > REVIEW > BUY > HOLD.
+
+    - EXIT:  exit_score ≥ 75 (and not guardrail-blocked).
+    - SWITCH: Regular plan with switch_score ≥ 2.0 (meaningful Reg→Direct saving).
+    - REVIEW: watch flags — quality<55 OR health<55 OR exit≥60, or EXIT signal
+              that is currently guardrail-blocked (tax/lockout).
+    - BUY:   quality ≥ 75, exit < 40, health ≥ 60 (or unknown).
+    - HOLD:  default — keep holding, no urgent action.
+
+    Returns `{action, label, reason}`. Pure function — no I/O.
+    """
+    q = bundle.get("quality_score")
+    h = bundle.get("health_score")
+    e = bundle.get("exit_score")
+    switch = bundle.get("switch_score")
+    guardrail_blocked = bool(bundle.get("guardrail_blocked"))
+    guardrail_reasons = bundle.get("guardrail_reasons") or []
+
+    # 1) EXIT — high exit score, subject to guardrails
+    if e is not None and e >= 75:
+        blocking = [r for r in guardrail_reasons
+                    if r in ("tax_exceeds_benefit", "recent_investment_lockout")]
+        if guardrail_blocked and blocking:
+            pretty = {
+                "tax_exceeds_benefit": "tax cost exceeds annual benefit",
+                "recent_investment_lockout": "holding < 6 months — lockout",
+            }[blocking[0]]
+            return {
+                "action": "REVIEW",
+                "label": "Review",
+                "reason": (f"High exit signal (Exit {e:.0f}/100) but exit is "
+                           f"currently locked — {pretty}."),
+            }
+        return {
+            "action": "EXIT",
+            "label": "Exit",
+            "reason": (f"Exit score {e:.0f}/100 — engine strongly recommends "
+                       f"exiting this fund."),
+        }
+
+    # 2) SWITCH — Regular→Direct with strong saving
+    if plan_type == "regular" and switch is not None and switch >= 2.0:
+        saving = f"~₹{cost_leak_rs:,.0f}/yr" if cost_leak_rs else "meaningful"
+        return {
+            "action": "SWITCH",
+            "label": "Switch to Direct",
+            "reason": (f"Switch score {switch:.1f} ≥ 2.0 — move to Direct plan "
+                       f"for {saving} cost saving with negligible quality impact."),
+        }
+
+    # 3) REVIEW — watch flags
+    bits: List[str] = []
+    if q is not None and q < 55:
+        bits.append(f"Quality {q:.0f}/100 below floor")
+    if h is not None and h < 55:
+        bits.append(f"Health {h:.0f}/100 below floor")
+    if e is not None and e >= 60:
+        bits.append(f"Exit {e:.0f}/100 elevated")
+    if bits:
+        return {
+            "action": "REVIEW",
+            "label": "Review",
+            "reason": "Watch closely — " + "; ".join(bits) + ".",
+        }
+
+    # 4) BUY — strong, add-worthy
+    if (q is not None and q >= 75
+            and (h is None or h >= 60)
+            and (e is None or e < 40)):
+        h_bit = f", Health {h:.0f}/100" if h is not None else ""
+        return {
+            "action": "BUY",
+            "label": "Hold / Add",
+            "reason": (f"Strong fund — Quality {q:.0f}/100{h_bit}; engine ranks "
+                       f"this among best-in-class for its category."),
+        }
+
+    # 5) HOLD — default
+    return {
+        "action": "HOLD",
+        "label": "Hold",
+        "reason": "Neither urgent action nor conviction-grade add — keep holding.",
+    }
+
+
+
+
 def build_explanation(
     bundle: Dict[str, Any],
     scheme_name: str = "",
