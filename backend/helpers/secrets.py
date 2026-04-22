@@ -50,13 +50,13 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     },
     "POSTGRES_URL": {
         "display_name": "Postgres URL",
-        "description": "Connection string for instrument_master / MF NAV lookups (postgresql://user:pw@host:5432/nivesh)",
+        "description": "Analytics datastore for instrument_master, MF NAV history, V3 primitives. Recommended: Neon (free tier, serverless). Format: postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require",
         "test_fn": "postgres",
         "category": "data",
     },
     "REDIS_URL": {
         "display_name": "Redis URL",
-        "description": "Connection string for MF holdings cache (redis://host:6379/0)",
+        "description": "V3 composite score cache (24h TTL) + equity fundamentals cache. Recommended: Upstash (free tier, serverless). Format: rediss://default:pass@xxx.upstash.io:6379",
         "test_fn": "redis",
         "category": "data",
     },

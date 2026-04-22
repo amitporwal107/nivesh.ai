@@ -161,7 +161,7 @@ const SecretRow = ({ secret, onUpdate, onDelete, onTest }) => {
   );
 };
 
-const SecretsSection = () => {
+const SecretsSection = ({ categoryFilter = null, title = "Secrets", subtitle = "API keys and credentials. DB overrides take precedence over env vars.", allowAddCustom = true }) => {
   const [list, setList] = useState([]);
   const [meta, setMeta] = useState({});
   const [loading, setLoading] = useState(true);
@@ -226,7 +226,14 @@ const SecretsSection = () => {
     setShowAdd(false);
   };
 
-  const grouped = list.reduce((acc, s) => {
+  const filteredList = categoryFilter
+    ? list.filter(s => {
+        const cats = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
+        return cats.includes(s.category || "custom");
+      })
+    : list;
+
+  const grouped = filteredList.reduce((acc, s) => {
     const cat = s.category || "custom";
     (acc[cat] = acc[cat] || []).push(s);
     return acc;
@@ -244,14 +251,14 @@ const SecretsSection = () => {
               <KeyRound className="w-5 h-5" strokeWidth={2} />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900 dark:text-white">Secrets</h3>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">{title}</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                API keys and credentials. DB overrides take precedence over env vars.
+                {subtitle}
               </p>
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
+            {allowAddCustom && (<Button
               data-testid="secrets-add-custom"
               variant="outline"
               size="sm"
@@ -259,14 +266,14 @@ const SecretsSection = () => {
               className="rounded-xl"
             >
               <Plus className="w-4 h-4 mr-1" /> Custom
-            </Button>
+            </Button>)}
             <Button variant="ghost" size="sm" onClick={load} data-testid="secrets-refresh">
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </div>
 
-        {showAdd && (
+        {showAdd && allowAddCustom && (
           <div className="mb-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-2">
             <Input
               value={newKey}

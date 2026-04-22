@@ -3,6 +3,7 @@ import axios from "axios";
 import {
   UserPlus, Trash2, Upload, Shield, ShieldCheck, ShieldX,
   Users, BarChart3, RefreshCw, Search, AlertCircle, Check,
+  Server, Gauge,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,9 +16,31 @@ import DatastoreSection from "@/components/admin/DatastoreSection";
 import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PromptsSection from "@/components/admin/PromptsSection";
+import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+const ADMIN_TABS = [
+  {
+    id: "infra",
+    label: "Infra & Data",
+    icon: Server,
+    description: "Postgres, Redis, CAS Parser, data pipeline, MF catalog",
+  },
+  {
+    id: "users",
+    label: "Users & Features",
+    icon: Users,
+    description: "Whitelist, feature flags, LLM keys, OAuth credentials",
+  },
+  {
+    id: "engine",
+    label: "V3 Rules Engine",
+    icon: Gauge,
+    description: "V3 weights overview, tunable rule thresholds, LLM prompts",
+  },
+];
 
 const STATUS_CONFIG = {
   active: { label: "Active", color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-900/20", border: "border-emerald-200 dark:border-emerald-800" },
@@ -26,6 +49,7 @@ const STATUS_CONFIG = {
 };
 
 const AdminView = () => {
+  const [activeTab, setActiveTab] = useState("infra");
   const [whitelist, setWhitelist] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -155,41 +179,100 @@ const AdminView = () => {
           <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
             Admin Panel
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage invite-only access and whitelisted users</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            {ADMIN_TABS.find(t => t.id === activeTab)?.description}
+          </p>
         </div>
         <Button onClick={loadData} variant="outline" className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="refresh-admin">
           <RefreshCw className="w-4 h-4 mr-2" /> Refresh
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {[
-            { label: "Whitelisted", value: stats.whitelist.total, color: "text-slate-900 dark:text-white" },
-            { label: "Active", value: stats.whitelist.active, color: "text-emerald-600" },
-            { label: "Pending", value: stats.whitelist.pending, color: "text-amber-600" },
-            { label: "Blocked", value: stats.whitelist.blocked, color: "text-red-500" },
-            { label: "Conversion", value: `${stats.whitelist.conversion_rate}%`, color: "text-blue-600" },
-          ].map(s => (
-            <Card key={s.label} className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
-              <CardContent className="p-4">
-                <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">{s.label}</p>
-                <p className={`text-xl font-semibold mt-1 ${s.color}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={`stat-${s.label.toLowerCase()}`}>{s.value}</p>
-              </CardContent>
-            </Card>
-          ))}
+      {/* Tab bar */}
+      <div
+        data-testid="admin-tab-bar"
+        className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 overflow-x-auto"
+      >
+        {ADMIN_TABS.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              data-testid={`admin-tab-${tab.id}`}
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${
+                isActive
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab 1 — Infra & Data Management */}
+      {activeTab === "infra" && (
+        <div data-testid="admin-panel-infra" className="space-y-5">
+          <SecretsSection
+            categoryFilter={["data", "parsing"]}
+            title="Datastore & Parsing Secrets"
+            subtitle="Postgres (Neon), Redis (Upstash), and CAS Parser credentials. Changes take effect immediately — no restart needed."
+            allowAddCustom={false}
+          />
+          <DatastoreSection />
+          <DataPipelineMonitor />
+          <MFDataSection />
         </div>
       )}
 
-      {/* CAS Parser API Config */}
-      <SecretsSection />
-      <FeatureFlagsSection />
-      <RulesConfigSection />
-      <PromptsSection />
-      <DatastoreSection />
-      <DataPipelineMonitor />
-      <MFDataSection />
+      {/* Tab 2 — User & Feature Management */}
+      {activeTab === "users" && (
+        <div data-testid="admin-panel-users" className="space-y-5">
+          {/* Stats Cards */}
+          {stats && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Total Users", value: stats.whitelist.total, color: "text-slate-900 dark:text-white" },
+                { label: "Active", value: stats.whitelist.active, color: "text-emerald-600" },
+                { label: "Pending", value: stats.whitelist.pending, color: "text-amber-600" },
+                { label: "Blocked", value: stats.whitelist.blocked, color: "text-red-500" },
+              ].map(s => (
+                <Card key={s.label} className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
+                  <CardContent className="p-4">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">{s.label}</p>
+                    <p className={`text-xl font-semibold mt-1 ${s.color}`} style={{ fontFamily: "'Outfit', sans-serif" }} data-testid={`stat-${s.label.toLowerCase().replace(/\s+/g,'-')}`}>{s.value}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          <FeatureFlagsSection />
+          <SecretsSection
+            categoryFilter={["auth", "ai"]}
+            title="Auth & AI Secrets"
+            subtitle="Google OAuth, Gmail OAuth, OpenAI / Emergent LLM keys. Never exposed to the browser."
+            allowAddCustom={true}
+          />
+        </div>
+      )}
+
+      {/* Tab 3 — V3 Rules Engine Management */}
+      {activeTab === "engine" && (
+        <div data-testid="admin-panel-engine" className="space-y-5">
+          <V3EngineOverviewSection />
+          <RulesConfigSection />
+          <PromptsSection />
+        </div>
+      )}
+
+      {/* User management forms — rendered inside Users tab only */}
+      {activeTab === "users" && (<>
 
       {/* Add Email Form */}
       <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl">
@@ -356,6 +439,8 @@ const AdminView = () => {
           )}
         </CardContent>
       </Card>
+
+      </>)}
     </div>
   );
 };
