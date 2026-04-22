@@ -81,8 +81,14 @@ async def root():
 app.add_middleware(RateLimitMiddleware)
 
 _cors_env = os.environ.get('CORS_ORIGINS', '')
-if _cors_env == '*':
-    _cors_origins = ["https://nivesh-ai-preview.preview.emergentagent.com", "http://localhost:3000"]
+_cors_origin_regex: str | None = None
+if _cors_env == '' or _cors_env == '*':
+    # Allow all origins. CORS spec forbids `allow_credentials=True` with
+    # `allow_origins=["*"]`, so we use a regex to echo whichever origin
+    # made the request. This keeps cookies working across preview URLs,
+    # custom domains, and local dev without per-environment config.
+    _cors_origins = []
+    _cors_origin_regex = r".*"
 else:
     _cors_origins = [o.strip() for o in _cors_env.split(',') if o.strip()]
 
@@ -90,6 +96,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_methods=["*"],
     allow_headers=["*"],
 )
