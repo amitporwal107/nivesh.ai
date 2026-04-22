@@ -266,7 +266,7 @@ async def _fetch_master_funds(limit: Optional[int] = None) -> List[Dict[str, Any
         JOIN instrument_master im ON im.instrument_id = mfm.instrument_id
         LEFT JOIN LATERAL (
             SELECT ret_1y, ret_3y, ret_5y, sharpe, sortino
-            FROM mutual_fund_ratios
+            FROM mutual_fund_performance_ratios
             WHERE instrument_id = mfm.instrument_id
             ORDER BY ratios_date DESC LIMIT 1
         ) mfr ON TRUE
@@ -277,16 +277,7 @@ async def _fetch_master_funds(limit: Optional[int] = None) -> List[Dict[str, Any
     if limit:
         sql += f"\nLIMIT {int(limit)}"
     async with pool.acquire() as conn:
-        try:
-            rows = await conn.fetch(sql)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"v3-master-funds ratios JOIN failed ({e}); falling back without ratios")
-            # Fallback: drop the ratios join if the table name differs
-            sql_fallback = sql.replace(
-                "LEFT JOIN LATERAL (\n            SELECT ret_1y, ret_3y, ret_5y, sharpe, sortino\n            FROM mutual_fund_ratios\n            WHERE instrument_id = mfm.instrument_id\n            ORDER BY ratios_date DESC LIMIT 1\n        ) mfr ON TRUE",
-                "LEFT JOIN LATERAL (SELECT NULL::numeric AS ret_1y, NULL::numeric AS ret_3y, NULL::numeric AS ret_5y, NULL::numeric AS sharpe, NULL::numeric AS sortino) mfr ON TRUE",
-            )
-            rows = await conn.fetch(sql_fallback)
+        rows = await conn.fetch(sql)
     return [_fund_row_to_payload(dict(r)) for r in rows]
 
 
