@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
-from services import pg_client, goal_engine, goal_fund_picker
+from services import pg_client, goal_engine, goal_fund_picker, goal_copilot
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/goals")
@@ -75,6 +75,10 @@ class WhatIfRequest(BaseModel):
     horizon_years: Optional[float] = None
     current_corpus_rs: Optional[float] = None
     allocation_override: Optional[Dict[str, float]] = None
+
+
+class CopilotAskRequest(BaseModel):
+    query: str = Field(..., min_length=2, max_length=500)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -384,3 +388,42 @@ async def what_if(goal_id: str, payload: WhatIfRequest, request: Request):
         allocation_override=payload.allocation_override or g.get("allocation"),
     )
     return {"goal_id": goal_id, "preview": True, **ev.to_dict()}
+
+
+# ── LLM Copilot ─────────────────────────────────────────────────────────
+@router.post("/{goal_id}/copilot")
+async def copilot_ask(goal_id: str, payload: CopilotAskRequest, request: Request):
+    """Natural-language what-if — user asks a question like
+    'Can I retire 5 years earlier?' or 'What if I bump SIP by ₹5k?'.
+    Returns structured engine output + a plain-English narrative."""
+    user_id = await _user_id(request)
+    goal = await _get_goal(goal_id, user_id)
+
+    pool = await pg_client.get_pool()
+    async with pool.acquire() as conn:
+        snap = await conn.fetchrow(
+            "SELECT risk_profile FROM user_financial_snapshots WHERE user_id = $1",
+            _user_uuid(user_id),
+        )
+    risk_profile = (snap["risk_profile"] if snap else None) or "moderate"
+
+    return await goal_copilot.ask(
+        goal=goal, user_id=str(_user_uuid(user_id)),
+        user_query=payload.query, risk_profile=risk_profile,
+    )
+
+
+@router.get("/{goal_id}/copilot/history")
+async def copilot_history(goal_id: str, request: Request):
+    user_id = await _user_id(request)
+    await _get_goal(goal_id, user_id)     # authz
+    msgs = await goal_copilot.load_history(goal_id, str(_user_uuid(user_id)), limit=30)
+    return {"goal_id": goal_id, "messages": msgs}
+
+
+@router.delete("/{goal_id}/copilot/history")
+async def copilot_clear(goal_id: str, request: Request):
+    user_id = await _user_id(request)
+    await _get_goal(goal_id, user_id)     # authz
+    n = await goal_copilot.clear_history(goal_id, str(_user_uuid(user_id)))
+    return {"goal_id": goal_id, "deleted": n}
