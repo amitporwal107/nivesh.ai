@@ -184,33 +184,114 @@ def _weighted_composite(
 
 # ── 5 Composite Scores ───────────────────────────────────────────────────
 def compute_quality_score(f: Dict[str, Any]) -> Dict[str, Any]:
-    """Quality = Performance 25 + Risk-Adj 20 + Consistency 20 + Drawdown 15 + Cost 10 + AUM/Age 10."""
+    """Quality score — category-aware per V3.1 PRD.
+
+    Classifies fund → picks category-specific weight profile → computes composite.
+    Components that need primitives the fund doesn't have (e.g., credit_quality
+    for equity funds) are marked as None and weights renormalise over what's
+    available (graceful degradation).
+    """
+    # Lazy import to avoid circular on startup
+    from services import v3_weights  # noqa: WPS433
+    category = v3_weights.classify_fund_category(f)
+    weights = v3_weights.get_weights(category, "quality")
+
+    # Fold category-avg aliases so both key variants work
     cat_1y = f.get("cat_avg_1y") if f.get("cat_avg_1y") is not None else f.get("category_avg_1y")
     cat_3y = f.get("cat_avg_3y") if f.get("cat_avg_3y") is not None else f.get("category_avg_3y")
     cat_5y = f.get("cat_avg_5y") if f.get("cat_avg_5y") is not None else f.get("category_avg_5y")
-    comps = {
-        "performance":   (_norm_returns(f.get("ret_1y"), f.get("ret_3y"), f.get("ret_5y"),
-                                        cat_1y, cat_3y, cat_5y), 25),
-        "risk_adjusted": (_norm_risk_adjusted(f.get("sharpe"), f.get("sortino")), 20),
-        "consistency":   (_norm_consistency(f.get("consistency_score")), 20),
-        "drawdown":      (_norm_drawdown(f.get("max_drawdown_pct")), 15),
-        "cost":          (_norm_cost(f.get("expense_ratio_direct") or f.get("expense_ratio")), 10),
-        "aum_age":       (_norm_aum_age(f.get("aum_cr"), f.get("fund_age_years")), 10),
+
+    # Compute every possible component value (None if primitive is missing).
+    # This lets any weight profile pick-and-choose.
+    comp_values = {
+        "performance":          _norm_returns(f.get("ret_1y"), f.get("ret_3y"), f.get("ret_5y"), cat_1y, cat_3y, cat_5y),
+        "risk_adjusted":        _norm_risk_adjusted(f.get("sharpe"), f.get("sortino")),
+        "consistency":          _norm_consistency(f.get("consistency_score")),
+        "drawdown":             _norm_drawdown(f.get("max_drawdown_pct")),
+        "cost":                 _norm_cost(f.get("expense_ratio_direct") or f.get("expense_ratio")),
+        "aum_age":              _norm_aum_age(f.get("aum_cr"), f.get("fund_age_years")),
+        "downside_capture":     _norm_downside_capture(f.get("downside_capture_pct")),
+        "allocation_stability": _norm_allocation_stability(f.get("allocation_stability_score")),
+        # Debt-specific primitives (populated by VR scraper when available)
+        "credit_quality":       _norm_credit_quality(f.get("credit_quality_score")),
+        "yield_vs_category":    _norm_yield_vs_cat(f.get("ytm"), f.get("cat_avg_ytm")),
+        "duration_risk":        _norm_duration_risk(f.get("modified_duration")),
     }
-    return _weighted_composite(comps)
+    comps = {name: (comp_values.get(name), w) for name, w in weights.items()}
+    result = _weighted_composite(comps)
+    result["category"] = category
+    result["weight_profile"] = weights
+    return result
 
 
 def compute_health_score(f: Dict[str, Any]) -> Dict[str, Any]:
-    """Health = Manager 25 + AUM-Stab 20 + Turnover 15 + Concentration 15 + Downside 15 + Expense-Trend 10."""
-    comps = {
-        "manager_tenure":      (_norm_manager_tenure(f.get("manager_tenure_years")), 25),
-        "aum_stability":       (_norm_aum_trend(f.get("aum_trend_score")), 20),
-        "turnover":            (_norm_turnover(f.get("turnover_ratio")), 15),
-        "concentration":       (_norm_top10(f.get("top10_concentration_pct")), 15),
-        "downside_protection": (_norm_downside_capture(f.get("downside_capture_pct")), 15),
-        "expense_trend":       (_norm_expense_trend(f.get("expense_trend_delta")), 10),
+    """Health score — category-aware per V3.1 PRD."""
+    from services import v3_weights  # noqa: WPS433
+    category = v3_weights.classify_fund_category(f)
+    weights = v3_weights.get_weights(category, "health")
+
+    comp_values = {
+        "manager_tenure":        _norm_manager_tenure(f.get("manager_tenure_years")),
+        "aum_stability":         _norm_aum_trend(f.get("aum_trend_score")),
+        "turnover":              _norm_turnover(f.get("turnover_ratio")),
+        "concentration":         _norm_top10(f.get("top10_concentration_pct")),
+        "downside_protection":   _norm_downside_capture(f.get("downside_capture_pct")),
+        "expense_trend":         _norm_expense_trend(f.get("expense_trend_delta")),
+        "allocation_consistency": _norm_allocation_stability(f.get("allocation_consistency_score")),
+        # Debt-specific primitives
+        "credit_concentration":  _norm_credit_concentration(f.get("credit_concentration_pct")),
+        "liquidity":             _norm_liquidity(f.get("liquidity_score")),
     }
-    return _weighted_composite(comps)
+    comps = {name: (comp_values.get(name), w) for name, w in weights.items()}
+    result = _weighted_composite(comps)
+    result["category"] = category
+    result["weight_profile"] = weights
+    return result
+
+
+# ── New normalisation helpers (debt + hybrid) ───────────────────────────
+def _norm_credit_quality(score: Optional[float]) -> Optional[float]:
+    """score is 0-10 where 10 = 100% AAA, 0 = below-investment-grade."""
+    if score is None:
+        return None
+    return round(max(0.0, min(10.0, float(score))), 2)
+
+
+def _norm_yield_vs_cat(ytm: Optional[float], cat_avg_ytm: Optional[float]) -> Optional[float]:
+    """Higher YTM vs category → higher score. Each +0.5% premium → +1 point above 5."""
+    if ytm is None or cat_avg_ytm is None:
+        return None
+    delta = ytm - cat_avg_ytm
+    return round(max(0.0, min(10.0, 5.0 + delta * 2.0)), 2)
+
+
+def _norm_duration_risk(mod_dur: Optional[float]) -> Optional[float]:
+    """Shorter modified duration = lower interest-rate risk = higher score.
+    0y → 10, 3y → 7, 5y → 5, 8y → 2, 10+y → 0."""
+    if mod_dur is None:
+        return None
+    return round(max(0.0, min(10.0, 10.0 - float(mod_dur))), 2)
+
+
+def _norm_credit_concentration(top5_pct: Optional[float]) -> Optional[float]:
+    """Top 5 issuer concentration. <20% → 10, 50% → 5, 80%+ → 0."""
+    if top5_pct is None:
+        return None
+    return round(max(0.0, min(10.0, 10.0 - (float(top5_pct) - 20) / 6.0)), 2)
+
+
+def _norm_liquidity(liquidity_score: Optional[float]) -> Optional[float]:
+    """0-10 liquidity score (fraction of portfolio in Tier-1 liquid securities)."""
+    if liquidity_score is None:
+        return None
+    return round(max(0.0, min(10.0, float(liquidity_score))), 2)
+
+
+def _norm_allocation_stability(score: Optional[float]) -> Optional[float]:
+    """0-10 score of hybrid-fund equity/debt mix stability over time."""
+    if score is None:
+        return None
+    return round(max(0.0, min(10.0, float(score))), 2)
 
 
 def compute_exit_score(f: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:

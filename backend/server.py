@@ -29,6 +29,7 @@ from deps import db, client, seed_admin_and_whitelist
 from routes.auth import router as auth_router
 from routes.admin import router as admin_router
 from routes.admin_v3_master import router as admin_v3_master_router
+from routes.admin_v3_weights import router as admin_v3_weights_router
 from routes.admin_datastores import router as admin_datastores_router
 from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
@@ -56,6 +57,7 @@ app = FastAPI(title="nivesh.ai API", version="2.0")
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_v3_master_router)
+app.include_router(admin_v3_weights_router)
 app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
@@ -112,13 +114,14 @@ async def startup_seed():
     try:
         from helpers import secrets as _secrets
         import feature_flags as _ff
-        from services import cas_api_client
+        from services import cas_api_client, v3_weights as _v3w
         await _secrets.hydrate_from_db(db)
         await _ff.hydrate_from_db(db)
+        await _v3w.hydrate_from_db(db)
         cas_cfg = await db.system_config.find_one({"key": "cas_parser"}, {"_id": 0})
         if cas_cfg and "use_sandbox" in cas_cfg:
             cas_api_client.set_override(use_sandbox=cas_cfg["use_sandbox"])
-        logger.info("Secrets + feature flags hydrated from DB")
+        logger.info("Secrets + feature flags + V3 weights hydrated from DB")
     except Exception as e:
         logger.warning(f"Config hydrate failed: {e}")
     # Start MF scheduler if Postgres is configured

@@ -84,18 +84,45 @@ def test_each_fund_has_quality_and_health_breakdown(payload):
 
 
 def test_quality_components_are_expected_set(payload):
-    expected = {"performance", "risk_adjusted", "consistency", "drawdown", "cost", "aum_age"}
+    """V3.1 is category-aware: each fund's Quality uses its category's profile."""
+    allowed = {
+        "equity": {"performance", "risk_adjusted", "consistency", "drawdown", "cost", "aum_age"},
+        "hybrid": {"risk_adjusted", "downside_capture", "performance",
+                   "allocation_stability", "cost", "aum_age"},
+        "debt":   {"credit_quality", "yield_vs_category", "duration_risk",
+                   "risk_adjusted", "cost"},
+        "liquid": {"performance", "risk_adjusted", "consistency", "drawdown", "cost", "aum_age"},
+    }
     for f in payload["funds"]:
+        cat = f["quality_breakdown"].get("category", "equity")
         got = set(f["quality_breakdown"]["components"].keys())
-        assert got == expected, f"quality components mismatch for {f['scheme_name']}: {got}"
+        expected = allowed.get(cat, allowed["equity"])
+        assert got == expected, (
+            f"quality components mismatch for {f['scheme_name']} "
+            f"(category={cat}): got {got}, expected {expected}"
+        )
 
 
 def test_health_components_are_expected_set(payload):
-    expected = {"manager_tenure", "aum_stability", "turnover", "concentration",
-                "downside_protection", "expense_trend"}
+    """V3.1 is category-aware: each fund's Health uses its category's profile."""
+    allowed = {
+        "equity": {"manager_tenure", "aum_stability", "turnover", "concentration",
+                   "downside_protection", "expense_trend"},
+        "hybrid": {"allocation_consistency", "downside_protection", "manager_tenure",
+                   "aum_stability", "concentration", "expense_trend"},
+        "debt":   {"credit_concentration", "liquidity", "aum_stability",
+                   "manager_tenure", "expense_trend"},
+        "liquid": {"manager_tenure", "aum_stability", "turnover", "concentration",
+                   "downside_protection", "expense_trend"},
+    }
     for f in payload["funds"]:
+        cat = f["health_breakdown"].get("category", "equity")
         got = set(f["health_breakdown"]["components"].keys())
-        assert got == expected, f"health components mismatch for {f['scheme_name']}: {got}"
+        expected = allowed.get(cat, allowed["equity"])
+        assert got == expected, (
+            f"health components mismatch for {f['scheme_name']} "
+            f"(category={cat}): got {got}, expected {expected}"
+        )
 
 
 def test_effective_weights_sum_to_100_when_all_present(payload):

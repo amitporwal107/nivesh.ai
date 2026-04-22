@@ -17,6 +17,7 @@ import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PromptsSection from "@/components/admin/PromptsSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
+import V3WeightsSection from "@/components/admin/V3WeightsSection";
 import V3MasterFundsSection from "@/components/admin/V3MasterFundsSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -273,6 +274,7 @@ const AdminView = () => {
       {activeTab === "engine" && (
         <div data-testid="admin-panel-engine" className="space-y-5">
           <V3EngineOverviewSection />
+          <V3WeightsSection />
           <RulesConfigSection />
           <PromptsSection />
         </div>

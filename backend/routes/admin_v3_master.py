@@ -212,8 +212,12 @@ def _fund_row_to_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         "downside_capture_pct": _f(row.get("downside_capture_pct")),
         "expense_trend_delta": _f(row.get("expense_trend_delta")),
     }
-    quality = v3_scoring.compute_quality_score(prim)
-    health = v3_scoring.compute_health_score(prim)
+    quality = v3_scoring.compute_quality_score({**prim,
+                                                 "category": row.get("category"),
+                                                 "sub_category": row.get("sub_category")})
+    health = v3_scoring.compute_health_score({**prim,
+                                              "category": row.get("category"),
+                                              "sub_category": row.get("sub_category")})
     slug = row.get("groww_slug") or ""
     source = "tickertape" if slug.startswith("tt_") else "groww"
     scheme_name = row.get("instrument_name")
