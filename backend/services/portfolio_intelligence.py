@@ -121,6 +121,14 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
     # 2. Resolve each MF → Postgres instrument_id + pull holdings + metadata
     pool = await pg_client.get_pool()
     if pool is None:
+        # One-shot self-heal: a transient race between secret hydration and
+        # the first request can leave the pool None for <1 s. Retry once
+        # before giving up so users never see a false "Postgres not
+        # configured" screen.
+        import asyncio
+        await asyncio.sleep(0.3)
+        pool = await pg_client.get_pool()
+    if pool is None:
         logger.error(
             "V2 DEGRADED: Postgres unavailable — overlap/AMC/quality analytics "
             "skipped for user %s. Only Rule 5 (debt allocation) will fire.",

@@ -484,12 +484,31 @@ export default function PortfolioIntelligenceTab() {
   }
 
   if (data?.empty) {
+    const isDegraded = !!data.degraded;
     return (
       <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-2xl">
         <CardContent className="p-10 text-center">
-          <Info className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-          <div className="text-sm text-slate-600 dark:text-slate-300">{data.reason || "No mutual fund data yet."}</div>
-          <div className="text-xs text-slate-500 mt-1">Upload your CAS statement to unlock portfolio intelligence.</div>
+          <Info className={`w-8 h-8 mx-auto mb-2 ${isDegraded ? "text-amber-500" : "text-slate-500"}`} />
+          <div className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+            {data.reason || "No mutual fund data yet."}
+          </div>
+          <div className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            {isDegraded
+              ? "The analytics datastore was unreachable when this page loaded. It is usually a transient startup race — try again."
+              : "Upload your CAS statement to unlock portfolio intelligence."}
+          </div>
+          {isDegraded && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={load}
+              className="mt-4"
+              data-testid="pi-retry"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              Retry
+            </Button>
+          )}
         </CardContent>
       </Card>
     );
