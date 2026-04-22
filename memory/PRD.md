@@ -2,6 +2,23 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Post-Deploy Migration: preview → production data sync pipeline
+One-click pipeline that seamlessly ships V3 master + primitive + scored data from preview to any freshly-provisioned production Neon Postgres. Solves the `failed to load datastore status` / empty-production-PG problem.
+
+**Architecture**: PG → Mongo `pg_mirror_*` collections (WORM, weekly snapshots) → fresh production PG (idempotent restore).
+
+**3 new scripts + 3 new admin endpoints**:
+- `scripts/mirror_pg_to_mongo.py` — snapshots 7 critical PG tables (instrument_master, benchmark_master, mutual_fund_metadata, mutual_fund_performance_ratios, mutual_fund_holdings [latest 180d], mutual_fund_nav_history [last 5y], mutual_fund_aum_history) into `pg_mirror_*` Mongo collections in ~5s / 266k rows.
+- `scripts/restore_pg_from_mirrors.py` — idempotent replay; handles tz-aware/naive coercion, natural-key ON CONFLICT upserts, and delete-then-insert for `mutual_fund_holdings` (which has no natural-key unique constraint).
+- `scripts/post_deploy_migrate.py` — 8-phase orchestrator: hydrate_secrets → health_check → apply_migrations (ALL 001-006 via asyncpg, tracked in `schema_migrations`) → restore_mirrors → replay_scrape_cache (skippable) → analytics_sweep → v3_rescore → smoke_check. Full run ~38s.
+- `POST /api/admin/datastores/mirror-pg-to-mongo`, `POST /api/admin/datastores/post-deploy-migrate`, rewritten `POST /api/admin/datastores/apply-pg-schema` (now iterates ALL migration files, not just 001).
+
+**Admin UI** (`DatastoreSection.jsx`): new "Post-Deploy Migration" card with PROD badge, two buttons (`Mirror PG → Mongo`, `Run Post-Deploy Migration`), and a per-phase results table showing status / ms / result.
+
+**Testing**: 7/7 pytest + 2/2 CLI + frontend integration all green (iteration_35). Idempotent — re-running either script produces identical output with 0 duplicate-key errors.
+
+**Docs**: `/app/docs/POST_DEPLOY_MIGRATION.md` — full operator playbook with phase-by-phase timing, skip flags, troubleshooting, and retention characteristics.
+
 ### Feb 2026 — Holding Action Score (HAS): portfolio-aware per-holding decision layer
 Ships a third-layer decision engine on top of V3. Combines fund intelligence with portfolio structure + tax reality to answer not "which fund is good" but "what should I do with THIS holding" — exactly what RIAs/PMS platforms produce.
 
