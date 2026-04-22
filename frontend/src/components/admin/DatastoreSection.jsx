@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   Database, Server, RefreshCw, Play, Square, RotateCw,
   Download, Zap, CheckCircle2, AlertCircle, Clock, Activity,
+  Rocket, Cloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +26,9 @@ const DatastoreSection = () => {
   const [busy, setBusy] = useState({});   // { postgres: "restart", redis: "stop", ... }
   const [restoring, setRestoring] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(false);
+  const [mirroring, setMirroring] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState(null);
   const [progress, setProgress] = useState(null);
 
   const loadStatus = useCallback(async () => {
@@ -88,6 +92,43 @@ const DatastoreSection = () => {
       toast.error(err.response?.data?.detail || "Restore failed");
     } finally {
       setRestoring(false);
+    }
+  };
+
+  const mirrorPgToMongo = async () => {
+    if (!window.confirm("Snapshot Postgres master + analytics tables into Mongo pg_mirror_* collections? Production deploys restore from these.")) return;
+    setMirroring(true);
+    try {
+      const res = await axios.post(`${API}/admin/datastores/mirror-pg-to-mongo`, {}, { withCredentials: true });
+      toast.success(`Mirror complete: ${res.data.total_rows?.toLocaleString()} rows across ${res.data.tables?.length} tables in ${res.data.total_ms}ms`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Mirror failed");
+    } finally {
+      setMirroring(false);
+    }
+  };
+
+  const postDeployMigrate = async () => {
+    if (!window.confirm("Run full Post-Deploy Migration? This applies PG migrations, restores mirrors, runs analytics + V3 rescore. Takes ~40s against a fresh DB.")) return;
+    setDeploying(true);
+    setDeployResult(null);
+    try {
+      const res = await axios.post(
+        `${API}/admin/datastores/post-deploy-migrate`,
+        { skip_replay: true, skip_sweep: false, skip_rescore: false },
+        { withCredentials: true, timeout: 600000 },
+      );
+      setDeployResult(res.data);
+      if (res.data.overall === "ok") {
+        toast.success(`Post-deploy OK in ${res.data.duration_ms}ms`);
+      } else {
+        toast.error(`Post-deploy failed at ${res.data.phases?.slice(-1)?.[0]?.name}`);
+      }
+      await loadStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Post-deploy migration failed");
+    } finally {
+      setDeploying(false);
     }
   };
 
@@ -228,6 +269,88 @@ const DatastoreSection = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Post-Deploy Migration — one-click full sync for production */}
+      <Card className="rounded-2xl border-slate-200 dark:border-slate-700 bg-gradient-to-br from-amber-50/40 to-white dark:from-amber-950/20 dark:to-transparent">
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-amber-600" />
+            <span className="font-semibold">Post-Deploy Migration</span>
+            <span className="text-[10px] uppercase tracking-wider text-amber-700 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded">PROD</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+            One-click sequence for production deploys: <b>(1)</b> apply all PG migrations, <b>(2)</b> restore master + V3 primitives + NAV history from Mongo mirrors, <b>(3)</b> run analytics sweep, <b>(4)</b> rescore every fund. Idempotent — safe to re-run.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={mirrorPgToMongo}
+              disabled={mirroring || deploying}
+              variant="outline"
+              data-testid="mirror-pg-to-mongo-btn"
+              className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300"
+            >
+              {mirroring ? <RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Cloud className="w-3.5 h-3.5 mr-2" />}
+              Mirror PG → Mongo
+            </Button>
+            <Button
+              size="sm"
+              onClick={postDeployMigrate}
+              disabled={deploying || mirroring}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              data-testid="post-deploy-migrate-btn"
+            >
+              {deploying ? <RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Rocket className="w-3.5 h-3.5 mr-2" />}
+              Run Post-Deploy Migration
+            </Button>
+          </div>
+          {deployResult && (
+            <div
+              className="mt-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-white/5 p-3 text-[11px] max-h-64 overflow-y-auto"
+              data-testid="post-deploy-result"
+            >
+              <div className="font-semibold mb-1">
+                {deployResult.overall === "ok" ? (
+                  <span className="text-emerald-700">✓ Post-deploy OK in {deployResult.duration_ms}ms</span>
+                ) : (
+                  <span className="text-red-700">✗ Post-deploy failed</span>
+                )}
+              </div>
+              <table className="w-full text-[11px]">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th className="text-left">Phase</th>
+                    <th className="text-left">Status</th>
+                    <th className="text-right">ms</th>
+                    <th className="text-left pl-3">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(deployResult.phases || []).map((p, i) => (
+                    <tr key={i} className="border-t border-slate-200 dark:border-white/10">
+                      <td className="py-1 font-mono">{p.name}</td>
+                      <td className={
+                        p.status === "ok" ? "text-emerald-700" :
+                        p.status === "skipped" ? "text-slate-400" :
+                        "text-red-700"
+                      }>{p.status}</td>
+                      <td className="text-right tabular-nums text-slate-500">{p.ms ?? "—"}</td>
+                      <td className="pl-3 text-slate-600 dark:text-zinc-400 truncate max-w-md">
+                        {p.error ||
+                          (p.result?.counts ? Object.entries(p.result.counts).map(([k, v]) => `${k}:${v}`).join(" · ") :
+                           p.result?.total_rows ? `${p.result.total_rows.toLocaleString()} rows` :
+                           p.result?.rescore?.processed ? `rescored ${p.result.rescore.processed}` :
+                           p.result?.processed ? `processed ${p.result.processed}` :
+                           "—")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recovery actions */}
       <Card className="rounded-2xl border-slate-200 dark:border-slate-700 bg-gradient-to-br from-indigo-50/40 to-white dark:from-indigo-950/20 dark:to-transparent">

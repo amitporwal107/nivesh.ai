@@ -1,0 +1,43 @@
+{
+  "summary": "Full testing of Post-Deploy Migration suite (iteration 35). Backend: 7/7 pytest tests pass (auth gating x3, apply-pg-schema applies 6 migrations, mirror-pg-to-mongo returns 266,558 rows across 7 tables, post-deploy-migrate 8 phases ok + idempotent). CLI: both `python -m scripts.mirror_pg_to_mongo` and `python -m scripts.post_deploy_migrate --skip-replay` exit 0 and print success banners. Frontend: Admin → Infra & Data tab renders the new 'Post-Deploy Migration' card with PROD badge + both buttons (data-testid mirror-pg-to-mongo-btn + post-deploy-migrate-btn). Mirror button click integrates successfully with backend. No runtime errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/datastores/post-deploy-migrate", "issue": "Phase keys are prefixed with an index (e.g. '0_hydrate_secrets'). Frontend/operators parsing by exact name will need to strip the '<n>_' prefix. Harmless but worth documenting."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Several Radix Dialog components throw console warnings: 'DialogContent requires a DialogTitle' and missing Description/aria-describedby — a11y warnings only, not blockers."]},
+      {"screen": "Dashboard charts", "issues": ["Recharts emits width(-1)/height(-1) warnings for a container where min dimensions are missing."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_post_deploy_migration.py",
+    "/app/test_reports/pytest/iteration_35_post_deploy.xml"
+  ],
+  "action_items": [
+    "(Optional) Document that phases in post-deploy-migrate response are keyed '<index>_<name>' (e.g. '0_hydrate_secrets').",
+    "(Optional) Add DialogTitle (or VisuallyHidden) to Radix DialogContent usages to silence a11y console warnings."
+  ],
+  "critical_code_review_comments": [
+    "apply_pg_schema endpoint correctly iterates ALL 6 migrations via phase_apply_migrations — confirmed applied list has 6 entries with status already_applied.",
+    "mirror_pg_to_mongo covers all 7 expected tables (instrument_master, benchmark_master, mf_metadata, mf_performance_ratios, mf_holdings, mf_nav_history, mf_aum_history). Total ~266k rows in ~5s.",
+    "post_deploy_migrate implements 7 operational phases (8 including smoke_check) with skip support, idempotent; completes in ~38-40s with skip_replay.",
+    "Admin auth gating works on all 3 new endpoints (401 without cookie).",
+    "No MongoDB _id leaks observed in JSON responses.",
+    "admin_datastores.py is 339 lines — well under the 700-line threshold."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_post_deploy_migration.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (7/7 pytest + 2/2 CLI)", "frontend": "100% (card + buttons + integration verified)"},
+  "test_credentials": "priyankamantri@gmail.com session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin)",
+  "seed_data_creation": "None — tests are read-only / idempotent against existing preview data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_post_deploy_migration.py as the regression suite. Phase map keys are prefixed with index, tests already handle this. mirror_pg_to_mongo + post_deploy_migrate are safe/idempotent; ok to re-run in any fork. Admin UI is at /dashboard → Priyanka avatar → Admin → 'Infra & Data' tab (NOT /admin top-level)."
+}

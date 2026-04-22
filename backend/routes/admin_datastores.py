@@ -182,19 +182,71 @@ async def restore_pg_from_mongo(request: Request) -> Dict[str, Any]:
 
 @router.post("/admin/datastores/apply-pg-schema")
 async def apply_pg_schema(request: Request) -> Dict[str, Any]:
-    """Apply the PG schema migration (idempotent). Useful after a fresh fork."""
+    """Apply ALL PG schema migrations (001…006) in order, idempotent.
+
+    Uses asyncpg directly (no psql binary needed), tracks applied migrations
+    in `schema_migrations`. Safe to re-run on every deploy.
+    """
     user = await require_admin(request)
-    logger.info(f"[admin={user.get('email')}] applying PG schema")
-    schema_file = "/app/backend/migrations/001_phase2_mf_schema.sql"
-    if not os.path.exists(schema_file):
-        raise HTTPException(status_code=500, detail="Schema file not found")
-    cmd = f"PGPASSWORD=postgres psql -h localhost -U postgres -d nivesh -f {schema_file}"
-    result = await _run_cmd(cmd, timeout=60)
-    return {
-        "ok": result["ok"],
-        "output_tail": "\n".join(result.get("stdout", "").splitlines()[-10:]),
-        "error_tail": "\n".join(result.get("stderr", "").splitlines()[-10:]),
-    }
+    logger.info(f"[admin={user.get('email')}] applying PG migrations")
+    try:
+        from scripts.post_deploy_migrate import phase_apply_migrations, phase_hydrate_secrets
+        await phase_hydrate_secrets()
+        result = await phase_apply_migrations()
+        return {"ok": result.get("status") == "ok", **result}
+    except Exception as e:
+        logger.exception("apply_pg_schema failed")
+        raise HTTPException(status_code=500, detail=str(e)[:400])
+
+
+@router.post("/admin/datastores/mirror-pg-to-mongo")
+async def mirror_pg_to_mongo(request: Request) -> Dict[str, Any]:
+    """Snapshot PG master + analytics tables into Mongo `pg_mirror_*`
+    collections. Production deploys restore from these snapshots.
+    """
+    user = await require_admin(request)
+    logger.info(f"[admin={user.get('email')}] triggered mirror_pg_to_mongo")
+    try:
+        from scripts import mirror_pg_to_mongo as m
+        return await m.run()
+    except Exception as e:
+        logger.exception("mirror_pg_to_mongo failed")
+        raise HTTPException(status_code=500, detail=str(e)[:400])
+
+
+@router.post("/admin/datastores/post-deploy-migrate")
+async def post_deploy_migrate(request: Request) -> Dict[str, Any]:
+    """Run the full post-deploy migration sequence (7 phases).
+
+    Body params:
+      skip_replay:  bool (default True — replay is slow and redundant if
+                    mirrors are recent)
+      skip_sweep:   bool (default False)
+      skip_rescore: bool (default False)
+    """
+    user = await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    skip: List[str] = []
+    if body.get("skip_replay", True):
+        skip.append("replay_scrape_cache")
+    if body.get("skip_sweep", False):
+        skip.append("analytics_sweep")
+    if body.get("skip_rescore", False):
+        skip.append("v3_rescore")
+    logger.info(f"[admin={user.get('email')}] post_deploy_migrate skip={skip}")
+    try:
+        from scripts.post_deploy_migrate import run_all
+        # Timeout hard-capped to 10 minutes (NAV history restore + sweep + rescore).
+        return await asyncio.wait_for(run_all(skip=skip), timeout=600)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="post-deploy migration exceeded 10min limit")
+    except Exception as e:
+        logger.exception("post_deploy_migrate failed")
+        raise HTTPException(status_code=500, detail=str(e)[:400])
 
 
 # ──────────────────────────────────────────────────────────────────────────
