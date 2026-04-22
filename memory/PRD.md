@@ -2,6 +2,41 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Holding Action Score (HAS): portfolio-aware per-holding decision layer
+Ships a third-layer decision engine on top of V3. Combines fund intelligence with portfolio structure + tax reality to answer not "which fund is good" but "what should I do with THIS holding" — exactly what RIAs/PMS platforms produce.
+
+**3 new derived scores** (`services/holding_action_score.py` — NEW, ~320 LOC, pure-Python):
+- **OIS (Overlap Impact Score)**: weighted stock-level overlap of the fund vs the rest of the portfolio. Clamped 0–100; higher = more duplicate exposure.
+- **ADS (Allocation Deviation Score)**: `100 − |current_weight_pct − target_weight_pct| × 5`. Target = 100/N if ≤10 funds, else 10%. Reports `stance` ∈ {overweight, underweight, on_target} + deviation in pp.
+- **TFS (Tax Friction Score)**: `tax_ratio × 200 + 20 if STCG`, capped 100. Hits 80–100 for "high gain + STCG" (avoid realising); 10–30 for "low gain + LTCG".
+
+**HAS composite** (`compute_has()`): `0.30·Q + 0.20·H + 0.15·(100−Exit) + 0.15·Add + 0.10·(100−OIS) + 0.05·ADS + 0.05·(100−TFS)`. Four category-specific profiles:
+- Equity: default profile per PRD.
+- Hybrid: overlap 10% → 5%, freed 5% → Health (25%).
+- Debt: overlap 10% → 5%, freed 5% → Health (25%).
+- Liquid: no overlap/exit weights; Q=0.40, H=0.40, ADS=0.10, TFS=0.10.
+
+**Decision map**: HAS ≥75 → HOLD/ADD (ADD only if Add_score ≥70); 60–75 → HOLD; 45–60 → TRIM; 30–45 → SWITCH; <30 → EXIT.
+
+**5 guardrails** (`evaluate_guardrails`): High-Quality Protection (Q≥75 AND H≥70), Tax (tax_cost > benefit), Recent Investment (<180 days), Low Confidence (<50 — downgrades EXIT/SWITCH → REVIEW), Overlap Override (>80% allows EXIT even if other blocks fire).
+
+**Reason generator** (`build_holding_reason`): cites weakest contribution component for EXIT/SWITCH/TRIM actions and strongest for HOLD/ADD. Appends ADS stance + blocked-guardrail reason when relevant.
+
+**Wiring** (`routes/insights.py`):
+- Per-fund HAS payload exposed under `entry.has = {has, action, reason, category, components, ois_score, ads_score, ads_deviation_pp, tfs_penalty, guardrails, confidence}`.
+- Portfolio-level tallies: `portfolio.avg_has_score` (value-weighted), `portfolio.has_action_counts` ({ADD, HOLD, TRIM, SWITCH, EXIT, REVIEW, UNKNOWN}), `portfolio.target_weight_pct_per_fund`.
+- Funds sorted by HAS action priority (EXIT → SWITCH → TRIM → REVIEW → HOLD → ADD) then ascending HAS.
+- Pairwise overlap fetched via `portfolio_intelligence.compute_portfolio_intelligence()` (same pipeline as action plans).
+
+**Frontend** (`V3FundBreakdown.jsx` + `V3PortfolioInsights.jsx`):
+- New "Avg HAS" headline tile (5-col grid on lg screens).
+- Action signals tile now shows Exit + Switch + Trim counts driven by HAS.
+- Per-fund HAS pill + category badge + HAS-driven action badge (TRIM=orange, ADD=emerald).
+- Expandable "Portfolio-aware layer" panel with OIS/ADS/TFS pills, reason, and guardrail blocks.
+- Filter chips extended: All · Exit · Switch · Trim · Review · Add; counts from `has_action_counts`.
+
+**Testing**: 41 new pure-logic unit tests in `tests/test_holding_action_score.py` (all 7 sub-functions + single entry point + edge cases). Backend testing agent verified live (iteration_34): 53/53 tests pass, 100% backend + frontend acceptance criteria met. Live verified on priyankamantri: Avg HAS = 63.19, 18 HOLD · 4 TRIM · 3 SWITCH · 0 EXIT (all guardrails correctly prevented EXIT).
+
 ### Feb 2026 — V3.1 Debt pipeline complete: Moneycontrol primitives scraped, persisted, and consumed
 Completes the Category-Aware Scoring rollout for Debt funds.
 
