@@ -417,10 +417,21 @@ export default function PortfolioIntelligenceTab() {
         credentials: "include",
         cache: "no-store",
       });
+      if (r.status === 401) {
+        // Session expired — kick the user to re-auth instead of rendering
+        // a stale snapshot that was loaded under a previous session.
+        setData(null);
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
       if (!r.ok) throw new Error(r.statusText);
       const d = await r.json();
       setData(d);
     } catch (e) {
+      // Important: CLEAR stale data so the UI doesn't keep rendering
+      // a previous response (e.g. "Postgres not configured" from an
+      // earlier degraded window) when the network call fails.
+      setData(null);
       toast.error(`Intelligence load failed: ${e.message}`);
     } finally {
       setLoading(false);
