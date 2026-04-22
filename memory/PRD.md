@@ -2,6 +2,41 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Goal-Based Investment Planning Engine (GBIPE) V1 + Monte-Carlo
+Outcome-first planning module. Users define life goals → system produces inflation-adjusted targets, required SIP, auto fund allocation, 4-scenario projections, Monte-Carlo success probability, and actionable recommendations.
+
+**Engine** (`services/goal_engine.py` — NEW, ~320 LOC pure-Python, no DB):
+- Future-value inflation math, SIP/lumpsum sizing, fixed-return corpus projection.
+- Allocation profiles: Conservative 30/60/10, Moderate 60/30/10, Aggressive 80/10/10 (PRD §8); horizon <5y caps equity at 40% (PRD §15 guardrail).
+- Blended return/volatility from allocation: Equity μ=12% σ=18%, Debt μ=6.5% σ=3%, Hybrid μ=9% σ=10%.
+- **Scenario matrix**: base / bull (+3%) / bear (-3%) / stress (-6%) with corpus + success %.
+- **Monte-Carlo** success probability: N=1000 independent paths of Normal(μ,σ) monthly returns, returns prob_success_pct + p5/median/p95/worst corpus + expected_shortfall_pct. NumPy-accelerated with pure-Python fallback.
+- **Action recommender**: increase_sip (shortfall), reduce_risk (short horizon with high equity), on_track (healthy).
+
+**Fund picker** (`services/goal_fund_picker.py` — NEW): auto-picks 1 fund per bucket from the V3 master catalog, ranked by quality_score DESC with filters (quality ≥ 55, expense ≤ 1.5%, AUM ≥ 500 Cr, prefers Direct plans). Also exposes `shortlist_for_bucket(n=5)` for UI override.
+
+**PostgreSQL** (migration `007_goal_planning.sql`):
+- `user_financial_snapshots` — age, income, expenses, corpus, liabilities, risk profile, behavior score.
+- `user_goals` — goal_type/name/target/horizon/priority + inflation/return + allocation/selected_funds JSONB + last_simulation JSONB + on_track_pct.
+- String user_ids mapped to UUID via deterministic uuid5 (no schema change needed).
+
+**API** (`routes/goals.py` — NEW, 11 endpoints):
+- `GET/PUT /api/goals/snapshot`
+- `GET/POST /api/goals`
+- `GET/PATCH/DELETE /api/goals/{id}`
+- `POST /api/goals/{id}/simulate` (re-run + persist)
+- `POST /api/goals/{id}/what-if` (preview-only; accepts SIP/horizon/allocation overrides)
+- `GET /api/goals/fund-shortlist/{bucket}` (equity/debt/hybrid/liquid)
+
+**Frontend** (`components/goals/*` — NEW):
+- `GoalsView.jsx` — sidebar-linked main page with financial snapshot summary, goal grid, CTA states.
+- `FinancialSnapshotWizard.jsx` — one-time onboarding form (age/income/expenses/corpus/risk/dependents).
+- `GoalCreateWizard.jsx` — 3-step form wizard (type → target+horizon → SIP+corpus + review).
+- `ScenarioSimulator.jsx` — 4 summary tiles + scenario matrix (4 cards) + Monte-Carlo distribution + action panel + selected funds list + what-if sliders (SIP, horizon) with Preview + Apply.
+- Sidebar updated: new "Goals" item with NEW badge.
+
+**Testing**: 24 pure-logic unit tests in `tests/test_goal_engine.py` (SIP math, allocation, scenarios, MC determinism, action recommender, evaluate_goal wiring). Testing agent iteration_36: **39/39 tests pass, 100% backend + 100% frontend acceptance**, 0 functional bugs. Live verified on priyankamantri: ₹2 Cr retirement at 20y → FV ₹6.4 Cr, required SIP ₹84K/mo, current 33.5% on-track (MC 0.3%), action recommends ₹59,080/mo SIP bump.
+
 ### Feb 2026 — Post-Deploy Migration: preview → production data sync pipeline
 One-click pipeline that seamlessly ships V3 master + primitive + scored data from preview to any freshly-provisioned production Neon Postgres. Solves the `failed to load datastore status` / empty-production-PG problem.
 
