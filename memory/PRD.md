@@ -2,6 +2,36 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3.1 Debt pipeline complete: Moneycontrol primitives scraped, persisted, and consumed
+Completes the Category-Aware Scoring rollout for Debt funds.
+
+**Scraper** (`services/moneycontrol_client.py`):
+- `fetch_by_url()` parses MC's embedded `<script id="__NEXT_DATA__">` JSON to extract Morningstar-style `investmentStyle` (e.g., "Moderate Sensitivity High Quality"), ISIN, AUM, expense, CAGRs, manager, launch date, etc.
+- `parse_investment_style()` maps to `credit_quality_score` (High=9, Medium=6, Low=3) and `duration_risk_score` (Limited=9, Moderate=6, Extensive=3).
+- `search_fund()` (NEW) uses MC autosuggest `type=2` + Direct-plan prefilter, returning `{imid, url, display_name}`.
+- Backward-compatible `search_imid()` wrapper retained.
+
+**Persistence** (`services/pg_writer.persist_moneycontrol_scrape`):
+- Matches existing funds by ISIN → scheme_name. Upserts debt columns into `mutual_fund_metadata`: `credit_quality_score`, `duration_risk_score`, `ytm`, `modified_duration`, `investment_style`, `moneycontrol_imid` + metadata fallbacks (aum, expense_ratio, manager_name, launch_date, etc.).
+- Cleanly skips unknown funds (no blind inserts) — MC is enrichment-only.
+
+**Scoring wiring** (`services/v3_scoring._norm_duration_risk_flex`):
+- New flex normaliser prefers the pre-normalised `duration_risk_score` (0-10) from MC investment-style parsing, falls back to `_norm_duration_risk(modified_duration_years)`.
+- `compute_quality_score()` debt weight profile now actively consumes credit_quality + duration_risk + yield_vs_category.
+
+**APIs updated to surface new debt primitives**:
+- `GET /api/admin/v3-master-funds` — `primitives.{credit_quality_score, duration_risk_score, ytm, modified_duration, investment_style, moneycontrol_imid}`.
+- `GET /api/insights/v3-portfolio` — same keys under each fund's `primitives` block.
+
+**Bulk import script** (`scripts/bulk_import_moneycontrol_debt.py` — NEW):
+- Hydrates Mongo secrets, iterates debt funds classified by `v3_weights.classify_fund_category`, resolves imid via autosuggest, scrapes + persists, then triggers `nav_analytics_sweep.run_v3_rescore`.
+- One-off data load: **36/36 debt funds persisted** with credit_quality=9.0 and duration_risk=9.0/6.0 mix. 185/185 funds rescored in 4.3s.
+
+**Testing**:
+- 14 new unit tests in `tests/test_moneycontrol_client.py` (style parsing, payload builder, helpers).
+- 6 new unit tests in `tests/test_v3_debt_scoring.py` (flex normaliser, debt weight routing).
+- Backend testing agent verified live: 36/36 debt funds return correct primitives in admin API; debt weight profile applied to all; 0 regressions across 69 previously-green V3 tests. `iteration_33.json`.
+
 ### Feb 2026 — Per-fund V3 breakdown + Danger-zone highlighting in Insights UI
 User requested per-fund V3 scores (Quality, Health, Exit, Add, Switch) in the Insights UI, with danger-zone highlighting and deterministic explanations (no LLM).
 
