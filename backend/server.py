@@ -28,6 +28,7 @@ from deps import db, client, seed_admin_and_whitelist
 # Import all route modules
 from routes.auth import router as auth_router
 from routes.admin import router as admin_router
+from routes.admin_v3_master import router as admin_v3_master_router
 from routes.admin_datastores import router as admin_datastores_router
 from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
@@ -54,6 +55,7 @@ app = FastAPI(title="nivesh.ai API", version="2.0")
 # Include all routers
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(admin_v3_master_router)
 app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)

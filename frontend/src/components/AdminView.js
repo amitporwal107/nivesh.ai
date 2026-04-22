@@ -3,7 +3,7 @@ import axios from "axios";
 import {
   UserPlus, Trash2, Upload, Shield, ShieldCheck, ShieldX,
   Users, BarChart3, RefreshCw, Search, AlertCircle, Check,
-  Server, Gauge,
+  Server, Gauge, BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PromptsSection from "@/components/admin/PromptsSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
+import V3MasterFundsSection from "@/components/admin/V3MasterFundsSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -39,6 +40,12 @@ const ADMIN_TABS = [
     label: "V3 Rules Engine",
     icon: Gauge,
     description: "V3 weights overview, tunable rule thresholds, LLM prompts",
+  },
+  {
+    id: "master",
+    label: "V3 Master Funds",
+    icon: BookOpen,
+    description: "Complete fund catalogue with V3 scores, primitives & Excel export",
   },
 ];
 
@@ -268,6 +275,13 @@ const AdminView = () => {
           <V3EngineOverviewSection />
           <RulesConfigSection />
           <PromptsSection />
+        </div>
+      )}
+
+      {/* Tab 4 — V3 Master Funds catalogue + Excel export */}
+      {activeTab === "master" && (
+        <div data-testid="admin-panel-master" className="space-y-5">
+          <V3MasterFundsSection />
         </div>
       )}
 

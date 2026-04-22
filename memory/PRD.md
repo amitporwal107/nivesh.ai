@@ -87,6 +87,12 @@ Live-tunable config + auditability for the V2 engine + every LLM system prompt.
 ### P0 (next)
 - **User Data Purge**: Admin UI button + `DELETE /api/admin/users/{user_id}/portfolio-data` endpoint to wipe 9 MongoDB collections (`holdings`, `action_plans`, `plan_history`, `portfolio_analysis`, `pending_actions`, `ai_insights`, `scenario_simulations`, `allocation_analysis_cache`, `fund_performance_cache`) for a single user while preserving `users`, `user_profiles`, `user_sessions`, `chat_sessions`. Enables fresh CAS re-upload testing.
 
+### Recently completed (Feb 2026)
+- **Remove danger/warn flags → per-fund Exit/Switch recommendations** (2026-02-22): `v3_explainer.derive_recommendation()` returns `{action: EXIT|SWITCH|REVIEW|HOLD|BUY, label, reason}`. Replaces `classify_danger` in `/api/insights/v3-portfolio`. Deterministic rules: Exit≥75→EXIT; Regular+Switch≥2.0→SWITCH; Q<55 or H<55 or Exit≥60→REVIEW; Q≥75 + low Exit→BUY; else HOLD. Guardrail-blocked EXIT downgrades to REVIEW. `V3FundBreakdown.jsx` rewritten with rec badges + filter chips (Exit/Switch/Review). 25 unit tests + 15 integration tests passing.
+- **Groww+Tickertape bulk import** (2026-02-22): `scripts/bulk_import_groww_primitives.py` (100 funds) + `scripts/groww_strict_retry.py` (AMC-prefix match resolver) + `services/tickertape_client.py` (new scraper parsing `__NEXT_DATA__`) + `scripts/tickertape_fallback_import.py` for 14 SEBI-renamed funds. **Final: 185 unique MFs scored in Postgres** (168 via Groww, 14 via Tickertape); analytics_sweep + v3_rescore automated.
+- **V3 Master Funds admin dashboard** (2026-02-22): New 4th admin tab. `GET /api/admin/v3-master-funds` returns catalogue with composite scores + 12 sub-component contributions + 20 primitives + formula reference. `GET /api/admin/v3-master-funds/export.xlsx` → 5-sheet Excel (Summary, Primitives, Quality breakdown, Health breakdown, Formula reference). Frontend `V3MasterFundsSection.jsx` with 3 view modes (Compact / Detailed / Dense grid), filters (AMC/category/source/search), row-expand for per-component breakdown. 18 integration tests passing.
+
+
 ### P1
 - Close 4 minor V3 Excel spec gaps: `compute_hold_score()`, `type=HOLD` P2 actions, insight `severity` field, Groww `alpha_ratio` mapping.
 - DPDP compliance: PAN AES-256 encryption, consent logging, audit trails.
