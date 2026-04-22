@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 34: Validated Holding Action Score (HAS) feature end-to-end. Backend: all 41 unit tests pass + 12 new API integration tests pass against /api/insights/v3-portfolio. Frontend: V3PortfolioInsights component renders Avg HAS tile (63/100), 25 fund rows with HAS pills, filter chips with counts matching API (All·26, Exit·0, Switch·3, Trim·4, Review·0, Add·0), expandable Portfolio-aware panels showing OIS/ADS/TFS pills + reason line + guardrail. Filter narrowing works (TRIM→4, SWITCH→3). Sorting by HAS action priority verified. High-quality protection guardrail verified — 0 EXITs in portfolio.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/insights/v3-portfolio", "issue": "Endpoint takes ~5s due to synchronous compute_portfolio_intelligence; consider caching/async if user-perceived latency becomes an issue"},
+      {"endpoint": "/api/insights/v3-portfolio", "issue": "401/429 observed on rapid back-to-back loads from frontend during initial authoring of session — likely rate-limit or CSRF/double-fetch; not a blocker"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "V3 portfolio breakdown", "issues": ["DialogContent missing DialogTitle accessibility warning logged in console (a11y, not user-visible)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_holding_action_score.py",
+    "/app/backend/tests/test_v3_portfolio_has_api.py",
+    "/app/test_reports/pytest/iter34_has.xml",
+    "/app/test_reports/pytest/iter34_has_api.xml"
+  ],
+  "action_items": [
+    "Optional: investigate spurious 401/429 on first-load when navigating Insights → Fund & Overlap Insights (race between auth-bootstrap and v3-portfolio fetch).",
+    "Optional: portfolio sample for priyankamantri does not contain any debt/liquid funds — debt category tuning is fully covered by unit tests but not yet validated against live data; consider seeding a debt holding to exercise the live path."
+  ],
+  "critical_code_review_comments": [
+    "holding_action_score.py is well-isolated, pure-Python, fully unit-tested (41 cases). No issues.",
+    "ACTION_THRESHOLDS list contains a redundant duplicate ('HOLD' for both >=75 and 60-75 buckets) — actual decision in map_has_to_action ignores the table and uses inline if/else. Suggest removing the unused ACTION_THRESHOLDS table or wiring it in to avoid drift between docs and behavior.",
+    "compute_has falls back to category='equity' silently when the supplied category is unknown — consider logging a warning so misspellings don't degrade silently.",
+    "Frontend filter chips render even when count=0 (e.g., 'Add · 0', 'Exit · 0'); good UX, no change needed.",
+    "DialogContent needs DialogTitle for accessibility — separate component issue, not HAS-specific."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v3_portfolio_has_api.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (53/53 tests)", "frontend": "100% (all acceptance criteria met)"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f for priyankamantri@gmail.com (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — used existing portfolio for priyankamantri (26 V3-bearing funds: 20 equity + 5 hybrid + 1 missing).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "HAS feature is live and stable. The /api/insights/v3-portfolio endpoint returns portfolio.{avg_has_score, has_action_counts (ADD/HOLD/TRIM/SWITCH/EXIT/REVIEW/UNKNOWN), target_weight_pct_per_fund} and per-fund.has = {has, action, reason, category, components, ois_score, ads_score, ads_deviation_pp, tfs_penalty, guardrails, confidence}. Frontend mounts V3PortfolioInsights inside the 'Fund & Overlap Insights' sub-tab on /dashboard#insights. Reuse /app/backend/tests/test_v3_portfolio_has_api.py for regression. Pending-actions modal blocks initial nav — dismiss via 'Review Later' first. Endpoint is slow (~5s) — sleep ≥10s in playwright after clicking the sub-tab.",
+  "rca of the issue": "N/A — no bugs found."
+}

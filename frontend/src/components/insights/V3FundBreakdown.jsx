@@ -9,6 +9,8 @@ import {
   Eye,
   PiggyBank,
   CheckCircle2,
+  TrendingDown,
+  Scale,
 } from 'lucide-react';
 
 // ── Score colouring ──────────────────────────────────────────────────────
@@ -76,6 +78,11 @@ const REC_META = {
     rowBorder: 'border-l-indigo-500',
     icon: ArrowLeftRight,
   },
+  TRIM: {
+    tone: 'bg-orange-500 text-white hover:bg-orange-500',
+    rowBorder: 'border-l-orange-500',
+    icon: Scale,
+  },
   REVIEW: {
     tone: 'bg-amber-500 text-white hover:bg-amber-500',
     rowBorder: 'border-l-amber-500',
@@ -86,10 +93,20 @@ const REC_META = {
     rowBorder: 'border-l-emerald-500',
     icon: PiggyBank,
   },
+  ADD: {
+    tone: 'bg-emerald-600 text-white hover:bg-emerald-600',
+    rowBorder: 'border-l-emerald-500',
+    icon: PiggyBank,
+  },
   HOLD: {
     tone: 'bg-slate-500 text-white hover:bg-slate-500',
     rowBorder: 'border-l-transparent',
     icon: CheckCircle2,
+  },
+  UNKNOWN: {
+    tone: 'bg-slate-300 text-slate-700 hover:bg-slate-300',
+    rowBorder: 'border-l-transparent',
+    icon: Info,
   },
 };
 
@@ -113,7 +130,11 @@ const RecBadge = ({ rec }) => {
 const FundRow = ({ fund }) => {
   const [expanded, setExpanded] = useState(false);
   const s = fund.scores || {};
-  const rec = fund.recommendation || { action: 'HOLD', label: 'Hold', reason: '' };
+  const has = fund.has || null;
+  // Prefer HAS-based action/reason when available, else fall back to V3 recommendation.
+  const rec = has
+    ? { action: has.action, label: has.action, reason: has.reason }
+    : (fund.recommendation || { action: 'HOLD', label: 'Hold', reason: '' });
   const meta = REC_META[rec.action] || REC_META.HOLD;
 
   const missingQ = s.quality_missing?.length || 0;
@@ -142,6 +163,15 @@ const FundRow = ({ fund }) => {
               {fund.scheme_name}
             </span>
             <RecBadge rec={rec} />
+            {has?.category && (
+              <Badge
+                variant="outline"
+                className="text-[9px] h-4 px-1.5 border-slate-300 text-slate-600 dark:text-slate-400 capitalize"
+                data-testid={`has-cat-${fund.instrument_id || fund.scheme_name}`}
+              >
+                {has.category}
+              </Badge>
+            )}
             {fund.plan_type === 'regular' && (
               <Badge variant="outline" className="text-[9px] h-4 px-1.5 border-slate-300 text-slate-600 dark:text-slate-400">
                 Regular
@@ -155,6 +185,14 @@ const FundRow = ({ fund }) => {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {has?.has != null && (
+            <ScorePill
+              label="HAS"
+              value={has.has}
+              tone={scoreTone(has.has)}
+              testid={`v3-has-${fund.instrument_id || fund.scheme_name}`}
+            />
+          )}
           <ScorePill label="Q" value={s.quality} tone={scoreTone(s.quality)} testid={`v3-q-${fund.instrument_id || fund.scheme_name}`} />
           <ScorePill label="H" value={s.health} tone={scoreTone(s.health)} testid={`v3-h-${fund.instrument_id || fund.scheme_name}`} />
           <ScorePill label="E" value={s.exit} tone={exitTone(s.exit)} testid={`v3-e-${fund.instrument_id || fund.scheme_name}`} />
@@ -164,8 +202,63 @@ const FundRow = ({ fund }) => {
       </button>
       {expanded && (
         <div className="px-4 pb-3 pt-1 border-t border-slate-100 dark:border-slate-800">
-          {/* Recommendation reason banner */}
-          {rec.reason && (
+          {/* HAS derived scores panel */}
+          {has && (has.has != null || has.ois_score != null || has.ads_score != null || has.tfs_penalty != null) && (
+            <div
+              className="mt-2 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3 py-2"
+              data-testid={`has-panel-${fund.instrument_id || fund.scheme_name}`}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-[9px] uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400">
+                  Portfolio-aware layer
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {has.ois_score != null && (
+                    <ScorePill
+                      label="OIS"
+                      value={has.ois_score}
+                      tone={exitTone(has.ois_score)}
+                      testid={`has-ois-${fund.instrument_id || fund.scheme_name}`}
+                    />
+                  )}
+                  {has.ads_score != null && (
+                    <ScorePill
+                      label="ADS"
+                      value={has.ads_score}
+                      tone={scoreTone(has.ads_score)}
+                      testid={`has-ads-${fund.instrument_id || fund.scheme_name}`}
+                    />
+                  )}
+                  {has.tfs_penalty != null && (
+                    <ScorePill
+                      label="TFS"
+                      value={has.tfs_penalty}
+                      tone={exitTone(has.tfs_penalty)}
+                      testid={`has-tfs-${fund.instrument_id || fund.scheme_name}`}
+                    />
+                  )}
+                </div>
+              </div>
+              {has.reason && (
+                <div className="text-[11px] text-slate-700 dark:text-slate-300 mt-1.5 leading-relaxed">
+                  <TrendingDown className="w-3 h-3 inline-block mr-1 text-slate-500" />
+                  {has.reason}
+                </div>
+              )}
+              {(has.guardrails?.blocks?.length > 0) && (
+                <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1">
+                  Guardrail{has.guardrails.blocks.length > 1 ? 's' : ''}: {has.guardrails.blocks.map(b => b.replace(/_/g, ' ')).join(' · ')}
+                  {has.guardrails.allow_exit_override && ' (exit overrideable — overlap &gt; 80%)'}
+                </div>
+              )}
+              <div className="text-[9px] text-slate-500 dark:text-slate-500 mt-1.5 tabular-nums">
+                OIS = overlap-% · ADS = allocation-deviation score (100 − |weight − target|×5) · TFS = tax-friction penalty
+                {has.ads_deviation_pp != null && ` · current ${has.ads_deviation_pp > 0 ? '+' : ''}${has.ads_deviation_pp.toFixed(1)}pp vs target`}
+              </div>
+            </div>
+          )}
+          {/* Recommendation reason banner (legacy V3) */}
+          {!has && rec.reason && (
             <div
               className="mt-2 text-[11px] text-slate-700 dark:text-slate-300 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-3 py-2"
               data-testid={`rec-reason-${fund.instrument_id || fund.scheme_name}`}
@@ -210,25 +303,40 @@ const FILTERS = [
   { key: 'SWITCH', label: 'Switch', testid: 'v3-filter-switch',
     activeTone: 'bg-indigo-600 text-white border-indigo-600',
     idleTone: 'bg-white text-indigo-700 border-indigo-200 dark:bg-slate-900 dark:text-indigo-300 dark:border-indigo-900/60' },
+  { key: 'TRIM', label: 'Trim', testid: 'v3-filter-trim',
+    activeTone: 'bg-orange-500 text-white border-orange-500',
+    idleTone: 'bg-white text-orange-700 border-orange-200 dark:bg-slate-900 dark:text-orange-300 dark:border-orange-900/60' },
   { key: 'REVIEW', label: 'Review', testid: 'v3-filter-review',
     activeTone: 'bg-amber-500 text-white border-amber-500',
     idleTone: 'bg-white text-amber-700 border-amber-200 dark:bg-slate-900 dark:text-amber-300 dark:border-amber-900/60' },
+  { key: 'ADD', label: 'Add', testid: 'v3-filter-add',
+    activeTone: 'bg-emerald-600 text-white border-emerald-600',
+    idleTone: 'bg-white text-emerald-700 border-emerald-200 dark:bg-slate-900 dark:text-emerald-300 dark:border-emerald-900/60' },
 ];
+
+// Returns the effective action for filtering/counting: HAS action when
+// available, else legacy V3 recommendation action.
+const effectiveAction = (f) => f.has?.action || f.recommendation?.action || 'HOLD';
 
 export default function V3FundBreakdown({ funds = [], portfolio = {} }) {
   const [filter, setFilter] = useState('all');
 
   const filtered = funds.filter(f => {
     if (filter === 'all') return true;
-    return (f.recommendation?.action) === filter;
+    return effectiveAction(f) === filter;
   });
 
+  const hasActionCounts = portfolio.has_action_counts || null;
   const countBy = (action) =>
-    funds.filter(f => f.recommendation?.action === action).length;
-  const nExit = portfolio.n_exit_recs ?? countBy('EXIT');
-  const nSwitch = portfolio.n_switch_recs ?? countBy('SWITCH');
-  const nReview = portfolio.n_review_recs ?? countBy('REVIEW');
-  const counts = { all: funds.length, EXIT: nExit, SWITCH: nSwitch, REVIEW: nReview };
+    hasActionCounts?.[action] ?? funds.filter(f => effectiveAction(f) === action).length;
+  const counts = {
+    all: funds.length,
+    EXIT: countBy('EXIT'),
+    SWITCH: countBy('SWITCH'),
+    TRIM: countBy('TRIM'),
+    REVIEW: countBy('REVIEW'),
+    ADD: countBy('ADD'),
+  };
 
   const allActiveTone = 'bg-slate-800 text-white border-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100';
   const allIdleTone = 'bg-white text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700';
@@ -268,7 +376,7 @@ export default function V3FundBreakdown({ funds = [], portfolio = {} }) {
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500" /> ≥75 strong</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" /> 55–74 watch</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-rose-500" /> &lt;55 weak</span>
-        <span className="ml-2 opacity-75">Q=Quality · H=Health · E=Exit (higher = stronger exit signal) · A=Add · SW=Switch score (Regular plans only, ≥2.0 = recommended)</span>
+        <span className="ml-2 opacity-75">HAS=Holding Action Score · Q=Quality · H=Health · E=Exit (higher = stronger exit signal) · A=Add · SW=Switch score (Regular plans only, ≥2.0 = recommended)</span>
       </div>
 
       <div className="space-y-2">

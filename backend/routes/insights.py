@@ -1,6 +1,7 @@
 """AI Insights routes — Enhanced with full portfolio context."""
 from fastapi import APIRouter, Request
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 import uuid
 import json
 import logging
@@ -536,7 +537,14 @@ async def get_analysis(request: Request):
 
 
 # ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────
-from services import v3_integration, v3_scoring, v3_explainer  # noqa: E402
+from services import (  # noqa: E402
+    v3_integration,
+    v3_scoring,
+    v3_explainer,
+    holding_action_score as has_svc,
+    portfolio_intelligence as pintel,
+    tax_calculator,
+)
 
 
 @router.get("/insights/v3-portfolio")
@@ -596,6 +604,65 @@ async def v3_portfolio_summary(request: Request):
 
     total_aum = sum(m["value"] for m in mf_investments) or 1.0
     covered_aum = 0.0
+
+    # ── HAS layer — portfolio-aware per-holding scoring ────────────────
+    # Fetch pairwise overlap from portfolio_intelligence (one PG round-trip).
+    # Build overlap_by_name: scheme_name → weighted avg overlap with rest of
+    # portfolio (by value).
+    pi: dict = {}
+    overlap_pct_by_name: Dict[str, float] = {}
+    try:
+        pi = await pintel.compute_portfolio_intelligence(uid)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"portfolio_intelligence fetch for HAS failed: {e}")
+    if pi and pi.get("pairwise_overlap"):
+        # Index mf_investments by instrument_id for value lookup.
+        inv_value_by_iid = {m["instrument_id"]: m["amount_rs"]
+                            for m in pi.get("mf_investments", [])
+                            if m.get("instrument_id")}
+        inv_name_by_iid = {m["instrument_id"]: m.get("scheme_name", "")
+                           for m in pi.get("mf_investments", [])
+                           if m.get("instrument_id")}
+        # Accumulate per-fund weighted overlap
+        accum: Dict[str, Dict[str, float]] = {}
+        for pair in pi["pairwise_overlap"]:
+            a, b = pair["a"], pair["b"]
+            ov = float(pair.get("overlap_pct") or 0)
+            for x, y in ((a, b), (b, a)):
+                bucket = accum.setdefault(x, {"num": 0.0, "den": 0.0})
+                y_val = inv_value_by_iid.get(y, 0.0)
+                bucket["num"] += ov * y_val
+                bucket["den"] += y_val
+        for iid, b in accum.items():
+            weighted = (b["num"] / b["den"]) if b["den"] > 0 else 0.0
+            name = inv_name_by_iid.get(iid, "")
+            if name:
+                overlap_pct_by_name[_normalize_fund_name(name)] = weighted
+
+    # Target weight = 10% concentration cap, but never less than equal-weight
+    # (100/N). Cap keeps highly-diversified portfolios from flagging every
+    # holding as over-weight.
+    n_funds = max(1, len(mf_investments))
+    target_weight_pct = max(10.0, 100.0 / n_funds) if n_funds < 10 else 10.0
+    # Only if super-concentrated (≤10 funds), use equal-weight as target.
+    if n_funds <= 10:
+        target_weight_pct = 100.0 / n_funds
+
+    # Tax estimate per holding (FIFO-lite via calculate_tax_impact)
+    tax_by_name: Dict[str, Dict[str, Any]] = {}
+    for h in mf_holdings:
+        try:
+            tax = tax_calculator.calculate_tax_impact(h)
+            tax_by_name[_normalize_fund_name(h.get("name", ""))] = tax
+        except Exception:  # noqa: BLE001
+            continue
+
+    # Holding-age days per holding
+    age_by_name: Dict[str, Optional[int]] = {}
+    for h in mf_holdings:
+        age_by_name[_normalize_fund_name(h.get("name", ""))] = \
+            tax_calculator.calculate_holding_period_days(h.get("buy_date"))
+
     funds_out = []
     quality_weighted = 0.0
     health_weighted = 0.0
@@ -670,6 +737,42 @@ async def v3_portfolio_summary(request: Request):
             elif action == "REVIEW":
                 n_review_recs += 1
 
+            # ── Compute HAS (portfolio-aware holding action) ────────────
+            name_key = _normalize_fund_name(name)
+            current_weight_pct = (m["value"] / total_aum) * 100.0
+            tax_info = tax_by_name.get(name_key) or {}
+            tax_liability = tax_info.get("tax_liability")
+            holding_period_days = age_by_name.get(name_key)
+            is_stcg = (
+                tax_info.get("is_long_term") is False
+            )
+            # Benefit = annual cost leak saving (if applicable) — tiny proxy
+            # for "what do we gain by exiting". Conservative: 3y projection.
+            tax_benefit = (cost_leak or 0) * 3 if cost_leak else 0
+            category = v3.get("category") or "equity"
+            # Coverage-based confidence: more missing primitives → less sure
+            qmiss = len(v3.get("quality_missing") or [])
+            hmiss = len(v3.get("health_missing") or [])
+            coverage_conf = max(0.0, 100.0 - (qmiss + hmiss) * 8.0)
+
+            has_result = has_svc.build_holding_action(
+                category=category,
+                quality=v3.get("quality_score"),
+                health=v3.get("health_score"),
+                exit_score=v3.get("exit_score"),
+                add_score=v3.get("add_score"),
+                portfolio_overlap_pct=overlap_pct_by_name.get(name_key),
+                current_weight_pct=current_weight_pct,
+                target_weight_pct=target_weight_pct,
+                tax_cost_rs=tax_liability,
+                tax_benefit_rs=tax_benefit,
+                holding_value_rs=m["value"],
+                is_stcg=is_stcg,
+                holding_age_days=holding_period_days,
+                confidence=coverage_conf,
+            )
+            entry["has"] = has_result.to_dict()
+
             covered_aum += m["value"]
             if v3.get("quality_score") is not None:
                 quality_weighted += v3["quality_score"] * m["value"]
@@ -695,25 +798,47 @@ async def v3_portfolio_summary(request: Request):
             entry["explanation"] = "No V3 data available for this fund yet."
         funds_out.append(entry)
 
+    # HAS action tallies (portfolio-layer decisions)
+    has_tally = {"ADD": 0, "HOLD": 0, "TRIM": 0, "SWITCH": 0, "EXIT": 0, "REVIEW": 0, "UNKNOWN": 0}
+    has_value_weighted = 0.0
+    has_value_weights = 0.0
+    for f in funds_out:
+        ha = f.get("has") or {}
+        act = ha.get("action")
+        if act in has_tally:
+            has_tally[act] += 1
+        if ha.get("has") is not None:
+            has_value_weighted += ha["has"] * f.get("value_rs", 0)
+            has_value_weights += f.get("value_rs", 0)
+
     portfolio = {
         "avg_quality_score": round(quality_weighted / quality_weights, 2) if quality_weights else None,
         "avg_health_score": round(health_weighted / health_weights, 2) if health_weights else None,
+        "avg_has_score": round(has_value_weighted / has_value_weights, 2) if has_value_weights else None,
         "n_funds": len(mf_investments),
         "n_scored": sum(1 for f in funds_out if f.get("scores")),
         "n_flagged": len(flagged),
         "n_exit_recs": n_exit_recs,
         "n_switch_recs": n_switch_recs,
         "n_review_recs": n_review_recs,
+        "has_action_counts": has_tally,
+        "target_weight_pct_per_fund": round(target_weight_pct, 2),
     }
     coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
 
-    # Sort by recommendation priority (EXIT → SWITCH → REVIEW → HOLD → BUY),
-    # then by descending quality so actionable funds float to the top.
+    # Sort by HAS action priority (EXIT → SWITCH → TRIM → REVIEW → HOLD → ADD),
+    # then by ascending HAS so the most-needy funds float to the top. Fall back
+    # to the V3 recommendation rank when HAS is missing.
     def _sort_key(f):
+        ha = f.get("has") or {}
+        has_action = ha.get("action")
+        has_rank_map = {"EXIT": 0, "SWITCH": 1, "TRIM": 2, "REVIEW": 3, "HOLD": 4, "ADD": 5, "UNKNOWN": 6}
+        if has_action in has_rank_map:
+            return (has_rank_map[has_action], ha.get("has") if ha.get("has") is not None else 999)
         action = (f.get("recommendation") or {}).get("action", "HOLD")
-        rank = {"EXIT": 0, "SWITCH": 1, "REVIEW": 2, "HOLD": 3, "BUY": 4}.get(action, 3)
+        legacy_rank = {"EXIT": 0, "SWITCH": 1, "REVIEW": 2, "HOLD": 3, "BUY": 4}.get(action, 3)
         q = (f.get("scores") or {}).get("quality")
-        return (rank, -(q or -1))
+        return (legacy_rank + 10, -(q or -1))
     funds_out.sort(key=_sort_key)
 
     return {

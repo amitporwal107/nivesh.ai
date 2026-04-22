@@ -220,6 +220,7 @@ async def enrich_candidates_with_v3(
             "health_score": health["score"],
             "exit_score": exit_s["score"],
             "add_score": add_s["score"],
+            "category": quality.get("category"),
             "quality_missing": quality["missing_primitives"],
             "health_missing": health["missing_primitives"],
             "quality_components": quality["components"],

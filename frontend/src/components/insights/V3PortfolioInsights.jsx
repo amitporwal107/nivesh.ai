@@ -88,7 +88,13 @@ export default function V3PortfolioInsights() {
   return (
     <div className="space-y-4" data-testid="v3-portfolio-insights">
       {/* Headline tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+        <ScoreTile
+          testid="v3-avg-has"
+          label="Avg HAS"
+          value={portfolio.avg_has_score}
+          sub="Portfolio-aware action score"
+        />
         <ScoreTile
           testid="v3-avg-quality"
           label="Avg Quality"
@@ -132,21 +138,21 @@ export default function V3PortfolioInsights() {
             </span>
           </div>
           <div className="flex items-end gap-1 flex-wrap">
-            <span className="text-2xl font-bold tabular-nums text-rose-700" data-testid="v3-n-exit">
-              {portfolio.n_exit_recs || 0}
+            <span className="text-xl font-bold tabular-nums text-rose-700" data-testid="v3-n-exit">
+              {portfolio.has_action_counts?.EXIT ?? portfolio.n_exit_recs ?? 0}
             </span>
-            <span className="text-xs text-rose-700 mb-1">exit</span>
-            <span className="text-sm text-indigo-700 mb-0.5 ml-1 font-semibold" data-testid="v3-n-switch">
-              +{portfolio.n_switch_recs || 0}
+            <span className="text-[10px] text-rose-700 mb-0.5">exit</span>
+            <span className="text-base text-indigo-700 mb-0 ml-1 font-semibold" data-testid="v3-n-switch">
+              +{portfolio.has_action_counts?.SWITCH ?? portfolio.n_switch_recs ?? 0}
             </span>
-            <span className="text-xs text-indigo-700 mb-1">switch</span>
-            <span className="text-sm text-amber-700 mb-0.5 ml-1 font-semibold" data-testid="v3-n-review">
-              +{portfolio.n_review_recs || 0}
+            <span className="text-[10px] text-indigo-700 mb-0.5">sw</span>
+            <span className="text-base text-orange-700 mb-0 ml-1 font-semibold" data-testid="v3-n-trim">
+              +{portfolio.has_action_counts?.TRIM ?? 0}
             </span>
-            <span className="text-xs text-amber-700 mb-1">review</span>
+            <span className="text-[10px] text-orange-700 mb-0.5">trim</span>
           </div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Funds with actionable recommendations
+            Target: {portfolio.target_weight_pct_per_fund ?? 10}% per fund
           </span>
         </div>
       </div>
