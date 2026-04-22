@@ -204,7 +204,16 @@ export default function V3WeightsSection() {
     }
   };
 
-  if (loading && !weights) {
+  if (error && !weights) {
+    return (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 dark:bg-rose-900/20 p-4 text-sm text-rose-700 dark:text-rose-300"
+           data-testid="v3-weights-error">
+        Failed to load: {error}
+        <Button size="sm" variant="outline" className="ml-3" onClick={load}>Retry</Button>
+      </div>
+    );
+  }
+  if (!weights) {
     return (
       <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-10 text-center text-sm text-slate-500 dark:text-slate-400"
            data-testid="v3-weights-loading">
