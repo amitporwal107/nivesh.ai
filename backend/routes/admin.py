@@ -305,23 +305,36 @@ async def test_cas_connection(request: Request):
     }
 
 
-# ═══ Secrets Management (generic CRUD) ═══════════════════════════════════
+# ═══ Secrets Management (generic CRUD, environment-scoped) ══════════════
 @router.get("/admin/secrets")
-async def list_secrets(request: Request):
-    """List all known + custom secrets with masked values. Admin only."""
+async def list_secrets(request: Request, env: str = ""):
+    """List secrets (masked) for the given environment. Admin only.
+
+    ?env=preview|production — defaults to the deploy's current env.
+    The response also includes `current_env` so the UI can warn when the
+    operator is editing the *other* environment's secrets.
+    """
     await require_admin(request)
     from helpers import secrets as _secrets
-    persisted = await db.system_config.find_one({"key": "secrets"}, {"_id": 0}) or {}
+    target_env = env.strip().lower() or _secrets.current_env()
+    target_env = "production" if target_env == "production" else "preview"
+    items = await _secrets.list_for_env(db, target_env)
+    persisted = await db.system_config.find_one(
+        {"key": f"secrets:{target_env}"}, {"_id": 0}
+    ) or {}
     return {
-        "secrets": _secrets.list_all(),
+        "secrets": items,
         "updated_at": persisted.get("updated_at"),
         "updated_by": persisted.get("updated_by"),
+        "current_env": _secrets.current_env(),
+        "viewing_env": target_env,
+        "available_envs": ["preview", "production"],
     }
 
 
 @router.put("/admin/secrets/{key}")
-async def upsert_secret(key: str, request: Request):
-    """Set or update a secret value. Admin only."""
+async def upsert_secret(key: str, request: Request, env: str = ""):
+    """Set or update a secret value in the given environment. Admin only."""
     user = await require_admin(request)
     body = await request.json()
     value = body.get("value")
@@ -330,17 +343,70 @@ async def upsert_secret(key: str, request: Request):
     if not value or not value.strip():
         raise HTTPException(status_code=400, detail="value must not be empty")
     from helpers import secrets as _secrets
-    await _secrets.persist_to_db(db, key, value.strip(), updated_by=user.get("email", ""))
-    return {"status": "ok", "key": key, "masked_value": _secrets.mask(value.strip())}
+    target_env = env.strip().lower() or _secrets.current_env()
+    await _secrets.persist_to_db(
+        db, key, value.strip(),
+        updated_by=user.get("email", ""),
+        env=target_env,
+    )
+    return {
+        "status": "ok", "key": key,
+        "masked_value": _secrets.mask(value.strip()),
+        "env": "production" if target_env == "production" else "preview",
+    }
 
 
 @router.delete("/admin/secrets/{key}")
-async def delete_secret(key: str, request: Request):
-    """Remove DB override for a secret. Falls back to env. Admin only."""
+async def delete_secret(key: str, request: Request, env: str = ""):
+    """Remove override for a secret in the given environment. Admin only."""
     user = await require_admin(request)
     from helpers import secrets as _secrets
-    await _secrets.persist_to_db(db, key, None, updated_by=user.get("email", ""))
-    return {"status": "ok", "key": key, "deleted": True}
+    target_env = env.strip().lower() or _secrets.current_env()
+    await _secrets.persist_to_db(
+        db, key, None,
+        updated_by=user.get("email", ""),
+        env=target_env,
+    )
+    return {
+        "status": "ok", "key": key, "deleted": True,
+        "env": "production" if target_env == "production" else "preview",
+    }
+
+
+@router.post("/admin/secrets/promote")
+async def promote_secrets(request: Request):
+    """Copy secrets from one environment to another. Admin only.
+
+    Body: {source: "preview"|"production", target: "preview"|"production",
+           keys: ["KEY1","KEY2",...] or null for "all"}
+    """
+    user = await require_admin(request)
+    body = await request.json()
+    src = (body.get("source") or "").strip().lower()
+    tgt = (body.get("target") or "").strip().lower()
+    if src not in ("preview", "production") or tgt not in ("preview", "production"):
+        raise HTTPException(400, "source and target must be preview|production")
+    if src == tgt:
+        raise HTTPException(400, "source and target must differ")
+    keys_filter = body.get("keys")  # None → all
+
+    src_doc = await db.system_config.find_one({"key": f"secrets:{src}"}, {"_id": 0}) or {}
+    src_vals = src_doc.get("values") or {}
+
+    from helpers import secrets as _secrets
+    copied = []
+    for k, v in src_vals.items():
+        if keys_filter and k not in keys_filter:
+            continue
+        if not isinstance(v, str) or not v:
+            continue
+        await _secrets.persist_to_db(
+            db, k, v,
+            updated_by=f"{user.get('email','')} [promote {src}→{tgt}]",
+            env=tgt,
+        )
+        copied.append(k)
+    return {"status": "ok", "source": src, "target": tgt, "copied": copied, "count": len(copied)}
 
 
 @router.post("/admin/secrets/{key}/test")

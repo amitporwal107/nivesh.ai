@@ -168,38 +168,48 @@ const SecretsSection = ({ categoryFilter = null, title = "Secrets", subtitle = "
   const [showAdd, setShowAdd] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [newVal, setNewVal] = useState("");
+  const [currentEnv, setCurrentEnv] = useState("preview");
+  const [viewingEnv, setViewingEnv] = useState("preview");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (envOverride = null) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/admin/secrets`, { withCredentials: true });
+      const envParam = envOverride || viewingEnv;
+      const res = await axios.get(`${API}/admin/secrets?env=${encodeURIComponent(envParam)}`, { withCredentials: true });
       setList(res.data.secrets || []);
       setMeta({ updated_at: res.data.updated_at, updated_by: res.data.updated_by });
+      setCurrentEnv(res.data.current_env || "preview");
+      setViewingEnv(res.data.viewing_env || envParam);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to load secrets");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [viewingEnv]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); /* initial load — viewingEnv defaults to preview */ /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const switchEnv = (env) => {
+    setViewingEnv(env);
+    load(env);
+  };
 
   const handleUpdate = async (key, value) => {
     try {
-      await axios.put(`${API}/admin/secrets/${key}`, { value }, { withCredentials: true });
-      toast.success(`${key} updated`);
-      load();
+      await axios.put(`${API}/admin/secrets/${key}?env=${encodeURIComponent(viewingEnv)}`, { value }, { withCredentials: true });
+      toast.success(`${key} updated (${viewingEnv})`);
+      load(viewingEnv);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Update failed");
     }
   };
 
   const handleDelete = async (key) => {
-    if (!window.confirm(`Clear DB override for ${key}? Will fall back to env var.`)) return;
+    if (!window.confirm(`Clear ${viewingEnv} override for ${key}? Will fall back to env var.`)) return;
     try {
-      await axios.delete(`${API}/admin/secrets/${key}`, { withCredentials: true });
-      toast.success(`${key} override cleared`);
-      load();
+      await axios.delete(`${API}/admin/secrets/${key}?env=${encodeURIComponent(viewingEnv)}`, { withCredentials: true });
+      toast.success(`${key} override cleared (${viewingEnv})`);
+      load(viewingEnv);
     } catch (err) {
       toast.error("Delete failed");
     }
@@ -257,7 +267,32 @@ const SecretsSection = ({ categoryFilter = null, title = "Secrets", subtitle = "
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center flex-wrap">
+            {/* Environment switcher — isolated secrets per env */}
+            <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900" data-testid="secrets-env-switcher">
+              {["preview", "production"].map(e => {
+                const active = viewingEnv === e;
+                const isCurrent = currentEnv === e;
+                return (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => switchEnv(e)}
+                    data-testid={`secrets-env-${e}`}
+                    className={`px-3 py-1 text-[11px] font-semibold rounded-lg transition-colors flex items-center gap-1 ${
+                      active
+                        ? (e === "production"
+                            ? "bg-rose-600 text-white shadow-sm"
+                            : "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-sm")
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {e.toUpperCase()}
+                    {isCurrent && <span className="text-[8px] opacity-80">● live</span>}
+                  </button>
+                );
+              })}
+            </div>
             {allowAddCustom && (<Button
               data-testid="secrets-add-custom"
               variant="outline"
@@ -267,11 +302,25 @@ const SecretsSection = ({ categoryFilter = null, title = "Secrets", subtitle = "
             >
               <Plus className="w-4 h-4 mr-1" /> Custom
             </Button>)}
-            <Button variant="ghost" size="sm" onClick={load} data-testid="secrets-refresh">
+            <Button variant="ghost" size="sm" onClick={() => load(viewingEnv)} data-testid="secrets-refresh">
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </div>
+
+        {/* Viewing-env warning banner */}
+        {viewingEnv !== currentEnv && (
+          <div
+            data-testid="secrets-cross-env-warning"
+            className="mb-4 p-3 rounded-xl border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/20 text-[11px] text-rose-800 dark:text-rose-300 flex items-start gap-2"
+          >
+            <span className="font-bold">⚠ Editing {viewingEnv.toUpperCase()} secrets from {currentEnv.toUpperCase()} deploy.</span>
+            <span>
+              Changes are persisted to the <code className="font-mono">secrets:{viewingEnv}</code> doc and will only take effect when a {viewingEnv} pod restarts.
+              Your running {currentEnv} deploy is unaffected.
+            </span>
+          </div>
+        )}
 
         {showAdd && allowAddCustom && (
           <div className="mb-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row gap-2">
