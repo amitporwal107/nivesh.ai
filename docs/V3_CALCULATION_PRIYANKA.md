@@ -1,5 +1,3 @@
-# V3 per-fund calculation — priyankamantri@gmail.com
-
 **Engine:** `v3.0-phase1`  · **Coverage:** 100.0% (26/26 funds scored)
 
 **Portfolio aggregates:** Avg Quality 57.01 · Avg Health 59.07 · Recs → EXIT 0 · SWITCH 0 · REVIEW 15
