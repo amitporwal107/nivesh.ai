@@ -330,6 +330,137 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
     return mf_id
 
 
+# ── Moneycontrol (debt) primitives writer ────────────────────────────────
+async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
+    """Persist Moneycontrol scrape output (shape: output of
+    `moneycontrol_client.fetch_by_url()`).
+
+    Upserts the resolved MF into `instrument_master` (matching existing rows
+    by ISIN or scheme_name) and writes debt-specific primitives into
+    `mutual_fund_metadata`.
+
+    Returns the MF instrument_id on success, or None if:
+      - pool isn't configured
+      - the payload is missing scheme_name/imid
+      - no fund exists in PG with the given ISIN/name (skips instead of inserting
+        — Moneycontrol is an *enrichment* source, not a master-list source).
+    """
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+
+    imid = data.get("moneycontrol_imid")
+    scheme_name = data.get("scheme_name") or ""
+    isin = data.get("isin")
+    if not imid or not scheme_name:
+        logger.warning(f"MC persist: missing imid/scheme_name ({imid!r} / {scheme_name!r})")
+        return None
+
+    async with pool.acquire() as conn:
+        # Resolve to an existing MF: prefer ISIN, fall back to exact name match.
+        mf_id: Optional[uuid.UUID] = None
+        if isin:
+            row = await conn.fetchrow(
+                "SELECT instrument_id FROM instrument_master "
+                "WHERE isin = $1 AND instrument_type = 'MUTUAL_FUND'",
+                isin,
+            )
+            if row:
+                mf_id = row["instrument_id"]
+        if mf_id is None:
+            row = await conn.fetchrow(
+                "SELECT instrument_id FROM instrument_master "
+                "WHERE LOWER(instrument_name) = LOWER($1) AND instrument_type = 'MUTUAL_FUND'",
+                scheme_name,
+            )
+            if row:
+                mf_id = row["instrument_id"]
+        if mf_id is None:
+            logger.info(f"MC persist: no existing fund for {scheme_name!r} (isin={isin}) — skipping")
+            return None
+
+        # Ensure a metadata row exists (insert skeleton if missing).
+        existing = await conn.fetchrow(
+            "SELECT 1 FROM mutual_fund_metadata WHERE instrument_id = $1", mf_id,
+        )
+        if not existing:
+            await conn.execute(
+                "INSERT INTO mutual_fund_metadata (instrument_id, last_scraped_at, updated_at) "
+                "VALUES ($1, NOW(), NOW())",
+                mf_id,
+            )
+
+        await conn.execute(
+            """
+            UPDATE mutual_fund_metadata SET
+                moneycontrol_imid = COALESCE($2, moneycontrol_imid),
+                investment_style = COALESCE($3, investment_style),
+                credit_quality_score = COALESCE($4, credit_quality_score),
+                duration_risk_score = COALESCE($5, duration_risk_score),
+                ytm = COALESCE($6, ytm),
+                modified_duration = COALESCE($7, modified_duration),
+                category = COALESCE(category, $8),
+                sub_category = COALESCE(sub_category, $9),
+                risk_label = COALESCE(risk_label, $10),
+                aum_cr = COALESCE(aum_cr, $11),
+                nav = COALESCE(nav, $12),
+                expense_ratio = COALESCE(expense_ratio, $13),
+                turnover_ratio = COALESCE(turnover_ratio, $14),
+                top10_concentration_pct = COALESCE(top10_concentration_pct, $15),
+                launch_date = COALESCE(launch_date, $16),
+                fund_age_years = COALESCE(fund_age_years, $17),
+                manager_name = COALESCE(manager_name, $18),
+                manager_tenure_years = COALESCE(manager_tenure_years, $19),
+                last_scraped_at = NOW(),
+                updated_at = NOW()
+            WHERE instrument_id = $1
+            """,
+            mf_id,
+            imid,
+            data.get("investment_style"),
+            data.get("credit_quality_score"),
+            data.get("duration_risk_score"),
+            data.get("ytm"),
+            data.get("modified_duration"),
+            data.get("category"),
+            data.get("sub_category"),
+            data.get("risk_label"),
+            data.get("aum_cr"),
+            data.get("nav"),
+            data.get("expense_ratio"),
+            data.get("turnover_ratio"),
+            data.get("top10_concentration_pct"),
+            _parse_date(data.get("launch_date")),
+            data.get("fund_age_years"),
+            data.get("manager_name"),
+            data.get("manager_tenure_years"),
+        )
+
+        # Latest-period performance ratios (only if MC surfaced them).
+        r_cagr3 = data.get("ret_3y")
+        r_cagr5 = data.get("ret_5y")
+        sharpe = data.get("sharpe")
+        std_dev = data.get("std_dev")
+        if any(v is not None for v in (r_cagr3, r_cagr5, sharpe, std_dev)):
+            await conn.execute(
+                """
+                INSERT INTO mutual_fund_performance_ratios
+                    (instrument_id, ratios_date, ret_3y, ret_5y, sharpe, std_dev)
+                VALUES ($1, CURRENT_DATE, $2, $3, $4, $5)
+                ON CONFLICT (instrument_id, ratios_date) DO UPDATE SET
+                    ret_3y = COALESCE(EXCLUDED.ret_3y, mutual_fund_performance_ratios.ret_3y),
+                    ret_5y = COALESCE(EXCLUDED.ret_5y, mutual_fund_performance_ratios.ret_5y),
+                    sharpe = COALESCE(EXCLUDED.sharpe, mutual_fund_performance_ratios.sharpe),
+                    std_dev = COALESCE(EXCLUDED.std_dev, mutual_fund_performance_ratios.std_dev)
+                """,
+                mf_id, r_cagr3, r_cagr5, sharpe, std_dev,
+            )
+
+    return mf_id
+
+
+
+
 async def log_scrape_attempt(
     *,
     instrument_id: Optional[uuid.UUID],

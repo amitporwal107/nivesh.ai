@@ -215,7 +215,9 @@ def compute_quality_score(f: Dict[str, Any]) -> Dict[str, Any]:
         # Debt-specific primitives (populated by VR scraper when available)
         "credit_quality":       _norm_credit_quality(f.get("credit_quality_score")),
         "yield_vs_category":    _norm_yield_vs_cat(f.get("ytm"), f.get("cat_avg_ytm")),
-        "duration_risk":        _norm_duration_risk(f.get("modified_duration")),
+        # Prefer pre-normalised duration_risk_score (0-10 from Moneycontrol
+        # investment-style parsing); fall back to raw modified_duration years.
+        "duration_risk":        _norm_duration_risk_flex(f.get("duration_risk_score"), f.get("modified_duration")),
     }
     comps = {name: (comp_values.get(name), w) for name, w in weights.items()}
     result = _weighted_composite(comps)
@@ -271,6 +273,15 @@ def _norm_duration_risk(mod_dur: Optional[float]) -> Optional[float]:
     if mod_dur is None:
         return None
     return round(max(0.0, min(10.0, 10.0 - float(mod_dur))), 2)
+
+
+def _norm_duration_risk_flex(direct_score: Optional[float], mod_dur: Optional[float]) -> Optional[float]:
+    """Prefer a pre-normalised 0-10 duration_risk_score (from Moneycontrol
+    investment-style parsing: Limited=9, Moderate=6, Extensive=3). Fall back
+    to deriving from modified_duration years."""
+    if direct_score is not None:
+        return round(max(0.0, min(10.0, float(direct_score))), 2)
+    return _norm_duration_risk(mod_dur)
 
 
 def _norm_credit_concentration(top5_pct: Optional[float]) -> Optional[float]:

@@ -83,6 +83,9 @@ async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[
               mfmd.category_avg_1y::float, mfmd.category_avg_3y::float, mfmd.category_avg_5y::float,
               mfmd.max_drawdown_pct::float, mfmd.consistency_score::float,
               mfmd.downside_capture_pct::float, mfmd.aum_trend_score::float,
+              mfmd.credit_quality_score::float, mfmd.duration_risk_score::float,
+              mfmd.ytm::float, mfmd.modified_duration::float,
+              mfmd.investment_style, mfmd.moneycontrol_imid,
               mfpr.ret_1y::float, mfpr.ret_3y::float, mfpr.ret_5y::float,
               mfpr.sharpe::float, mfpr.sortino::float
             FROM mutual_fund_metadata mfmd
@@ -227,6 +230,10 @@ async def enrich_candidates_with_v3(
                 "aum_cr", "fund_age_years", "expense_ratio_direct", "manager_tenure_years",
                 "max_drawdown_pct", "consistency_score", "downside_capture_pct",
                 "aum_trend_score", "turnover_ratio", "top10_concentration_pct",
+                # Debt-specific (Moneycontrol-sourced) — surface so the insights
+                # UI can display credit/duration profile for bond funds.
+                "credit_quality_score", "duration_risk_score", "ytm",
+                "modified_duration", "investment_style", "moneycontrol_imid",
             )},
         }
         # Dual-index: by iid AND by normalised scheme_name (for lookup when

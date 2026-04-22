@@ -204,29 +204,54 @@ async def fetch_by_imid(imid: str, slug_hint: Optional[str] = None) -> Optional[
     return await fetch_by_url(url)
 
 
-async def search_imid(scheme_name: str) -> Optional[str]:
-    """Use Moneycontrol's autosuggest API to resolve a scheme name → imid."""
+async def search_fund(scheme_name: str) -> Optional[Dict[str, str]]:
+    """Search MC autosuggest for a mutual fund scheme.
+
+    Returns {"imid": str, "url": str, "display_name": str} on the first
+    matching `/mutual-funds/nav/...` result, else None. Prefers Direct-plan
+    matches when the query contains "direct".
+    """
     url = "https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php"
-    params = {"classic": "true", "query": scheme_name, "type": "1", "format": "json",
+    params = {"classic": "true", "query": scheme_name, "type": "2", "format": "json",
               "callback": ""}
     async with httpx.AsyncClient(timeout=TIMEOUT_S,
                                  headers={"User-Agent": USER_AGENT}) as c:
         try:
             r = await c.get(url, params=params)
             r.raise_for_status()
-            # MC wraps in JSONP-ish prefix sometimes
             txt = r.text.strip()
             if txt.startswith("(") and txt.endswith(")"):
                 txt = txt[1:-1]
             data = json.loads(txt)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"search_imid({scheme_name!r}) failed: {e}")
+            logger.warning(f"search_fund({scheme_name!r}) failed: {e}")
             return None
-    # Response shape: [{"link_src": "...imid...", "pdt_dis_nm": "..."}, ...]
+
     hits = data if isinstance(data, list) else (data.get("data") or [])
-    for h in hits[:5]:
+    mf_hits = [h for h in hits if "/mutual-funds/nav/" in (h.get("link_src") or "")]
+
+    wants_direct = "direct" in scheme_name.lower()
+    if wants_direct:
+        direct_hits = [
+            h for h in mf_hits
+            if "direct" in (h.get("pdt_dis_nm") or h.get("link_src") or "").lower()
+        ]
+        if direct_hits:
+            mf_hits = direct_hits
+
+    for h in mf_hits[:5]:
         link = h.get("link_src") or ""
         m = re.search(r"/([A-Z]{2,4}\d+)(?:$|[/?])", link)
         if m:
-            return m.group(1)
+            return {
+                "imid": m.group(1),
+                "url": link,
+                "display_name": (h.get("pdt_dis_nm") or "").strip(),
+            }
     return None
+
+
+async def search_imid(scheme_name: str) -> Optional[str]:
+    """Backward-compatible wrapper: returns only the imid."""
+    hit = await search_fund(scheme_name)
+    return hit["imid"] if hit else None

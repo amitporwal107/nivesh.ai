@@ -211,6 +211,13 @@ def _fund_row_to_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         "top10_concentration_pct": _f(row.get("top10_concentration_pct")),
         "downside_capture_pct": _f(row.get("downside_capture_pct")),
         "expense_trend_delta": _f(row.get("expense_trend_delta")),
+        # Debt primitives (Moneycontrol-sourced)
+        "credit_quality_score": _f(row.get("credit_quality_score")),
+        "duration_risk_score": _f(row.get("duration_risk_score")),
+        "ytm": _f(row.get("ytm")),
+        "modified_duration": _f(row.get("modified_duration")),
+        "investment_style": row.get("investment_style"),
+        "moneycontrol_imid": row.get("moneycontrol_imid"),
     }
     quality = v3_scoring.compute_quality_score({**prim,
                                                  "category": row.get("category"),
@@ -264,6 +271,9 @@ async def _fetch_master_funds(limit: Optional[int] = None) -> List[Dict[str, Any
                mfm.consistency_score, mfm.aum_trend_score,
                mfm.expense_trend_delta,
                mfm.category_avg_1y, mfm.category_avg_3y, mfm.category_avg_5y,
+               mfm.credit_quality_score, mfm.duration_risk_score,
+               mfm.ytm, mfm.modified_duration,
+               mfm.investment_style, mfm.moneycontrol_imid,
                mfr.ret_1y, mfr.ret_3y, mfr.ret_5y,
                mfr.sharpe, mfr.sortino
         FROM mutual_fund_metadata mfm
