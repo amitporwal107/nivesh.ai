@@ -1,0 +1,43 @@
+{
+  "summary": "GBIPE V1 end-to-end testing: 39/39 backend tests green (24 goal_engine unit + 15 API integration). All goals API endpoints work with auth gating. Frontend Goals tab, GoalCard, GoalDetailModal with ScenarioSimulator (4 scenario cards + MC distribution + what-if sliders + auto-picked funds), GoalCreateWizard (3 steps) and FinancialSnapshotWizard all render without runtime errors. No functional issues; only pre-existing Radix Dialog a11y warnings (non-blocking).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "GoalDetailModal", "issues": ["Radix DialogContent a11y warnings in console: 'DialogContent requires a DialogTitle' and missing Description/aria-describedby. Pre-existing across app — not blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_goal_engine.py",
+    "/app/backend/tests/test_goals_api.py",
+    "/app/test_reports/pytest/iteration_36_goal_engine.xml",
+    "/app/test_reports/pytest/iteration_36_goals_api.xml"
+  ],
+  "action_items": [
+    "(Optional) Add DialogTitle (or VisuallyHidden) in GoalDetailModal and GoalCreateWizard DialogContent to silence Radix a11y console warnings."
+  ],
+  "critical_code_review_comments": [
+    "goal_engine.py (~385 LOC) is well under 700-line threshold. Pure-logic with clean numpy+pure-python MC fallback — deterministic with seed, solid test coverage.",
+    "routes/goals.py correctly uses uuid5() mapping from string user_id to Postgres UUID, idempotent snapshot upsert via ON CONFLICT, soft-delete pattern for DELETE (status='abandoned').",
+    "PATCH builds dynamic UPDATE via f-string with key names — keys come from Pydantic model_dump so input is whitelisted; no SQL injection risk. Safe as-is.",
+    "what-if endpoint correctly returns preview=true and does NOT persist — verified by before/after GET in test_what_if_does_not_persist.",
+    "Auth gating verified on every endpoint (snapshot, list, create, shortlist) — returns 401 when session cookie absent.",
+    "Fund shortlist returns 5 funds per bucket (equity/debt/hybrid) sorted by quality_score DESC, all ≥ 55 — quality filter works.",
+    "ScenarioSimulator.jsx uses testid='scenario-{k}' (not 'scenario-card-*') — worth documenting for future automation; 'summary-tile' testid absent but 4 stats render.",
+    "Existing 'Retire at 55' goal shows MC prob 0.3% because ₹25K SIP is drastically under the ₹84K required SIP — this is correct engine output, not a bug; action panel correctly recommends '+₹59,080/month'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_goals_api.py (NEW — 15 API integration tests)"
+  ],
+  "success_rate": {"backend": "100% (39/39: 24 engine + 15 API)", "frontend": "100% (snapshot wizard, goal wizard, goal card, detail modal, scenario simulator, what-if panel all verified)"},
+  "test_credentials": "priyankamantri@gmail.com session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin, risk=moderate, 1 existing goal 'Retire at 55').",
+  "seed_data_creation": "Tests create TEST_GoalAPI_* goals and soft-delete (abandon) them in module teardown. Existing 'Retire at 55' goal not modified. Snapshot PUT is value-preserving idempotent round-trip.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_goals_api.py + test_goal_engine.py as regression suite. ScenarioSimulator testids: 'scenario-simulator', 'scenario-grid', 'scenario-base|bull|bear|stress', 'selected-funds', 'what-if-panel', 'whatif-sip-slider', 'whatif-horizon-slider', 'whatif-preview-btn', 'whatif-apply-btn', 'whatif-result'. GoalsView testids: 'goals-view', 'goals-snapshot-btn', 'goals-create-btn', 'goals-grid', 'goal-card-{id}', 'goal-simulate-btn-{id}', 'goal-action-{id}'. Wizards: 'snapshot-wizard', 'goal-wizard'. Soft-delete marks status='abandoned' but record remains GETtable. Goals API requires REACT_APP_BACKEND_URL env var when running pytest directly (tests use session cookie auth)."
+}

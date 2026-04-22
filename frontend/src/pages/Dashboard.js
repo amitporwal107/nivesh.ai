@@ -11,6 +11,7 @@ import ChatView from "@/components/ChatView";
 import InsightsView from "@/components/InsightsView";
 import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
+import GoalsView from "@/components/goals/GoalsView";
 import OnboardingView from "@/components/OnboardingView";
 import RiskProfileView from "@/components/RiskProfileView";
 import PlanBoardView from "@/components/v2/PlanBoardView";
@@ -143,6 +144,8 @@ const Dashboard = () => {
         return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
       case "insights":
         return <InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />;
+      case "goals":
+        return <GoalsView />;
       case "risk_profile":
         return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
       case "admin":

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Menu, X } from "lucide-react";
+import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Menu, X } from "lucide-react";
 
 /**
  * Slim sidebar — primary navigation only.
@@ -11,6 +11,7 @@ const navItems = [
   { id: "plan_board", label: "Plan Board", icon: TrendingUp, badge: "V2" },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "insights", label: "Insights", icon: Lightbulb },
+  { id: "goals", label: "Goals", icon: Target, badge: "NEW" },
 ];
 
 const Sidebar = ({ activeTab, setActiveTab }) => {
