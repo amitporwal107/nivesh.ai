@@ -289,21 +289,24 @@ def derive_portfolio_alerts(
 
 
 # ── Main orchestrator: enriched holdings for UI ────────────────────────
-async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
+async def build_enriched_portfolio(
+    user_id: str, *, use_cache: bool = True,
+) -> Dict[str, Any]:
     """Build the full `actionable portfolio` payload for the new UI.
-
-    Returns:
-      {
-        holdings: [ {core + scores + action + xirr + switch_hint} ],
-        alerts: [...],
-        totals: {count, value_rs, invested_rs, pnl_rs, pnl_pct, xirr_pct},
-        coverage_pct: % of equity holdings with scores,
-        health: portfolio_health payload,
-      }
+    Results are cached for 5 minutes in Redis (per user) — pass use_cache=False
+    to force recompute after a refresh.
     """
     from deps import db
     from services import portfolio_health as ph
     from services import pg_client
+    from services import redis_client as _rc
+
+    cache_key = f"enriched_portfolio:{user_id}"
+    if use_cache:
+        cached = await _rc.cache_get(cache_key)
+        if cached is not None:
+            cached["_cache_hit"] = True
+            return cached
 
     holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     if not holdings:
@@ -629,7 +632,7 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         "health_delta": health_delta,
     }
 
-    return {
+    result = {
         "holdings": enriched,
         "alerts": alerts,
         "totals": {
@@ -645,4 +648,11 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         "allocation_ideal": ideal_alloc,
         "health": health_payload,
         "portfolio_impact": portfolio_impact,
+        "_cache_hit": False,
     }
+    # Cache for 5 minutes — refresh-fundamentals and refresh-prices evict this key.
+    try:
+        await _rc.cache_set(cache_key, result, ttl_s=300)
+    except Exception:  # noqa: BLE001
+        pass
+    return result

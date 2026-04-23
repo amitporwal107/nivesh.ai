@@ -130,3 +130,40 @@ async def set_slug(instrument_key: str, slug: str) -> bool:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"redis set_slug failed: {e}")
         return False
+
+
+# ── Generic JSON cache (namespaced under nivesh:cache:) ──────────────────
+async def cache_get(key: str) -> Optional[Any]:
+    c = await get_client()
+    if c is None:
+        return None
+    try:
+        raw = await c.get(f"nivesh:cache:{key}")
+        return json.loads(raw) if raw else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"redis cache_get failed: {e}")
+        return None
+
+
+async def cache_set(key: str, value: Any, ttl_s: int = 300) -> bool:
+    c = await get_client()
+    if c is None:
+        return False
+    try:
+        await c.set(f"nivesh:cache:{key}", json.dumps(value, default=str), ex=ttl_s)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"redis cache_set failed: {e}")
+        return False
+
+
+async def cache_del(key: str) -> bool:
+    c = await get_client()
+    if c is None:
+        return False
+    try:
+        await c.delete(f"nivesh:cache:{key}")
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"redis cache_del failed: {e}")
+        return False

@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 42 — All 5 Portfolio-page enhancements verified end-to-end on priyanka (64 holdings). BACKEND (3/3 pytest PASS): (1) Redis cache works — cold load 17.23s, warm load 0.10s = 165× speedup; `_cache_hit` flips correctly false→true within TTL; POST /api/portfolio/refresh-stock-fundamentals invalidates cache (next GET returns `_cache_hit: false`). (2) Refresh endpoint new shape returns all required keys {ok, total, nifty_100_covered, search_resolved, search_failed, search_failed_details, duration_s}; priyanka: total=27, duration_s≈0.6s. (3) Equity scored coverage 27/28 = 96.4%; top-level coverage_pct=82.8% (was 52.8% — now exceeds 80% target); mid/small-caps DIGIDRIVE (cs=65.4), GABRIEL (cs=67.1), PRICOL (cs=74.5), IRB (cs=50.4) all have composite_score (previously unscored). FRONTEND: portfolio-header renders with h1='Portfolio' + subtitle '64 holdings across 4 asset classes · Last refreshed 23 Apr, 10:23 am · 82.8% scored' + 3 buttons (header-refresh-scores, header-export-csv, header-reload). 53 stars-{1..5} pills render on rows (stars-1=1, stars-2=6, stars-3=27, stars-4=19, stars-5=0) with 'Nivesh Rating' fallback label present 223× on page. filter-WEAK pill renders; direct click drops visible rows 64→7 (all scores 29/43/48/39/39/42/48 i.e., composite<50). CTA behaviors: cta-alert-allocation click keeps hash=#portfolio (NO navigation to plan_board) and rows stay in table view; cta-alert-diversification click keeps hash=#portfolio AND activates WEAK filter (bg-slate-900 text-white styling, 7 rows shown). header-refresh-scores click triggers /api/portfolio/refresh-stock-fundamentals 200 and invalidates cache (next GET hits 17s cold reload — confirmed 'Loading portfolio...' spinner). Regression testids all still present: impact-strip, score-legend, asset-tab-{all,mutual_fund,equity,etf}, row-why-*, cta-alert-cost, Switch modal. NO issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/portfolio/refresh-stock-fundamentals", "issue": "Field `nifty_100_covered` is a misnomer — it actually counts any symbol already persisted in stock_master (union of Nifty-100 + previously-search-resolved). On priyanka's second run: nifty_100_covered=27, search_resolved=0 (because mid-caps were already persisted from prior runs). Spec docstring says search_resolved>=15 but that only holds on a fresh DB. Consider renaming to `already_scored` or `master_covered` for clarity; `search_resolved` only reflects *newly* searched symbols in the current call."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard first load", "issues": ["ActionPlanManager modal still auto-opens on landing and requires Escape to dismiss — pre-existing, carried over from iterations 39/40/41."]},
+      {"screen": "Portfolio header subtitle", "issues": ["Subtitle line runs everything together visually at narrow widths; '·' separators work but wrapping into 2-3 metadata rows could improve mobile readability. Non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration42_cache_scraper.py",
+    "/app/test_reports/pytest/iteration_42_api.xml"
+  ],
+  "action_items": [
+    "(Minor) Rename `nifty_100_covered` → `already_scored` in refresh response for accuracy; add a separate counter for actual Nifty-100 hits vs pre-cached stock_master hits if that distinction matters for monitoring.",
+    "(Minor, pre-existing) Auto-opening ActionPlanManager modal on dashboard landing — dismissal friction."
+  ],
+  "critical_code_review_comments": [
+    "portfolio_enrichment.py — cache wrapper correctly uses Redis with 300s TTL and per-user key `nivesh:cache:enriched_portfolio:{uid}`. Invalidation in analytics.py after refresh-stock-fundamentals is confirmed working (next GET returns _cache_hit=false).",
+    "groww_stock_scraper.py search_groww_by_symbol() + refresh_user_stocks() two-phase strategy (Nifty-100 → Groww search fallback) correctly resolves all 4 tested mid/small-caps. The `already` set at line 752-759 uses stock_master membership as the 'covered' proxy — works but makes `nifty_100_covered` misleadingly named.",
+    "ActionablePortfolioView.js — at 741 lines (up from 664 in iter41), now past the 700-line threshold flagged earlier. Recommend extracting PortfolioHeader + StarRating + AlertCTA into sub-components next iteration.",
+    "ActionablePortfolioView.js CTA handlers: cta-alert-allocation → setSortKey('value_rs') + scrollToTable(); cta-alert-diversification → setFilter('WEAK') + scrollToTable(). No hash mutation — aligns with 'filter in-place' spec. Verified via DOM click tests (hash stays #portfolio, WEAK pill goes active).",
+    "StarRating: sourced from composite_score when morningstar_rating is null — subtitle shows '· Nivesh Rating' suffix so user understands fallback source. Clear UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration42_cache_scraper.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings)",
+  "seed_data_creation": "None — used priyanka live account.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 42 fully verified. Cache: 165× speedup (17.23s → 0.10s). Coverage 82.8%. New testids: portfolio-header (with h1='Portfolio'), header-refresh-scores, header-export-csv, header-reload, stars-{1..5}, filter-WEAK. CTA behaviour changed from hash nav to in-place filter/sort (cta-alert-allocation → sort by value_rs desc + scrollToTable; cta-alert-diversification → setFilter('WEAK') + scrollToTable). 'Nivesh Rating' label appears in row subtitle when morningstar_rating is null. Refresh response new shape: {ok, total, nifty_100_covered, search_resolved, search_failed, duration_s}. Minor naming issue: nifty_100_covered actually counts stock_master membership (includes previously-search-resolved symbols). Pre-existing: ActionPlanManager modal auto-opens — dismiss with Escape.",
+  "rca of the issue": "Not applicable — all 5 portfolio-page enhancements work as specified. One minor field-naming inconsistency in the refresh response noted (see backend_issues.minor)."
+}

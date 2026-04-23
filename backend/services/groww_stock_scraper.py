@@ -686,10 +686,50 @@ async def refresh_nifty_100(
     }
 
 
+async def search_groww_by_symbol(
+    symbol: str, session: aiohttp.ClientSession,
+) -> Optional[Dict[str, Any]]:
+    """Resolve any NSE symbol → Groww slug + company metadata via Groww's
+    autosuggest API. Used to score stocks that aren't in the Nifty 100 list
+    (mid/small caps)."""
+    url = (
+        "https://groww.in/v1/api/search/v3/query/global/st_p_query"
+        f"?query={symbol}&page=0&size=5"
+    )
+    try:
+        async with session.get(url, headers={"User-Agent": USER_AGENT},
+                                timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"groww search for {symbol} failed: {e}")
+        return None
+    items = (data.get("data") or {}).get("content") or []
+    sym_u = symbol.upper()
+    # Prefer exact NSE scrip match
+    for it in items:
+        if (it.get("entity_type") == "Stocks"
+            and (it.get("nse_scrip_code") or "").upper() == sym_u):
+            return {
+                "nse_symbol": sym_u,
+                "slug": it.get("search_id") or it.get("id"),
+                "isin": it.get("isin") or "",
+                "name": it.get("title") or it.get("company_short_name") or sym_u,
+                "industry": None,
+            }
+    return None
+
+
 async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
     """Refresh fundamentals for the user's currently-held equities only.
-    Called on-demand during portfolio creation/refresh."""
+    Strategy:
+      1. Try Nifty 100 path (fast — one call to fetch_nifty_100_constituents).
+      2. For symbols not in Nifty 100, fall back to `search_groww_by_symbol`
+         to resolve slug, then scrape + persist inline.
+    """
     from deps import db
+    from services import pg_client
     cursor = db.holdings.find(
         {"user_id": user_id, "asset_type": "equity"},
         {"_id": 0, "nse_symbol": 1},
@@ -701,4 +741,62 @@ async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
             symbols.append(s.upper())
     if not symbols:
         return {"ok": True, "total": 0, "note": "No equity holdings"}
-    return await refresh_nifty_100(symbols_subset=symbols)
+
+    start = datetime.now(timezone.utc)
+    # Phase 1: Nifty 100 path
+    nifty_result = await refresh_nifty_100(symbols_subset=symbols)
+    scored_syms = set(nifty_result.get("succeeded_symbols") or []) if isinstance(nifty_result, dict) else set()
+    # refresh_nifty_100 doesn't return succeeded_symbols by default — re-derive.
+    # We treat any symbol missing from stock_master after phase 1 as "needs search".
+    pool = await pg_client.get_pool()
+    already: set[str] = set()
+    if pool is not None:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT nse_symbol FROM stock_master WHERE nse_symbol = ANY($1::text[])",
+                symbols,
+            )
+        already = {r["nse_symbol"] for r in rows}
+    missing = [s for s in symbols if s not in already]
+
+    # Phase 2: search-resolve missing symbols + scrape
+    extra_succeeded: List[str] = []
+    extra_failed: List[Dict[str, str]] = []
+    if missing and pool is not None:
+        async with aiohttp.ClientSession() as session:
+            sem = asyncio.Semaphore(CONCURRENCY)
+
+            async def _search_worker(sym: str):
+                async with sem:
+                    try:
+                        con = await search_groww_by_symbol(sym, session)
+                        if not con or not con.get("slug"):
+                            extra_failed.append({"symbol": sym, "reason": "groww_search_miss"})
+                            return
+                        raw = await fetch_stock_details(con["slug"], session)
+                        if not raw:
+                            extra_failed.append({"symbol": sym, "reason": "scrape_empty"})
+                            return
+                        prim = map_to_primitives(raw)
+                        async with pool.acquire() as conn:
+                            async with conn.transaction():
+                                await upsert_stock_master(conn, con, prim)
+                                await upsert_primitives(conn, sym, prim)
+                                await score_and_persist(conn, sym, prim)
+                        extra_succeeded.append(sym)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"search-scrape {sym} failed: {e}")
+                        extra_failed.append({"symbol": sym, "reason": str(e)[:200]})
+
+            await asyncio.gather(*[_search_worker(s) for s in missing])
+
+    dur = (datetime.now(timezone.utc) - start).total_seconds()
+    return {
+        "ok": True,
+        "total": len(symbols),
+        "nifty_100_covered": len(already),
+        "search_resolved": len(extra_succeeded),
+        "search_failed": len(extra_failed),
+        "search_failed_details": extra_failed[:15],
+        "duration_s": round(dur, 1),
+    }

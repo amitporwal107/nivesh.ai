@@ -55,6 +55,7 @@ const FILTERS = [
   { id: "SWITCH",label: "🔁 Switch" },
   { id: "ADD",   label: "🟢 Add More" },
   { id: "HOLD",  label: "🟡 Hold" },
+  { id: "WEAK",  label: "⚠️ Weak" },
   { id: "UNDERPERFORM", label: "📉 Underperformers" },
   { id: "REGULAR", label: "💸 Regular Plans" },
   { id: "UNSCORED", label: "⚠️ Unscored" },
@@ -73,9 +74,33 @@ const ScorePill = ({ value, inverted = false }) => {
   );
 };
 
+// Star rating (1-5) from composite score. Shown as "Nivesh Rating" on each row.
+const niveshStars = (composite) => {
+  if (composite == null) return null;
+  if (composite >= 80) return 5;
+  if (composite >= 65) return 4;
+  if (composite >= 50) return 3;
+  if (composite >= 35) return 2;
+  return 1;
+};
+
+const StarRating = ({ value, label = "Nivesh Rating", size = "sm" }) => {
+  if (value == null) return null;
+  const px = size === "sm" ? "text-[10px]" : "text-xs";
+  const star = "text-amber-400";
+  const dull = "text-slate-200";
+  return (
+    <span className={`inline-flex items-center gap-0.5 ${px}`} title={`${label}: ${value}/5`} data-testid={`stars-${value}`}>
+      {[1,2,3,4,5].map((n) => (
+        <span key={n} className={n <= value ? star : dull}>★</span>
+      ))}
+    </span>
+  );
+};
+
 // Map each alert.component → a contextual CTA. Returns null when no CTA.
 const resolveAlertCta = (alert, ctx) => {
-  const { triggerRefresh, refreshing, setAssetTab, setFilter } = ctx;
+  const { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, scrollToTable } = ctx;
   const c = (alert.component || "").toLowerCase();
   if (alert.action_hint === "refresh_stock_fundamentals" || c === "data_coverage") {
     return {
@@ -85,10 +110,15 @@ const resolveAlertCta = (alert, ctx) => {
     };
   }
   if (c === "allocation") {
+    // In-place: focus the biggest-weight holdings so user can rebalance.
     return {
-      label: "Rebalance",
+      label: "Show biggest positions",
       icon: Zap,
-      onClick: () => { window.location.hash = "plan_board"; },
+      onClick: () => {
+        setAssetTab("all"); setFilter("all");
+        setSortBy({ key: "value_rs", dir: "desc" });
+        scrollToTable();
+      },
       testid: `cta-alert-allocation`,
     };
   }
@@ -102,25 +132,28 @@ const resolveAlertCta = (alert, ctx) => {
   }
   if (c === "overlap" || c === "health") {
     return {
-      label: "Resolve",
+      label: "Show switches",
       icon: RefreshCw,
-      onClick: () => { setFilter("SWITCH"); setAssetTab("mutual_fund"); },
+      onClick: () => { setFilter("SWITCH"); setAssetTab("mutual_fund"); scrollToTable(); },
       testid: `cta-alert-${c}`,
     };
   }
   if (c === "diversification") {
+    // In-place: filter to weakest scored holdings so user can review what's concentrated.
     return {
-      label: "Review holdings",
+      label: "Show weak holdings",
       icon: Zap,
-      onClick: () => { window.location.hash = "plan_board"; },
+      onClick: () => {
+        setAssetTab("all"); setFilter("WEAK"); scrollToTable();
+      },
       testid: `cta-alert-diversification`,
     };
   }
   if (c === "cost") {
     return {
-      label: "View switches",
+      label: "Show switches",
       icon: RefreshCw,
-      onClick: () => { setFilter("REGULAR"); setAssetTab("mutual_fund"); },
+      onClick: () => { setFilter("REGULAR"); setAssetTab("mutual_fund"); scrollToTable(); },
       testid: `cta-alert-cost`,
     };
   }
@@ -257,6 +290,10 @@ export default function ActionablePortfolioView() {
   const [sortBy, setSortBy] = useState({ key: "value_rs", dir: "desc" });
   const [switchTarget, setSwitchTarget] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const tableRef = React.useRef(null);
+  const scrollToTable = () => {
+    tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const load = async () => {
     setLoading(true);
@@ -301,6 +338,7 @@ export default function ActionablePortfolioView() {
       if (filter === "UNDERPERFORM") rows = rows.filter(h => (h.pnl_pct || 0) < 0);
       else if (filter === "REGULAR") rows = rows.filter(h => h.is_regular_plan);
       else if (filter === "UNSCORED") rows = rows.filter(h => !h.scores || h.scores.quality == null);
+      else if (filter === "WEAK") rows = rows.filter(h => (h.composite_score || 100) < 50);
       else rows = rows.filter(h => h.action_badge?.action === filter);
     }
     rows = [...rows].sort((a, b) => {
@@ -330,8 +368,36 @@ export default function ActionablePortfolioView() {
   if (!data || !data.holdings.length) return <div className="p-10 text-center text-slate-500">No holdings found. Upload a CAS to begin.</div>;
 
   const t = data.totals || {};
+  const lastRefreshed = new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   return (
     <div className="p-4 sm:p-6 space-y-5" data-testid="actionable-portfolio-view">
+      {/* Page Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2" data-testid="portfolio-header">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Portfolio</h1>
+          <p className="text-[12px] text-slate-500 mt-0.5">
+            {t.count || 0} holdings across {Object.entries(assetCounts).filter(([k,v]) => k !== "all" && v > 0).length} asset classes
+            <span className="mx-1.5 text-slate-300">·</span>
+            Last refreshed {lastRefreshed}
+            <span className="mx-1.5 text-slate-300">·</span>
+            <span className={(data.coverage_pct || 0) >= 80 ? "text-emerald-600" : "text-amber-600"}>{fmtPct(data.coverage_pct)} scored</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={triggerRefresh} disabled={refreshing} data-testid="header-refresh-scores">
+            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Scoring…" : "Refresh scores"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => exportCSV(filtered)} data-testid="header-export-csv">
+            <Download className="w-3.5 h-3.5 mr-1" />Export
+          </Button>
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} data-testid="header-reload">
+            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
+            Reload
+          </Button>
+        </div>
+      </div>
+
       {/* Hero totals */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <Card><CardContent className="p-4">
@@ -422,7 +488,7 @@ export default function ActionablePortfolioView() {
       {data.alerts?.length > 0 && (
         <div className="space-y-2" data-testid="portfolio-alerts">
           {data.alerts.map((a, i) => {
-            const cta = resolveAlertCta(a, { triggerRefresh, refreshing, setAssetTab, setFilter });
+            const cta = resolveAlertCta(a, { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, scrollToTable });
             return (
               <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                           className={`flex items-start gap-3 p-3 rounded-xl border ${ALERT_TONE[a.severity] || ALERT_TONE.info}`}
@@ -502,7 +568,7 @@ export default function ActionablePortfolioView() {
       </div>
 
       {/* Main table */}
-      <Card>
+      <Card ref={tableRef}>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white shadow-sm border-b-2 border-slate-200">
@@ -527,8 +593,20 @@ export default function ActionablePortfolioView() {
                       data-testid={`row-${h.holding_id}`}>
                     <td className="p-2.5 text-slate-400">{expanded.has(h.holding_id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</td>
                     <td className="p-2.5">
-                      <div className="font-semibold text-slate-900 text-[13px] truncate max-w-xs">{h.name}</div>
-                      <div className="text-[10px] text-slate-400">{h.sector || h.nse_symbol || ""}</div>
+                      <div className="flex items-center gap-2 max-w-xs">
+                        <div className="font-semibold text-slate-900 text-[13px] truncate flex-1">{h.name}</div>
+                        {h.morningstar_rating != null ? (
+                          <StarRating value={h.morningstar_rating} label="Morningstar Rating" />
+                        ) : (
+                          <StarRating value={niveshStars(h.composite_score)} label="Nivesh Rating (composite-derived)" />
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {h.sector || h.nse_symbol || ""}
+                        {h.morningstar_rating == null && h.composite_score != null && (
+                          <span className="ml-1 text-slate-300 italic">· Nivesh Rating</span>
+                        )}
+                      </div>
                       {h.action_badge?.reason && (
                         <div className="text-[10px] text-slate-500 italic mt-0.5 truncate max-w-md"
                              title={h.action_badge.reason}

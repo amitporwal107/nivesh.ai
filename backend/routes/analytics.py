@@ -318,7 +318,13 @@ async def refresh_stock_fundamentals(request: Request):
     """
     user = await get_current_user(request)
     from services import groww_stock_scraper as _gs
+    from services import redis_client as _rc
     result = await _gs.refresh_user_stocks(user["user_id"])
+    # Invalidate the enriched-portfolio cache so the UI gets fresh scores.
+    try:
+        await _rc.cache_del(f"enriched_portfolio:{user['user_id']}")
+    except Exception:  # noqa: BLE001
+        pass
     return result
 
 
