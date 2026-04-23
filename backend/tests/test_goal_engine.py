@@ -216,3 +216,106 @@ def test_evaluate_goal_allocation_override_respected():
     )
     # 100% debt should produce the debt-only return
     assert ev.expected_return_pct == 6.5
+
+
+
+# ── Required-return solver ──────────────────────────────────────────────
+def test_solve_required_return_reaches_zero_when_already_overfunded():
+    r = ge.solve_required_return(
+        future_target_rs=50_00_000, starting_corpus_rs=0,
+        monthly_sip_rs=1_00_000, years=20,
+    )
+    assert r == 0.0
+
+
+def test_solve_required_return_clamps_at_40_when_unreachable():
+    r = ge.solve_required_return(
+        future_target_rs=1_00_00_000, starting_corpus_rs=0,
+        monthly_sip_rs=1, years=1,
+    )
+    assert r == 40.0
+
+
+def test_solve_required_return_matches_project_corpus_inverse():
+    fv = ge.project_corpus_fixed(
+        starting_corpus_rs=5_00_000, monthly_sip_rs=25_000, years=10,
+        annual_return_pct=12.0,
+    )
+    r = ge.solve_required_return(
+        future_target_rs=fv, starting_corpus_rs=5_00_000,
+        monthly_sip_rs=25_000, years=10,
+    )
+    assert abs(r - 12.0) < 0.05
+
+
+# ── Feasibility + Goal Health ───────────────────────────────────────────
+def test_classify_feasibility_thresholds():
+    assert ge.classify_feasibility(9.0, 10.0) == "ok"
+    assert ge.classify_feasibility(12.0, 10.0) == "stretch"
+    assert ge.classify_feasibility(17.0, 10.0) == "unrealistic"
+    assert ge.classify_feasibility(20.0, 10.0) == "unrealistic"
+
+
+def test_classify_goal_health_covers_all_bands():
+    assert ge.classify_goal_health(30.0, 20.0) == "critical"
+    assert ge.classify_goal_health(60.0, 55.0) == "at_risk"
+    assert ge.classify_goal_health(90.0, 85.0) == "on_track"
+    assert ge.classify_goal_health(100.0, 100.0) == "ahead"
+    assert ge.classify_goal_health(90.0, None) == "on_track"
+
+
+# ── Why-behind diagnostic ───────────────────────────────────────────────
+def test_why_behind_returns_empty_when_on_track():
+    reasons = ge.build_why_behind(
+        required_sip_rs=1_00_000, actual_sip_rs=1_00_000,
+        required_return_pct=9.0, expected_return_pct=10.0,
+        horizon_years=15, on_track_pct=100.0,
+    )
+    assert reasons == []
+
+
+def test_why_behind_flags_sip_gap_and_return_gap():
+    reasons = ge.build_why_behind(
+        required_sip_rs=3_00_000, actual_sip_rs=1_00_000,
+        required_return_pct=15.0, expected_return_pct=10.0,
+        horizon_years=20, on_track_pct=50.0,
+    )
+    codes = {r["code"] for r in reasons}
+    assert "sip_gap" in codes and "return_gap" in codes
+    sip = next(r for r in reasons if r["code"] == "sip_gap")
+    assert sip["severity"] == "high"
+
+
+# ── Recovery paths ──────────────────────────────────────────────────────
+def test_recovery_paths_returns_three_options_for_underfunded_goal():
+    ev = ge.evaluate_goal(
+        target_today_rs=3_00_00_000, horizon_years=8,
+        starting_corpus_rs=5_00_000, monthly_sip_rs=1_67_000,
+        risk_profile="moderate", n_mc_runs=300,
+    )
+    ids = [p["id"] for p in ev.recovery_paths]
+    assert "increase_sip" in ids
+    assert "extend_horizon" in ids
+    assert "increase_risk" in ids
+    for p in ev.recovery_paths:
+        assert "on_track_pct" in p and "prob_success_pct" in p
+        assert "apply" in p and "tweak_label" in p
+
+
+def test_recovery_paths_empty_when_already_on_track():
+    ev = ge.evaluate_goal(
+        target_today_rs=20_00_000, horizon_years=20,
+        starting_corpus_rs=0, monthly_sip_rs=10_000,
+        risk_profile="moderate", n_mc_runs=300,
+    )
+    assert ev.recovery_paths == []
+
+
+def test_recovery_paths_skips_risk_option_when_already_aggressive():
+    ev = ge.evaluate_goal(
+        target_today_rs=3_00_00_000, horizon_years=8,
+        starting_corpus_rs=5_00_000, monthly_sip_rs=1_67_000,
+        risk_profile="aggressive", n_mc_runs=300,
+    )
+    ids = [p["id"] for p in ev.recovery_paths]
+    assert "increase_risk" not in ids

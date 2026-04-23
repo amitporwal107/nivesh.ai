@@ -307,6 +307,188 @@ def recommend_actions(
     return actions
 
 
+# ── 12.1 Required-return solver (bisect) ─────────────────────────────────
+def solve_required_return(
+    *,
+    future_target_rs: float,
+    starting_corpus_rs: float,
+    monthly_sip_rs: float,
+    years: float,
+) -> float:
+    """Return the annual-return % at which the projected corpus exactly hits
+    `future_target_rs` given the current SIP + horizon. Used to surface the
+    'you need 14.2% returns' insight next to the expected return.
+
+    Uses a bounded bisection over [0%, 40%] — monotonic in r so convergence
+    is guaranteed. If target is already reachable at 0%, returns 0.
+    If unreachable even at 40%, returns 40.0 (flagged 'unrealistic' upstream).
+    """
+    if future_target_rs <= 0 or years <= 0:
+        return 0.0
+    lo, hi = 0.0, 40.0
+    if project_corpus_fixed(starting_corpus_rs, monthly_sip_rs, years, lo) >= future_target_rs:
+        return 0.0
+    if project_corpus_fixed(starting_corpus_rs, monthly_sip_rs, years, hi) < future_target_rs:
+        return 40.0
+    for _ in range(40):   # ~1e-9 precision
+        mid = (lo + hi) / 2
+        projected = project_corpus_fixed(starting_corpus_rs, monthly_sip_rs, years, mid)
+        if projected >= future_target_rs:
+            hi = mid
+        else:
+            lo = mid
+    return round((lo + hi) / 2, 2)
+
+
+def classify_feasibility(required_return_pct: float, expected_return_pct: float) -> str:
+    """How realistic is the required return given the chosen allocation?"""
+    gap = required_return_pct - expected_return_pct
+    if required_return_pct >= 18 or gap >= 6:
+        return "unrealistic"
+    if gap >= 2:
+        return "stretch"
+    return "ok"
+
+
+def classify_goal_health(on_track_pct: float, prob_success_pct: Optional[float]) -> str:
+    """Combine fixed-return on_track % and MC probability into a single label."""
+    signal = min(on_track_pct, prob_success_pct) if prob_success_pct is not None else on_track_pct
+    if signal < 40:
+        return "critical"
+    if signal < 70:
+        return "at_risk"
+    if signal < 100:
+        return "on_track"
+    return "ahead"
+
+
+def build_why_behind(
+    *,
+    required_sip_rs: float,
+    actual_sip_rs: float,
+    required_return_pct: float,
+    expected_return_pct: float,
+    horizon_years: float,
+    on_track_pct: float,
+) -> List[Dict[str, Any]]:
+    """Rule-based reasons the plan is behind. Each reason has a machine-
+    readable code + human-readable text so the UI can render with icons."""
+    reasons: List[Dict[str, Any]] = []
+    if on_track_pct >= 100:
+        return reasons
+    gap_sip = required_sip_rs - actual_sip_rs
+    if gap_sip > 100:
+        pct_short = (gap_sip / required_sip_rs * 100) if required_sip_rs else 0
+        reasons.append({
+            "code": "sip_gap",
+            "label": "Current SIP too low",
+            "detail": (f"You're investing ₹{round(actual_sip_rs):,}/month but need "
+                       f"₹{round(required_sip_rs):,}/month — a gap of "
+                       f"₹{round(gap_sip):,} ({pct_short:.0f}% short)."),
+            "severity": "high" if pct_short > 40 else "medium",
+        })
+    gap_ret = required_return_pct - expected_return_pct
+    if gap_ret > 1.0:
+        reasons.append({
+            "code": "return_gap",
+            "label": "Expected return mismatch",
+            "detail": (f"Your plan needs {required_return_pct:.1f}% returns but the "
+                       f"current allocation is expected to earn only {expected_return_pct:.1f}% "
+                       f"(gap {gap_ret:+.1f} pp). A more aggressive allocation can close some of this."),
+            "severity": "high" if gap_ret > 4 else "medium",
+        })
+    if horizon_years < MIN_EQUITY_HORIZON_YEARS:
+        reasons.append({
+            "code": "short_horizon",
+            "label": "Short horizon limits compounding",
+            "detail": (f"With only {horizon_years:.1f} years left, compounding has "
+                       "little time to work. Equity allocation is capped at 40% "
+                       "for safety, which also lowers expected return."),
+            "severity": "medium",
+        })
+    return reasons
+
+
+def build_recovery_paths(
+    *,
+    target_today_rs: float,
+    horizon_years: float,
+    starting_corpus_rs: float,
+    monthly_sip_rs: float,
+    risk_profile: str,
+    inflation_pct: float,
+    required_sip_rs: float,
+    on_track_pct: float,
+    n_mc_runs: int,
+) -> List[Dict[str, Any]]:
+    """Re-run the sim under three tweaks and return success-% deltas so the
+    UI can offer side-by-side "what if you do X" cards."""
+    paths: List[Dict[str, Any]] = []
+    if on_track_pct >= 100:
+        return paths
+
+    def _quick_sim(*, sip: float, years: float, alloc: Dict[str, float]) -> Dict[str, Any]:
+        fv = inflate_target(target_today_rs, years, inflation_pct)
+        stats = blend_return_vol(alloc)
+        mu = stats["annual_return_pct"]
+        projected = project_corpus_fixed(starting_corpus_rs, sip, years, mu)
+        on_track = round(min(100.0, (projected / fv * 100) if fv > 0 else 0), 1)
+        mc = monte_carlo_success(
+            starting_corpus_rs=starting_corpus_rs, monthly_sip_rs=sip,
+            years=years, allocation=alloc, future_target_rs=fv,
+            n_runs=max(300, n_mc_runs // 3),   # lighter MC for recovery paths
+        )
+        return {
+            "projected_corpus_rs": projected,
+            "on_track_pct": on_track,
+            "prob_success_pct": mc["prob_success_pct"],
+            "expected_return_pct": mu,
+        }
+
+    base_alloc = allocation_for_profile(risk_profile, horizon_years)
+
+    # A. Increase SIP by gap
+    gap_sip = required_sip_rs - monthly_sip_rs
+    if gap_sip > 100:
+        sim_a = _quick_sim(sip=required_sip_rs, years=horizon_years, alloc=base_alloc)
+        paths.append({
+            "id": "increase_sip",
+            "title": "Increase SIP to required level",
+            "tweak_label": f"SIP ₹{round(monthly_sip_rs):,} → ₹{round(required_sip_rs):,}/mo",
+            "delta_text": f"+₹{round(gap_sip):,}/mo",
+            "apply": {"monthly_sip_rs": required_sip_rs},
+            **sim_a,
+        })
+
+    # B. Extend horizon by 5 years
+    new_years = horizon_years + 5
+    sim_b = _quick_sim(sip=monthly_sip_rs, years=new_years,
+                       alloc=allocation_for_profile(risk_profile, new_years))
+    paths.append({
+        "id": "extend_horizon",
+        "title": "Extend goal by 5 years",
+        "tweak_label": f"Horizon {horizon_years:.0f}y → {new_years:.0f}y",
+        "delta_text": "+5 years",
+        "apply": {"horizon_years": new_years},
+        **sim_b,
+    })
+
+    # C. Shift to aggressive allocation
+    if risk_profile.lower() != "aggressive" and horizon_years >= MIN_EQUITY_HORIZON_YEARS:
+        aggr = allocation_for_profile("aggressive", horizon_years)
+        sim_c = _quick_sim(sip=monthly_sip_rs, years=horizon_years, alloc=aggr)
+        paths.append({
+            "id": "increase_risk",
+            "title": "Shift to aggressive allocation",
+            "tweak_label": f"Equity {base_alloc.get('equity', 0):.0f}% → {aggr.get('equity', 0):.0f}%",
+            "delta_text": f"+{aggr.get('equity', 0) - base_alloc.get('equity', 0):.0f}pp equity",
+            "apply": {"allocation_override": aggr},
+            **sim_c,
+        })
+
+    return paths
+
+
 # ── 12. One-shot evaluator ───────────────────────────────────────────────
 @dataclass
 class GoalEvaluation:
@@ -314,10 +496,16 @@ class GoalEvaluation:
     expected_return_pct: float
     expected_vol_pct: float
     required_sip_rs: float
+    required_return_pct: float
     projected_corpus_rs: float
+    shortfall_rs: float
     on_track_pct: float
-    scenarios: Dict[str, Dict[str, Any]]
-    monte_carlo: Dict[str, Any]
+    feasibility: str                    # ok | stretch | unrealistic
+    goal_health: str                    # critical | at_risk | on_track | ahead
+    why_behind: List[Dict[str, Any]] = field(default_factory=list)
+    recovery_paths: List[Dict[str, Any]] = field(default_factory=list)
+    scenarios: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    monte_carlo: Dict[str, Any] = field(default_factory=dict)
     actions: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -326,8 +514,14 @@ class GoalEvaluation:
             "expected_return_pct": self.expected_return_pct,
             "expected_vol_pct": self.expected_vol_pct,
             "required_sip_rs": self.required_sip_rs,
+            "required_return_pct": self.required_return_pct,
             "projected_corpus_rs": self.projected_corpus_rs,
+            "shortfall_rs": self.shortfall_rs,
             "on_track_pct": self.on_track_pct,
+            "feasibility": self.feasibility,
+            "goal_health": self.goal_health,
+            "why_behind": self.why_behind,
+            "recovery_paths": self.recovery_paths,
             "scenarios": self.scenarios,
             "monte_carlo": self.monte_carlo,
             "actions": self.actions,
@@ -347,14 +541,19 @@ def evaluate_goal(
 ) -> GoalEvaluation:
     """One-shot goal evaluation: inflate target → allocate → required SIP →
     project corpus under fixed return → scenario matrix → Monte-Carlo →
-    action recommendations."""
+    action recommendations → why-behind + recovery paths."""
     fv = inflate_target(target_today_rs, horizon_years, inflation_pct)
     alloc = allocation_override or allocation_for_profile(risk_profile, horizon_years)
     stats = blend_return_vol(alloc)
     mu = stats["annual_return_pct"]
     sigma = stats["annual_vol_pct"]
     req_sip = required_sip(fv, horizon_years, mu, starting_corpus_rs)
+    req_return = solve_required_return(
+        future_target_rs=fv, starting_corpus_rs=starting_corpus_rs,
+        monthly_sip_rs=monthly_sip_rs, years=horizon_years,
+    )
     projected = project_corpus_fixed(starting_corpus_rs, monthly_sip_rs, horizon_years, mu)
+    shortfall = round(max(0.0, fv - projected), 2)
     on_track = round(min(100.0, (projected / fv * 100) if fv > 0 else 0), 1)
     scenarios = scenario_matrix(
         starting_corpus_rs=starting_corpus_rs, monthly_sip_rs=monthly_sip_rs,
@@ -365,6 +564,19 @@ def evaluate_goal(
         years=horizon_years, allocation=alloc, future_target_rs=fv,
         n_runs=n_mc_runs,
     )
+    feasibility = classify_feasibility(req_return, mu)
+    health = classify_goal_health(on_track, mc.get("prob_success_pct"))
+    why = build_why_behind(
+        required_sip_rs=req_sip, actual_sip_rs=monthly_sip_rs,
+        required_return_pct=req_return, expected_return_pct=mu,
+        horizon_years=horizon_years, on_track_pct=on_track,
+    )
+    recovery = build_recovery_paths(
+        target_today_rs=target_today_rs, horizon_years=horizon_years,
+        starting_corpus_rs=starting_corpus_rs, monthly_sip_rs=monthly_sip_rs,
+        risk_profile=risk_profile, inflation_pct=inflation_pct,
+        required_sip_rs=req_sip, on_track_pct=on_track, n_mc_runs=n_mc_runs,
+    )
     actions = recommend_actions(
         on_track_pct=on_track, required_sip_rs=req_sip, actual_sip_rs=monthly_sip_rs,
         allocation=alloc, risk_profile=risk_profile, horizon_years=horizon_years,
@@ -374,8 +586,14 @@ def evaluate_goal(
         expected_return_pct=mu,
         expected_vol_pct=sigma,
         required_sip_rs=req_sip,
+        required_return_pct=req_return,
         projected_corpus_rs=projected,
+        shortfall_rs=shortfall,
         on_track_pct=on_track,
+        feasibility=feasibility,
+        goal_health=health,
+        why_behind=why,
+        recovery_paths=recovery,
         scenarios=scenarios,
         monte_carlo=mc,
         actions=[{"kind": a.kind, "title": a.title, "detail": a.detail,
