@@ -79,13 +79,22 @@ PURPOSES: Dict[str, Dict[str, str]] = {
 
 
 async def current_for_user(user_id: str) -> Dict[str, Dict[str, Any]]:
-    """Return the latest consent row per purpose (None if never granted)."""
+    """Return the latest consent row per purpose (None if never granted).
+    Uses `event_ts` (or coalesced granted_at/withdrawn_at for legacy rows)
+    so grants and withdrawals order correctly in a single pass."""
     from deps import db
     out: Dict[str, Dict[str, Any]] = {}
-    cursor = db.consent_records.find(
-        {"user_id": user_id}, {"_id": 0},
-    ).sort("granted_at", -1)
-    async for row in cursor:
+    rows: list[tuple[str, Dict[str, Any]]] = []
+    async for row in db.consent_records.find({"user_id": user_id}, {"_id": 0}):
+        ts = (
+            row.get("event_ts")
+            or row.get("withdrawn_at")
+            or row.get("granted_at")
+            or ""
+        )
+        rows.append((ts, row))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    for _ts, row in rows:
         p = row.get("purpose")
         if p and p not in out:
             out[p] = row
@@ -103,14 +112,16 @@ async def grant(
     """Record a consent grant (or re-grant after withdrawal). Immutable row."""
     if purpose not in PURPOSES:
         raise ValueError(f"unknown_purpose:{purpose}")
+    now_iso = datetime.now(timezone.utc).isoformat()
     entry = {
         "consent_id": f"cns_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
         "purpose": purpose,
         "version": CURRENT_VERSION,
         "status": "granted",
-        "granted_at": datetime.now(timezone.utc).isoformat(),
+        "granted_at": now_iso,
         "withdrawn_at": None,
+        "event_ts": now_iso,
         "ip": (ip or "")[:64],
         "ua": (ua or "")[:200],
         "notes": notes,
@@ -141,6 +152,7 @@ async def withdraw(
         raise ValueError(f"unknown_purpose:{purpose}")
     if PURPOSES[purpose].get("required") == "true":
         raise ValueError(f"cannot_withdraw_required:{purpose}")
+    now_iso = datetime.now(timezone.utc).isoformat()
     entry = {
         "consent_id": f"cns_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
@@ -148,7 +160,8 @@ async def withdraw(
         "version": CURRENT_VERSION,
         "status": "withdrawn",
         "granted_at": None,
-        "withdrawn_at": datetime.now(timezone.utc).isoformat(),
+        "withdrawn_at": now_iso,
+        "event_ts": now_iso,
         "ip": (ip or "")[:64],
         "ua": (ua or "")[:200],
     }

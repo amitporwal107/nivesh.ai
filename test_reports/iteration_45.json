@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 45 retest (fix-validation for iteration 44 CRITICAL consent-withdraw read bug, + frontend regression now that preview is awake). Backend: 13/13 pytest pass (10 regression + 3 new). The consent grant/withdraw/regrant cycle on partner_sharing now returns the correct latest status on every read; event_ts is populated on both paths; the COALESCE(granted_at, withdrawn_at) fallback correctly handles pre-fix legacy rows. Immutable ledger verified (N+1 rows after each event). Frontend: actionable-portfolio-view, cat-rank pills (#N/M format, hover titles, colour-map thresholds), star-rating (stars-N testid), filter-WEAK, CSV export, cta-alert-diversification→filter-WEAK, portfolio-header, impact-strip, asset-tabs, action badges (64), inline switches (7), refresh scores — all working. Minor: one MF cat-rank title falls back to 'in category' because that holding has no `category` field from backend.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ActionablePortfolioView → cat-rank pill title", "issues": ["One observed holding's tooltip reads 'Rank 11 of 14 in category (by V3 Quality)' (fallback string) instead of the actual category name — root cause: backend did not populate `category` on that MF's holdings-enriched payload. Not a UI bug per-se, but surfaces a data-hygiene gap in services/portfolio_enrichment.py for the affected fund."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration44_compliance.py",
+    "/app/test_reports/pytest/iteration_45.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Backfill or guarantee non-null `category` on every MF holdings-enriched row so the cat-rank pill tooltip never falls back to the literal 'category'. Check services/portfolio_enrichment.py category lookup path."
+  ],
+  "critical_code_review_comments": [
+    "services/consents.py::current_for_user — fix verified: now sorts in Python by `event_ts or withdrawn_at or granted_at or ''`, DESC. Robust to both new rows (event_ts present) and legacy rows (fall back to coalesced timestamp). Withdraw path writes event_ts=withdrawn_at; grant writes event_ts=granted_at. Ledger stays immutable (new row per event).",
+    "ActionablePortfolioView.js cat-rank colour-map verified against spec. Uses Math.ceil thresholds: rank<=ceil(total*0.1)=emerald, <=ceil(total*0.25)=lime, <=ceil(total*0.5)=amber, else rose. Observed: #17/17→rose✓, #11/14→rose✓, #2/5→lime (correct because ceil(5*0.25)=2).",
+    "StarRating testid is `stars-{value}` (0..5), not `star-rating-*` — main agent naming is consistent inside the component. Confirmed 8 star elements rendered on portfolio table for MF rows.",
+    "Console warnings on page load: 'DialogContent requires a DialogTitle' and 'Missing Description or aria-describedby' from shadcn Dialog — a11y nit, not a functional blocker. Likely in ActionPlanManager or a similar modal — consider wrapping with VisuallyHidden DialogTitle.",
+    "CSV export downloads `nivesh_portfolio_2026-04-23.csv` correctly. cta-alert-diversification properly toggles filter-WEAK active (bg-slate-900 text-white)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration44_compliance.py (+TestConsentWithdrawFix class: 3 new tests for fix-validation)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (all tested selectors + flows)"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com)",
+  "seed_data_creation": "TestConsentWithdrawFix inserts real grant/withdraw rows for priyanka on partner_sharing & marketing_comms (immutable ledger, expected to accumulate). test_legacy_row_coalesce_fallback temporarily purges priyanka's scraping_fetch rows, inserts 2 legacy-shaped rows, runs the assertion, then purges seed rows AND restores the saved originals — net-zero state on this purpose.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 44's CRITICAL consent-withdraw read bug is FIXED and verified via 3 new tests. Minor cosmetic follow-up: one MF row shows 'in category' fallback tooltip — trace to services/portfolio_enrichment.py category field population. Otherwise all portfolio UI regression passes. Priyanka's session token still valid. A11y console warnings from shadcn Dialog components remain (DialogTitle / aria-describedby) — optional polish.",
+  "rca of the issue": "Iteration 44 RCA remains accurate; fix (iteration 45) addresses it correctly. Validation: (1) Live POST/DELETE/POST on partner_sharing now returns granted→withdrawn→granted across 3 consecutive GETs (see test_grant_withdraw_regrant_partner_sharing). (2) Both grant() and withdraw() now write `event_ts` (see test_event_ts_populated_on_both_paths). (3) Legacy rows without `event_ts` are correctly resolved via COALESCE fallback to withdrawn_at/granted_at (see test_legacy_row_coalesce_fallback, seeded through pymongo and asserted via the HTTP API to exercise the real code path)."
+}

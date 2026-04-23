@@ -117,6 +117,117 @@ class TestExport:
         assert "ABCDE1234F" not in str(data)
 
 
+class TestConsentWithdrawFix:
+    """Iteration 45: verify the consent grant/withdraw/regrant read-consistency
+    fix in services/consents.py::current_for_user."""
+
+    @staticmethod
+    def _pym():
+        import os
+        from pymongo import MongoClient
+        mongo_url = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
+        db_name = os.environ.get("DB_NAME") or "nivesh"
+        return MongoClient(mongo_url)[db_name]
+
+    def test_grant_withdraw_regrant_partner_sharing(self):
+        pdb = self._pym()
+        s = _c()
+        s.post(f"{BASE}/api/compliance/consents/data_processing")
+
+        def count_rows():
+            return pdb.consent_records.count_documents(
+                {"user_id": "user_f087c6332922", "purpose": "partner_sharing"}
+            )
+
+        base = count_rows()
+        # Grant 1
+        r1 = s.post(f"{BASE}/api/compliance/consents/partner_sharing"); assert r1.status_code == 200
+        lst = s.get(f"{BASE}/api/compliance/consents").json()["consents"]
+        ps = next(i for i in lst if i["purpose"] == "partner_sharing")
+        assert ps["status"] == "granted", f"expected granted got {ps}"
+        assert count_rows() == base + 1
+
+        # Withdraw → read should immediately flip to withdrawn
+        r2 = s.delete(f"{BASE}/api/compliance/consents/partner_sharing"); assert r2.status_code == 200
+        lst = s.get(f"{BASE}/api/compliance/consents").json()["consents"]
+        ps = next(i for i in lst if i["purpose"] == "partner_sharing")
+        assert ps["status"] == "withdrawn", f"expected withdrawn got {ps}"
+        assert count_rows() == base + 2
+
+        # Regrant → flips back to granted
+        r3 = s.post(f"{BASE}/api/compliance/consents/partner_sharing"); assert r3.status_code == 200
+        lst = s.get(f"{BASE}/api/compliance/consents").json()["consents"]
+        ps = next(i for i in lst if i["purpose"] == "partner_sharing")
+        assert ps["status"] == "granted"
+        assert count_rows() == base + 3
+
+    def test_event_ts_populated_on_both_paths(self):
+        """New rows must carry event_ts on both grant and withdraw."""
+        pdb = self._pym()
+        s = _c()
+        s.post(f"{BASE}/api/compliance/consents/marketing_comms")
+        s.delete(f"{BASE}/api/compliance/consents/marketing_comms")
+
+        rows = list(
+            pdb.consent_records.find(
+                {"user_id": "user_f087c6332922", "purpose": "marketing_comms"},
+                {"_id": 0},
+            ).sort("event_ts", -1).limit(2)
+        )
+        assert len(rows) >= 2
+        for r in rows:
+            assert r.get("event_ts"), f"event_ts missing in row {r}"
+
+    def test_legacy_row_coalesce_fallback(self):
+        """Insert a legacy-shaped row WITHOUT event_ts, ensure reader still
+        picks the right latest status via coalesce(granted_at/withdrawn_at).
+        Uses pymongo seed + API GET to avoid motor event-loop issues."""
+        import uuid
+        pdb = self._pym()
+        s = _c()
+        # Pick a non-required purpose; purge priyanka's rows for it, seed 2
+        # legacy rows (no event_ts), call API, then restore.
+        user_id = "user_f087c6332922"
+        purpose = "scraping_fetch"
+        # Save existing rows to restore afterwards
+        saved = list(pdb.consent_records.find(
+            {"user_id": user_id, "purpose": purpose}
+        ))
+        try:
+            pdb.consent_records.delete_many({"user_id": user_id, "purpose": purpose})
+            # Legacy grant (older) — no event_ts
+            pdb.consent_records.insert_one({
+                "consent_id": f"cns_{uuid.uuid4().hex[:12]}",
+                "user_id": user_id,
+                "purpose": purpose,
+                "version": "1.0",
+                "status": "granted",
+                "granted_at": "2025-01-01T00:00:00+00:00",
+                "withdrawn_at": None,
+            })
+            # Legacy withdraw (newer) — no event_ts
+            pdb.consent_records.insert_one({
+                "consent_id": f"cns_{uuid.uuid4().hex[:12]}",
+                "user_id": user_id,
+                "purpose": purpose,
+                "version": "1.0",
+                "status": "withdrawn",
+                "granted_at": None,
+                "withdrawn_at": "2025-06-01T00:00:00+00:00",
+            })
+            lst = s.get(f"{BASE}/api/compliance/consents").json()["consents"]
+            row = next(i for i in lst if i["purpose"] == purpose)
+            assert row["status"] == "withdrawn", (
+                f"coalesce fallback failed — expected withdrawn, got {row}"
+            )
+        finally:
+            pdb.consent_records.delete_many({"user_id": user_id, "purpose": purpose})
+            if saved:
+                for doc in saved:
+                    doc.pop("_id", None)
+                pdb.consent_records.insert_many(saved)
+
+
 class TestCategoryRank:
     def test_holdings_enriched_has_cat_rank(self):
         r = _c().get(f"{BASE}/api/portfolio/holdings-enriched"); assert r.status_code == 200
