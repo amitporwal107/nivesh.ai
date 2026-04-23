@@ -331,6 +331,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 doNothing={doNothing}
                 fmt={fmt}
                 analytics={deepAnalytics}
+                portfolioHealth={portfolioHealth}
               />
             )
           )}
@@ -512,7 +513,7 @@ const SEVERITY_CONFIG = {
   positive: { color: "#10B981", bg: "bg-emerald-500/10", border: "border-emerald-500/20", label: "Good", icon: Target },
 };
 
-const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analytics }) => {
+const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analytics, portfolioHealth }) => {
   const [expandedInsight, setExpandedInsight] = useState(null);
   const [completedActions, setCompletedActions] = useState({});
   const [simulation, setSimulation] = useState(null);

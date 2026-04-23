@@ -92,9 +92,6 @@ const Dashboard = () => {
     if (user) {
       fetchProfile();
       fetchData();
-      // Show action prompt after 1 second delay
-      const timer = setTimeout(() => setShowActionPrompt(true), 1000);
-      return () => clearTimeout(timer);
     }
   }, [user, loading, navigate, fetchData, fetchProfile]);
 
