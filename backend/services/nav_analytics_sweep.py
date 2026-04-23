@@ -292,6 +292,8 @@ async def pipeline_status() -> Dict[str, Any]:
     last_nav = await _last_nav_cron_summary()
     last_sweep = await _last_success("analytics_sweep")
     last_rescore = await _last_success("v3_rescore")
+    last_nifty100 = await _last_stock_refresh_summary()
+    scrape_queue = await _scrape_queue_summary()
     sched = await _scheduler_snapshot()
     cache_stats = await v3_score_cache.get_stats()
     return {
@@ -299,10 +301,58 @@ async def pipeline_status() -> Dict[str, Any]:
             "nav_cron": last_nav,
             "analytics_sweep": last_sweep,
             "v3_rescore": last_rescore,
+            "nifty100_refresh": last_nifty100,
         },
+        "scrape_queue": scrape_queue,
         "scheduler": sched,
         "redis_cache": cache_stats,
     }
+
+
+async def _last_stock_refresh_summary() -> Optional[Dict[str, Any]]:
+    """Read from stock_refresh_job_log — the latest run of nifty100_refresh
+    (scheduled) or stock_refresh_manual (admin-triggered subset)."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            r = await conn.fetchrow(
+                """
+                SELECT job_name, status, stocks_total, stocks_succeeded,
+                       stocks_failed, duration_ms, error_msg,
+                       started_at, finished_at
+                FROM stock_refresh_job_log
+                ORDER BY started_at DESC LIMIT 1
+                """
+            )
+    except Exception:  # noqa: BLE001 — table may not exist pre-migration
+        return None
+    if not r:
+        return None
+    d = dict(r)
+    # Normalize to the shape the frontend expects (mirror analytics_sweep keys)
+    d["funds_total"] = d.pop("stocks_total", None)
+    d["funds_processed"] = d.pop("stocks_succeeded", None)
+    d["funds_failed"] = d.pop("stocks_failed", None)
+    for k in ("started_at", "finished_at"):
+        if d.get(k):
+            d[k] = d[k].isoformat()
+    return d
+
+
+async def _scrape_queue_summary() -> Dict[str, int]:
+    """Count MF holdings scrape queue by status."""
+    try:
+        from deps import db
+        pipeline = [{"$group": {"_id": "$status", "n": {"$sum": 1}}}]
+        out = {"queued": 0, "done": 0, "failed": 0}
+        async for row in db.scrape_queue.aggregate(pipeline):
+            key = row.get("_id") or "queued"
+            out[key] = int(row.get("n", 0))
+        return out
+    except Exception:  # noqa: BLE001
+        return {"queued": 0, "done": 0, "failed": 0}
 
 
 async def _last_nav_cron_summary() -> Optional[Dict[str, Any]]:

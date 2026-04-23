@@ -3,7 +3,9 @@
 Endpoints:
   GET  /api/admin/data-pipeline/status         — current status of all jobs
   GET  /api/admin/data-pipeline/logs           — recent job-log rows
-  POST /api/admin/data-pipeline/trigger/{job}  — manual retrigger (nav_cron|analytics_sweep|v3_rescore)
+  POST /api/admin/data-pipeline/trigger/{job}  — manual retrigger
+       supported jobs: nav_cron | analytics_sweep | v3_rescore |
+                       nifty100_refresh | stale_refresh | drain_queue
   POST /api/admin/data-pipeline/cache/invalidate — nuke V3 Redis cache
 """
 from __future__ import annotations
@@ -30,12 +32,14 @@ async def get_pipeline_status(request: Request) -> Dict[str, Any]:
 @router.get("/logs")
 async def get_pipeline_logs(
     request: Request,
-    job: str = Query(None, description="Filter by job name: nav_cron | analytics_sweep | v3_rescore"),
+    job: str = Query(None, description="Filter by job: nav_cron | analytics_sweep | v3_rescore | nifty100_refresh"),
     limit: int = Query(30, ge=1, le=200),
 ) -> Dict[str, Any]:
     """Recent job-log rows for the admin monitoring table."""
     await require_admin(request)
-    # `nav_cron` rows live in amfi_nav_fetch_log; the rest in nav_analytics_job_log.
+    # `nav_cron` rows live in amfi_nav_fetch_log; `nifty100_refresh` /
+    # `stock_refresh_manual` live in stock_refresh_job_log; the rest in
+    # nav_analytics_job_log.
     if job == "nav_cron":
         from services import pg_client
         pool = await pg_client.get_pool()
@@ -53,6 +57,37 @@ async def get_pipeline_logs(
                 """,
                 limit,
             )
+        out = []
+        for r in rows:
+            d = dict(r)
+            for k in ("started_at", "finished_at"):
+                if d.get(k):
+                    d[k] = d[k].isoformat()
+            out.append(d)
+        return {"logs": out}
+    if job == "nifty100_refresh":
+        from services import pg_client
+        pool = await pg_client.get_pool()
+        if pool is None:
+            return {"logs": []}
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, job_name, status,
+                           stocks_total AS funds_total,
+                           stocks_succeeded AS funds_processed,
+                           NULL::int AS funds_skipped,
+                           stocks_failed AS funds_failed,
+                           duration_ms, error_msg, started_at, finished_at
+                    FROM stock_refresh_job_log
+                    WHERE job_name IN ('nifty100_refresh', 'stock_refresh_manual')
+                    ORDER BY started_at DESC LIMIT $1
+                    """,
+                    limit,
+                )
+        except Exception:  # noqa: BLE001 — table may not exist
+            return {"logs": []}
         out = []
         for r in rows:
             d = dict(r)
@@ -97,6 +132,15 @@ async def trigger_job(job_name: str, request: Request, background: BackgroundTas
         async def _factory(): await nav_analytics_sweep.run_analytics_sweep()
     elif job_name == "v3_rescore":
         async def _factory(): await nav_analytics_sweep.run_v3_rescore()
+    elif job_name == "nifty100_refresh":
+        from services import groww_stock_scraper as _gs
+        async def _factory(): await _gs.refresh_nifty_100()
+    elif job_name == "stale_refresh":
+        from services import mf_scheduler as _sch
+        async def _factory(): await _sch._stale_refresh_job()
+    elif job_name == "drain_queue":
+        from services import fund_data_resolver as _fdr
+        async def _factory(): await _fdr.drain_queue(max_items=30, force=True)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown job: {job_name}")
 

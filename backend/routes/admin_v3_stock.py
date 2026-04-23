@@ -91,7 +91,8 @@ async def trigger_v3_stock_refresh(request: Request, symbol: Optional[str] = Non
     await require_admin(request)
     from services import groww_stock_scraper as _gs
     subset = [symbol.upper()] if symbol else None
-    result = await _gs.refresh_nifty_100(symbols_subset=subset)
+    job_label = "stock_refresh_manual" if symbol else "nifty100_refresh"
+    result = await _gs.refresh_nifty_100(symbols_subset=subset, job_name=job_label)
     logger.info(f"v3-stock-refresh done: {result.get('succeeded', 0)}/{result.get('total', 0)}")
     return result
 

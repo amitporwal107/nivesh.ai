@@ -171,11 +171,72 @@ export default function DataPipelineMonitor() {
       </div>
 
       {/* Job tiles */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <JobTile name="nav_cron"       label="AMFI NAV cron"     last={jobs.nav_cron}        onTrigger={trigger} triggering={triggering.nav_cron} />
-        <JobTile name="analytics_sweep" label="NAV Analytics sweep" last={jobs.analytics_sweep} onTrigger={trigger} triggering={triggering.analytics_sweep} />
-        <JobTile name="v3_rescore"     label="V3 Composite rescore" last={jobs.v3_rescore}    onTrigger={trigger} triggering={triggering.v3_rescore} />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <JobTile name="nav_cron"          label="AMFI NAV cron"       last={jobs.nav_cron}         onTrigger={trigger} triggering={triggering.nav_cron} />
+        <JobTile name="analytics_sweep"   label="NAV Analytics sweep" last={jobs.analytics_sweep}  onTrigger={trigger} triggering={triggering.analytics_sweep} />
+        <JobTile name="v3_rescore"        label="V3 Composite rescore" last={jobs.v3_rescore}      onTrigger={trigger} triggering={triggering.v3_rescore} />
+        <JobTile name="nifty100_refresh"  label="Nifty 100 stock refresh" last={jobs.nifty100_refresh} onTrigger={trigger} triggering={triggering.nifty100_refresh} />
       </div>
+
+      {/* MF Holdings scrape queue */}
+      <Card className="p-4 dark:bg-slate-900 dark:border-slate-700" data-testid="scrape-queue-card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-slate-500" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+              MF Holdings Scrape Queue
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm" variant="outline"
+              onClick={() => trigger('stale_refresh')}
+              disabled={!!triggering.stale_refresh}
+              data-testid="trigger-stale_refresh"
+              className="h-7 text-xs"
+            >
+              {triggering.stale_refresh ? (
+                <><Activity className="w-3 h-3 mr-1 animate-pulse" /> Queuing…</>
+              ) : (
+                <><Clock className="w-3 h-3 mr-1" /> Re-queue stale (&gt;15d)</>
+              )}
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              onClick={() => trigger('drain_queue')}
+              disabled={!!triggering.drain_queue}
+              data-testid="trigger-drain_queue"
+              className="h-7 text-xs"
+            >
+              {triggering.drain_queue ? (
+                <><Activity className="w-3 h-3 mr-1 animate-pulse" /> Draining…</>
+              ) : (
+                <><Play className="w-3 h-3 mr-1" /> Drain now (force)</>
+              )}
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="rounded-lg bg-amber-50 border border-amber-200 py-2 dark:bg-amber-900/20 dark:border-amber-700/40">
+            <div className="text-xl font-bold text-amber-700 dark:text-amber-400 tabular-nums" data-testid="queue-queued">
+              {status?.scrape_queue?.queued ?? '—'}
+            </div>
+            <div className="text-[10px] uppercase font-semibold text-amber-600 dark:text-amber-500">queued</div>
+          </div>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200 py-2 dark:bg-emerald-900/20 dark:border-emerald-700/40">
+            <div className="text-xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums" data-testid="queue-done">
+              {status?.scrape_queue?.done ?? '—'}
+            </div>
+            <div className="text-[10px] uppercase font-semibold text-emerald-600 dark:text-emerald-500">done</div>
+          </div>
+          <div className="rounded-lg bg-rose-50 border border-rose-200 py-2 dark:bg-rose-900/20 dark:border-rose-700/40">
+            <div className="text-xl font-bold text-rose-700 dark:text-rose-400 tabular-nums" data-testid="queue-failed">
+              {status?.scrape_queue?.failed ?? '—'}
+            </div>
+            <div className="text-[10px] uppercase font-semibold text-rose-600 dark:text-rose-500">failed</div>
+          </div>
+        </div>
+      </Card>
 
       {/* Scheduler + cache */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -230,7 +291,7 @@ export default function DataPipelineMonitor() {
             Recent runs
           </h4>
           <div className="flex gap-1">
-            {['all', 'nav_cron', 'analytics_sweep', 'v3_rescore'].map(f => (
+            {['all', 'nav_cron', 'analytics_sweep', 'v3_rescore', 'nifty100_refresh'].map(f => (
               <button
                 key={f}
                 data-testid={`filter-${f}`}

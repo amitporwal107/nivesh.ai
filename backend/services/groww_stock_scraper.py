@@ -626,62 +626,109 @@ async def score_and_persist(
 
 
 # ── 4. Orchestrator ────────────────────────────────────────────────────
+async def _log_stock_refresh(
+    job_name: str, status: str, total: int, succeeded: int, failed: int,
+    duration_ms: int, error_msg: Optional[str] = None,
+) -> None:
+    """Write an audit row to stock_refresh_job_log. Silent on failure."""
+    from services import pg_client
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO stock_refresh_job_log
+                    (job_name, status, stocks_total, stocks_succeeded,
+                     stocks_failed, duration_ms, error_msg)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """,
+                job_name, status, total, succeeded, failed,
+                duration_ms, error_msg,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"stock_refresh audit write failed: {e}")
+
+
 async def refresh_nifty_100(
     *, symbols_subset: Optional[List[str]] = None,
+    job_name: str = "nifty100_refresh",
 ) -> Dict[str, Any]:
     """Full pipeline: scrape constituents → fundamentals → persist → score.
     If `symbols_subset` is provided, only those symbols are refreshed.
+    `job_name` controls the audit-log row label (e.g. 'stock_refresh_manual'
+    when triggered via the admin UI for a subset).
 
     Returns summary: {total, succeeded, failed, duration_s}.
     """
     from services import pg_client
     start = datetime.now(timezone.utc)
+    t0 = start
 
     pool = await pg_client.get_pool()
     if pool is None:
+        await _log_stock_refresh(job_name, "failed", 0, 0, 0, 0, "Postgres unavailable")
         return {"ok": False, "error": "Postgres unavailable", "duration_s": 0}
 
-    async with aiohttp.ClientSession() as session:
-        constituents = await fetch_nifty_100_constituents(session)
-        if not constituents:
-            return {"ok": False, "error": "No constituents scraped", "duration_s": 0}
+    try:
+        async with aiohttp.ClientSession() as session:
+            constituents = await fetch_nifty_100_constituents(session)
+            if not constituents:
+                dur_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+                await _log_stock_refresh(job_name, "failed", 0, 0, 0, dur_ms, "No constituents scraped")
+                return {"ok": False, "error": "No constituents scraped", "duration_s": 0}
 
-        if symbols_subset:
-            subset = {s.upper() for s in symbols_subset}
-            constituents = [c for c in constituents if c["nse_symbol"] in subset]
+            if symbols_subset:
+                subset = {s.upper() for s in symbols_subset}
+                constituents = [c for c in constituents if c["nse_symbol"] in subset]
 
-        sem = asyncio.Semaphore(CONCURRENCY)
-        succeeded: List[str] = []
-        failed: List[Dict[str, str]] = []
+            sem = asyncio.Semaphore(CONCURRENCY)
+            succeeded: List[str] = []
+            failed: List[Dict[str, str]] = []
 
-        async def _worker(con: Dict[str, Any]):
-            async with sem:
-                try:
-                    raw = await fetch_stock_details(con["slug"], session)
-                    if not raw:
-                        failed.append({"symbol": con["nse_symbol"], "reason": "scrape_empty"})
-                        return
-                    prim = map_to_primitives(raw)
-                    async with pool.acquire() as conn:
-                        async with conn.transaction():
-                            await upsert_stock_master(conn, con, prim)
-                            await upsert_primitives(conn, con["nse_symbol"], prim)
-                            await score_and_persist(conn, con["nse_symbol"], prim)
-                    succeeded.append(con["nse_symbol"])
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"{con['nse_symbol']} refresh failed: {e}")
-                    failed.append({"symbol": con["nse_symbol"], "reason": str(e)[:200]})
+            async def _worker(con: Dict[str, Any]):
+                async with sem:
+                    try:
+                        raw = await fetch_stock_details(con["slug"], session)
+                        if not raw:
+                            failed.append({"symbol": con["nse_symbol"], "reason": "scrape_empty"})
+                            return
+                        prim = map_to_primitives(raw)
+                        async with pool.acquire() as conn:
+                            async with conn.transaction():
+                                await upsert_stock_master(conn, con, prim)
+                                await upsert_primitives(conn, con["nse_symbol"], prim)
+                                await score_and_persist(conn, con["nse_symbol"], prim)
+                        succeeded.append(con["nse_symbol"])
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"{con['nse_symbol']} refresh failed: {e}")
+                        failed.append({"symbol": con["nse_symbol"], "reason": str(e)[:200]})
 
-        await asyncio.gather(*[_worker(c) for c in constituents])
+            await asyncio.gather(*[_worker(c) for c in constituents])
+    except Exception as e:  # noqa: BLE001
+        dur_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+        await _log_stock_refresh(job_name, "failed", 0, 0, 0, dur_ms, str(e)[:500])
+        raise
 
-    dur = (datetime.now(timezone.utc) - start).total_seconds()
+    dur_s = (datetime.now(timezone.utc) - start).total_seconds()
+    dur_ms = int(dur_s * 1000)
+    total = len(constituents)
+    n_ok = len(succeeded)
+    n_fail = len(failed)
+    status = "ok" if n_fail == 0 else ("partial" if n_ok > 0 else "failed")
+    err_msg = None
+    if failed:
+        err_msg = "; ".join(f"{f['symbol']}:{f['reason']}" for f in failed[:5])[:500]
+    await _log_stock_refresh(job_name, status, total, n_ok, n_fail, dur_ms, err_msg)
+
     return {
         "ok": True,
-        "total": len(constituents),
-        "succeeded": len(succeeded),
-        "failed": len(failed),
+        "total": total,
+        "succeeded": n_ok,
+        "failed": n_fail,
         "failed_details": failed[:15],
-        "duration_s": round(dur, 1),
+        "duration_s": round(dur_s, 1),
         "started_at": start.isoformat(),
     }
 
