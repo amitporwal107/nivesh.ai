@@ -2,6 +2,19 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Morningstar Rating end-to-end (Iteration 43)
+
+Full wiring of Morningstar ratings from Moneycontrol → PG → UI:
+
+1. **pg_writer**: `persist_moneycontrol_scrape` now writes `morningstar_rating` (int 1-5) with COALESCE semantics + new `_to_int` helper. Column already existed in `mutual_fund_metadata`.
+2. **v3_integration**: SELECT query + `v3_primitives` surface include `morningstar_rating`.
+3. **portfolio_enrichment**: `mf_scores_by_name` captures rating; per-row payload exposes `morningstar_rating` field (separate from composite — frontend chooses source).
+4. **New endpoint** `POST /api/portfolio/refresh-mf-ratings` — de-dupes user MFs by name and scrapes all unique ones via Moneycontrol, invalidates the enriched-portfolio cache. For priyanka: 19 unique scraped, 15 with rating, 14 successfully propagated to holdings (some name-match misses due to CAS comma formatting).
+5. **Frontend**: `StarRating` auto-picks Morningstar when `morningstar_rating != null`; falls back to Nivesh Rating (composite-derived). Title attribute differentiates source (`Morningstar Rating: N/5` vs `Nivesh Rating (composite-derived): N/5`). Subtitle "· Nivesh Rating" only on fallback rows.
+
+**Testing**: iteration_43 — 5/5 pytest + frontend DOM inspection (100% both). Live confirmed: HDFC Flexi Cap=★5, Axis Small Cap=★5, Parag Parikh Flexi Cap=★5, Nippon Small Cap=★5, ICICI Value=★5, HDFC Balanced Advantage=★5, Sundaram Value=★2. 39 holdings use Nivesh fallback; 14 show real Morningstar.
+
+
 ### Feb 2026 — Portfolio page round 3: cache, header, in-place CTAs, scorer expansion, Nivesh Rating (Iteration 42)
 
 5 more user-reported fixes:
