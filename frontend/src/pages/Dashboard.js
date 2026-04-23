@@ -17,6 +17,8 @@ import OnboardingView from "@/components/OnboardingView";
 import RiskProfileView from "@/components/RiskProfileView";
 import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
+import MfdDashboard from "@/components/mfd/MfdDashboard";
+import { toast } from "sonner";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
 
@@ -53,6 +55,28 @@ const Dashboard = () => {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [showActionPrompt, setShowActionPrompt] = useState(false);
 
+  // MFD workspace state — we fetch on mount so the sidebar knows whether
+  // to show the Advisor tab, and the impersonation banner knows whose
+  // portfolio we're currently viewing.
+  const [workspace, setWorkspace] = useState(null);
+  const [activeProfile, setActiveProfile] = useState(null);
+  const fetchWorkspace = useCallback(async () => {
+    try {
+      const ws = await axios.get(`${API}/mfd/workspace`, { withCredentials: true });
+      setWorkspace(ws.data);
+      if (ws.data?.type === "ADVISORY") {
+        // Pull the profile list to resolve active_profile_id → name for the banner
+        const pr = await axios.get(`${API}/mfd/profiles`, { withCredentials: true });
+        const active = (pr.data?.profiles || []).find((p) => p.profile_id === user?._active_profile_id);
+        setActiveProfile(active || null);
+      }
+    } catch {
+      /* non-advisor users — silent */
+    }
+  }, [user?._active_profile_id]);
+
+  useEffect(() => { if (user) fetchWorkspace(); }, [user, fetchWorkspace]);
+
   const fetchProfile = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/user/profile`, { withCredentials: true });
@@ -83,6 +107,29 @@ const Dashboard = () => {
       setDataLoading(false);
     }
   }, []);
+
+  // When MFD opens a client from the Advisor dashboard, we activate the
+  // profile on the server (impersonation) and then navigate to Overview so
+  // every existing view (portfolio / insights / goals) re-renders against
+  // the client's data. A one-line toast tells the user what happened.
+  const enterProfile = useCallback(async (profile) => {
+    setActiveProfile(profile);
+    await fetchData();
+    setActiveTab("overview");
+  }, [setActiveTab, fetchData]);
+
+  // Exit impersonation — returns the MFD to the client list.
+  const exitProfile = useCallback(async () => {
+    try {
+      await axios.post(`${API}/mfd/profiles/deactivate`, {}, { withCredentials: true });
+      setActiveProfile(null);
+      await fetchData();
+      toast.success("Back to advisor view");
+      setActiveTab("advisor");
+    } catch {
+      toast.error("Could not exit client view");
+    }
+  }, [setActiveTab, fetchData]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -148,6 +195,8 @@ const Dashboard = () => {
         return <GoalsView />;
       case "risk_profile":
         return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
+      case "advisor":
+        return <MfdDashboard onEnterProfile={enterProfile} />;
       case "admin":
         return user?.is_admin ? <AdminView /> : null;
       default:
@@ -157,10 +206,36 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        workspaceType={workspace?.type}
+        activeProfileName={activeProfile?.name}
+      />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
         {/* Top bar with user-profile dropdown */}
-        <div className="sticky top-0 z-30 flex justify-end items-center gap-3 px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
+        <div className="sticky top-0 z-30 flex justify-between items-center gap-3 px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
+          {/* Impersonation strip — visible whenever MFD has activated a client */}
+          {activeProfile ? (
+            <div
+              data-testid="impersonation-strip"
+              className="flex items-center gap-2 rounded-full bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 px-3 py-1.5 text-xs"
+            >
+              <span className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 text-[10px] font-bold">
+                {activeProfile.name?.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="text-indigo-900 dark:text-indigo-200">
+                Viewing <strong>{activeProfile.name}</strong>'s portfolio
+              </span>
+              <button
+                onClick={exitProfile}
+                data-testid="impersonation-exit"
+                className="ml-1 text-indigo-700 dark:text-indigo-300 underline font-semibold hover:text-indigo-900"
+              >
+                Back to clients
+              </button>
+            </div>
+          ) : <div />}
           <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">

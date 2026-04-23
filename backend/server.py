@@ -49,6 +49,7 @@ from routes.intelligence import router as intelligence_router
 from routes.plans import router as plans_router  # V2: Action Plans
 from routes.goals import router as goals_router  # Goal-Based Investment Planning
 from routes.compliance import router as compliance_router  # DPDP Act 2023 compliance
+from routes.mfd import router as mfd_router  # MFD multi-client layer
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -79,6 +80,7 @@ app.include_router(intelligence_router)
 app.include_router(plans_router)  # V2: Action Plans
 app.include_router(goals_router)  # Goal-Based Investment Planning
 app.include_router(compliance_router)  # DPDP: consent / audit / PAN / export
+app.include_router(mfd_router)  # MFD multi-client layer (User → Workspace → Profile)
 
 
 # Root endpoint

@@ -1,21 +1,30 @@
 import React, { useState } from "react";
-import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Menu, X } from "lucide-react";
+import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Users, Menu, X } from "lucide-react";
 
 /**
  * Slim sidebar — primary navigation only.
  * Secondary items (Family, Risk Profile, Admin, Theme, Sign Out) live in
  * `UserProfileDropdown` at the top-right of the page.
+ *
+ * The Advisor entry is shown only when the user is operating an ADVISORY
+ * workspace. `Dashboard.js` passes `workspaceType` down so we can decide.
  */
-const navItems = [
+const BASE_NAV = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "plan_board", label: "Plan Board", icon: TrendingUp, badge: "V2" },
   { id: "portfolio", label: "Portfolio", icon: Briefcase },
   { id: "insights", label: "Insights", icon: Lightbulb },
   { id: "goals", label: "Goals", icon: Target, badge: "NEW" },
 ];
+const MFD_NAV = { id: "advisor", label: "Advisor", icon: Users, badge: "MFD" };
 
-const Sidebar = ({ activeTab, setActiveTab }) => {
+const Sidebar = ({ activeTab, setActiveTab, workspaceType, activeProfileName }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Show Advisor tab whenever the user has an ADVISORY workspace.
+  const navItems = workspaceType === "ADVISORY"
+    ? [MFD_NAV, ...BASE_NAV]
+    : BASE_NAV;
 
   const handleNav = (id) => {
     setActiveTab(id);
@@ -75,7 +84,17 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
         </nav>
 
         <div className="p-4 text-[11px] text-slate-400 dark:text-zinc-600">
-          Use the avatar in the top-right for Family, Risk Profile, Admin &amp; Sign Out.
+          {activeProfileName ? (
+            <div
+              data-testid="sidebar-impersonation-banner"
+              className="rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 p-2.5 text-indigo-800 dark:text-indigo-300"
+            >
+              <div className="text-[10px] uppercase tracking-wider font-bold">Viewing client</div>
+              <div className="text-xs font-semibold truncate">{activeProfileName}</div>
+            </div>
+          ) : (
+            "Use the avatar in the top-right for Family, Risk Profile, Admin & Sign Out."
+          )}
         </div>
       </aside>
     </>
