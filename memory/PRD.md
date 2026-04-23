@@ -2,6 +2,32 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Actionable Portfolio Engine (`/dashboard#portfolio`)
+
+Replaced the legacy Holdings table with a **decision-engine Portfolio page** that fuses V3 fund scores, stock V3 scores, XIRR, portfolio alerts, and same-category switch suggestions into one actionable grid.
+
+**Backend** (`services/portfolio_enrichment.py` + `routes/portfolio.py`):
+- `GET /api/portfolio/holdings-enriched` — per-holding core + V3 scores (quality/health/exit/add) + composite + XIRR + action_badge {EXIT/SWITCH/ADD/HOLD/REVIEW} + portfolio-level alerts + totals (value, invested, P&L, xirr, coverage).
+- Action badge logic: 🔴 EXIT (exit≥70 or rec=EXIT) · 🔁 SWITCH (Regular plan OR high overlap OR rec=SWITCH) · 🟢 ADD (add≥70 AND quality≥65) · 🟡 HOLD (default) · ⚠️ REVIEW (unscored).
+- `GET /api/portfolio/switch-candidates?holding_id={id}` — returns top 3 same-category Direct-plan replacements with `switch_score` breakdown (ΔQuality, cost_gain%, tax_impact, exit_load). Skips the Regular/Direct sibling of the source fund. Name-matches CAS-formatted holdings via a "base key" normaliser that strips Regular/Direct/Plan/Growth/IDCW tokens.
+- Newton-Raphson XIRR solver over per-holding buy → now cashflows + portfolio-level flows.
+- 6-alert framework: allocation drift (>15% over/under), risk profile mismatch, top-3 Portfolio Health risk drivers, unscored-equity count with `action_hint='refresh_stock_fundamentals'`.
+
+**Frontend** (`components/ActionablePortfolioView.js`, 432 LOC):
+- 5 hero tiles: Value · Invested · P&L (% + ₹) · XIRR · Score Coverage.
+- Alerts banner with severity-coloured cards (rose/amber/sky) + inline Refresh-Fundamentals CTA.
+- 8 smart filter pills: All · Exit · Switch · Add · Hold · Underperformers · Regular Plans · Unscored.
+- Table columns: Holding · Type · Qty · CMP · Value · P&L% · XIRR · Composite Score · Action badge; right-aligned monospace numeric columns with green/red colour logic.
+- Row-expand shows score breakdown (Q / H / E / A) with bar-chart fills + reason + tax/cost panel + "Explore switch options" CTA when action=SWITCH.
+- Switch modal (`SwitchPanel`) lists 3 same-category Direct-plan candidates with switch_score, ΔQuality, cost-gain%, exit-load.
+- CSV export (`nivesh_portfolio_YYYY-MM-DD.csv`) with full score + badge columns.
+- Search box filters by name/sector.
+
+**Testing**: iteration_39 — 5/5 backend pytest + full frontend acceptance (100% both). Live-verified on priyanka (64 holdings): XIRR 95.77%, coverage 35.7%, 6 alerts, badge distribution REVIEW=28 · HOLD=21 · SWITCH=7 · ADD=5 · EXIT=3. SwitchPanel for HDFC Small Cap Regular returns Nippon India Small Cap Direct (SS=41), Nippon India Small Cap Growth (SS=41), DSP Small Cap Direct (SS=42).
+
+**Design notes**: Legacy `PortfolioView` still mounted at hash `#portfolio_legacy` as a safety net. Dashboard.js routes `#portfolio` → `ActionablePortfolioView`.
+
+
 ### Feb 2026 — Auto-Enrichment on CAS Upload & Portfolio Refresh
 
 **Wired the on-demand scrapers** so fundamentals + V3 scores are fresh the moment a user's holdings are created or refreshed — no manual trigger needed.
