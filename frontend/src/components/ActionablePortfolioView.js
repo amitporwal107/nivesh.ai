@@ -84,19 +84,41 @@ const niveshStars = (composite) => {
   return 1;
 };
 
-const StarRating = ({ value, label = "Nivesh Rating", size = "sm" }) => {
+const StarRating = ({ value, label = "Nivesh Rating", size = "sm", starColor = "text-amber-400" }) => {
   if (value == null) return null;
   const px = size === "sm" ? "text-[10px]" : "text-xs";
-  const star = "text-amber-400";
   const dull = "text-slate-200";
   return (
     <span className={`inline-flex items-center gap-0.5 ${px}`} title={`${label}: ${value}/5`} data-testid={`stars-${value}`}>
       {[1,2,3,4,5].map((n) => (
-        <span key={n} className={n <= value ? star : dull}>★</span>
+        <span key={n} className={n <= value ? starColor : dull}>★</span>
       ))}
     </span>
   );
 };
+
+// Dual rating pill — shows both Morningstar (if scraped) and Nivesh so users
+// can compare third-party vs internal ratings side by side. When MS is missing
+// we render a muted "—" so the layout stays stable.
+const DualRating = ({ morningstar, nivesh }) => (
+  <span className="inline-flex items-center gap-1.5 flex-shrink-0" data-testid="dual-rating">
+    <span className="inline-flex items-center gap-0.5 text-[9px]"
+          title={morningstar != null ? `Morningstar: ${morningstar}/5` : "Morningstar not yet scraped"}>
+      <span className="text-slate-400 font-semibold mr-0.5">MS</span>
+      {morningstar != null
+        ? <StarRating value={morningstar} label="Morningstar Rating" starColor="text-sky-500" />
+        : <span className="text-slate-300 italic">—</span>}
+    </span>
+    <span className="text-slate-200">·</span>
+    <span className="inline-flex items-center gap-0.5 text-[9px]"
+          title={nivesh != null ? `Nivesh (composite-derived): ${nivesh}/5` : "Not scored yet"}>
+      <span className="text-emerald-600 font-semibold mr-0.5">N</span>
+      {nivesh != null
+        ? <StarRating value={nivesh} label="Nivesh Rating" starColor="text-amber-400" />
+        : <span className="text-slate-300 italic">—</span>}
+    </span>
+  </span>
+);
 
 // Map each alert.component → a contextual CTA. Returns null when no CTA.
 const resolveAlertCta = (alert, ctx) => {
@@ -284,6 +306,7 @@ export default function ActionablePortfolioView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [assetTab, setAssetTab] = useState("all");
+  const [subCategory, setSubCategory] = useState("all");
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState(new Set());
   const [search, setSearch] = useState("");
@@ -315,6 +338,27 @@ export default function ActionablePortfolioView() {
     finally { setRefreshing(false); }
   };
 
+  // Reset sub-category when asset tab changes so chips don't vanish mid-interaction.
+  React.useEffect(() => { setSubCategory("all"); }, [assetTab]);
+
+  // Derive sub-category chips from the CURRENT asset-tab-filtered rows.
+  // Stocks → sector. MF/ETF/Gold → `category` (which now holds sub_category when
+  // v3 sets it, e.g. "Flexi Cap", "Small Cap", "Dynamic Asset Allocation").
+  const subCategoryOptions = useMemo(() => {
+    if (!data || assetTab === "all") return [];
+    const tab = ASSET_TABS.find((t) => t.id === assetTab) || ASSET_TABS[0];
+    const rows = data.holdings.filter(tab.test);
+    const useField = assetTab === "equity" ? "sector" : "category";
+    const counts = {};
+    for (const h of rows) {
+      const key = h[useField] || "Uncategorised";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])  // most-populated first
+      .map(([label, count]) => ({ id: label, label, count }));
+  }, [data, assetTab]);
+
   const assetCounts = useMemo(() => {
     const counts = {};
     if (!data) return counts;
@@ -330,6 +374,10 @@ export default function ActionablePortfolioView() {
     // Asset-type tab first
     const tab = ASSET_TABS.find((t) => t.id === assetTab) || ASSET_TABS[0];
     rows = rows.filter(tab.test);
+    if (subCategory !== "all" && assetTab !== "all") {
+      const useField = assetTab === "equity" ? "sector" : "category";
+      rows = rows.filter((h) => (h[useField] || "Uncategorised") === subCategory);
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       rows = rows.filter(h => (h.name || "").toLowerCase().includes(q) || (h.sector || "").toLowerCase().includes(q));
@@ -349,7 +397,7 @@ export default function ActionablePortfolioView() {
       return sortBy.dir === "asc" ? (A > B ? 1 : -1) : (A > B ? -1 : 1);
     });
     return rows;
-  }, [data, assetTab, filter, search, sortBy]);
+  }, [data, assetTab, subCategory, filter, search, sortBy]);
 
   const toggleExpand = (id) => {
     const next = new Set(expanded);
@@ -540,6 +588,43 @@ export default function ActionablePortfolioView() {
         </div>
       </div>
 
+      {/* Sub-category chips — only visible for a specific asset tab */}
+      {assetTab !== "all" && subCategoryOptions.length > 1 && (
+        <div
+          className="flex items-center gap-1.5 overflow-x-auto pb-1 -mt-1"
+          data-testid="subcat-chips"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex-shrink-0">
+            {assetTab === "equity" ? "Sector" : "Category"}:
+          </span>
+          <button
+            onClick={() => setSubCategory("all")}
+            className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
+              subCategory === "all"
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+            data-testid="subcat-all"
+          >
+            All ({subCategoryOptions.reduce((a, c) => a + c.count, 0)})
+          </button>
+          {subCategoryOptions.map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setSubCategory(o.id)}
+              className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                subCategory === o.id
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+              data-testid={`subcat-${o.id.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              {o.label} <span className={subCategory === o.id ? "text-slate-300" : "text-slate-400"}>({o.count})</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Filters + Search + Export */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -595,17 +680,10 @@ export default function ActionablePortfolioView() {
                     <td className="p-2.5">
                       <div className="flex items-center gap-2 max-w-xs">
                         <div className="font-semibold text-slate-900 text-[13px] truncate flex-1">{h.name}</div>
-                        {h.morningstar_rating != null ? (
-                          <StarRating value={h.morningstar_rating} label="Morningstar Rating" />
-                        ) : (
-                          <StarRating value={niveshStars(h.composite_score)} label="Nivesh Rating (composite-derived)" />
-                        )}
+                        <DualRating morningstar={h.morningstar_rating} nivesh={niveshStars(h.composite_score)} />
                       </div>
                       <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
                         <span>{h.sector || h.nse_symbol || ""}</span>
-                        {h.morningstar_rating == null && h.composite_score != null && (
-                          <span className="text-slate-300 italic">· Nivesh Rating</span>
-                        )}
                         {h.category_rank && h.category_rank_total && h.category_rank_total > 3 && (
                           <span
                             className={`px-1.5 py-0 rounded-sm font-mono text-[9px] font-semibold ${
