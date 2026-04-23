@@ -196,55 +196,55 @@ class AIEngine:
 
     async def analyze_allocation(self, holdings_data: str) -> dict:
         """Analyze company and sector allocation using GPT-4o-mini."""
-        system = """You are a financial portfolio analytics engine.
+        system = """You are a financial portfolio analytics engine for Indian portfolios.
 
-Your job is to compute accurate portfolio exposures across:
-1) Company level
-2) Sector level
+Your job: compute look-through company and sector exposures.
 
-You MUST:
-- Perform deterministic calculations only
-- NEVER guess missing data for direct equity
-- For mutual funds WITHOUT provided holdings, use your knowledge of the fund's typical top holdings and allocation
-- Aggregate exposures across mutual funds (look-through basis) and direct equity holdings
+CRITICAL RULES:
+1. "weight" fields are ALWAYS decimal fractions between 0.0 and 1.0.
+   - Example: 12.5% exposure → weight = 0.125  (NOT 12.5, NOT 0.1250)
+   - All weights in the entire response must sum to ≤ 1.0 within their category.
+2. "company_allocation" and "top_10_companies" must contain ONLY individual
+   COMPANIES (stocks like HDFC Bank, TCS, Infosys).
+   NEVER put mutual fund names, ETF names, or scheme names in company lists.
+   Mutual fund names always contain words like "Fund", "Scheme", "ETF",
+   "Plan", "Growth", "Direct", "IDCW", "Nippon India", "HDFC", "SBI",
+   "ICICI Pru" (when followed by "Fund"), "Aditya Birla", "Kotak".
+3. For mutual funds: do look-through into their underlying stocks.
+   effective_stock_weight = mf_portfolio_weight × estimated_stock_weight_in_fund
+4. For direct equity: use the weight directly.
+5. Aggregate same company exposures across all sources.
+6. All percentages rounded to 4 decimal places.
+7. Use Indian sector names: Financials, IT, Energy, FMCG, Healthcare, Auto,
+   Metals, Telecom, Pharma, Infrastructure, Defence, Cement, Power.
 
-Calculation Logic:
-1) For mutual funds: effective_stock_weight = mf_weight_in_portfolio * stock_weight_in_mf
-2) For direct equity: use weight directly
-3) Aggregate: Sum exposures for same stock across all sources, Sum exposures by sector
+Concentration flags:
+- Flag sector if weight > 0.30 (30%)
+- Flag company if weight > 0.10 (10%)
 
-Additional flags:
-4) Flag if any sector > 30%
-5) Flag if any company > 10%
-6) Identify duplicated exposure via multiple funds
-
-Output constraints:
-- Output STRICT JSON only
-- No explanations outside JSON
-- All percentages rounded to 2 decimals
-- Use Indian market sector classifications (Financials, IT, Energy, FMCG, Healthcare, Auto, Metals, Telecom, etc.)
+Return STRICT JSON only, no text outside JSON.
 
 Schema:
 {
   "company_allocation": [
-    { "name": "Company Name", "weight": 0.00, "sector": "Sector", "sources": ["Fund1", "Direct"] }
+    { "name": "Actual Stock Company Name", "weight": 0.0000, "sector": "Sector", "sources": ["Fund1", "Direct"] }
   ],
   "sector_allocation": [
-    { "sector": "Sector Name", "weight": 0.00 }
+    { "sector": "Sector Name", "weight": 0.0000 }
   ],
   "top_10_companies": [
-    { "name": "Company", "weight": 0.00, "sector": "Sector" }
+    { "name": "Actual Stock Company Name", "weight": 0.0000, "sector": "Sector" }
   ],
   "top_5_sectors": [
-    { "sector": "Sector", "weight": 0.00 }
+    { "sector": "Sector", "weight": 0.0000 }
   ],
   "concentration_flags": [
-    { "type": "sector|company", "name": "Name", "weight": 0.00, "threshold": 0.30, "severity": "high|medium" }
+    { "type": "sector|company", "name": "Name", "weight": 0.0000, "threshold": 0.30, "severity": "high|medium" }
   ],
   "data_quality": {
     "estimated_funds": 0,
     "direct_equity_count": 0,
-    "notes": ""
+    "notes": "Brief note on data quality"
   }
 }"""
 
@@ -261,6 +261,58 @@ Schema:
             )
             text = response.choices[0].message.content
             result = json.loads(text)
+
+            # ── Server-side normalization ───────────────────────────────────
+            # Guard against AI returning percentages instead of fractions.
+            # If any weight > 1.5 across any list, the AI used % format → divide all by 100.
+            all_weights = []
+            for key in ("company_allocation", "sector_allocation",
+                        "top_10_companies", "top_5_sectors", "concentration_flags"):
+                for item in result.get(key) or []:
+                    w = item.get("weight") or item.get("pct") or 0
+                    if w:
+                        all_weights.append(float(w))
+
+            needs_scaling = any(w > 1.5 for w in all_weights)
+
+            def _normalize_weights(lst, key="weight"):
+                if not lst:
+                    return lst
+                for item in lst:
+                    if key in item:
+                        item[key] = round(float(item[key]) / 100, 6)
+                return lst
+
+            if needs_scaling:
+                logger.warning("AI returned percentage weights — dividing by 100")
+                for key in ("company_allocation", "sector_allocation",
+                            "top_10_companies", "top_5_sectors"):
+                    result[key] = _normalize_weights(result.get(key) or [])
+                for flag in result.get("concentration_flags") or []:
+                    if "weight" in flag:
+                        flag["weight"] = round(float(flag["weight"]) / 100, 6)
+
+            # ── Filter MF names out of company lists ────────────────────────
+            _MF_KEYWORDS = {
+                "fund", "scheme", "etf", "plan", "growth", "idcw",
+                "direct", "regular", "sip", "nifty", "sensex",
+            }
+
+            def _is_mf_name(name: str) -> bool:
+                words = set(name.lower().split())
+                return bool(words & _MF_KEYWORDS)
+
+            for key in ("company_allocation", "top_10_companies"):
+                original = result.get(key) or []
+                filtered = [c for c in original if not _is_mf_name(c.get("name", ""))]
+                result[key] = filtered
+
+            # Also filter MF names from concentration_flags (company type)
+            result["concentration_flags"] = [
+                f for f in (result.get("concentration_flags") or [])
+                if not (f.get("type") == "company" and _is_mf_name(f.get("name", "")))
+            ]
+
             return result
         except json.JSONDecodeError:
             logger.error("Allocation analysis returned non-JSON")
