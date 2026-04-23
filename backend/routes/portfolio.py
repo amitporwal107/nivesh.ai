@@ -76,6 +76,111 @@ async def get_enriched_holdings(request: Request):
     return await _pe.build_enriched_portfolio(user["user_id"])
 
 
+@router.get("/portfolio/switch-candidates")
+async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
+    """Return top same-category replacement funds for a given MF holding.
+
+    Ranks by (add_score + quality_score)/2 desc; skips the original fund and
+    its Regular/Direct sibling. Includes a computed switch_score breakdown."""
+    user = await get_current_user(request)
+    holding = await db.holdings.find_one(
+        {"holding_id": holding_id, "user_id": user["user_id"]}, {"_id": 0},
+    )
+    if not holding:
+        raise HTTPException(status_code=404, detail="Holding not found")
+
+    from services import pg_client
+    from services import portfolio_enrichment as _pe
+    from services.action_plan_manager import _normalize_fund_name
+    from routes.admin_v3_master import _fetch_master_funds
+
+    # Load full V3 catalogue once (cheap — one query)
+    try:
+        funds = await _fetch_master_funds(limit=None)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"switch-candidates: master funds unavailable → {e}")
+        return {"candidates": [], "category": None, "source_quality": None}
+
+    # Resolve current holding's category via fuzzy name match
+    def _base_key(n: str) -> str:
+        """Normalise + strip Regular/Direct/Plan so HDFC Small Cap's
+        Regular plan matches its Direct sibling for category lookup."""
+        import re
+        k = _normalize_fund_name(n or "")
+        k = re.sub(r"\b(regular|direct|plan|growth|idcw|div|dividend)\b", " ", k)
+        return " ".join(k.split())
+
+    norm_holding = _base_key(holding.get("name") or "")
+    old_fund = None
+    if norm_holding:
+        for f in funds:
+            if _base_key(f.get("scheme_name") or "") == norm_holding:
+                old_fund = f
+                break
+        if old_fund is None:
+            for f in funds:
+                nf = _base_key(f.get("scheme_name") or "")
+                if nf and (nf in norm_holding or norm_holding in nf):
+                    old_fund = f
+                    break
+    category = (old_fund or {}).get("category") or holding.get("category")
+    if not category:
+        return {"candidates": [], "category": None, "source_quality": None,
+                "source_fund": holding.get("name")}
+
+    old_scores = (old_fund or {}).get("scores") or {}
+    old_er = ((old_fund or {}).get("primitives") or {}).get("expense_ratio_direct") \
+        or ((old_fund or {}).get("primitives") or {}).get("expense_ratio_regular") or 1.0
+
+    # Filter same-category, scored, and not the same fund (drop Regular/Direct sibling too)
+    old_base = _base_key(holding.get("name") or "")
+
+    siblings = [
+        f for f in funds
+        if f.get("category") == category
+        and f.get("scores", {}).get("quality") is not None
+        and _base_key(f.get("scheme_name") or "") != old_base
+        and f.get("plan_type") != "regular"  # prefer Direct plans
+    ]
+    ranked = sorted(
+        siblings,
+        key=lambda f: (
+            (f.get("scores", {}).get("add") or 0)
+            + (f.get("scores", {}).get("quality") or 0)
+        ),
+        reverse=True,
+    )[:max(1, min(10, int(limit)))]
+
+    cand_list = []
+    for c in ranked:
+        c_prim = c.get("primitives") or {}
+        new_er = c_prim.get("expense_ratio_direct") or c_prim.get("expense_ratio_regular") or 0.5
+        ss = _pe.compute_switch_score(
+            old={"scores": old_scores, "expense_ratio": old_er, "tax_impact_pct": 0},
+            new={"scores": c.get("scores") or {}, "expense_ratio": new_er},
+            exit_load_pct=1.0,
+        )
+        cand_list.append({
+            "instrument_id": c.get("instrument_id"),
+            "name": c.get("scheme_name"),
+            "category": c.get("category"),
+            "sub_category": c.get("sub_category"),
+            "amc": c.get("amc_name"),
+            "plan_type": c.get("plan_type"),
+            "scores": c.get("scores"),
+            "switch_score": ss,
+        })
+
+    return {
+        "source_fund": holding.get("name"),
+        "category": category,
+        "source_quality": old_scores.get("quality"),
+        "candidates": cand_list,
+    }
+
+
+
+
 @router.get("/portfolio/holdings")
 async def get_holdings(request: Request, portfolio_id: str = "", asset_type: str = ""):
     user = await get_current_user(request)

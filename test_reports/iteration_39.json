@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 39 — Actionable Portfolio Engine verified end-to-end on priyanka's 64-holding account. Backend: 5/5 pytest passed (holdings-enriched structure, badges+scores, switch-candidates for hold_6b028a43430c, 404 on invalid holding, 401 unauth). Frontend: ActionablePortfolioView renders under #portfolio with 5 hero tiles (XIRR 95.77%, coverage 35.7%), 6 alerts (including unscored-stocks alert with Refresh btn), all 8 filter pills working (EXIT=3, SWITCH=7, ADD=5, HOLD=21, UNDERPERFORM=24, REGULAR=12, UNSCORED=28, all=64), action-badge distribution includes REVIEW=28, HOLD=21, SWITCH=7, ADD=5, EXIT=3. Expand-row + Switch modal (hold_6b028a43430c → 3 candidates) + close works. CSV export downloads nivesh_portfolio_2026-04-23.csv.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard first load", "issues": ["ActionPlanManager modal ('You have 5 pending actions') auto-opens and blocks Portfolio view until dismissed via Escape. Consider auto-dismiss or lower z-priority when landing on non-Plan-Board tabs."]},
+      {"screen": "ActionablePortfolioView", "issues": ["28/64 holdings show REVIEW badge because scores are missing (coverage 35.7%). Expected — reflects unscored-stocks alert; informational only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_actionable_portfolio.py",
+    "/app/test_reports/pytest/iteration_39_api.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ActionablePortfolioView.js (432 lines) is OK but getting close to the 700-line threshold; SwitchPanel could be extracted to its own file for maintainability.",
+    "portfolio.py switch-candidates uses _fetch_master_funds(limit=None) on every request — consider caching since the catalogue is static per-request lifetime.",
+    "SwitchPanel useEffect swallows error via catch → sets empty candidates; surfacing a toast or retry would help users when /switch-candidates returns 500."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_actionable_portfolio.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings)",
+  "seed_data_creation": "None — used existing priyanka account.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Actionable Portfolio is live at /dashboard#portfolio for priyanka. All data-testids from the spec verified. For SwitchPanel, hold_6b028a43430c (HDFC Small Cap Regular) returns 3 candidates: Nippon India Small Cap Fund Direct Growth (41), Nippon India Small Cap Fund Growth (41), DSP Small Cap Direct Plan Growth (42). An ActionPlanManager modal auto-opens on dashboard mount — dismiss with Escape before interacting with Portfolio table.",
+  "rca of the issue": "Not applicable — no bugs found."
+}

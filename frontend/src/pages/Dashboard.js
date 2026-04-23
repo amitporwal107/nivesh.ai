@@ -7,6 +7,7 @@ import NiveshCopilotDrawer from "@/components/NiveshCopilotDrawer";
 import { Sparkles } from "lucide-react";
 import DashboardOverview from "@/components/DashboardOverview";
 import PortfolioView from "@/components/PortfolioView";
+import ActionablePortfolioView from "@/components/ActionablePortfolioView";
 import ChatView from "@/components/ChatView";
 import InsightsView from "@/components/InsightsView";
 import FamilyView from "@/components/FamilyView";
@@ -137,6 +138,8 @@ const Dashboard = () => {
       case "family":
         return <FamilyView onRefresh={fetchData} />;
       case "portfolio":
+        return <ActionablePortfolioView />;
+      case "portfolio_legacy":
         return <PortfolioView holdings={holdings} onRefresh={fetchData} portfolios={portfolios} />;
       case "chat":
         // Legacy: if someone still lands on #chat, open the drawer instead of rendering inline
