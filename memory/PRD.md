@@ -2,6 +2,26 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — V3 + Morningstar + Category Rank in Insights + Dual Rating + Sub-cat filters (Iterations 47-48)
+
+Two user requests:
+
+**A. Dual rating + Sub-category filter on Portfolio page (iter 47)**
+- `DualRating` component shows BOTH `MS ★★★★` (Morningstar, sky-500) and `N ★★★★★` (Nivesh, amber-400) on every row so users can compare third-party vs internal ratings. Missing MS shows a muted "—" placeholder so layout is stable.
+- Sub-category chip row appears below asset tabs when a specific asset tab is selected. MF tab → categories (Flexi Cap / Small Cap / Large Cap / Dynamic Asset Allocation / etc.); Equity tab → sectors. Chips show live counts and reset when the user switches asset tab.
+
+**B. V3 scores + Morningstar + Category Rank in Insights dashboard (iter 48)**
+- `/api/insights/v3-portfolio` response extended:
+  - Per-fund: `morningstar_rating`, `category_rank`, `category_rank_total`, `category_rank_sub`.
+  - Portfolio aggregate: `n_morningstar_rated`, `avg_morningstar_rating`, `n_morningstar_4plus`, `n_category_ranked`, `n_top_quartile` (top-25% by V3 Quality in peer group).
+  - Uses `v3_iid = v3.get("instrument_id") or iid` so CAS-parsed holdings (where mongo's `instrument_id` is often None) still resolve to the right V3 row.
+- `V3PortfolioInsights.jsx` gained 2 new headline tiles: **Avg Morningstar** (sky-border, "13 at 4★+ · 14/26 rated") and **Top Quartile** (emerald-border, "Top-25% by V3 Quality · 21 ranked").
+- `V3FundBreakdown.jsx` fund rows now render an inline MS stars pill (`ms-rating-{iid}`) + a category rank pill (`v3-cat-rank-{iid}`) next to the REC badge.
+- **Discoverability fix (post-review)**: V3 Portfolio Insights promoted out of the deeply-nested Fund Overlap collapsible. Now lives as its own top-level "Fund Ratings & Rank" section (sky accent, defaultHeight=950) at the top of the Fund & Overlap Insights sub-tab, so the new tiles are above the fold.
+
+**Testing (iter 48)**: 12/12 pytest + source review 100%. Live aggregate for priyanka: n_morningstar_rated=14, avg_morningstar_rating=4.64, n_morningstar_4plus=13, n_category_ranked=21, n_top_quartile=8. Spot-checks: Aditya Birla Large Cap = ★4 #7/20 Large Cap; ICICI Value Discovery = ★5 #2/5 Value Oriented; HDFC Small Cap = ★4 #7/17 Small Cap.
+
+
 ### Feb 2026 — Morningstar & Category Rank visibility fix (Iteration 46)
 
 User report: "I can't see Morningstar rating and category rating on my portfolio".

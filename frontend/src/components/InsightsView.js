@@ -18,6 +18,7 @@ import { useNumberFormat } from "@/context/NumberFormatContext";
 import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
 import AICopilotView from "@/components/copilot/AICopilotView";
 import PortfolioIntelligenceTab from "@/components/insights/PortfolioIntelligenceTab";
+import V3PortfolioInsights from "@/components/insights/V3PortfolioInsights";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -445,6 +446,23 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               </div>
 
               {/* Section 1: Fund Overlap (stock-level) */}
+              <CollapsibleSection
+                id="section-v3-scoring"
+                title="Fund Ratings & Rank"
+                subtitle="Morningstar, Nivesh V3 Quality / Health / HAS, and peer-category rank"
+                accent="bg-sky-500"
+                defaultHeight={950}
+                focusedId={focusedSection}
+                onToggleFocus={setFocusedSection}
+              >
+                <div data-testid="pi-v3-section">
+                  <V3PortfolioInsights />
+                </div>
+              </CollapsibleSection>
+
+              {/* Divider */}
+              <div className="border-t border-slate-200 dark:border-white/5" />
+
               <CollapsibleSection
                 id="section-fund-overlap"
                 title="Fund Overlap"

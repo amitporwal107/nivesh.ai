@@ -595,10 +595,9 @@ export default function PortfolioIntelligenceTab() {
         </div>
       </div>
 
-      {/* V3 Engine — fund-level composite scoring (Quality/Health/Exit/Add) */}
-      <div data-testid="pi-v3-section">
-        <V3PortfolioInsights />
-      </div>
+      {/* V3 Engine — fund-level composite scoring — rendered separately at
+          the top level of InsightsView so the Morningstar / Top-Quartile
+          tiles are above the fold. */}
     </div>
   );
 }
