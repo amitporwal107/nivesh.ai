@@ -386,6 +386,7 @@ async def build_enriched_portfolio(
                     key = (m["scheme_name"] or "").lower().strip()
                     prim = v3.get("v3_primitives") or {}
                     mf_scores_by_name[key] = {
+                        "instrument_id": v3.get("instrument_id"),
                         "scores": {
                             "quality": v3.get("quality_score"),
                             "health":  v3.get("health_score"),
@@ -393,6 +394,7 @@ async def build_enriched_portfolio(
                             "add":     v3.get("add_score"),
                         },
                         "category": v3.get("category"),
+                        "sub_category": v3.get("sub_category"),
                         "expense_ratio": prim.get("expense_ratio_direct"),
                         "ret_1y": prim.get("ret_1y"),
                         "ret_3y": prim.get("ret_3y"),
@@ -402,26 +404,31 @@ async def build_enriched_portfolio(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: MF V3 join failed: {e}")
 
-    # Category rank (Direct-plan only, ranked by quality_score desc).
-    # Keyed by normalised scheme_name so the per-row lookup is trivial.
-    category_rank_by_name: Dict[str, Dict[str, int]] = {}
+    # Category rank (sub_category partition, Direct-plan only, ranked by
+    # quality_score desc). Keyed by instrument_id so per-row lookup is
+    # O(1) regardless of CAS name formatting.
+    category_rank_by_iid: Dict[str, Dict[str, Any]] = {}
     try:
         from routes.admin_v3_master import _fetch_master_funds
-        from services.action_plan_manager import _normalize_fund_name
         all_funds = await _fetch_master_funds(limit=None)
+        # Partition by sub_category (fallback to category if sub is missing)
+        # so rankings are meaningful (Flexi Cap vs Flexi Cap, not "equity"
+        # vs everything).
         by_cat: Dict[str, List[Dict[str, Any]]] = {}
         for f in all_funds:
-            cat = f.get("category")
+            sub = f.get("sub_category") or f.get("category")
             q = (f.get("scores") or {}).get("quality")
-            # Rank only Direct-plan funds with a non-null quality score.
-            if cat and q is not None and f.get("plan_type") != "regular":
-                by_cat.setdefault(cat, []).append(f)
-        for cat, funds in by_cat.items():
+            if sub and q is not None and f.get("plan_type") != "regular":
+                by_cat.setdefault(sub, []).append(f)
+        for sub, funds in by_cat.items():
             funds.sort(key=lambda x: x["scores"]["quality"] or 0, reverse=True)
             total = len(funds)
             for i, f in enumerate(funds, start=1):
-                key = _normalize_fund_name(f.get("scheme_name") or "")
-                category_rank_by_name[key] = {"rank": i, "total": total}
+                iid = f.get("instrument_id")
+                if iid:
+                    category_rank_by_iid[iid] = {
+                        "rank": i, "total": total, "sub_category": sub,
+                    }
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: category rank build failed: {e}")
 
@@ -488,7 +495,7 @@ async def build_enriched_portfolio(
             if m:
                 scored_mfs += 1
                 score_bundle = m["scores"]
-                category = category or m.get("category")
+                category = category or m.get("sub_category") or m.get("category")
                 expense_ratio = m.get("expense_ratio")
                 ret_1y_ext = m.get("ret_1y")
                 ret_3y_ext = m.get("ret_3y")
@@ -496,11 +503,13 @@ async def build_enriched_portfolio(
                 morningstar_rating = m.get("morningstar_rating")
             else:
                 morningstar_rating = None
-            # Category rank lookup (same-category Direct-plan funds)
-            from services.action_plan_manager import _normalize_fund_name as _nfn
-            cr = category_rank_by_name.get(_nfn(h.get("name") or ""))
+            # Category rank: use instrument_id from the matched v3 bundle.
+            iid = (m or {}).get("instrument_id") if m else None
+            cr = category_rank_by_iid.get(iid) if iid else None
             category_rank = cr["rank"] if cr else None
             category_rank_total = cr["total"] if cr else None
+            if cr and not category:
+                category = cr.get("sub_category")
         else:
             morningstar_rating = None
             category_rank = None
