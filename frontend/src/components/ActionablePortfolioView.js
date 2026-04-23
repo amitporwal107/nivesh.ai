@@ -809,8 +809,9 @@ const SwitchPanel = ({ holding, onClose }) => {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] mt-3">
                   <div className="bg-slate-50 rounded p-2">
                     <div className="text-slate-400">Δ Quality</div>
-                    <div className={`font-semibold ${ss.delta_quality > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    <div className={`font-semibold ${ss.delta_quality > 0 ? "text-emerald-600" : ss.delta_quality < 0 ? "text-rose-600" : "text-slate-500"}`}>
                       {ss.delta_quality > 0 ? "+" : ""}{ss.delta_quality?.toFixed(1)}
+                      {ss.delta_quality === 0 && <span className="text-[10px] text-slate-400 ml-1">same</span>}
                     </div>
                   </div>
                   <div className="bg-slate-50 rounded p-2">

@@ -135,18 +135,22 @@ async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
     # Filter same-category, scored, and not the same fund (drop Regular/Direct sibling too)
     old_base = _base_key(holding.get("name") or "")
 
+    old_quality = old_scores.get("quality") or 0
     siblings = [
         f for f in funds
         if f.get("category") == category
         and f.get("scores", {}).get("quality") is not None
         and _base_key(f.get("scheme_name") or "") != old_base
-        and f.get("plan_type") != "regular"  # prefer Direct plans
+        # Must have "direct" in the name AND not "regular" — more reliable than plan_type field
+        and "direct" in (f.get("scheme_name") or "").lower()
+        and "regular" not in (f.get("scheme_name") or "").lower()
     ]
+    # Sort: quality-improvement first, then by switch_score proxy (add+quality)
     ranked = sorted(
         siblings,
         key=lambda f: (
-            (f.get("scores", {}).get("add") or 0)
-            + (f.get("scores", {}).get("quality") or 0)
+            (f.get("scores", {}).get("quality") or 0) - old_quality,
+            (f.get("scores", {}).get("add") or 0) + (f.get("scores", {}).get("quality") or 0)
         ),
         reverse=True,
     )[:max(1, min(10, int(limit)))]
