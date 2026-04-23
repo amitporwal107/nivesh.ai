@@ -653,7 +653,7 @@ const Landing = () => {
 
       {/* ─── FOOTER ───────────────────────────────────────────────── */}
       <footer className="py-12 border-t border-slate-100 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center gap-3 sm:gap-0 sm:justify-between text-center sm:text-left">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center gap-4 sm:gap-0 sm:justify-between text-center sm:text-left">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-emerald-600 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-3 h-3 text-white" strokeWidth={2.5} />
@@ -663,6 +663,13 @@ const Landing = () => {
           <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xl">
             Investment in securities market are subject to market risks. AI-generated guidance for educational purposes only.
           </p>
+          <a
+            href="/privacy"
+            className="text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-emerald-600 transition-colors inline-flex items-center gap-1.5"
+            data-testid="footer-privacy-link"
+          >
+            <Lock className="w-3 h-3" /> Privacy statement
+          </a>
         </div>
       </footer>
     </div>
