@@ -2,6 +2,23 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Portfolio page round 3: cache, header, in-place CTAs, scorer expansion, Nivesh Rating (Iteration 42)
+
+5 more user-reported fixes:
+
+1. **Performance — Redis cache** — `build_enriched_portfolio()` wrapped in a 5-minute Redis cache (`nivesh:cache:enriched_portfolio:{user_id}`). Cold load 17.2s → warm 0.1s (**165× speedup**). Response exposes `_cache_hit` flag for transparency. `refresh-stock-fundamentals` + `refresh-prices` invalidate the key.
+2. **Page Header** — `data-testid='portfolio-header'` renders "Portfolio" h1 + subtitle ("64 holdings across 4 asset classes · Last refreshed 23 Apr · 82.8% scored") + 3 action buttons (Refresh scores, Export CSV, Reload).
+3. **Alert CTAs now act in-place** — dropped Plan Board navigation for routine rebalancing actions:
+   - `allocation` → "Show biggest positions" (sort by value desc + scroll to table).
+   - `diversification` → "Show weak holdings" (new `filter=WEAK` = composite <50 + scroll).
+   - `overlap` / `cost` → filter to Switch / Regular + switch to MF tab + scroll.
+   - Only `risk_alignment` still navigates away (to Risk Profile screen).
+4. **Score coverage — Groww search resolver** — New `search_groww_by_symbol()` resolves any NSE symbol → slug via Groww's `search/v3/query/global/st_p_query` autosuggest API (exact nse_scrip_code match). `refresh_user_stocks()` now runs a 2-phase strategy: Nifty-100 direct lookup → Groww-search fallback for mid/small caps. For priyanka: 52.8% → **82.8% coverage** in 6s (17 mid/small caps scored inline — Ambuja, Digidrive, Gabriel, Pricol, JK Tyre, IRB, Jindal Stainless, Rain Industries, NTPC Green, SJVN, etc.).
+5. **Nivesh Rating stars** — Each row shows a 1-5★ pill (`data-testid='stars-{N}'`) derived from composite_score (80+=5★, 65-80=4★, 50-65=3★, 35-50=2★, <35=1★). Subtitle clarifies "· Nivesh Rating" when Morningstar data isn't available. Scaffolded `morningstar_rating` field on holding payload for future real-Morningstar wiring (MC already scrapes it in `moneycontrol_client._build_payload`, next step is persisting to PG).
+
+**Testing**: iteration_42 — 3/3 backend pytest + full frontend acceptance (100% both). Cache 165×, coverage 82.8%, all 5 CTAs verified.
+
+
 ### Feb 2026 — Actionable Portfolio UX round 2 (Iteration 41)
 
 5 user-requested UX enhancements turning the Portfolio page into a truly actionable decision surface:

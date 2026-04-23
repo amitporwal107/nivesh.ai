@@ -794,7 +794,7 @@ async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
     return {
         "ok": True,
         "total": len(symbols),
-        "nifty_100_covered": len(already),
+        "already_scored": len(already),
         "search_resolved": len(extra_succeeded),
         "search_failed": len(extra_failed),
         "search_failed_details": extra_failed[:15],
