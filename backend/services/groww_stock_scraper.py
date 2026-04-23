@@ -46,24 +46,38 @@ USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 HTTP_TIMEOUT_S = 15
 NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.DOTALL)
 CONCURRENCY = 10
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_BASE_S = 1.0
+REDIS_CACHE_TTL_S = 21600   # 6 hours
 
 
-# ── 1. Constituents ───────────────────────────────────────────────────
+# ── Retry-aware HTTP ──────────────────────────────────────────────────
 async def _fetch_html(session: aiohttp.ClientSession, url: str) -> Optional[str]:
-    try:
-        async with session.get(
-            url,
-            headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
-            timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
-            allow_redirects=True,
-        ) as resp:
-            if resp.status != 200:
-                logger.debug(f"{url} → HTTP {resp.status}")
-                return None
-            return await resp.text()
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"Fetch failed: {url} — {e}")
-        return None
+    """GET with exponential backoff. Retries on 5xx / 429 / timeout /
+    connection errors. Returns None after exhausting attempts."""
+    last_err: Optional[str] = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            async with session.get(
+                url,
+                headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"},
+                timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.text()
+                if resp.status in (429, 500, 502, 503, 504):
+                    last_err = f"HTTP {resp.status}"
+                    # fall through to retry
+                else:
+                    logger.debug(f"{url} → HTTP {resp.status} (not retryable)")
+                    return None
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            last_err = str(e)[:120]
+        if attempt < RETRY_ATTEMPTS - 1:
+            await asyncio.sleep(RETRY_BACKOFF_BASE_S * (2 ** attempt))
+    logger.info(f"Fetch gave up on {url} after {RETRY_ATTEMPTS} attempts: {last_err}")
+    return None
 
 
 def _extract_next_data(html: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -119,17 +133,60 @@ async def fetch_nifty_100_constituents(
             await session.close()
 
 
-# ── 2. Per-stock fundamentals scrape ───────────────────────────────────
+# ── Redis cache for scraped payloads ───────────────────────────────────
+async def _cache_get(slug: str) -> Optional[Dict[str, Any]]:
+    try:
+        from services.redis_client import get_client
+        r = await get_client()
+        if r is None:
+            return None
+        raw = await r.get(f"groww:stock:{slug}")
+        if raw:
+            return json.loads(raw)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"cache_get failed: {e}")
+    return None
+
+
+async def _cache_put(slug: str, payload: Dict[str, Any]) -> None:
+    try:
+        from services.redis_client import get_client
+        r = await get_client()
+        if r is None:
+            return
+        await r.setex(f"groww:stock:{slug}", REDIS_CACHE_TTL_S,
+                      json.dumps(payload, default=str))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"cache_put failed: {e}")
+
+
+# ── 2. Per-stock fundamentals scrape (with cache) ─────────────────────
 async def fetch_stock_details(
     slug: str, session: aiohttp.ClientSession,
+    *, use_cache: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """Return raw Groww `stockData` payload, or None on failure."""
+    """Return the complete Groww pageProps payload (stockData + livePriceData),
+    or None on failure. Cached in Redis 6h when `use_cache=True`."""
+    if use_cache:
+        cached = await _cache_get(slug)
+        if cached:
+            return cached
     html = await _fetch_html(session, GROWW_STOCK_URL.format(slug=slug))
     nd = _extract_next_data(html)
     if not nd:
         return None
     try:
-        return nd["props"]["pageProps"]["stockData"]
+        pp = nd["props"]["pageProps"]
+        sd = pp["stockData"]
+        # Attach live price for downstream mapping (momentum, return_1y)
+        live = None
+        nse_code = (sd.get("header") or {}).get("nseScriptCode")
+        if nse_code:
+            live = (pp.get("livePriceData") or {}).get(nse_code)
+        sd["_live_price"] = live
+        if use_cache:
+            await _cache_put(slug, sd)
+        return sd
     except (KeyError, TypeError):
         return None
 
@@ -252,48 +309,129 @@ def _cap_bucket(cap_cr: Optional[float], capped_type: Optional[str]) -> str:
     return "small"
 
 
+def _quarterly_yoy_surprise_pct(quarterly: Dict[str, Any]) -> Optional[float]:
+    """Earnings surprise proxy: latest quarter profit vs same-quarter-last-year.
+    Groww quarterly keys are like "Dec '25", "Mar '25" — we pair by month.
+    Returns % change; None if insufficient history."""
+    if not quarterly:
+        return None
+    items = [(k, _safe_float(v)) for k, v in quarterly.items() if _safe_float(v) is not None]
+    if len(items) < 5:
+        # Need at least 5 quarters to get a YoY pair
+        return None
+    # Match on month token (first 3 letters)
+    latest_key, latest_val = items[-1]
+    latest_month = (latest_key.split()[0] if latest_key else "")[:3].lower()
+    # Find the same-month quarter 4 positions back
+    if len(items) >= 5 and items[-5][0].split()[0][:3].lower() == latest_month:
+        prior_val = items[-5][1]
+        if prior_val and prior_val > 0:
+            return (latest_val - prior_val) / prior_val * 100.0
+    return None
+
+
+def _qoq_volatility_pct(quarterly: Dict[str, Any]) -> Optional[float]:
+    """Secondary volatility signal: coefficient of variation of quarterly
+    profits (business stability, not price vol). Used when price proxy weak."""
+    vals = [_safe_float(v) for v in (quarterly or {}).values() if _safe_float(v) is not None]
+    if len(vals) < 4:
+        return None
+    try:
+        mean = statistics.mean(vals)
+        if mean <= 0:
+            return None
+        stdev = statistics.pstdev(vals)
+        return (stdev / abs(mean)) * 100.0
+    except statistics.StatisticsError:
+        return None
+
+
+def _price_momentum_score(ltp: Optional[float], hi: Optional[float],
+                           lo: Optional[float]) -> Optional[float]:
+    """Momentum = position in 52-week range (0-100). 100 = near 52w high,
+    0 = near 52w low."""
+    if not ltp or not hi or not lo or hi <= lo:
+        return None
+    pos = (ltp - lo) / (hi - lo)
+    return max(0.0, min(100.0, pos * 100.0))
+
+
 def map_to_primitives(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Map Groww's raw stockData to our `stock_primitives` row shape.
     Missing values stay None → scoring engine falls back to neutral 50."""
     stats = raw.get("stats") or {}
     shp = raw.get("shareHoldingPattern") or {}
-    fsv2 = (raw.get("financialStatementV2") or {}).get("CONSOLIDATED") \
-           or (raw.get("financialStatementV2") or {}).get("STANDALONE") or []
+    live = raw.get("_live_price") or {}
+    # Use V1 financialStatement (has both yearly + quarterly + cagr)
+    fs_v1 = raw.get("financialStatement") or []
+    # Fallback to V2 if V1 missing
+    if not fs_v1:
+        fsv2 = (raw.get("financialStatementV2") or {}).get("CONSOLIDATED") \
+               or (raw.get("financialStatementV2") or {}).get("STANDALONE") or []
+        fs_v1 = fsv2
 
-    # Extract yearly series by title
-    series_by_title: Dict[str, Dict[str, Any]] = {}
-    for item in fsv2:
+    # Index by title (lowercase)
+    by_title: Dict[str, Dict[str, Any]] = {}
+    for item in fs_v1:
         if isinstance(item, dict):
-            t = (item.get("title") or "").lower()
-            if item.get("yearly"):
-                series_by_title[t] = item["yearly"]
+            by_title[(item.get("title") or "").lower()] = item
 
-    revenue_series = series_by_title.get("revenue") or {}
-    profit_series = series_by_title.get("profit") or {}
+    revenue_item = by_title.get("revenue") or {}
+    profit_item = by_title.get("profit") or {}
+    revenue_series = revenue_item.get("yearly") or {}
+    profit_series = profit_item.get("yearly") or {}
+    profit_quarterly = profit_item.get("quarterly") or {}
+    revenue_cagr_bundle = revenue_item.get("cagr") or {}
+    profit_cagr_bundle = profit_item.get("cagr") or {}
 
-    revenue_growth_3y = _yearly_cagr(revenue_series, years_back=3)
-    eps_growth_3y = None   # EPS series not directly in the payload; use profit CAGR as proxy
-    if revenue_growth_3y is None:
-        eps_growth_3y = _yearly_cagr(profit_series, years_back=3)
-    else:
-        eps_growth_3y = _yearly_cagr(profit_series, years_back=3)
+    # Groww's own CAGR (if present — already calculated) takes priority
+    def _cagr_or_compute(bundle: Dict[str, Any], series: Dict[str, Any],
+                         key: str = "threeYearCagr", years: int = 3) -> Optional[float]:
+        g = _safe_float(bundle.get(key))
+        if g is not None:
+            return g * 100.0   # Groww returns as decimal (0.11 = 11%)
+        return _yearly_cagr(series, years_back=years)
+
+    revenue_growth_3y = _cagr_or_compute(revenue_cagr_bundle, revenue_series)
+    eps_growth_3y = _cagr_or_compute(profit_cagr_bundle, profit_series)
     profit_margin_trend = _yoy_delta_pct(profit_series)
     revenue_yoy = _yoy_delta_pct(revenue_series)
 
-    # Volatility proxy from price range (not perfect, but directional)
+    # ── Earnings surprise (new): YoY quarterly profit delta ──
+    earnings_surprise = _quarterly_yoy_surprise_pct(profit_quarterly)
+
+    # ── Price signals (prefer live; fall back to 52w) ──
     price_data = (raw.get("priceData") or {}).get("nse") or {}
-    hi = _safe_float(price_data.get("yearHighPrice"))
-    lo = _safe_float(price_data.get("yearLowPrice"))
+    hi = _safe_float(live.get("yearHighPrice")) or _safe_float(price_data.get("yearHighPrice"))
+    lo = _safe_float(live.get("yearLowPrice")) or _safe_float(price_data.get("yearLowPrice"))
+    ltp = _safe_float(live.get("ltp")) or _safe_float(live.get("close"))
+
+    # Volatility: 52w range normalised to annualised-σ proxy.
+    # (hi - lo) / mean → range %. ÷1.4 calibration vs historical NIFTY ~13% σ.
     vol_1y = None
     if hi and lo and lo > 0:
-        # Annualised vol proxy: (high-low)/midpoint * 100. Rough but indicative.
-        vol_1y = ((hi - lo) / ((hi + lo) / 2)) * 100.0 / 1.5   # ÷1.5 to calibrate to historical sigma
+        rng = (hi - lo) / ((hi + lo) / 2) * 100.0
+        vol_1y = rng / 1.4
+    # Bump with quarterly business volatility if price proxy is suspiciously low
+    qoq_vol = _qoq_volatility_pct(profit_quarterly)
+    if vol_1y is not None and qoq_vol is not None:
+        # Blend 70% price + 30% business for a more robust σ estimate
+        vol_1y = 0.7 * vol_1y + 0.3 * min(qoq_vol, 60.0)
 
-    # Return 1y proxy: price relative to 52w midpoint
+    # ── 1Y return: use Groww's precomputed oneYearTtm if available ──
     return_1y = None
-    if hi and lo:
+    one_year_ttm = _safe_float(revenue_cagr_bundle.get("oneYearTtm"))
+    if one_year_ttm is not None:
+        return_1y = one_year_ttm * 100.0
+    elif ltp and hi and lo:
+        # Fallback: proxy via price position (rough)
         mid = (hi + lo) / 2
-        # We don't have current here; leave None — upstream can compute with live price
+        return_1y = ((ltp - mid) / mid * 100.0) if mid > 0 else None
+
+    # ── Max drawdown proxy: (ltp - yearHigh) / yearHigh ──
+    max_dd_pct = None
+    if ltp and hi and hi > 0:
+        max_dd_pct = abs(min(0.0, (ltp - hi) / hi * 100.0))
 
     mcap_cr = _safe_float(stats.get("marketCap"))
     capped = stats.get("cappedType")
@@ -316,42 +454,35 @@ def map_to_primitives(raw: Dict[str, Any]) -> Dict[str, Any]:
         "revenue_growth_3y_cagr_pct": revenue_growth_3y,
         "profit_margin_pct": _safe_float(stats.get("netProfitMargin")),
         "profit_margin_trend_pct": profit_margin_trend,
-        "debt_trend_pct": None,   # Need multi-year debt series — not in payload
+        # debt_trend needs multi-year balance sheet — Groww detail page doesn't
+        # expose it (would need separate /financials scrape). Left None → neutral.
+        "debt_trend_pct": None,
         "earnings_consistency_score": _earnings_consistency(profit_series),
-        "earnings_surprise_pct": None,   # Not available from this payload
+        "earnings_surprise_pct": earnings_surprise,
         "dividend_yield_pct": _safe_float(stats.get("divYield")),
 
         # Valuation / exit signals
         "pe_historical_median": sector_pe,
         "pe_overvaluation_pct": pe_over,
         "earnings_decline_flag": (revenue_yoy is not None and revenue_yoy < -5),
-        "debt_spike_flag": False,   # Need debt series
+        "debt_spike_flag": False,   # Need debt series — not available
         "liquidity_score": 85.0 if (mcap_cr and mcap_cr > 50000) else 60.0,
 
         # Price / risk
-        "return_1y_pct": None,
+        "return_1y_pct": return_1y,
         "volatility_1y_pct": vol_1y,
-        "beta": None,
-        "max_drawdown_pct": None,
+        "beta": None,   # Not in Groww payload
+        "max_drawdown_pct": max_dd_pct,
 
-        # Momentum (approximate via price position in 52w range)
-        "momentum_score": _price_momentum_score(hi, lo, _safe_float(stats.get("epsTtm"))),
+        # Momentum — now uses live ltp + 52w range
+        "momentum_score": _price_momentum_score(ltp, hi, lo),
 
         # Meta (not in the primitives table, used by scoring)
         "cap_bucket": _cap_bucket(mcap_cr, capped),
         "market_cap_cr": mcap_cr,
         "sector_pe": sector_pe,
+        "ltp": ltp,
     }
-
-
-def _price_momentum_score(hi: Optional[float], lo: Optional[float],
-                           current: Optional[float]) -> Optional[float]:
-    """Momentum proxy — position in 52w range (without a current price we use
-    the midpoint → neutral 50)."""
-    if not hi or not lo or hi <= lo:
-        return None
-    # Without a live price we can't know today's position, default neutral
-    return 50.0
 
 
 # ── 3. Persistence + scoring ───────────────────────────────────────────

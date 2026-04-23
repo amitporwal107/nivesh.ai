@@ -125,15 +125,20 @@ def test_map_to_primitives_full_payload():
                 }
             }
         },
-        "financialStatementV2": {
-            "CONSOLIDATED": [
-                {"title": "Revenue", "yearly": {"2021": 483251, "2022": 710906,
-                                                  "2023": 889569, "2024": 917121, "2025": 982671}},
-                {"title": "Profit", "yearly": {"2021": 53739, "2022": 66184,
-                                                 "2023": 73670, "2024": 78633, "2025": 80787}},
-            ]
-        },
+        "financialStatement": [
+            {"title": "Revenue",
+             "yearly": {"2021": 483251, "2022": 710906, "2023": 889569,
+                        "2024": 917121, "2025": 982671},
+             "cagr": {"oneYearTtm": 0.1, "threeYearCagr": 0.11}},
+            {"title": "Profit",
+             "yearly": {"2021": 53739, "2022": 66184, "2023": 73670,
+                        "2024": 78633, "2025": 80787},
+             "quarterly": {"Dec '24": 21804, "Mar '25": 22434,
+                           "Jun '25": 30681, "Sep '25": 22146, "Dec '25": 22167},
+             "cagr": {"oneYearTtm": 0.02, "threeYearCagr": 0.07}},
+        ],
         "priceData": {"nse": {"yearHighPrice": 1611.8, "yearLowPrice": 1285.4}},
+        "_live_price": {"ltp": 1352.5, "yearHighPrice": 1611.8, "yearLowPrice": 1285.4},
     }
     prim = gs.map_to_primitives(raw)
 
@@ -146,25 +151,37 @@ def test_map_to_primitives_full_payload():
     assert prim["dividend_yield_pct"] == 0.4
     # PE over sector: 18.86 / 14.76 - 1 = 0.278 → 27.78%
     assert prim["pe_overvaluation_pct"] == pytest.approx(27.78, abs=0.1)
-    # Revenue CAGR 2022→2025: 710906→982671, 3y → ~11.4%
-    assert prim["revenue_growth_3y_cagr_pct"] is not None
-    assert 10 <= prim["revenue_growth_3y_cagr_pct"] <= 15
+    # Revenue CAGR: Groww gives 0.11 → 11%
+    assert prim["revenue_growth_3y_cagr_pct"] == pytest.approx(11.0, abs=0.5)
+    # Earnings surprise: Dec '25 22167 vs Dec '24 21804 = +1.66%
+    assert prim["earnings_surprise_pct"] == pytest.approx(1.66, abs=0.1)
     # Earnings consistency: 5 positive years, low-moderate CV → strong
     assert prim["earnings_consistency_score"] >= 70
-    # No earnings decline (revenue YoY is positive)
+    # No earnings decline (revenue YoY positive)
     assert prim["earnings_decline_flag"] is False
     # Liquidity: mcap > ₹50,000 Cr → high
     assert prim["liquidity_score"] == 85.0
+    # Live price signals
+    assert prim["ltp"] == 1352.5
+    # Momentum: 1352.5 in [1285.4, 1611.8] → (1352.5-1285.4)/(1611.8-1285.4) = 20.55%
+    assert prim["momentum_score"] == pytest.approx(20.56, abs=1)
+    # Return 1y: Groww provides oneYearTtm = 0.1 → 10%
+    assert prim["return_1y_pct"] == pytest.approx(10.0)
+    # Max drawdown: (1352.5 - 1611.8) / 1611.8 = -16.1% → abs 16.1%
+    assert prim["max_drawdown_pct"] == pytest.approx(16.09, abs=0.1)
 
 
 def test_map_to_primitives_missing_fields_safe():
-    raw = {"stats": {}, "shareHoldingPattern": {}, "financialStatementV2": {}}
+    raw = {"stats": {}, "shareHoldingPattern": {}, "financialStatement": []}
     prim = gs.map_to_primitives(raw)
     # Everything should be None, no crashes
     assert prim["pe_ratio"] is None
     assert prim["roe_pct"] is None
     assert prim["cap_bucket"] == "unknown"
     assert prim["earnings_decline_flag"] is False
+    assert prim["momentum_score"] is None
+    assert prim["return_1y_pct"] is None
+    assert prim["earnings_surprise_pct"] is None
 
 
 # ── __NEXT_DATA__ extraction ──────────────────────────────────────────
@@ -199,13 +216,20 @@ def test_scraper_output_feeds_scoring_engine():
         "shareHoldingPattern": {
             "Mar '26": {"promoters": {"individual": {"percent": 60}}}
         },
-        "financialStatementV2": {"CONSOLIDATED": [
+        "financialStatement": [
             {"title": "Revenue", "yearly": {"2021": 100, "2022": 120,
-                                              "2023": 145, "2024": 175, "2025": 210}},
+                                              "2023": 145, "2024": 175, "2025": 210},
+             "quarterly": {"Dec '24": 48, "Mar '25": 52, "Jun '25": 54,
+                           "Sep '25": 56, "Dec '25": 58},
+             "cagr": {"oneYearTtm": 0.2, "threeYearCagr": 0.22}},
             {"title": "Profit", "yearly": {"2021": 15, "2022": 20,
-                                             "2023": 26, "2024": 34, "2025": 42}},
-        ]},
+                                             "2023": 26, "2024": 34, "2025": 42},
+             "quarterly": {"Dec '24": 9, "Mar '25": 10, "Jun '25": 10.5,
+                           "Sep '25": 11, "Dec '25": 11.5},
+             "cagr": {"oneYearTtm": 0.24, "threeYearCagr": 0.28}},
+        ],
         "priceData": {"nse": {"yearHighPrice": 500, "yearLowPrice": 400}},
+        "_live_price": {"ltp": 480, "yearHighPrice": 500, "yearLowPrice": 400},
     }
     prim = gs.map_to_primitives(raw)
     bundle = stock_scoring.score_stock(prim)
@@ -213,3 +237,77 @@ def test_scraper_output_feeds_scoring_engine():
         assert bundle[k] is not None
     # This is a strong stock — Quality should be high
     assert bundle["quality_score"] >= 70
+
+
+# ── New primitives from live price + quarterly data ────────────────────
+def test_momentum_score_near_high():
+    # LTP at 52w high → 100
+    assert gs._price_momentum_score(ltp=500, hi=500, lo=400) == 100.0
+
+
+def test_momentum_score_near_low():
+    assert gs._price_momentum_score(ltp=400, hi=500, lo=400) == 0.0
+
+
+def test_momentum_score_midrange():
+    assert gs._price_momentum_score(ltp=450, hi=500, lo=400) == pytest.approx(50.0)
+
+
+def test_momentum_score_missing_inputs():
+    assert gs._price_momentum_score(None, 500, 400) is None
+    assert gs._price_momentum_score(450, None, 400) is None
+    assert gs._price_momentum_score(450, 500, 500) is None
+
+
+def test_earnings_surprise_from_quarterly_yoy():
+    # Dec '24 profit 100 → Dec '25 profit 120 = +20% surprise
+    quarterly = {
+        "Dec '24": 100, "Mar '25": 105, "Jun '25": 110,
+        "Sep '25": 115, "Dec '25": 120,
+    }
+    out = gs._quarterly_yoy_surprise_pct(quarterly)
+    assert out == pytest.approx(20.0)
+
+
+def test_earnings_surprise_insufficient_history():
+    # Only 3 quarters → no YoY comparison possible
+    assert gs._quarterly_yoy_surprise_pct({"Dec '24": 100, "Mar '25": 105, "Jun '25": 110}) is None
+
+
+def test_qoq_volatility_pct():
+    stable = {"Q1": 100, "Q2": 102, "Q3": 98, "Q4": 101}
+    erratic = {"Q1": 50, "Q2": 150, "Q3": 20, "Q4": 200}
+    assert gs._qoq_volatility_pct(stable) < gs._qoq_volatility_pct(erratic)
+
+
+def test_map_to_primitives_uses_live_price_for_momentum_and_return():
+    raw = {
+        "stats": {"marketCap": 500000, "peRatio": 20, "cappedType": "Large Cap"},
+        "shareHoldingPattern": {},
+        "financialStatement": [
+            {"title": "Revenue", "yearly": {"2023": 100, "2024": 110, "2025": 120},
+             "cagr": {"oneYearTtm": 0.09, "threeYearCagr": 0.09}},
+        ],
+        "priceData": {"nse": {"yearHighPrice": 1000, "yearLowPrice": 800}},
+        "_live_price": {"ltp": 950, "yearHighPrice": 1000, "yearLowPrice": 800},
+    }
+    prim = gs.map_to_primitives(raw)
+    # Momentum: 950 is 75% of the way from 800→1000
+    assert prim["momentum_score"] == pytest.approx(75.0)
+    # Return 1y from Groww's own CAGR: 0.09 → 9%
+    assert prim["return_1y_pct"] == pytest.approx(9.0)
+    # Max drawdown: (950-1000)/1000 = -5% → 5%
+    assert prim["max_drawdown_pct"] == pytest.approx(5.0)
+
+
+def test_map_to_primitives_fallback_when_no_live_price():
+    raw = {
+        "stats": {"marketCap": 500000, "peRatio": 20, "cappedType": "Large Cap"},
+        "shareHoldingPattern": {},
+        "financialStatement": [],
+        "priceData": {"nse": {"yearHighPrice": 1000, "yearLowPrice": 800}},
+    }
+    prim = gs.map_to_primitives(raw)
+    assert prim["momentum_score"] is None   # No LTP → None
+    # return_1y_pct stays None when no CAGR + no LTP
+    assert prim["return_1y_pct"] is None
