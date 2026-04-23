@@ -2,6 +2,22 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Morningstar & Category Rank visibility fix (Iteration 46)
+
+User report: "I can't see Morningstar rating and category rating on my portfolio".
+
+**Root cause**: `v3_integration.enrich_candidates_with_v3()` was dropping `instrument_id` and `sub_category` from each bundle → `category_rank_by_iid.get(iid)` always returned None → only 3/36 MFs got a rank.
+
+**Fixes (iteration 46)**:
+1. `v3_integration.py` — bundle now carries `instrument_id` and `sub_category`.
+2. `portfolio_enrichment.py` — `category_rank_by_iid` keyed by instrument_id (O(1) lookup regardless of CAS name formatting). Partition switched from `category` (broad: "equity") to `sub_category` (specific: "Flexi Cap", "Small Cap", "Dynamic Asset Allocation") — rankings are now meaningful within peer groups.
+3. Tooltip override — `category` on each ranked row is unconditionally replaced with the sub_category used for ranking, so "Rank N of M in Flexi Cap" reads correctly.
+
+**Live result for priyanka**: 22/36 MFs now show category rank (up from 3/36). Spot-checks: HDFC Flexi Cap Direct = #2/14 Flexi Cap, HDFC Balanced Advantage Direct = #1/2 Dynamic Asset Allocation, Axis Small Cap Direct = #5/17 Small Cap, Parag Parikh Flexi Cap = #1/14. Morningstar rating stays at 14/36 (separate name-resolution limit in `refresh-mf-ratings`).
+
+**Testing**: iteration_46 — 11/11 backend pytest + 100% frontend (19 pills rendered, correct colour tiers, tooltip now reads sub-category correctly).
+
+
 ### Feb 2026 — DPDP compliance, name-norm + category rank (Iteration 44-45)
 
 Three follow-through tasks shipped as one batch:

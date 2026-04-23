@@ -495,7 +495,8 @@ async def build_enriched_portfolio(
             if m:
                 scored_mfs += 1
                 score_bundle = m["scores"]
-                category = category or m.get("sub_category") or m.get("category")
+                # Prefer sub_category (e.g. Flexi Cap) over broad category (equity)
+                category = m.get("sub_category") or m.get("category") or category
                 expense_ratio = m.get("expense_ratio")
                 ret_1y_ext = m.get("ret_1y")
                 ret_3y_ext = m.get("ret_3y")
@@ -508,8 +509,10 @@ async def build_enriched_portfolio(
             cr = category_rank_by_iid.get(iid) if iid else None
             category_rank = cr["rank"] if cr else None
             category_rank_total = cr["total"] if cr else None
-            if cr and not category:
-                category = cr.get("sub_category")
+            if cr:
+                # Always override with the sub_category used for ranking so the
+                # tooltip reads a meaningful bucket name (e.g. "Flexi Cap").
+                category = cr.get("sub_category") or category
         else:
             morningstar_rating = None
             category_rank = None
