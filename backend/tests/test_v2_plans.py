@@ -15,10 +15,11 @@ Session Token: 370eff71-fda1-46d8-b506-b81b894d634f
 import pytest
 import requests
 import json
+import os
 from typing import Dict, Any, Optional
 
 # Test configuration
-BASE_URL = "https://fund-overlap-3.preview.emergentagent.com"
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 API_BASE = f"{BASE_URL}/api"
 
 # Test user credentials from review request
