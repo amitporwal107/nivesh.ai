@@ -29,7 +29,10 @@ router = APIRouter(prefix="/api/mfd", tags=["mfd"])
 
 # ── Schemas ─────────────────────────────────────────────────────────────
 class WorkspaceModeUpdate(BaseModel):
-    mode: str = Field(..., description="INDIVIDUAL | ADVISORY")
+    mode: Optional[str] = Field(None, description="INDIVIDUAL | ADVISORY")
+    firm_name: Optional[str] = Field(None, max_length=120)
+    client_count_range: Optional[str] = Field(None, description="<100 | 100-500 | 500+")
+    mfd_onboarding_completed: Optional[bool] = None
 
 
 class ProfileCreate(BaseModel):
@@ -130,12 +133,20 @@ async def get_workspace(request: Request):
 @router.patch("/workspace")
 async def update_workspace_mode(payload: WorkspaceModeUpdate, request: Request):
     user = await get_current_user(request)
-    try:
-        ws = await mfd_workspace.set_workspace_mode(
-            _session_user_id(user), payload.mode,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    owner_uid = _session_user_id(user)
+    # Mode flip (INDIVIDUAL ↔ ADVISORY) and meta patch can be combined in a
+    # single PATCH so the onboarding wizard only needs one round-trip.
+    if payload.mode is not None:
+        try:
+            await mfd_workspace.set_workspace_mode(owner_uid, payload.mode)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    ws = await mfd_workspace.update_workspace_meta(
+        owner_uid,
+        firm_name=payload.firm_name,
+        client_count_range=payload.client_count_range,
+        mfd_onboarding_completed=payload.mfd_onboarding_completed,
+    )
     return ws
 
 

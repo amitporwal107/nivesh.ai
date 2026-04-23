@@ -74,6 +74,32 @@ async def set_workspace_mode(owner_user_id: str, mode: str) -> Dict[str, Any]:
     return ws
 
 
+async def update_workspace_meta(
+    owner_user_id: str, *,
+    firm_name: Optional[str] = None,
+    client_count_range: Optional[str] = None,
+    mfd_onboarding_completed: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Patch MFD-specific workspace fields captured during the onboarding
+    wizard. All fields optional — unspecified keys are untouched."""
+    ws = await get_or_create_workspace(owner_user_id)
+    updates: Dict[str, Any] = {}
+    if firm_name is not None:
+        updates["firm_name"] = firm_name.strip() or None
+    if client_count_range is not None:
+        updates["client_count_range"] = client_count_range
+    if mfd_onboarding_completed is not None:
+        updates["mfd_onboarding_completed"] = bool(mfd_onboarding_completed)
+        if mfd_onboarding_completed:
+            updates["mfd_onboarding_completed_at"] = _now_iso()
+    if not updates:
+        return ws
+    await db.workspaces.update_one(
+        {"workspace_id": ws["workspace_id"]}, {"$set": updates},
+    )
+    return {**ws, **updates}
+
+
 # ── Profile ─────────────────────────────────────────────────────────────
 async def _create_self_profile(workspace_id: str, user_id: str) -> Dict[str, Any]:
     """SELF profile points to the owner's real user_id — no shadow needed."""

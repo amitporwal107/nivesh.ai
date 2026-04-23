@@ -70,9 +70,13 @@ export default function MfdDashboard({ onEnterProfile }) {
 
   const upgradeToAdvisory = async () => {
     try {
-      await axios.patch(`${API}/mfd/workspace`, { mode: "ADVISORY" },
-                        { withCredentials: true });
-      toast.success("Advisor mode enabled");
+      // Flip to ADVISORY AND mark onboarding incomplete so the wizard
+      // mounts automatically (via Dashboard.js). It'll guide the user
+      // through firm setup → first client → upload → first value.
+      await axios.patch(`${API}/mfd/workspace`,
+        { mode: "ADVISORY", mfd_onboarding_completed: false },
+        { withCredentials: true });
+      toast.success("Welcome to Advisor mode — let's set up your practice");
       fetchProfiles();
     } catch (e) {
       toast.error(e.response?.data?.detail || "Could not switch mode");

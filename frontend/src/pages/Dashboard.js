@@ -19,6 +19,7 @@ import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import MfdDashboard from "@/components/mfd/MfdDashboard";
 import ClientCasUpload from "@/components/mfd/ClientCasUpload";
+import MfdOnboardingWizard from "@/components/mfd/MfdOnboardingWizard";
 import { toast } from "sonner";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
@@ -225,6 +226,24 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex overflow-x-hidden" data-testid="dashboard">
+      {/* MFD onboarding wizard — full-screen takeover for ADVISORY workspaces
+          that haven't completed the activation flow yet. Completion is
+          idempotent: once mfd_onboarding_completed=true the wizard is
+          never shown again. */}
+      {workspace?.type === "ADVISORY" && workspace?.mfd_onboarding_completed === false && (
+        <MfdOnboardingWizard
+          onComplete={async (profile) => {
+            await fetchWorkspace();
+            if (profile) {
+              setActiveProfile(profile);
+              await fetchData();
+              setActiveTab("overview");
+            } else {
+              setActiveTab("advisor");
+            }
+          }}
+        />
+      )}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
