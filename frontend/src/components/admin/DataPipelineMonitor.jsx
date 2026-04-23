@@ -96,6 +96,35 @@ const JobTile = ({ name, label, last, live, onTrigger, triggering, onClearProgre
               {fmtElapsed(live.elapsed_s)}{isStuck ? ' · stuck' : ''}
             </span>
           </div>
+          {/* Phase + message — narrates WHAT the worker is doing right now */}
+          {(live.phase || live.message) && (
+            <div
+              data-testid={`live-phase-${name}`}
+              className="rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-2 py-1 text-[10px] leading-snug"
+            >
+              {live.phase && (
+                <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400 mr-1.5">
+                  {live.phase}
+                </span>
+              )}
+              {live.message && (
+                <span className="text-slate-600 dark:text-slate-300">{live.message}</span>
+              )}
+            </div>
+          )}
+          {/* No-heartbeat warning — tick > 60s old while still 'running' */}
+          {live.is_stale && (
+            <div
+              data-testid={`live-stale-${name}`}
+              className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-2 py-1 text-[10px] text-amber-800 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300"
+            >
+              <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+              <span>
+                No heartbeat for <span className="font-semibold">{fmtElapsed(live.stale_tick_s)}</span> —
+                worker may be blocked on a slow call (DB / HTTP).
+              </span>
+            </div>
+          )}
           {/* Thin indeterminate-when-no-total / determinate-when-total bar */}
           <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
             {live.pct != null ? (
@@ -109,7 +138,7 @@ const JobTile = ({ name, label, last, live, onTrigger, triggering, onClearProgre
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-[10px] text-slate-500">
             {live.pct != null && <span className="font-semibold">{live.pct}%</span>}
-            {live.failed > 0 && <span className="text-rose-600">· {live.failed} failed</span>}
+            {live.failed > 0 && <span className="text-rose-600">· {live.failed} skipped/failed</span>}
             {isStuck && (
               <button
                 onClick={(e) => { e.stopPropagation(); onClearProgress?.(name); }}
@@ -354,6 +383,27 @@ export default function DataPipelineMonitor() {
                   {lr.processed ?? 0}{lr.total ? `/${lr.total}` : ''} · {fmtElapsed(lr.elapsed_s)}
                 </span>
               </div>
+              {(lr.phase || lr.message) && (
+                <div className="mb-1.5 text-[10px] leading-snug">
+                  {lr.phase && (
+                    <span className="font-mono font-semibold text-indigo-700 dark:text-indigo-400 mr-1.5">
+                      {lr.phase}
+                    </span>
+                  )}
+                  {lr.message && (
+                    <span className="text-slate-700 dark:text-slate-300">{lr.message}</span>
+                  )}
+                </div>
+              )}
+              {lr.is_stale && (
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                  <span>
+                    No heartbeat for <span className="font-semibold">{fmtElapsed(lr.stale_tick_s)}</span> —
+                    worker may be blocked.
+                  </span>
+                </div>
+              )}
               <div className="h-1.5 w-full rounded-full bg-white dark:bg-slate-800 overflow-hidden">
                 {lr.pct != null ? (
                   <div

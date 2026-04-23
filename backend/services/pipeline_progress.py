@@ -53,6 +53,7 @@ TTL_RUNNING_S = 60 * 60 * 3        # 3h safety ceiling for any single run
 TTL_DONE_S = 60 * 10               # keep completed rows for 10 min so UI
                                    # can show "just finished" state briefly
 STUCK_AFTER_S = 15 * 60            # 15 min without completion → stuck
+STALE_TICK_AFTER_S = 60            # no tick in 60s while running → stale warning
 
 _KEY_PREFIX = "pipeline:progress:"
 
@@ -65,7 +66,8 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def start(job: str, total: Optional[int] = None) -> None:
+async def start(job: str, total: Optional[int] = None, phase: Optional[str] = None,
+                message: Optional[str] = None) -> None:
     """Mark a job as running. Overwrites any prior record for this job."""
     payload = {
         "job": job,
@@ -76,6 +78,8 @@ async def start(job: str, total: Optional[int] = None) -> None:
         "started_at": _now_iso(),
         "updated_at": _now_iso(),
         "duration_ms": None,
+        "phase": phase,
+        "message": message,
     }
     try:
         await redis_client.cache_set(_key(job), payload, ttl_s=TTL_RUNNING_S)
@@ -88,9 +92,15 @@ async def tick(
     processed_delta: int = 1,
     failed_delta: int = 0,
     total: Optional[int] = None,
+    phase: Optional[str] = None,
+    message: Optional[str] = None,
 ) -> None:
     """Increment progress counters for the running job. Cheap: single GET
-    + SET per call. Called from sweep worker success/failure paths."""
+    + SET per call. Called from sweep worker success/failure paths.
+
+    Optional `phase` + `message` let the worker narrate what it's doing so
+    the dashboard can tell the operator WHERE time is being spent.
+    """
     try:
         cur = await redis_client.cache_get(_key(job)) or {}
         if not cur or cur.get("status") != "running":
@@ -105,10 +115,30 @@ async def tick(
         cur["failed"] = int(cur.get("failed", 0)) + int(failed_delta)
         if total is not None:
             cur["total"] = total
+        if phase is not None:
+            cur["phase"] = phase
+        if message is not None:
+            cur["message"] = message
         cur["updated_at"] = _now_iso()
         await redis_client.cache_set(_key(job), cur, ttl_s=TTL_RUNNING_S)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"pipeline_progress.tick({job}) failed: {e}")
+
+
+async def set_phase(job: str, phase: str, message: Optional[str] = None) -> None:
+    """Update phase/message without touching counters. Used when the worker
+    transitions between stages (e.g. download → parse → upsert)."""
+    try:
+        cur = await redis_client.cache_get(_key(job)) or {}
+        if not cur:
+            return
+        cur["phase"] = phase
+        if message is not None:
+            cur["message"] = message
+        cur["updated_at"] = _now_iso()
+        await redis_client.cache_set(_key(job), cur, ttl_s=TTL_RUNNING_S)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"pipeline_progress.set_phase({job}) failed: {e}")
 
 
 async def finish(
@@ -159,13 +189,21 @@ def _seconds_since(iso: Optional[str]) -> Optional[float]:
 
 
 def _decorate(rec: Dict[str, Any]) -> Dict[str, Any]:
-    """Add derived fields (elapsed_s, pct, stuck) consumed by the UI."""
+    """Add derived fields (elapsed_s, pct, stuck, stale_tick_s) consumed by the UI."""
     rec = dict(rec)
     elapsed = _seconds_since(rec.get("started_at"))
     rec["elapsed_s"] = round(elapsed, 1) if elapsed is not None else None
     total = rec.get("total") or 0
     processed = rec.get("processed") or 0
     rec["pct"] = round((processed / total) * 100, 1) if total else None
+    # How long since the last tick? Useful to flag "no heartbeat" silently-
+    # hung jobs even before the 15-min stuck threshold.
+    stale = _seconds_since(rec.get("updated_at"))
+    rec["stale_tick_s"] = round(stale, 1) if stale is not None else None
+    rec["is_stale"] = bool(
+        rec.get("status") == "running" and stale is not None
+        and stale > STALE_TICK_AFTER_S
+    )
     # Stuck detection: running too long without completion.
     if rec.get("status") == "running" and elapsed is not None and elapsed > STUCK_AFTER_S:
         rec["status"] = "stuck"

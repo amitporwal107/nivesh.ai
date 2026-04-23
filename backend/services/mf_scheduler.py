@@ -38,7 +38,11 @@ async def _drain_job():
 async def _stale_refresh_job():
     """Re-enqueue funds whose metadata.last_scraped_at is stale (>15 days)."""
     from services import pipeline_progress
-    await pipeline_progress.start("stale_refresh", total=None)
+    await pipeline_progress.start(
+        "stale_refresh", total=None,
+        phase="query",
+        message="finding funds with last_scraped_at NULL or > 15d old",
+    )
     pool = await pg_client.get_pool()
     if pool is None:
         await pipeline_progress.finish("stale_refresh", "failed", error_msg="no_pg")
@@ -77,7 +81,11 @@ async def _stale_refresh_job():
                 upsert=True,
             )
             queued += 1
-            await pipeline_progress.tick("stale_refresh", processed_delta=1)
+            await pipeline_progress.tick(
+                "stale_refresh", processed_delta=1, total=len(rows),
+                phase="enqueue",
+                message=f"queued {queued}/{len(rows)} stale fund(s)",
+            )
         logger.info(f"scheduler stale_refresh: {queued} funds requeued")
         await pipeline_progress.finish(
             "stale_refresh", "ok", total=queued, processed=queued, failed=0,

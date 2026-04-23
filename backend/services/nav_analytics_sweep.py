@@ -166,8 +166,16 @@ async def run_analytics_sweep(
     """Parallel recompute of NAV-derived primitives for every eligible fund."""
     from services import pipeline_progress
     t_start = time.time()
+    await pipeline_progress.start("analytics_sweep", total=None,
+                                   phase="enumerate",
+                                   message="finding funds with ≥180 NAV days")
     ids = only_ids or await _eligible_fund_ids()
-    await pipeline_progress.start("analytics_sweep", total=len(ids))
+    await pipeline_progress.set_phase(
+        "analytics_sweep", "compute",
+        message=f"recomputing max_dd / consistency / downside / AUM-trend on {len(ids)} funds",
+    )
+    # Re-emit total now that we know it.
+    await pipeline_progress.tick("analytics_sweep", processed_delta=0, total=len(ids))
     if not ids:
         dur = int((time.time() - t_start) * 1000)
         await _log_job_row("analytics_sweep", "ok",
@@ -275,12 +283,24 @@ async def run_v3_rescore(
     if only_ids:
         ids = only_ids
     else:
+        await pipeline_progress.start("v3_rescore", total=None,
+                                       phase="enumerate",
+                                       message="loading MF instrument list")
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT instrument_id::text AS iid FROM mutual_fund_metadata"
             )
         ids = [r["iid"] for r in rows]
-    await pipeline_progress.start("v3_rescore", total=len(ids))
+    if only_ids:
+        await pipeline_progress.start("v3_rescore", total=len(ids),
+                                       phase="compute",
+                                       message=f"rescoring {len(ids)} fund(s)")
+    else:
+        await pipeline_progress.set_phase(
+            "v3_rescore", "compute",
+            message=f"Quality + Health rescore on {len(ids)} funds",
+        )
+        await pipeline_progress.tick("v3_rescore", processed_delta=0, total=len(ids))
     if not ids:
         dur = int((time.time() - t_start) * 1000)
         await _log_job_row("v3_rescore", "ok",

@@ -229,7 +229,11 @@ async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
         {"status": "queued"}, {"_id": 0}
     ).sort("queued_at", 1).limit(max_items).to_list(max_items)
 
-    await pipeline_progress.start("drain_queue", total=len(pending))
+    await pipeline_progress.start(
+        "drain_queue", total=len(pending),
+        phase="scrape",
+        message=f"draining {len(pending)} queued fund(s) from Groww (3s pacing)",
+    )
     ok, failed = 0, 0
     try:
         for item in pending:

@@ -668,7 +668,9 @@ async def refresh_nifty_100(
     # Progress is tracked under the canonical 'nifty100_refresh' key so the
     # dashboard UI sees both scheduled and manual runs on the same tile.
     progress_key = "nifty100_refresh"
-    await pipeline_progress.start(progress_key, total=None)
+    await pipeline_progress.start(progress_key, total=None,
+                                   phase="fetch_index",
+                                   message="scraping Nifty 100 constituent list from Groww")
 
     pool = await pg_client.get_pool()
     if pool is None:
@@ -690,7 +692,11 @@ async def refresh_nifty_100(
                 constituents = [c for c in constituents if c["nse_symbol"] in subset]
 
             # Now that we know the real total, push it into the progress record.
-            await pipeline_progress.tick(progress_key, processed_delta=0, total=len(constituents))
+            await pipeline_progress.tick(
+                progress_key, processed_delta=0, total=len(constituents),
+                phase="scrape_stocks",
+                message=f"scraping fundamentals for {len(constituents)} stock(s) (concurrency={CONCURRENCY})",
+            )
 
             sem = asyncio.Semaphore(CONCURRENCY)
             succeeded: List[str] = []
