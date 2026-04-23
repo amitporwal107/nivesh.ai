@@ -73,16 +73,82 @@ const ScorePill = ({ value, inverted = false }) => {
   );
 };
 
+// Map each alert.component → a contextual CTA. Returns null when no CTA.
+const resolveAlertCta = (alert, ctx) => {
+  const { triggerRefresh, refreshing, setAssetTab, setFilter } = ctx;
+  const c = (alert.component || "").toLowerCase();
+  if (alert.action_hint === "refresh_stock_fundamentals" || c === "data_coverage") {
+    return {
+      label: refreshing ? "Refreshing…" : "Refresh",
+      icon: RefreshCw, spinning: refreshing, disabled: refreshing,
+      onClick: triggerRefresh, testid: "btn-refresh-fundamentals",
+    };
+  }
+  if (c === "allocation") {
+    return {
+      label: "Rebalance",
+      icon: Zap,
+      onClick: () => { window.location.hash = "plan_board"; },
+      testid: `cta-alert-allocation`,
+    };
+  }
+  if (c === "risk_alignment") {
+    return {
+      label: "Retake profile",
+      icon: Shield,
+      onClick: () => { window.location.hash = "risk_profile"; },
+      testid: `cta-alert-risk`,
+    };
+  }
+  if (c === "overlap" || c === "health") {
+    return {
+      label: "Resolve",
+      icon: RefreshCw,
+      onClick: () => { setFilter("SWITCH"); setAssetTab("mutual_fund"); },
+      testid: `cta-alert-${c}`,
+    };
+  }
+  if (c === "diversification") {
+    return {
+      label: "Review holdings",
+      icon: Zap,
+      onClick: () => { window.location.hash = "plan_board"; },
+      testid: `cta-alert-diversification`,
+    };
+  }
+  if (c === "cost") {
+    return {
+      label: "View switches",
+      icon: RefreshCw,
+      onClick: () => { setFilter("REGULAR"); setAssetTab("mutual_fund"); },
+      testid: `cta-alert-cost`,
+    };
+  }
+  return null;
+};
+
+const SUB_STYLE = {
+  Keep:      "bg-slate-100 text-slate-700 border-slate-200",
+  Watch:     "bg-sky-50 text-sky-700 border-sky-200",
+  Review:    "bg-amber-50 text-amber-700 border-amber-200",
+  Rebalance: "bg-indigo-50 text-indigo-700 border-indigo-200",
+};
+
 const ActionBadge = ({ badge }) => {
   if (!badge) return null;
-  const style = BADGE_STYLE[badge.action] || BADGE_STYLE.REVIEW;
+  // HOLD → use sub_action ("Keep" / "Watch" / "Review" / "Rebalance") when present.
+  const isHold = badge.action === "HOLD";
+  const label = isHold && badge.sub_action ? badge.sub_action : badge.action;
+  const style = isHold && badge.sub_action
+    ? SUB_STYLE[badge.sub_action] || BADGE_STYLE.HOLD.bg
+    : (BADGE_STYLE[badge.action] || BADGE_STYLE.REVIEW).bg;
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${style.bg}`}
-      title={badge.reason}
-      data-testid={`action-badge-${badge.action}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${style}`}
+      title={badge.reason || ""}
+      data-testid={`action-badge-${badge.action}${isHold && badge.sub_action ? "-" + badge.sub_action : ""}`}
     >
-      <span>{badge.emoji}</span>{badge.action}
+      <span>{badge.emoji}</span>{label}
     </span>
   );
 };
@@ -312,25 +378,74 @@ export default function ActionablePortfolioView() {
         <span className="text-slate-400 italic ml-2">Exit score is inverted — lower is better.</span>
       </div>
 
+      {/* Portfolio Impact Strip */}
+      {data.portfolio_impact && data.portfolio_impact.pending_actions > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-sky-50 p-4"
+          data-testid="impact-strip"
+        >
+          <div className="flex flex-wrap items-center gap-4 justify-between">
+            <div className="flex items-center gap-3">
+              <Zap className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <div>
+                <div className="text-sm font-bold text-slate-800">
+                  If you complete all {data.portfolio_impact.pending_actions} pending actions:
+                </div>
+                <div className="text-[12px] text-slate-600 mt-0.5 flex flex-wrap gap-x-4 gap-y-1">
+                  {data.portfolio_impact.estimated_cost_savings_rs_per_yr > 0 && (
+                    <span>💰 <strong className="text-emerald-700" data-testid="impact-cost-savings">₹{Math.round(data.portfolio_impact.estimated_cost_savings_rs_per_yr).toLocaleString("en-IN")}/yr</strong> cost savings</span>
+                  )}
+                  {data.portfolio_impact.estimated_value_freed_rs > 0 && (
+                    <span>🔓 <strong className="text-sky-700" data-testid="impact-value-freed">{fmtINR(data.portfolio_impact.estimated_value_freed_rs)}</strong> freed for rebalancing</span>
+                  )}
+                  {data.portfolio_impact.health_delta != null && data.portfolio_impact.health_delta !== 0 && (
+                    <span>📈 Health <strong className="text-indigo-700" data-testid="impact-health">{data.portfolio_impact.health_current}→{data.portfolio_impact.health_projected} ({data.portfolio_impact.health_delta > 0 ? "+" : ""}{data.portfolio_impact.health_delta})</strong></span>
+                  )}
+                  <span className="text-slate-500">{data.portfolio_impact.by_action.EXIT} Exit · {data.portfolio_impact.by_action.SWITCH} Switch · {data.portfolio_impact.by_action.ADD} Add</span>
+                </div>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => { window.location.hash = "plan_board"; }}
+              data-testid="impact-open-plan"
+            >
+              Open Plan Board <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+            </Button>
+          </div>
+        </motion.div>
+      )}
+
       {/* Alerts banner */}
       {data.alerts?.length > 0 && (
         <div className="space-y-2" data-testid="portfolio-alerts">
-          {data.alerts.map((a, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                        className={`flex items-start gap-3 p-3 rounded-xl border ${ALERT_TONE[a.severity] || ALERT_TONE.info}`}
-                        data-testid={`alert-${a.component}`}>
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm">{a.title}</div>
-                <div className="text-[12px] opacity-80">{a.detail}</div>
-              </div>
-              {a.action_hint === "refresh_stock_fundamentals" && (
-                <Button size="sm" variant="outline" onClick={triggerRefresh} disabled={refreshing} data-testid="btn-refresh-fundamentals">
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />Refresh
-                </Button>
-              )}
-            </motion.div>
-          ))}
+          {data.alerts.map((a, i) => {
+            const cta = resolveAlertCta(a, { triggerRefresh, refreshing, setAssetTab, setFilter });
+            return (
+              <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                          className={`flex items-start gap-3 p-3 rounded-xl border ${ALERT_TONE[a.severity] || ALERT_TONE.info}`}
+                          data-testid={`alert-${a.component}`}>
+                <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-sm">{a.title}</div>
+                  <div className="text-[12px] opacity-80">{a.detail}</div>
+                </div>
+                {cta && (
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={cta.onClick} disabled={cta.disabled}
+                    data-testid={cta.testid}
+                    className="flex-shrink-0"
+                  >
+                    {cta.icon && <cta.icon className={`w-3.5 h-3.5 mr-1 ${cta.spinning ? "animate-spin" : ""}`} />}
+                    {cta.label}
+                  </Button>
+                )}
+              </motion.div>
+            );
+          })}
         </div>
       )}
 
@@ -414,6 +529,13 @@ export default function ActionablePortfolioView() {
                     <td className="p-2.5">
                       <div className="font-semibold text-slate-900 text-[13px] truncate max-w-xs">{h.name}</div>
                       <div className="text-[10px] text-slate-400">{h.sector || h.nse_symbol || ""}</div>
+                      {h.action_badge?.reason && (
+                        <div className="text-[10px] text-slate-500 italic mt-0.5 truncate max-w-md"
+                             title={h.action_badge.reason}
+                             data-testid={`row-why-${h.holding_id}`}>
+                          <span className="text-slate-400">Why:</span> {h.action_badge.reason}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2.5 text-[11px] capitalize text-slate-500">{h.asset_type.replace("_", " ")}</td>
                     <td className="p-2.5 font-mono text-right">{h.quantity}</td>
@@ -422,7 +544,20 @@ export default function ActionablePortfolioView() {
                     <td className={`p-2.5 font-mono text-right ${(h.pnl_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.pnl_pct)}</td>
                     <td className={`p-2.5 font-mono text-right ${(h.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.xirr_pct, 1)}</td>
                     <td className="p-2.5 text-center"><ScorePill value={h.composite_score} /></td>
-                    <td className="p-2.5"><ActionBadge badge={h.action_badge} /></td>
+                    <td className="p-2.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <ActionBadge badge={h.action_badge} />
+                        {h.action_badge?.action === "SWITCH" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSwitchTarget(h); }}
+                            className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2"
+                            data-testid={`inline-switch-${h.holding_id}`}
+                          >
+                            Switch →
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                   <AnimatePresence>
                     {expanded.has(h.holding_id) && <ExpandedRow h={h} onSwitch={setSwitchTarget} />}

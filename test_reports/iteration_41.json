@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 41 — All 5 Actionable Portfolio UX enhancements verified end-to-end on priyanka's 64-holding live portfolio. Backend: 10/10 pytest passed (portfolio_impact shape + priyanka expected values pending_actions=15 / cost_savings=₹1,122/yr / value_freed=₹5,55,710 / health_current=64; HOLD sub_action distribution has 3 distinct values {Keep, Watch, Review}; unit tests for _hold_sub_action Rebalance/Keep/Watch/Review branches all pass). Frontend: impact-strip renders with correct children (impact-cost-savings=₹1,122/yr, impact-value-freed=₹5,55,710, impact-open-plan='Open Plan Board'; impact-health correctly absent because health_projected/delta are null — OK per spec); strip text 'If you complete all 15 pending actions:' with breakdown '3 Exit · 7 Switch · 5 Add'; impact-open-plan click sets hash #plan_board. ActionBadge: 21 HOLD rows all render as action-badge-HOLD-{Keep|Watch|Review} with label equal to sub_action (labels show '🟡Watch', '🟡Review', etc. — NOT bare 'HOLD'); 0 plain action-badge-HOLD testids exist. row-why-{id} renders on all 64 rows prefixed with 'Why:' (sample: 'Why: Fundamentals not yet scored — refresh to enrich.'). 7 inline-switch-{id} buttons render on SWITCH rows with label 'Switch →'; clicking inline-switch-hold_6b028a43430c opens Switch modal with 3 candidate testids and the row does NOT expand (propagation stopped). Alert CTAs: cta-alert-allocation='Rebalance', cta-alert-diversification='Review holdings', cta-alert-cost='View switches'; cta-alert-allocation/diversification onClick set window.location.hash='plan_board' (same pattern as verified impact-open-plan); cta-alert-cost onClick calls setFilter('REGULAR')+setAssetTab('mutual_fund'). btn-refresh-fundamentals regression present for data_coverage alert. Regression testids asset-tab-{all,mutual_fund,equity,etf} + score-legend all present.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard first load", "issues": ["ActionPlanManager modal still auto-opens on landing and requires Escape to dismiss — pre-existing, carried over from iterations 39/40."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration41_ux_enhancements.py",
+    "/app/test_reports/pytest/iteration_41_api.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "portfolio_enrichment.py:622-630 portfolio_impact rollup is cleanly computed; cost savings formula uses 0.75% direct-plan baseline and value_rs × (old_er − 0.75) / 100 — correct.",
+    "_hold_sub_action Rebalance branch at weight_pct >= 10 is defensive — no priyanka holdings trigger it (each <3%), but unit tests confirm logic (q=80, h=70, weight=12.5 → Rebalance).",
+    "ActionablePortfolioView.js ActionBadge testid pattern 'action-badge-HOLD-{sub}' cleanly replaces the prior bare 'action-badge-HOLD' — zero regressions in DOM selectors for consumers that target only non-HOLD badges.",
+    "resolveAlertCta() lowercases alert.component so 'Diversification' and 'Cost' (with capitals from backend) map correctly to the diversification/cost branches.",
+    "ActionablePortfolioView.js is at 664 lines — approaching the 700-line threshold flagged in iteration 40. Future refactor to extract ImpactStrip + AlertCTA + RowBody sub-components would help."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration41_ux_enhancements.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings)",
+  "seed_data_creation": "None — used priyanka account.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 41 UX enhancements fully verified. Key new testids: impact-strip, impact-cost-savings, impact-value-freed, impact-health (only when health_projected+delta both non-null), impact-open-plan, action-badge-HOLD-{Keep|Watch|Review|Rebalance}, row-why-{holding_id}, inline-switch-{holding_id}, cta-alert-allocation, cta-alert-diversification, cta-alert-cost (btn-refresh-fundamentals for data_coverage preserved). Live priyanka portfolio_impact: pending_actions=15 (3 EXIT + 7 SWITCH + 5 ADD), cost_savings=₹1,122/yr, value_freed=₹5,55,710, health_current=64, health_projected/delta=null. HOLD sub distribution observed: Watch=15, Review=4, Keep=2. Alert components present: allocation (×2: 'Underweight Debt', 'Overexposed to Hybrid'), diversification, allocation-drift (maps to 'allocation' CTA via case-fold), cost, data_coverage. Pre-existing: ActionPlanManager modal auto-opens on dashboard landing — dismiss with Escape before interacting.",
+  "rca of the issue": "Not applicable — all 5 UX enhancements deliver the expected behavior; no bugs found."
+}

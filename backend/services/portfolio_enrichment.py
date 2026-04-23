@@ -86,14 +86,43 @@ ADD    = {"action": "ADD",    "tone": "emerald", "emoji": "🟢"}
 HOLD   = {"action": "HOLD",   "tone": "slate",   "emoji": "🟡"}
 
 
+def _hold_sub_action(
+    q: float, h: float, weight_pct: Optional[float] = None,
+) -> Dict[str, str]:
+    """Intelligent HOLD sub-label so the UI isn't a sea of grey 'HOLD' pills.
+    Returns {sub_action, sub_reason}."""
+    # Oversized single position → nudge to rebalance
+    if weight_pct is not None and weight_pct >= 10:
+        return {
+            "sub_action": "Rebalance",
+            "sub_reason": f"Single position is {weight_pct:.0f}% of portfolio — trim to <10%.",
+        }
+    if q >= 65 and h >= 60:
+        return {
+            "sub_action": "Keep",
+            "sub_reason": f"Solid Quality {q:.0f} · Health {h:.0f} — no action needed.",
+        }
+    if q >= 50:
+        return {
+            "sub_action": "Watch",
+            "sub_reason": f"Quality {q:.0f} · Health {h:.0f} — monitor next quarter.",
+        }
+    return {
+        "sub_action": "Review",
+        "sub_reason": f"Quality {q:.0f} · Health {h:.0f} — weak fundamentals; revisit.",
+    }
+
+
 def derive_action_badge(
     scores: Optional[Dict[str, Any]],
     recommendation: Optional[str],
     *,
     is_regular_plan: bool = False,
     high_overlap: bool = False,
+    weight_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Badge per user-approved logic. Returns {action, tone, emoji, reason}."""
+    """Badge per user-approved logic. Returns {action, tone, emoji, reason,
+    sub_action?, sub_reason?}."""
     if not scores or scores.get("quality") is None:
         return {**REVIEW, "reason": "Fundamentals not yet scored — refresh to enrich."}
 
@@ -118,8 +147,11 @@ def derive_action_badge(
     if a >= 70 and q >= 65:
         return {**ADD,
                 "reason": f"Add {a:.0f} · Quality {q:.0f} — fits portfolio gap."}
+    sub = _hold_sub_action(q, h, weight_pct)
     return {**HOLD,
-            "reason": f"Quality {q:.0f} · Health {h:.0f} — maintain position."}
+            "reason": sub["sub_reason"],
+            "sub_action": sub["sub_action"],
+            "sub_reason": sub["sub_reason"]}
 
 
 def composite_score(scores: Optional[Dict[str, Any]]) -> Optional[float]:
@@ -376,6 +408,11 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
 
     # Build per-holding rows
     enriched: List[Dict[str, Any]] = []
+    # Pre-compute total value so weight_pct can be passed into badge logic.
+    grand_total_val = sum(
+        float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        for h in holdings
+    )
     total_val = 0.0
     total_inv = 0.0
     alloc: Dict[str, float] = {}
@@ -428,8 +465,12 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                 ret_5y_ext = m.get("ret_5y")
 
         composite = composite_score(score_bundle)
-        badge = derive_action_badge(score_bundle, rec,
-                                     is_regular_plan=is_regular, high_overlap=False)
+        weight_pct = (val / grand_total_val * 100) if grand_total_val > 0 else None
+        badge = derive_action_badge(
+            score_bundle, rec,
+            is_regular_plan=is_regular, high_overlap=False,
+            weight_pct=weight_pct,
+        )
 
         # Personal XIRR from avg-cost lump-sum proxy
         raw_xirr = _holding_xirr(h.get("buy_date"), bp, cp, qty)
@@ -541,6 +582,53 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
     scored_total = scored_equities + scored_mfs
     coverage_pct = round((scored_total / total_scorable) * 100, 1) if total_scorable else 100.0
 
+    # ── Portfolio Impact (completing all pending actions) ─────────────
+    # Cost savings: for each Regular-plan SWITCH row, annual saving is
+    #   value × (regular_er − direct_er) / 100. We approximate the Δ as
+    #   the MF's expense_ratio primitive vs. category baseline 0.75%.
+    impact_cost_savings_rs = 0.0
+    impact_value_freed_rs = 0.0
+    impact_counts = {"EXIT": 0, "SWITCH": 0, "ADD": 0}
+    for row in enriched:
+        act = (row.get("action_badge") or {}).get("action")
+        if act == "EXIT":
+            impact_value_freed_rs += float(row.get("value_rs") or 0)
+            impact_counts["EXIT"] += 1
+        elif act == "SWITCH":
+            impact_counts["SWITCH"] += 1
+            if row.get("is_regular_plan"):
+                # Baseline 0.75% Direct-plan expense; current ER from primitives or 1.25% default.
+                old_er = float(row.get("expense_ratio") or 1.25)
+                saving_rs = float(row.get("value_rs") or 0) * max(0, old_er - 0.75) / 100.0
+                impact_cost_savings_rs += saving_rs
+        elif act == "ADD":
+            impact_counts["ADD"] += 1
+
+    # Health projection delta (best-effort — swallow errors)
+    health_current = None
+    health_projected = None
+    health_delta = None
+    try:
+        if health_payload:
+            health_current = round(float(health_payload.get("health_score") or 0), 1) or None
+        from services import portfolio_health_projection as phj
+        proj = await phj.project_health(user_id)
+        if proj:
+            health_projected = round(float(proj.get("projected") or 0), 1) or None
+            health_delta = round(float(proj.get("delta_total") or 0), 2) or None
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"enriched_portfolio: projection skipped: {e}")
+
+    portfolio_impact = {
+        "pending_actions": sum(impact_counts.values()),
+        "by_action": impact_counts,
+        "estimated_cost_savings_rs_per_yr": round(impact_cost_savings_rs, 0),
+        "estimated_value_freed_rs": round(impact_value_freed_rs, 0),
+        "health_current": health_current,
+        "health_projected": health_projected,
+        "health_delta": health_delta,
+    }
+
     return {
         "holdings": enriched,
         "alerts": alerts,
@@ -556,4 +644,5 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         "allocation_actual": alloc,
         "allocation_ideal": ideal_alloc,
         "health": health_payload,
+        "portfolio_impact": portfolio_impact,
     }
