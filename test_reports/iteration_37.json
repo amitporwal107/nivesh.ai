@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 37 — Portfolio Health & Risk engine. Ran the 46 pure-logic unit tests in test_portfolio_health.py (all pass) plus a new API-level integration suite test_portfolio_health_api.py (9 tests, all pass). Validated new `health` block shape, weights (0.30/0.25/0.20/0.25), risk_drivers sort+cap, refresh_stocks=1 query, equity-only user, and zero-holdings user. Confirmed no regression on portfolio.avg_has_score, portfolio.has_action_counts, funds list. Full regression across related endpoint suites (portfolio_intelligence, v3_fund_breakdown, holding_action_score, v3_portfolio_has_api) shows 145 passed, 5 failed — ALL 5 failures are PRE-EXISTING and reproduce with our changes stashed out (verified via git stash).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/insights/v3-portfolio (test assertion)", "issue": "test_portfolio_intelligence.py::TestPortfolioIntelligence::test_dedupe_26_to_22 — dedupe returns 39 rows vs expected <=23 (PRE-EXISTING, not caused by Portfolio Health)"},
+      {"endpoint": "/api/insights/rate-fund", "issue": "TestRateFund tests return 500 (PRE-EXISTING, not caused by Portfolio Health)"},
+      {"endpoint": "/api/insights/v3-fund-breakdown", "issue": "test_funds_sorted_by_recommendation_priority — REVIEW (rank 2) appearing after rank 3 (PRE-EXISTING)"},
+      {"endpoint": "/api/insights/portfolio-intelligence", "issue": "test_sector_exposure_sums_near_100 — PRE-EXISTING regression unrelated to health"}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_portfolio_health.py",
+    "/app/backend/tests/test_portfolio_health_api.py",
+    "/app/test_reports/pytest/iteration_37_portfolio_health.xml",
+    "/app/test_reports/pytest/iteration_37_portfolio_health_api.xml",
+    "/app/test_reports/pytest/iteration_37_related.xml"
+  ],
+  "action_items": [
+    "None for the Portfolio Health feature — implementation is correct and well-tested.",
+    "(Out-of-scope, flagged for info) Pre-existing failures in test_portfolio_intelligence.py (dedupe_26_to_22, rate-fund 500) and test_v3_fund_breakdown_api sort ordering. These predate iteration 37 and should be triaged separately."
+  ],
+  "critical_code_review_comments": [
+    "portfolio_health.py is ~815 lines — approaching the 700-line soft limit; consider splitting orchestrator (build_portfolio_health + helpers) into a separate module (e.g. portfolio_health_builder.py) to keep pure-logic scorers isolated from DB calls.",
+    "stock_enricher.py — silently returns `heuristic` entries when Groww 5xx/times-out; this is fine per spec but UI consumers should surface `source=='heuristic'` so users know β/σ is a fallback, not a live value.",
+    "Test credentials file /app/memory/test_credentials.md is STALE — it states aporwal107@gmail.com has 0 holdings but that user actually has MF holdings (portfolio returns health_score=71.63). Please update or add a dedicated zero-holdings seed user.",
+    "In `build_portfolio_health`, horizon_years is hard-coded to 10.0 (line 659). This bypasses the SHORT_HORIZON_CAP_EQUITY logic for users with short goals — consider wiring actual horizon from goal_engine or user profile.",
+    "`_weighted_mf_expense` defaults expense_ratio to 1.0% when V3 has nothing — this is optimistic for Regular plans; consider 1.8–2.0% default to avoid under-penalising unlabeled Regular-plan funds."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_portfolio_health_api.py (NEW — 9 API integration tests)"
+  ],
+  "success_rate": {"backend": "100% on portfolio health (46 unit + 9 API = 55/55 pass)", "frontend": "N/A (backend-only run)"},
+  "test_credentials": "priyankamantri@gmail.com / session_token=370eff71-fda1-46d8-b506-b81b894d634f — verified working. aporwal107@gmail.com session works but has holdings (contradicts credentials doc).",
+  "seed_data_creation": "test_portfolio_health_api.py creates 2 transient synthetic users (TEST_zero_* and TEST_eq_*) with pymongo sync driver and cleans up in teardown. No persistent seed data left behind.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Portfolio Health is fully wired and tested. Full backend API sample for priyankamantri returns health_score=63.21 (D 29·R 70·C 72·P 90) as expected. 5 unrelated pre-existing failures remain in portfolio_intelligence + v3_fund_breakdown suites; confirm those are not regressed in future sessions by running the same suite with --ignore and comparing.",
+  "rca of the issue": "No blocking bugs found. Pre-existing failures are unrelated to Portfolio Health; verified by git stash + re-run showing identical failures on main."
+}

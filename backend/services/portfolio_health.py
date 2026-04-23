@@ -444,3 +444,371 @@ def compute_portfolio_health(
         low_confidence=low_conf,
         summary=summary,
     )
+
+
+
+# ── 6. Orchestrator (ties it all together) ─────────────────────────────
+# Maps a MongoDB user_id to the full HealthResult. Gathers:
+#   - MF holdings + V3 primitives (from the same pipeline as
+#     `/api/insights/v3-portfolio`)
+#   - Equity holdings + market-cap classification + β/σ heuristic
+#     (via `stock_enricher`)
+#   - Pairwise MF overlap (value-weighted) from `portfolio_intelligence`
+#   - User risk profile + horizon for ideal allocation
+
+# Profile → risk_profile mapping (DB is free-form, normalise here)
+_RISK_PROFILE_ALIASES = {
+    "conservative": "conservative", "low": "conservative", "safe": "conservative",
+    "moderate": "moderate", "medium": "moderate", "balanced": "moderate",
+    "aggressive": "aggressive", "high": "aggressive", "growth": "aggressive",
+}
+
+
+def _normalise_risk(raw: Optional[str]) -> str:
+    return _RISK_PROFILE_ALIASES.get(
+        (raw or "moderate").strip().lower(), "moderate"
+    )
+
+
+def _ideal_allocation(risk_profile: str, horizon_years: float) -> Dict[str, float]:
+    base = dict(IDEAL_ALLOCATIONS.get(risk_profile, IDEAL_ALLOCATIONS["moderate"]))
+    if horizon_years and horizon_years < 5 and base.get("equity", 0) > SHORT_HORIZON_CAP_EQUITY:
+        gap = base["equity"] - SHORT_HORIZON_CAP_EQUITY
+        base["equity"] = SHORT_HORIZON_CAP_EQUITY
+        base["debt"] = base.get("debt", 0) + gap
+    return base
+
+
+def _classify_asset(holding: Dict[str, Any]) -> str:
+    """Simple asset-class bucket for allocation calc (mirrors
+    portfolio_intelligence._compute_holistic_allocation)."""
+    at = (holding.get("asset_type") or "").lower()
+    name = (holding.get("name") or "").lower()
+    if at == "gold" or "gold" in name or "sgb" in name or "sovereign gold" in name:
+        return "gold"
+    is_debt_mf_or_etf = at in ("mutual_fund", "etf") and any(
+        k in name for k in [
+            "liquid", "gilt", "bond", "corporate bond", "short term",
+            "overnight", "banking & psu", "low duration", "ultra short",
+            "medium duration", "long duration", "credit risk",
+            "floater", "dynamic bond", "debt",
+        ]
+    )
+    if at in ("bond", "debt", "fd", "deposit") or is_debt_mf_or_etf:
+        return "debt"
+    if at in ("mutual_fund", "etf"):
+        name_l = name
+        if "hybrid" in name_l or "balanced" in name_l or "multi asset" in name_l:
+            return "hybrid"
+        return "equity"
+    if at in ("equity", "stock"):
+        return "equity"
+    return "other"
+
+
+def _stock_weights_for_concentration(
+    equity_holdings: List[Dict[str, Any]],
+    mf_top_stocks: List[Dict[str, Any]],
+) -> List[float]:
+    """Build a stock-level weight vector combining direct equity + MF
+    look-through. Weights are absolute (rupees); HHI normalises internally."""
+    weights: List[float] = []
+    # Direct equity exposure
+    for h in equity_holdings:
+        val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        if val > 0:
+            weights.append(val)
+    # MF look-through: portfolio_intelligence returns `top_stocks` sorted desc
+    # with `value_rs` fields. Use those as proxy stock-level weights.
+    for s in mf_top_stocks:
+        val = float(s.get("value_rs") or s.get("value") or 0)
+        if val > 0:
+            weights.append(val)
+    return weights
+
+
+def _weighted_mf_expense(
+    mf_investments: List[Dict[str, Any]],
+    v3_by_id: Dict[str, Any],
+) -> Dict[str, float]:
+    """Value-weighted expense ratio across MF holdings. Also returns the
+    % of portfolio in Regular plans (expense-ratio >> Direct)."""
+    total = 0.0
+    weighted_exp = 0.0
+    regular_val = 0.0
+    for m in mf_investments:
+        val = float(m.get("value") or m.get("amount_rs") or 0)
+        if val <= 0:
+            continue
+        total += val
+        iid = m.get("instrument_id")
+        v3 = v3_by_id.get(iid) if iid else None
+        exp = None
+        if v3:
+            prim = v3.get("v3_primitives") or v3
+            exp = prim.get("expense_ratio_direct") or prim.get("expense_ratio")
+        exp = exp if exp is not None else 1.0  # safe default (median India MF)
+        weighted_exp += float(exp) * val
+        name_l = (m.get("scheme_name") or "").lower()
+        if "regular" in name_l and "direct" not in name_l:
+            regular_val += val
+    if total <= 0:
+        return {"expense_pct": 1.0, "regular_plan_weight_pct": 0.0}
+    return {
+        "expense_pct": weighted_exp / total,
+        "regular_plan_weight_pct": (regular_val / total) * 100.0,
+    }
+
+
+def _portfolio_avg_health_from_v3(
+    mf_investments: List[Dict[str, Any]],
+    v3_by_id: Dict[str, Any],
+) -> Dict[str, Optional[float]]:
+    """Value-weighted Health + Quality + consistency across scored MFs."""
+    total = sum(float(m.get("value") or 0) for m in mf_investments) or 0.0
+    if total <= 0:
+        return {"avg_health": None, "avg_quality": None, "avg_consistency": None}
+    w_h = w_q = w_c = 0.0
+    cov_h = cov_q = cov_c = 0.0
+    for m in mf_investments:
+        val = float(m.get("value") or 0)
+        if val <= 0:
+            continue
+        iid = m.get("instrument_id")
+        v3 = v3_by_id.get(iid) if iid else None
+        if not v3:
+            continue
+        if v3.get("health_score") is not None:
+            w_h += float(v3["health_score"]) * val
+            cov_h += val
+        if v3.get("quality_score") is not None:
+            w_q += float(v3["quality_score"]) * val
+            cov_q += val
+        cons = (v3.get("health_components") or {}).get("consistency_score")
+        if cons is not None:
+            w_c += float(cons) * val
+            cov_c += val
+    return {
+        "avg_health":      (w_h / cov_h) if cov_h else None,
+        "avg_quality":     (w_q / cov_q) if cov_q else None,
+        "avg_consistency": (w_c / cov_c) if cov_c else None,
+    }
+
+
+async def build_portfolio_health(
+    user_id: str,
+    *,
+    force_refresh_stocks: bool = False,
+) -> HealthResult:
+    """Compute Portfolio Health end-to-end for a user.
+
+    Pulls MF holdings + V3 scores, equity holdings + Groww fundamentals
+    (cached 24h), MF overlap from portfolio_intelligence, and the user's
+    risk profile. Calls the 4 component scorers and returns the full
+    HealthResult (ready to serialise via `.to_dict()`).
+    """
+    # Lazy imports so unit tests can import portfolio_health without the
+    # whole FastAPI graph.
+    from deps import db as _db                               # noqa: WPS433
+    from services import portfolio_intelligence as _pintel    # noqa: WPS433
+    from services import v3_integration as _v3i               # noqa: WPS433
+    from services import stock_enricher as _enricher          # noqa: WPS433
+
+    # 1. Load all holdings (MF + equity + ETF)
+    all_holdings: List[Dict[str, Any]] = await _db.holdings.find(
+        {"user_id": user_id}, {"_id": 0},
+    ).to_list(1000)
+    mf_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
+    equity_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("equity", "stock")]
+
+    if not all_holdings:
+        return HealthResult(
+            health_score=0.0, components={}, risk_drivers=[],
+            low_confidence=True, summary="No holdings on file — upload a CAS to compute Health.",
+        )
+
+    # 2. Asset allocation (actual) + ideal from risk profile
+    alloc_actual: Dict[str, float] = {}
+    total_val = 0.0
+    for h in all_holdings:
+        val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        if val <= 0:
+            continue
+        total_val += val
+        bucket = _classify_asset(h)
+        # Roll ETF into debt or equity already; map gold → hybrid-like
+        if bucket == "gold":
+            alloc_actual["hybrid"] = alloc_actual.get("hybrid", 0.0) + val
+        elif bucket == "hybrid":
+            alloc_actual["hybrid"] = alloc_actual.get("hybrid", 0.0) + val
+        elif bucket == "debt":
+            alloc_actual["debt"] = alloc_actual.get("debt", 0.0) + val
+        elif bucket == "equity":
+            alloc_actual["equity"] = alloc_actual.get("equity", 0.0) + val
+        else:
+            alloc_actual["other"] = alloc_actual.get("other", 0.0) + val
+    if total_val > 0:
+        alloc_actual = {k: (v / total_val) * 100.0 for k, v in alloc_actual.items()}
+
+    user_doc = await _db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    raw_rp = (
+        user_doc.get("risk_profile")
+        or (user_doc.get("profile") or {}).get("risk_profile")
+    )
+    risk_profile = _normalise_risk(raw_rp)
+    ideal_alloc = _ideal_allocation(risk_profile, horizon_years=10.0)
+
+    # 3. Enrich equities (Groww cap → heuristic β/σ)
+    try:
+        stock_funda = await _enricher.enrich_stocks_for_user(
+            user_id, force_refresh=force_refresh_stocks,
+        )
+    except Exception as e:  # noqa: BLE001
+        import logging as _log
+        _log.getLogger(__name__).warning(f"stock enrichment failed: {e}")
+        stock_funda = {}
+
+    # 4. MF V3 enrichment + portfolio_intelligence for overlap/look-through
+    mf_investments = [
+        {
+            "scheme_name": h.get("name"),
+            "instrument_id": h.get("instrument_id"),
+            "value": float(h.get("quantity") or 0) * float(h.get("current_price") or 0),
+        }
+        for h in mf_holdings
+        if (float(h.get("quantity") or 0) * float(h.get("current_price") or 0)) > 0
+    ]
+    v3_by_id: Dict[str, Any] = {}
+    if mf_investments:
+        try:
+            v3_map = await _v3i.enrich_candidates_with_v3(
+                mf_investments=mf_investments,
+                exit_candidates=[],
+                mf_holdings=mf_holdings,
+                portfolio_intelligence={},
+            )
+            # v3_map is keyed by (iid, name); normalise to by-id
+            for m in mf_investments:
+                iid = m.get("instrument_id")
+                v3 = _v3i.lookup_v3(iid, m.get("scheme_name", ""), v3_map)
+                if iid and v3:
+                    v3_by_id[iid] = v3
+        except Exception as e:  # noqa: BLE001
+            import logging as _log
+            _log.getLogger(__name__).warning(f"V3 enrichment failed: {e}")
+
+    pi: Dict[str, Any] = {}
+    try:
+        pi = await _pintel.compute_portfolio_intelligence(user_id)
+    except Exception as e:  # noqa: BLE001
+        import logging as _log
+        _log.getLogger(__name__).warning(f"portfolio_intelligence failed: {e}")
+
+    # Value-weighted avg pairwise overlap
+    avg_overlap_pct: Optional[float] = None
+    if pi and pi.get("pairwise_overlap") and pi.get("mf_investments"):
+        val_by_iid = {m["instrument_id"]: m.get("amount_rs", 0)
+                      for m in pi["mf_investments"] if m.get("instrument_id")}
+        total_pair_w = 0.0
+        weighted_ov = 0.0
+        for pair in pi["pairwise_overlap"]:
+            a_val = val_by_iid.get(pair["a"], 0.0)
+            b_val = val_by_iid.get(pair["b"], 0.0)
+            w = min(a_val, b_val)
+            if w > 0:
+                weighted_ov += float(pair.get("overlap_pct") or 0) * w
+                total_pair_w += w
+        if total_pair_w > 0:
+            avg_overlap_pct = weighted_ov / total_pair_w
+
+    # 5. Build stock-level weights for concentration (equity + MF look-through)
+    mf_top_stocks = pi.get("top_stocks", []) if pi else []
+    stock_weights = _stock_weights_for_concentration(equity_holdings, mf_top_stocks)
+
+    # 6. Component: Diversification
+    divers = compute_diversification(
+        stock_weights=stock_weights,
+        asset_allocation_actual=alloc_actual,
+        asset_allocation_ideal=ideal_alloc,
+        portfolio_overlap_pct=avg_overlap_pct,
+    )
+
+    # 7. Component: Risk
+    # Build instruments with (weight_pct, vol_annual_pct) per holding.
+    instruments: List[Dict[str, Any]] = []
+    if total_val > 0:
+        for h in equity_holdings:
+            val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+            if val <= 0:
+                continue
+            sym = (h.get("nse_symbol") or "").upper()
+            ent = stock_funda.get(sym, {})
+            vol = ent.get("vol_annual_pct")
+            instruments.append({
+                "weight_pct": (val / total_val) * 100.0,
+                "vol_annual_pct": vol,
+                "fallback_vol_annual_pct": _enricher.CAP_HEURISTICS["unknown"]["vol_annual_pct"],
+            })
+        # MF vol proxy: Equity MF ~20%, Debt MF ~3%, Hybrid ~10%
+        for h in mf_holdings:
+            val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+            if val <= 0:
+                continue
+            bucket = _classify_asset(h)
+            mf_vol = {"equity": 20.0, "debt": 3.0, "hybrid": 10.0}.get(bucket, 18.0)
+            instruments.append({
+                "weight_pct": (val / total_val) * 100.0,
+                "vol_annual_pct": mf_vol,
+                "fallback_vol_annual_pct": mf_vol,
+            })
+    # Drawdown proxy: max per-fund max_drawdown from V3 weighted (if any)
+    dd_sum = 0.0
+    dd_w = 0.0
+    for m in mf_investments:
+        iid = m.get("instrument_id")
+        v3 = v3_by_id.get(iid) if iid else None
+        if not v3:
+            continue
+        prim = v3.get("v3_primitives") or {}
+        dd = prim.get("max_drawdown_pct")
+        if dd is not None:
+            dd_sum += abs(float(dd)) * float(m.get("value", 0))
+            dd_w += float(m.get("value", 0))
+    portfolio_dd = (dd_sum / dd_w) if dd_w > 0 else None
+
+    risk = compute_risk(
+        instruments=instruments,
+        portfolio_drawdown_pct=portfolio_dd,
+        correlation=0.5,
+    )
+
+    # 8. Component: Cost
+    cost_bundle = _weighted_mf_expense(mf_investments, v3_by_id)
+    # Tax drag: skip real calc for MVP (complex FIFO). Leave None → heuristic.
+    cost = compute_cost(
+        weighted_expense_ratio_pct=cost_bundle["expense_pct"],
+        tax_drag_pct=None,
+        regular_plan_weight_pct=cost_bundle["regular_plan_weight_pct"],
+    )
+
+    # 9. Component: Performance
+    mf_avg = _portfolio_avg_health_from_v3(mf_investments, v3_by_id)
+    # Portfolio 1y return approximation: (current - invested) / invested
+    total_inv = sum(float(h.get("quantity") or 0) * float(h.get("buy_price") or 0) for h in all_holdings)
+    total_cur = sum(float(h.get("quantity") or 0) * float(h.get("current_price") or 0) for h in all_holdings)
+    port_return_1y = ((total_cur - total_inv) / total_inv * 100.0) if total_inv > 0 else None
+    # Benchmark proxy: NIFTY 50 ~12% (long-run avg). Leave None → heuristic flag.
+    benchmark_return_1y = 12.0 if port_return_1y is not None else None
+
+    perf = compute_performance(
+        portfolio_return_1y_pct=port_return_1y,
+        benchmark_return_1y_pct=benchmark_return_1y,
+        sharpe=None,
+        consistency_score=mf_avg.get("avg_consistency"),
+    )
+
+    # 10. Composite
+    result = compute_portfolio_health(
+        diversification=divers, risk=risk, cost=cost, performance=perf,
+    )
+    return result

@@ -544,6 +544,7 @@ from services import (  # noqa: E402
     holding_action_score as has_svc,
     portfolio_intelligence as pintel,
     tax_calculator,
+    portfolio_health as ph_svc,
 )
 
 
@@ -557,9 +558,13 @@ async def v3_portfolio_summary(request: Request):
       - Portfolio-level averages (value-weighted)
       - Flagged funds (low-quality / blocked by guardrails)
       - Coverage confidence: % of AUM that has full V3 scores
+      - **Portfolio Health & Risk** composite score + component breakdown
+        + top risk drivers.  Use `?refresh_stocks=1` to force-refresh Groww
+        stock fundamentals cache (default: 24h TTL).
     """
     user = await get_current_user(request)
     uid = user["user_id"]
+    force_refresh_stocks = request.query_params.get("refresh_stocks", "").lower() in ("1", "true", "yes")
 
     # Load MF holdings
     mf_holdings = await db.holdings.find(
@@ -567,8 +572,18 @@ async def v3_portfolio_summary(request: Request):
         {"_id": 0},
     ).to_list(500)
     if not mf_holdings:
+        # Still compute Health from equity-only portfolio (if any equities exist)
+        try:
+            hr = await ph_svc.build_portfolio_health(
+                uid, force_refresh_stocks=force_refresh_stocks,
+            )
+            health_payload = hr.to_dict()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Portfolio Health (no MF) failed for {uid}: {e}")
+            health_payload = None
         return {"coverage_pct": 0, "funds": [], "portfolio": {},
-                "engine_version": v3_scoring.ENGINE_VERSION}
+                "engine_version": v3_scoring.ENGINE_VERSION,
+                "health": health_payload}
 
     # Build mf_investments-shape list (what enrich_candidates_with_v3 expects)
     mf_investments = [
@@ -841,10 +856,28 @@ async def v3_portfolio_summary(request: Request):
         return (legacy_rank + 10, -(q or -1))
     funds_out.sort(key=_sort_key)
 
+    # ── Portfolio Health & Risk (composite D/R/C/P) ────────────────────
+    try:
+        health_result = await ph_svc.build_portfolio_health(
+            uid, force_refresh_stocks=force_refresh_stocks,
+        )
+        health_payload = health_result.to_dict()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Portfolio Health build failed for {uid}: {e}")
+        health_payload = {
+            "health_score": None,
+            "low_confidence": True,
+            "summary": "Portfolio Health unavailable right now.",
+            "components": {},
+            "risk_drivers": [],
+            "error": str(e),
+        }
+
     return {
         "engine_version": v3_scoring.ENGINE_VERSION,
         "coverage_pct": coverage_pct,
         "portfolio": portfolio,
         "funds": funds_out,
         "flagged": flagged,
+        "health": health_payload,
     }
