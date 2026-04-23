@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Zap,
-  RefreshCw, ArrowRight, ArrowUpRight, Clock, Flame, Target,
+  RefreshCw, ArrowRight, ArrowUpRight, Clock, Flame, Target, Sliders,
 } from "lucide-react";
+import PortfolioBuilder from "./PortfolioBuilder";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -105,6 +106,7 @@ export default function ScenarioSimulator({ goal, initialSimulation, onRefresh }
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState(null);
   const [applyingId, setApplyingId] = useState(null);
+  const [builderOpen, setBuilderOpen] = useState(false);
 
   const runWhatIf = async () => {
     setPreviewing(true);
@@ -397,8 +399,19 @@ export default function ScenarioSimulator({ goal, initialSimulation, onRefresh }
       )}
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-        <div className="text-xs font-semibold uppercase tracking-wider mb-2">
-          Allocation & auto-picked funds
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-semibold uppercase tracking-wider">
+            Allocation & auto-picked funds
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setBuilderOpen(true)}
+            data-testid="open-portfolio-builder"
+            className="h-7 text-xs"
+          >
+            <Sliders className="w-3 h-3 mr-1" /> Customise portfolio
+          </Button>
         </div>
         <div className="grid grid-cols-3 gap-3 mb-3 text-xs">
           {Object.entries(goal.allocation || {}).map(([b, pct]) => (
@@ -493,6 +506,14 @@ export default function ScenarioSimulator({ goal, initialSimulation, onRefresh }
           </div>
         )}
       </div>
+
+      {/* Portfolio Maker — opens when the user clicks "Customise portfolio" */}
+      <PortfolioBuilder
+        open={builderOpen}
+        onClose={() => setBuilderOpen(false)}
+        goal={goal}
+        onSaved={() => onRefresh?.()}
+      />
     </div>
   );
 }

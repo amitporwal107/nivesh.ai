@@ -132,6 +132,8 @@ async def auto_allocate_funds(
     return out
 
 
-async def shortlist_for_bucket(bucket: str, n: int = 5) -> List[Dict[str, Any]]:
+async def shortlist_for_bucket(
+    bucket: str, n: int = 5, *, min_quality: float = 55.0,
+) -> List[Dict[str, Any]]:
     """Exposed to the UI so users can see & override auto-picked funds."""
-    return await pick_funds_for_bucket(bucket, n=n)
+    return await pick_funds_for_bucket(bucket, n=n, min_quality=min_quality)

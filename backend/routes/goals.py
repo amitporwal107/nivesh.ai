@@ -278,10 +278,21 @@ async def create_goal(payload: GoalCreate, request: Request):
 
 
 @router.get("/fund-shortlist/{bucket}")
-async def fund_shortlist(bucket: str, request: Request):
-    await _user_id(request)    # auth check only
-    funds = await goal_fund_picker.shortlist_for_bucket(bucket, n=5)
-    return {"bucket": bucket, "funds": funds}
+async def fund_shortlist(
+    bucket: str,
+    request: Request,
+    n: int = 15,
+    min_quality: float = 55.0,
+):
+    """Ranked fund shortlist for the Portfolio Maker UI.
+
+    Default n=15 (vs n=5 used by auto-pick) gives users enough options to
+    browse and swap. `min_quality` default 55 matches the auto-picker so
+    users only see investable funds.
+    """
+    await _user_id(request)
+    funds = await goal_fund_picker.shortlist_for_bucket(bucket, n=n, min_quality=min_quality)
+    return {"bucket": bucket, "count": len(funds), "funds": funds}
 
 
 @router.get("/{goal_id}")
