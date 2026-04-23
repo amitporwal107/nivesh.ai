@@ -18,6 +18,7 @@ import RiskProfileView from "@/components/RiskProfileView";
 import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import MfdDashboard from "@/components/mfd/MfdDashboard";
+import ClientCasUpload from "@/components/mfd/ClientCasUpload";
 import { toast } from "sonner";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
@@ -174,25 +175,43 @@ const Dashboard = () => {
   }
 
   const renderContent = () => {
+    // MFD viewing a client with no portfolio yet → show the CAS upload CTA
+    // prominently at the top of any content view so it's discoverable
+    // regardless of which tab the MFD lands on.
+    const showClientUploadCta =
+      activeProfile && activeProfile.type === "CLIENT" && (holdings?.length || 0) === 0;
+
+    const withUploadCta = (view) => (
+      showClientUploadCta ? (
+        <div className="space-y-5">
+          <ClientCasUpload
+            clientName={activeProfile.name}
+            onImported={fetchData}
+          />
+          {view}
+        </div>
+      ) : view
+    );
+
     switch (activeTab) {
       case "overview":
-        return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
+        return withUploadCta(<DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />);
       case "plan_board":
-        return <PlanBoardView />;
+        return withUploadCta(<PlanBoardView />);
       case "family":
         return <FamilyView onRefresh={fetchData} />;
       case "portfolio":
-        return <ActionablePortfolioView />;
+        return withUploadCta(<ActionablePortfolioView />);
       case "portfolio_legacy":
-        return <PortfolioView holdings={holdings} onRefresh={fetchData} portfolios={portfolios} />;
+        return withUploadCta(<PortfolioView holdings={holdings} onRefresh={fetchData} portfolios={portfolios} />);
       case "chat":
         // Legacy: if someone still lands on #chat, open the drawer instead of rendering inline
         if (!copilotOpen) setCopilotOpen(true);
-        return <DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />;
+        return withUploadCta(<DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />);
       case "insights":
-        return <InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />;
+        return withUploadCta(<InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />);
       case "goals":
-        return <GoalsView />;
+        return withUploadCta(<GoalsView />);
       case "risk_profile":
         return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
       case "advisor":
