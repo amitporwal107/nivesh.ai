@@ -504,4 +504,48 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     # Invalidate cached analytics
     await db.fund_performance_cache.delete_many({"user_id": user_id})
 
+    # ── On-demand enrichment (background) ─────────────────────────────
+    # Fire-and-forget: fetch fundamentals for new holdings so Insights +
+    # Plan Board render with complete data on the user's next request.
+    # Failure here never blocks the upload response.
+    import asyncio as _asyncio
+    _asyncio.create_task(_enrich_after_upload(user_id, holdings_added))
+
     return holdings_added
+
+
+async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
+    """Background enrichment fired after CAS/manual upload completes.
+
+    - Equity holdings → Groww stock scraper (fundamentals + V3 scoring)
+    - MF holdings     → queue for off-hours scraping via fund_data_resolver
+    Both are fire-and-forget; errors are logged but never bubble up.
+    """
+    try:
+        has_equity = any(h.get("asset_type") == "equity" for h in holdings_added)
+        has_mf = any(h.get("asset_type") == "mutual_fund" for h in holdings_added)
+
+        if has_equity:
+            try:
+                from services.groww_stock_scraper import refresh_user_stocks
+                res = await refresh_user_stocks(user_id)
+                logger.info(
+                    f"post-upload stock enrichment for {user_id}: "
+                    f"scored {res.get('succeeded', 0)}/{res.get('total', 0)} "
+                    f"in {res.get('duration_s', 0)}s"
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"post-upload stock enrichment failed: {e}")
+
+        if has_mf:
+            try:
+                from services import fund_data_resolver as _fdr
+                res = await _fdr.seed_portfolio_queue(user_id=user_id)
+                logger.info(
+                    f"post-upload MF queue seed for {user_id}: "
+                    f"queued {res.get('queued', 0)} schemes"
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"post-upload MF queue seed failed: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"_enrich_after_upload crashed: {e}")

@@ -267,10 +267,13 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
 
 @router.post("/portfolio/refresh-prices")
 async def refresh_equity_prices(request: Request):
-    """Manually refresh live equity/ETF prices."""
+    """Manually refresh live equity/ETF prices. Also fires background stock
+    fundamentals + MF catalogue enrichment so Insights/Plan Board scores
+    stay fresh on the next render."""
     user = await get_current_user(request)
+    uid = user["user_id"]
     holdings = await db.holdings.find(
-        {"user_id": user["user_id"], "asset_type": {"$in": ["equity", "etf"]}},
+        {"user_id": uid, "asset_type": {"$in": ["equity", "etf"]}},
         {"_id": 0}
     ).to_list(2000)
 
@@ -289,6 +292,20 @@ async def refresh_equity_prices(request: Request):
                     "nse_symbol": h.get("nse_symbol", ""),
                 }}
             )
+
+    # Fire-and-forget enrichment (Groww fundamentals + MF queue seed).
+    # Cached 6h / 24h respectively so repeated refreshes are near-free.
+    import asyncio as _asyncio
+    async def _bg():
+        try:
+            from services.groww_stock_scraper import refresh_user_stocks
+            from services import fund_data_resolver as _fdr
+            await refresh_user_stocks(uid)
+            await _fdr.seed_portfolio_queue(user_id=uid)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"refresh-prices bg enrichment failed: {e}")
+    _asyncio.create_task(_bg())
+
     return {"message": "Prices refreshed", **stats}
 
 

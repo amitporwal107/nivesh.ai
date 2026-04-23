@@ -2,6 +2,31 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Auto-Enrichment on CAS Upload & Portfolio Refresh
+
+**Wired the on-demand scrapers** so fundamentals + V3 scores are fresh the moment a user's holdings are created or refreshed — no manual trigger needed.
+
+**`helpers/parsing.py:save_holdings`** (used by all upload paths — CAS PDF, CSV, Excel) now fires a background task `_enrich_after_upload(user_id, holdings_added)` after DB insert completes. Background task:
+- **Equity holdings** → `groww_stock_scraper.refresh_user_stocks(user_id)` — scrapes ROE, D/E, growth, margins, volatility, momentum from Groww; writes primitives to Postgres `stock_primitives`; scores via V3 engine; persists to `stock_scores`. Fire-and-forget.
+- **MF holdings** → `fund_data_resolver.seed_portfolio_queue(user_id=user_id)` — enqueues each scheme in `db.scrape_queue` for the off-hours drain job (Tickertape/Moneycontrol primitives).
+
+**`routes/analytics.py:refresh-prices`** — same background enrichment fires after live-price refresh. Keeps stock scores aligned with latest cap-bucket classification + momentum.
+
+**`routes/gmail.py`** Gmail CAS path — also wired to trigger the same enrichment via shared helper.
+
+**Verified on priyankamantri** (real user, 15 equity + 26 MF holdings):
+- Background enrichment scored 15 out of 15 equities (10 Nifty 100 + 5 mid/small-cap) in 0.3s.
+- 22 MFs queued for the drain job.
+- Full Postgres `stock_scores` table populated: TCS Q=77.9 · MARUTI H=74.6 · ITC REVIEW (H=37) · HDFCBANK H=86.5 · INDHOTEL H=81.4 · AMBUJACEM REVIEW (H=40).
+
+**Design choices**:
+- Fire-and-forget via `asyncio.create_task` — upload response never blocks on enrichment.
+- Errors are logged only, never bubbled to the user (enrichment is best-effort).
+- Redis cache (6h TTL) makes repeat refreshes near-free.
+- Matches only NSE-listed, Nifty-100 equities for scoring; other equities wait for the broader scrape expansion (P1).
+
+
+
 ### Feb 2026 — Groww Nifty 100 Scraper (HARDENED — all gaps closed)
 
 **Live pipeline**: `services/groww_stock_scraper.py` scrapes `groww.in/indices/nifty-218500` for 100 constituents, then each stock's detail page for fundamentals. Extracts from Next.js `__NEXT_DATA__` JSON blob (no fragile HTML parsing). Maps to our `stock_primitives` row shape, persists to Postgres, and calls `stock_scoring.score_stock()` to write V3 composite scores.

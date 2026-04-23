@@ -382,3 +382,10 @@ async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: st
     )
 
     await db.fund_performance_cache.delete_many({"user_id": user_id})
+
+    # Background enrichment: Groww stock scraper + MF queue seed
+    import asyncio as _asyncio
+    from helpers.parsing import _enrich_after_upload as _enrich
+    _asyncio.create_task(_enrich(user_id, [
+        {"asset_type": h.get("asset_type")} for h in saved_holdings
+    ]))
