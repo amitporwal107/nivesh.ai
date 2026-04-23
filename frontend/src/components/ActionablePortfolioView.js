@@ -436,6 +436,23 @@ export default function ActionablePortfolioView() {
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Scoring…" : "Refresh scores"}
           </Button>
+          <Button size="sm" variant="outline"
+            onClick={async () => {
+              try {
+                const API = process.env.REACT_APP_BACKEND_URL;
+                const res = await fetch(`${API}/api/portfolio/refresh-stock-morningstar`, { method: "POST", credentials: "include" });
+                const d = await res.json();
+                alert(d.message || "Done");
+                load();
+              } catch (e) {
+                alert("MS refresh failed: " + e.message);
+              }
+            }}
+            data-testid="header-refresh-ms-ratings"
+            title="Fetch Morningstar star ratings for all equity holdings"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1" />MS Ratings
+          </Button>
           <Button size="sm" variant="outline" onClick={() => exportCSV(filtered)} data-testid="header-export-csv">
             <Download className="w-3.5 h-3.5 mr-1" />Export
           </Button>

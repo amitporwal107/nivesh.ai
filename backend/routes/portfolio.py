@@ -261,3 +261,82 @@ async def clear_all_holdings(request: Request):
     await db.chat_messages.delete_many({"user_id": uid})
 
     return {"message": f"{holdings_deleted} holdings cleared. All portfolio data reset.", "deleted": holdings_deleted}
+
+
+
+@router.post("/portfolio/refresh-stock-morningstar")
+async def refresh_stock_morningstar(request: Request):
+    """
+    Fetch Morningstar quantitative star ratings for all equity holdings
+    in the user's portfolio and persist them to stock_scores.
+    Runs a Playwright token fetch once, then makes lightweight API calls.
+    """
+    user = await get_current_user(request)
+    uid  = user["user_id"]
+
+    # Fetch equity holdings
+    holdings = await db.holdings.find(
+        {"user_id": uid, "asset_type": "equity"},
+        {"_id": 0, "nse_symbol": 1, "name": 1}
+    ).to_list(200)
+
+    if not holdings:
+        return {"message": "No equity holdings found", "updated": 0}
+
+    # Normalize for the scraper
+    items = [
+        {
+            "nse_symbol":   (h.get("nse_symbol") or "").upper().strip(),
+            "company_name": h.get("name") or h.get("nse_symbol") or "",
+        }
+        for h in holdings if h.get("nse_symbol")
+    ]
+    # Deduplicate by symbol
+    seen: set = set()
+    unique_items = []
+    for it in items:
+        if it["nse_symbol"] not in seen:
+            seen.add(it["nse_symbol"])
+            unique_items.append(it)
+
+    from services.morningstar_stock_client import batch_refresh_stock_morningstar
+    from services import pg_client
+
+    logger.info(f"Refreshing Morningstar ratings for {len(unique_items)} stocks…")
+    ratings = await batch_refresh_stock_morningstar(unique_items)
+
+    if not ratings:
+        return {"message": "No Morningstar data found (token may have failed)", "updated": 0}
+
+    # Persist to PostgreSQL stock_scores
+    pool = await pg_client.get_pool()
+    updated = 0
+    if pool:
+        async with pool.acquire() as conn:
+            # Ensure column exists (idempotent)
+            await conn.execute(
+                "ALTER TABLE stock_scores ADD COLUMN IF NOT EXISTS morningstar_rating INTEGER"
+            )
+            for sym, data in ratings.items():
+                rating = data.get("morningstar_rating")
+                if rating is None:
+                    continue
+                result = await conn.execute(
+                    "UPDATE stock_scores SET morningstar_rating = $1 WHERE nse_symbol = $2",
+                    rating, sym
+                )
+                if result == "UPDATE 1":
+                    updated += 1
+
+    # Invalidate Redis cache so next portfolio load reflects new data
+    try:
+        from services.redis_client import invalidate_portfolio_cache
+        await invalidate_portfolio_cache(uid)
+    except Exception:
+        pass
+
+    return {
+        "message": f"Morningstar ratings refreshed: {updated} stocks updated in DB",
+        "updated": updated,
+        "ratings": {sym: d["morningstar_rating"] for sym, d in ratings.items()},
+    }

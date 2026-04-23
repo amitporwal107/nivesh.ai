@@ -330,7 +330,8 @@ async def build_enriched_portfolio(
                                   ss.quality_score, ss.health_score,
                                   ss.exit_score, ss.add_score,
                                   ss.recommendation, ss.recommendation_reason,
-                                  ss.low_confidence, sp.return_1y_pct
+                                  ss.low_confidence, ss.morningstar_rating,
+                                  sp.return_1y_pct
                            FROM stock_scores ss
                            JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
                            LEFT JOIN LATERAL (
@@ -355,6 +356,7 @@ async def build_enriched_portfolio(
                         "cap_bucket": r["cap_bucket"],
                         "low_confidence": bool(r["low_confidence"]) if r["low_confidence"] is not None else False,
                         "return_1y_pct": float(r["return_1y_pct"]) if r["return_1y_pct"] is not None else None,
+                        "morningstar_rating": int(r["morningstar_rating"]) if r["morningstar_rating"] is not None else None,
                     }
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: stock score join failed: {e}")
@@ -486,7 +488,7 @@ async def build_enriched_portfolio(
                 rec = s["recommendation"]
                 rec_reason = s["recommendation_reason"]
                 ret_1y_ext = s.get("return_1y_pct")
-            morningstar_rating = None
+            morningstar_rating = s.get("morningstar_rating") if s else None
             category_rank = None
             category_rank_total = None
         elif at in ("mutual_fund", "etf"):
