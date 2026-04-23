@@ -2,6 +2,26 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Actionable Portfolio UX fixes (Iteration 40)
+
+Addressed 4 direct user-reported issues on the new Actionable Portfolio Engine:
+
+1. **Asset-class tabs** — Added segmented tabs on top of the table: All · Mutual Funds · Stocks · ETFs · Gold/SGB · Other (auto-hidden if 0 holdings). Each tab shows live count. Filter pills + search + CSV export now scope to the active asset tab. `data-testid='asset-tabs'` + `asset-tab-{id}`.
+2. **XIRR correction** — Root cause was mixing partial cashflows (only holdings with `buy_date`) against the full terminal value, producing 367%. Fixed by:
+   - Per-holding XIRR clamped to realistic `[-80%, +150%]` band to suppress CAS avg-cost artefacts.
+   - MF holdings auto-fall back to Groww's **scraped 3y CAGR** (then 1y → 5y) when personal XIRR is unavailable or out-of-band. Surface `xirr_source` ∈ {personal, cagr_1y, cagr_3y, cagr_5y} + `cagr_1y_pct/cagr_3y_pct/cagr_5y_pct` on each holding.
+   - Portfolio XIRR is now **value-weighted average** of per-holding XIRRs (industry standard when transaction-level SIP data isn't available). Hero tile shows "value-weighted" subtitle + an Info tooltip. For priyanka: 367% → **15.47%**.
+3. **Score Coverage** — Formula changed from `scored_equities / total_equities` (equity-only → 35.7%) to `(scored_mfs + scored_equities) / (total_mfs + total_equities)` (→ **56.2%** for priyanka). Tile subtitle now says "MFs + equities" with an Info tooltip.
+4. **Score interpretation bands** — New 4-band scale with correct colour coding:
+   - **80+ Strong** (emerald) · **60–80 Good** (lime) · **40–60 Average** (amber) · **<40 Weak** (rose).
+   - Exit-score coloring is **inverted** (low = safer): a value of 8 renders as Strong/emerald, 61 as Weak/rose.
+   - Rendered in a pill legend below the hero tiles (`data-testid='score-legend'`). Per-score expanded-row cards show "Strong · Long-term business strength" style subtitle.
+5. **Returns panel label** — Expanded row automatically labels the return as `XIRR (avg-cost proxy)`, `CAGR 3Y (Groww)`, `CAGR 1Y (Groww)`, or `CAGR 5Y (Groww)` based on which source was used.
+6. **v3_integration.py** — Surfaced `ret_1y`, `ret_3y`, `ret_5y`, `sharpe`, `sortino` on `v3_primitives` so the Actionable Portfolio can fall back to them.
+
+**Testing**: iteration_40 — 6/6 new pytest + 5/5 regression pytest all green; 100% frontend acceptance. Verified the Exit score inversion live (Ambuja exit=8 → Strong · Axis Small Cap exit=61 → Weak).
+
+
 ### Feb 2026 — Actionable Portfolio Engine (`/dashboard#portfolio`)
 
 Replaced the legacy Holdings table with a **decision-engine Portfolio page** that fuses V3 fund scores, stock V3 scores, XIRR, portfolio alerts, and same-category switch suggestions into one actionable grid.
