@@ -213,6 +213,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
   const cost = analysis?.cost_leakage;
   const gauge = analysis?.risk_gauge;
   const doNothing = analysis?.do_nothing_scenario;
+  // Unified Portfolio Health (same engine powering Dashboard)
+  const portfolioHealth = analysis?.portfolio_health;
 
   const overexposure = deepAnalytics?.overexposure || {};
   const overlapMatrix = deepAnalytics?.overlap_matrix || [];
@@ -583,7 +585,7 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
     <div className="space-y-6">
       {/* Section 1: Portfolio Health + Risk Assessment + Data Confidence */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {gauge && gauge.current > 0 && (
+        {(portfolioHealth?.health_score != null) && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
             <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full" data-testid="health-score-card">
               <CardContent className="p-6 text-center">
@@ -591,16 +593,17 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 <div className="relative w-24 h-24 mx-auto mb-3">
                   <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
                     <circle cx="50" cy="50" r="42" fill="none" stroke="#F1F5F9" strokeWidth="8" className="dark:stroke-slate-700" />
-                    <circle cx="50" cy="50" r="42" fill="none" strokeWidth="8" strokeDasharray={`${(100 - gauge.current) * 2.64} 264`} strokeLinecap="round"
-                      stroke={gauge.current > 60 ? "#EF4444" : gauge.current > 35 ? "#F59E0B" : "#10B981"} />
+                    <circle cx="50" cy="50" r="42" fill="none" strokeWidth="8"
+                      strokeDasharray={`${(portfolioHealth.health_score || 0) * 2.64} 264`} strokeLinecap="round"
+                      stroke={portfolioHealth.health_score >= 70 ? "#10B981" : portfolioHealth.health_score >= 50 ? "#F59E0B" : "#EF4444"} />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{100 - gauge.current}</span>
-                    <span className="text-[9px] text-slate-400">/100</span>
+                    <span className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'JetBrains Mono', monospace" }} data-testid="ph-grade">{portfolioHealth.grade || "—"}</span>
+                    <span className="text-[9px] text-slate-400" data-testid="ph-score">{Math.round(portfolioHealth.health_score)}/100</span>
                   </div>
                 </div>
-                <p className={`text-sm font-semibold ${gauge.current > 60 ? "text-red-500" : gauge.current > 35 ? "text-amber-500" : "text-emerald-600"}`}>
-                  {gauge.current > 60 ? "Needs Attention" : gauge.current > 35 ? "Moderate" : "Healthy"}
+                <p className={`text-sm font-semibold ${portfolioHealth.health_score >= 70 ? "text-emerald-600" : portfolioHealth.health_score >= 50 ? "text-amber-500" : "text-red-500"}`}>
+                  {portfolioHealth.health_score >= 70 ? "Healthy" : portfolioHealth.health_score >= 50 ? "Moderate" : "Needs Attention"}
                 </p>
                 <button onClick={() => setShowHealthExplain(!showHealthExplain)} className="mt-2 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors" data-testid="health-explain-toggle">
                   <HelpCircle className="w-3 h-3" /> {showHealthExplain ? "Hide" : "How is this calculated?"}
@@ -608,9 +611,26 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
                 <AnimatePresence>
                   {showHealthExplain && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1">
+                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1.5">
                         <p className="font-semibold text-slate-700 dark:text-slate-200">Health = 30% Diversification + 25% Risk + 20% Cost + 25% Performance</p>
-                        <p>Based on HHI concentration, asset types, sector spread, plan types, and returns.</p>
+                        {portfolioHealth.summary && <p>{portfolioHealth.summary}</p>}
+                        {portfolioHealth.components && (
+                          <div className="grid grid-cols-2 gap-1.5 pt-1">
+                            {["diversification", "risk", "cost", "performance"].map((k) => {
+                              const c = portfolioHealth.components[k];
+                              if (!c) return null;
+                              return (
+                                <div key={k} className="flex justify-between">
+                                  <span className="capitalize">{k}</span>
+                                  <span className="font-semibold">{Math.round(c.score)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {portfolioHealth.low_confidence && (
+                          <p className="text-amber-600 text-[10px] pt-1">⚠ Some primitives estimated — score may refine as data enriches.</p>
+                        )}
                       </div>
                     </motion.div>
                   )}
@@ -620,40 +640,36 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
           </motion.div>
         )}
 
-        {gauge && gauge.current > 0 && (
+        {(portfolioHealth?.components?.risk) && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full">
+            <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-white/5 rounded-2xl h-full" data-testid="risk-score-card">
               <CardContent className="p-6">
                 <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-4">Risk Assessment</p>
                 <div>
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-500">Current</span>
-                    <span className="font-semibold text-red-500">{gauge.current_label} ({gauge.current})</span>
+                    <span className="text-slate-500">Risk Management</span>
+                    <span className={`font-semibold ${portfolioHealth.components.risk.score >= 70 ? "text-emerald-600" : portfolioHealth.components.risk.score >= 50 ? "text-amber-500" : "text-red-500"}`}>
+                      {Math.round(portfolioHealth.components.risk.score)}/100
+                    </span>
                   </div>
                   <div className="w-full h-3 rounded-full bg-slate-50 dark:bg-zinc-800/50 overflow-hidden">
-                    <div className="h-full rounded-full transition-all duration-700" style={{ width: `${gauge.current}%`, background: "linear-gradient(90deg, #10B981, #F59E0B, #EF4444)" }} />
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${portfolioHealth.components.risk.score}%`,
+                               background: portfolioHealth.components.risk.score >= 70 ? "#10B981" : portfolioHealth.components.risk.score >= 50 ? "#F59E0B" : "#EF4444" }} />
                   </div>
                 </div>
-                <button onClick={() => setShowRiskExplain(!showRiskExplain)} className="mt-3 inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-emerald-600 transition-colors" data-testid="risk-explain-toggle">
-                  <HelpCircle className="w-3 h-3" /> {showRiskExplain ? "Hide" : "Why is this high?"}
-                </button>
-                <AnimatePresence>
-                  {showRiskExplain && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                      <div className="mt-3 text-left p-3 bg-slate-100 dark:bg-[#1A1A1A] rounded-lg text-[11px] text-slate-600 dark:text-zinc-400 space-y-1">
-                        <p className="font-semibold text-red-600 dark:text-red-400">Risk: {gauge.current}/100</p>
-                        <ul className="list-disc pl-3 space-y-0.5">
-                          {analytics?.overexposure?.fund_house?.filter(f => f.risk_level === "high").map(f => (
-                            <li key={f.name}><strong>{f.name}</strong> AMC: {f.pct}%</li>
-                          ))}
-                          {analytics?.overexposure?.sector?.filter(s => s.risk_level === "high").map(s => (
-                            <li key={s.name}><strong>{s.name}</strong>: {s.pct}%</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {portfolioHealth.risk_drivers?.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase mb-1">Top Risk Drivers</p>
+                    <ul className="list-disc pl-3 space-y-0.5 text-[11px] text-slate-600 dark:text-zinc-400">
+                      {portfolioHealth.risk_drivers.slice(0, 3).map((d, i) => (
+                        <li key={i} data-testid={`risk-driver-${i}`}>
+                          <span className="font-medium">{d.label}</span> <span className="text-slate-400">· {d.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>

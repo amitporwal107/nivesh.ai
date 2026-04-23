@@ -131,6 +131,25 @@ async def get_active_plan(request: Request):
     }
 
 
+@router.get("/plans/active/health-projection")
+async def get_active_plan_health_projection(request: Request):
+    """Return current + projected Portfolio Health if pending actions are
+    implemented.
+
+    Response shape: see `services.portfolio_health_projection.project_health`.
+    """
+    user = await get_current_user(request)
+    try:
+        from services import portfolio_health_projection as _phproj
+        result = await _phproj.project_health(user["user_id"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"health projection failed: {e}")
+        return {"available": False, "reason": str(e)}
+    if result is None:
+        return {"available": False, "reason": "No active plan or no holdings."}
+    return {"available": True, **result}
+
+
 @router.get("/plans/history")
 async def get_plan_history(
     request: Request,

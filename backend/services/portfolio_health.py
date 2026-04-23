@@ -62,6 +62,34 @@ CONCENTRATION_FACTOR = 1.0
 OVERLAP_FACTOR = 1.0
 
 
+# Stock cost proxy (PRD §4): stocks incur brokerage/slippage ~0.1–0.3% p.a.
+STOCK_COST_PROXY_PCT = 0.2
+
+# Market-cap → benchmark mapping (PRD §9E)
+CAP_BENCHMARK_RETURN_1Y_PCT = {
+    "large":   12.0,   # NIFTY 50 long-run
+    "mid":     14.0,   # NIFTY Midcap 150
+    "small":   16.0,   # NIFTY Smallcap 250
+    "unknown": 12.0,
+}
+
+# Letter grade cutoffs (Dashboard UI contract)
+GRADE_THRESHOLDS = [
+    (90, "A+"), (80, "A"), (70, "B+"),
+    (60, "B"),  (50, "C"), (40, "D"),
+    (0,  "F"),
+]
+
+
+def score_to_grade(score: Optional[float]) -> str:
+    if score is None:
+        return "N/A"
+    for threshold, label in GRADE_THRESHOLDS:
+        if score >= threshold:
+            return label
+    return "F"
+
+
 # ── Dataclasses ────────────────────────────────────────────────────────
 @dataclass
 class ComponentScore:
@@ -77,6 +105,7 @@ class ComponentScore:
 @dataclass
 class HealthResult:
     health_score: float
+    grade: str                                  # A+/A/B+/B/C/D/F
     components: Dict[str, ComponentScore]
     risk_drivers: List[Dict[str, Any]]         # headline "why is this high?" list
     low_confidence: bool                       # true if any sub was heuristic
@@ -85,6 +114,7 @@ class HealthResult:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "health_score": self.health_score,
+            "grade": self.grade,
             "low_confidence": self.low_confidence,
             "summary": self.summary,
             "components": {
@@ -426,8 +456,9 @@ def compute_portfolio_health(
         (85, "Excellent"), (70, "Strong"), (55, "Fair"), (40, "Weak"), (0, "Poor"),
     ]
     label = next(name for threshold, name in rank_map if total >= threshold)
+    grade = score_to_grade(total)
     summary = (
-        f"{label} portfolio — overall Health {round(total):d}/100 "
+        f"{label} portfolio — overall Health {round(total):d}/100 (Grade {grade}) "
         f"(D {diversification.score:.0f} · R {risk.score:.0f} · "
         f"C {cost.score:.0f} · P {performance.score:.0f})."
     )
@@ -436,6 +467,7 @@ def compute_portfolio_health(
 
     return HealthResult(
         health_score=round(_clamp(total), 2),
+        grade=grade,
         components={
             "diversification": diversification, "risk": risk,
             "cost": cost, "performance": performance,
@@ -530,11 +562,16 @@ def _stock_weights_for_concentration(
 def _weighted_mf_expense(
     mf_investments: List[Dict[str, Any]],
     v3_by_id: Dict[str, Any],
+    *,
+    equity_value_rs: float = 0.0,
 ) -> Dict[str, float]:
-    """Value-weighted expense ratio across MF holdings. Also returns the
-    % of portfolio in Regular plans (expense-ratio >> Direct)."""
-    total = 0.0
-    weighted_exp = 0.0
+    """Value-weighted expense ratio across MF holdings + stock cost proxy.
+    Also returns the % of portfolio in Regular plans (expense-ratio >> Direct).
+
+    Stocks contribute `STOCK_COST_PROXY_PCT` (0.2%) for brokerage/slippage.
+    """
+    total = equity_value_rs   # stocks always count toward denominator
+    weighted_exp = equity_value_rs * STOCK_COST_PROXY_PCT
     regular_val = 0.0
     for m in mf_investments:
         val = float(m.get("value") or m.get("amount_rs") or 0)
@@ -782,8 +819,14 @@ async def build_portfolio_health(
         correlation=0.5,
     )
 
-    # 8. Component: Cost
-    cost_bundle = _weighted_mf_expense(mf_investments, v3_by_id)
+    # 8. Component: Cost (includes stock brokerage proxy 0.2%)
+    equity_value_rs = sum(
+        float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        for h in equity_holdings
+    )
+    cost_bundle = _weighted_mf_expense(
+        mf_investments, v3_by_id, equity_value_rs=equity_value_rs,
+    )
     # Tax drag: skip real calc for MVP (complex FIFO). Leave None → heuristic.
     cost = compute_cost(
         weighted_expense_ratio_pct=cost_bundle["expense_pct"],
@@ -791,14 +834,34 @@ async def build_portfolio_health(
         regular_plan_weight_pct=cost_bundle["regular_plan_weight_pct"],
     )
 
-    # 9. Component: Performance
+    # 9. Component: Performance — cap-weighted benchmark from stock enrichment
     mf_avg = _portfolio_avg_health_from_v3(mf_investments, v3_by_id)
-    # Portfolio 1y return approximation: (current - invested) / invested
     total_inv = sum(float(h.get("quantity") or 0) * float(h.get("buy_price") or 0) for h in all_holdings)
     total_cur = sum(float(h.get("quantity") or 0) * float(h.get("current_price") or 0) for h in all_holdings)
     port_return_1y = ((total_cur - total_inv) / total_inv * 100.0) if total_inv > 0 else None
-    # Benchmark proxy: NIFTY 50 ~12% (long-run avg). Leave None → heuristic flag.
-    benchmark_return_1y = 12.0 if port_return_1y is not None else None
+
+    # Cap-weighted benchmark: blend NIFTY 50 / Midcap 150 / Smallcap 250 per equity mix
+    benchmark_return_1y: Optional[float] = None
+    if port_return_1y is not None:
+        bench_w = 0.0
+        bench_sum = 0.0
+        for h in equity_holdings:
+            val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+            if val <= 0:
+                continue
+            sym = (h.get("nse_symbol") or "").upper()
+            ent = stock_funda.get(sym, {})
+            bucket = ent.get("cap_bucket", "unknown")
+            bench_sum += CAP_BENCHMARK_RETURN_1Y_PCT.get(bucket, 12.0) * val
+            bench_w += val
+        # MF gets a flat 12% (NIFTY 50 proxy); stocks get per-cap-bucket
+        for m in mf_investments:
+            val = float(m.get("value") or 0)
+            if val <= 0:
+                continue
+            bench_sum += 12.0 * val
+            bench_w += val
+        benchmark_return_1y = (bench_sum / bench_w) if bench_w > 0 else 12.0
 
     perf = compute_performance(
         portfolio_return_1y_pct=port_return_1y,

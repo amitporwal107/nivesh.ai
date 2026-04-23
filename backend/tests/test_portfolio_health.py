@@ -332,6 +332,7 @@ def test_stock_weights_skips_zero_value():
 
 
 # ── 12. to_dict shape ──────────────────────────────────────────────────
+# ── 12. to_dict shape ──────────────────────────────────────────────────
 def test_health_result_to_dict_shape():
     d = ph.ComponentScore(name="Diversification", score=70, weight=0.30)
     r = ph.ComponentScore(name="Risk", score=70, weight=0.25)
@@ -340,9 +341,66 @@ def test_health_result_to_dict_shape():
     result = ph.compute_portfolio_health(diversification=d, risk=r, cost=c, performance=p)
     out = result.to_dict()
     assert set(out) >= {
-        "health_score", "low_confidence", "summary",
+        "health_score", "grade", "low_confidence", "summary",
         "components", "risk_drivers",
     }
     assert set(out["components"]) == {"diversification", "risk", "cost", "performance"}
     for comp in out["components"].values():
         assert set(comp) >= {"name", "score", "weight", "sub_scores", "drivers"}
+
+
+# ── 13. Letter grade mapping ───────────────────────────────────────────
+@pytest.mark.parametrize("score,expected", [
+    (100, "A+"), (92, "A+"), (90, "A+"),
+    (89, "A"), (85, "A"), (80, "A"),
+    (79, "B+"), (70, "B+"),
+    (69, "B"), (60, "B"),
+    (59, "C"), (50, "C"),
+    (49, "D"), (40, "D"),
+    (39, "F"), (0, "F"),
+])
+def test_score_to_grade(score, expected):
+    assert ph.score_to_grade(score) == expected
+
+
+def test_score_to_grade_none():
+    assert ph.score_to_grade(None) == "N/A"
+
+
+def test_health_result_exposes_grade():
+    d = ph.ComponentScore(name="D", score=85, weight=0.30)
+    r = ph.ComponentScore(name="R", score=85, weight=0.25)
+    c = ph.ComponentScore(name="C", score=85, weight=0.20)
+    p = ph.ComponentScore(name="P", score=85, weight=0.25)
+    result = ph.compute_portfolio_health(diversification=d, risk=r, cost=c, performance=p)
+    out = result.to_dict()
+    assert "grade" in out
+    assert out["grade"] == "A"
+
+
+# ── 14. Stock cost proxy + cap→benchmark ───────────────────────────────
+def test_stock_cost_proxy_applied():
+    # Pure stock portfolio: no MFs, ₹1,00,000 equity → expense = 0.2%
+    out = ph._weighted_mf_expense(
+        mf_investments=[], v3_by_id={}, equity_value_rs=100000.0,
+    )
+    assert out["expense_pct"] == pytest.approx(ph.STOCK_COST_PROXY_PCT, abs=0.001)
+    assert out["regular_plan_weight_pct"] == 0.0
+
+
+def test_stock_cost_blends_with_mf_expense():
+    # 50% stock + 50% MF (1.0% expense) → weighted 0.6%
+    out = ph._weighted_mf_expense(
+        mf_investments=[{"scheme_name": "Test Direct", "instrument_id": "x", "value": 100000}],
+        v3_by_id={}, equity_value_rs=100000.0,
+    )
+    # 0.5 * 0.2 + 0.5 * 1.0 = 0.6
+    assert out["expense_pct"] == pytest.approx(0.6, abs=0.01)
+
+
+def test_cap_benchmark_table_values():
+    assert ph.CAP_BENCHMARK_RETURN_1Y_PCT["large"] == 12.0
+    assert ph.CAP_BENCHMARK_RETURN_1Y_PCT["mid"] == 14.0
+    assert ph.CAP_BENCHMARK_RETURN_1Y_PCT["small"] == 16.0
+    assert ph.CAP_BENCHMARK_RETURN_1Y_PCT["unknown"] == 12.0
+

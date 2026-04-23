@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import PlanCard from "./PlanCard";
 import PlanHeroCard from "./PlanHeroCard";
+import HealthProjectionCard from "./HealthProjectionCard";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -187,6 +188,9 @@ const PlanBoardView = () => {
 
         {/* V2.5 Hero Card — single-screen decision surface for the active plan */}
         {activePlan && <PlanHeroCard plan={activePlan} />}
+
+        {/* Plan Impact on Portfolio Health & Risk (What-If projection) */}
+        {activePlan && <HealthProjectionCard />}
 
         {/* Plans Grid */}
         {filteredPlans.length === 0 ? (

@@ -528,12 +528,24 @@ async def generate_insights(request: Request):
 
 @router.get("/insights/analysis")
 async def get_analysis(request: Request):
-    """Get the full portfolio analysis."""
+    """Get the full portfolio analysis — now augmented with the unified
+    Portfolio Health payload (single source of truth)."""
     user = await get_current_user(request)
     doc = await db.portfolio_analysis.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    if doc and "analysis" in doc:
-        return doc["analysis"]
-    return None
+    analysis = (doc.get("analysis") if doc else None) or None
+
+    # Always attach the unified Portfolio Health block so the Insights tab
+    # renders the same score as the Dashboard. If it fails, clients can
+    # fall back to the legacy `risk_gauge`.
+    try:
+        from services import portfolio_health as _ph
+        hr = await _ph.build_portfolio_health(user["user_id"])
+        if analysis is None:
+            analysis = {}
+        analysis["portfolio_health"] = hr.to_dict()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"attach portfolio_health to /insights/analysis failed: {e}")
+    return analysis
 
 
 # ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────

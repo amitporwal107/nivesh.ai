@@ -6,7 +6,8 @@ import json
 import logging
 
 from deps import db, get_current_user
-from services import compute_health_score, compute_risk_analysis, generate_recommendations, simulate_optimized_portfolio
+from services import compute_risk_analysis, generate_recommendations, simulate_optimized_portfolio
+from services import portfolio_health as ph_svc
 from services.amfi_nav import fetch_nav_data, update_holdings_nav, lookup_nav
 from services.fund_performance import compute_benchmark_ratings
 from services.live_price import fetch_live_prices
@@ -215,6 +216,31 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         }
     }
 
+    # ── Unified Portfolio Health (source of truth: services/portfolio_health.py) ──
+    try:
+        hr = await ph_svc.build_portfolio_health(user["user_id"])
+        comps = hr.components or {}
+        health_payload = {
+            "overall": round(hr.health_score or 0),
+            "grade": hr.grade,
+            "diversification": round((comps.get("diversification").score if comps.get("diversification") else 0)),
+            "risk":             round((comps.get("risk").score            if comps.get("risk")            else 0)),
+            "cost_efficiency":  round((comps.get("cost").score            if comps.get("cost")            else 0)),
+            "performance":      round((comps.get("performance").score    if comps.get("performance")    else 0)),
+            "low_confidence": hr.low_confidence,
+            "summary": hr.summary,
+            "risk_drivers": hr.risk_drivers,
+            "components": hr.to_dict().get("components"),
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Portfolio Health compute failed for {user['user_id']}: {e}")
+        health_payload = {
+            "overall": 0, "grade": "N/A",
+            "diversification": 0, "risk": 0, "cost_efficiency": 0, "performance": 0,
+            "low_confidence": True, "summary": "Portfolio Health unavailable.",
+            "risk_drivers": [], "components": {},
+        }
+
     return {
         "total_invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
@@ -233,7 +259,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "performance_trend": trend,
         "data_flags": data_flags,
         "live_price_stats": live_price_stats,
-        "health_score": compute_health_score(holdings, total_invested, current_value),
+        "health_score": health_payload,
         "risk_analysis": compute_risk_analysis(holdings, current_value),
         "recommendations": generate_recommendations(holdings, current_value, total_invested),
     }

@@ -1,73 +1,11 @@
-"""Portfolio Intelligence Service — health score, risk analysis, recommendations."""
+"""Portfolio Intelligence Service — legacy risk analysis + recommendations.
+
+Note: `compute_health_score` was removed Feb 2026 — use
+`services.portfolio_health.build_portfolio_health(user_id)` instead. It's
+the single source of truth for Portfolio Health & Risk (see PRD).
+"""
 from typing import List
 import math
-
-
-def compute_health_score(holdings: list, total_invested: float, current_value: float) -> dict:
-    """Compute composite portfolio health score (0-100) with breakdown."""
-    if not holdings or total_invested == 0:
-        return {"diversification": 0, "risk": 0, "cost_efficiency": 0, "performance": 0, "overall": 0, "grade": "N/A"}
-
-    returns_pct = ((current_value - total_invested) / total_invested * 100) if total_invested > 0 else 0
-
-    # ── Diversification Score (0-100) ──
-    asset_types = set(h.get("asset_type") for h in holdings)
-    sectors = set(h.get("sector", "Other") for h in holdings)
-    values = [h["quantity"] * h["current_price"] for h in holdings if h["quantity"] * h["current_price"] > 0]
-
-    # HHI (Herfindahl-Hirschman Index) for concentration
-    if values and current_value > 0:
-        shares = [v / current_value for v in values]
-        hhi = sum(s ** 2 for s in shares)
-        hhi_score = max(0, min(100, int((1 - hhi) * 120)))  # Lower HHI = better diversification
-    else:
-        hhi_score = 0
-
-    asset_type_score = min(100, len(asset_types) * 25)  # Up to 4 types = 100
-    sector_score = min(100, len(sectors) * 12)  # Up to ~8 sectors = 100
-    diversification = int((hhi_score * 0.5 + asset_type_score * 0.25 + sector_score * 0.25))
-
-    # ── Risk Score (inverted — lower risk = higher score) ──
-    risk_raw = _compute_risk_score(holdings, current_value)
-    risk_score = max(0, 100 - risk_raw)
-
-    # ── Cost Efficiency (0-100) ──
-    # Penalize regular plans, high expense ratios (proxy: mutual funds that are "Regular")
-    regular_count = sum(1 for h in holdings if "regular" in h.get("name", "").lower() and h.get("asset_type") == "mutual_fund")
-    mf_count = sum(1 for h in holdings if h.get("asset_type") == "mutual_fund")
-    if mf_count > 0:
-        direct_ratio = 1 - (regular_count / mf_count)
-        cost_efficiency = int(direct_ratio * 80 + 20)  # Baseline 20
-    else:
-        cost_efficiency = 80  # No MFs = decent by default
-
-    # ── Performance Score (0-100) ──
-    if returns_pct >= 15:
-        performance = 95
-    elif returns_pct >= 10:
-        performance = 80
-    elif returns_pct >= 5:
-        performance = 65
-    elif returns_pct >= 0:
-        performance = 50
-    elif returns_pct >= -5:
-        performance = 35
-    else:
-        performance = max(10, 35 + int(returns_pct * 2))
-
-    overall = int(diversification * 0.30 + risk_score * 0.25 + cost_efficiency * 0.20 + performance * 0.25)
-    overall = max(0, min(100, overall))
-
-    grade = _score_to_grade(overall)
-
-    return {
-        "diversification": diversification,
-        "risk": risk_score,
-        "cost_efficiency": cost_efficiency,
-        "performance": performance,
-        "overall": overall,
-        "grade": grade,
-    }
 
 
 def compute_risk_analysis(holdings: list, current_value: float) -> dict:

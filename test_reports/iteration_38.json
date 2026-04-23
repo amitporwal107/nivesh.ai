@@ -1,0 +1,38 @@
+{
+  "summary": "Backend testing complete for Iteration 38 (Unified Portfolio Health + V3 Stock Scoring). 114/114 targeted tests passed: 67 portfolio_health unit tests, 24 stock_scoring unit tests, 14 API integration tests, plus 9 related V3/weights/plans tests. All Phase A acceptance criteria met (health parity across Dashboard/Insights/Plan Board within \u00b11), letter grades correct, health-projection shape correct. Phase B admin endpoints work: GET/PUT/RESET v3-stock-weights validate sum-to-100, persist to Mongo, default weights match user spec (quality.roe=25, health.revenue_growth=25, exit.pe_overvaluation=25, add.sector_gap=30). Master catalogue endpoint returns cleanly with error field (PG migration 008 not applied in sandbox \u2014 expected).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_v2_plans.py", "issue": "Pre-existing test file has hardcoded stale preview URL 'https://fund-overlap-3.preview.emergentagent.com' \u2014 causes 404s. Live endpoint /api/plans/generate works (returns 200). Not an Iteration 38 regression. Main agent should update BASE_URL to read from REACT_APP_BACKEND_URL env."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration38_unified_health.py",
+    "/app/backend/tests/test_portfolio_health.py",
+    "/app/backend/tests/test_stock_scoring.py",
+    "/app/test_reports/pytest/iteration38_api.xml",
+    "/app/test_reports/pytest/iteration38_combined.xml",
+    "/app/test_reports/pytest/regression_core.xml"
+  ],
+  "action_items": [
+    "[LOW] Update /app/backend/tests/test_v2_plans.py to read BASE_URL from REACT_APP_BACKEND_URL env (currently hardcoded to stale preview host) \u2014 pre-existing drift, not Iteration 38."
+  ],
+  "critical_code_review_comments": [
+    "portfolio_health.py build_portfolio_health is ~240 lines in one function; consider splitting fetch/enrich/compute phases for readability (not blocking).",
+    "admin_v3_stock.py PUT endpoint accepts partial `weights` (any subset of dims). Test-verified that sum-to-100 check runs per dimension only when present. Good.",
+    "stock_scoring.py _weights_cache is a module-level global \u2014 acceptable since admin persists to Mongo and hydrate_from_db loads on startup, but any unit test that calls set_weights without resetting can leak into subsequent tests. Current test suite resets cleanly.",
+    "routes/analytics.py correctly maps portfolio_health components into UI-expected flat keys (overall/grade/diversification/risk/cost_efficiency/performance) \u2014 no double-rounding issues observed.",
+    "routes/plans.py /plans/active/health-projection properly degrades to {available: false} when no plan \u2014 verified via user with active plan (projection delta was a plausible float)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration38_unified_health.py (new, 14 tests)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "Primary: priyankamantri@gmail.com (user_f087c6332922, session 370eff71-...-b81b894d634f). Admin-for-Phase-B: aporwal107@gmail.com (user_6a8206568b50, session 5770bebb-...-e8152ac25daa).",
+  "seed_data_creation": "None. PUT v3-stock-weights test mutates state but uses try/finally to always reset to defaults via POST /v3-stock-weights/reset. Verified post-test that weights are back to user-spec defaults (quality.roe=25, etc.).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 38 shipped clean. Phase A health parity verified within \u00b11 across Dashboard/Insights/Plan Board. Phase B stock scoring engine + admin endpoints fully unit & API tested. Unresolved item: Postgres migration 008 (stock_master table) is pending production deploy \u2014 /api/admin/v3-stock-master returns error field in sandbox (expected). Groww Nifty 100 scraper is deferred follow-up. Stale hardcoded URL in test_v2_plans.py pre-existed; not related to this iteration.",
+  "rca of the issue": "N/A \u2014 no issues found in Iteration 38 scope. The test_v2_plans.py failures RCA: hardcoded BASE_URL='https://fund-overlap-3.preview.emergentagent.com' in lines 21-22 of that file predates iteration 38. Live endpoint returns 200; fix is to replace the constant with os.environ['REACT_APP_BACKEND_URL']."
+}

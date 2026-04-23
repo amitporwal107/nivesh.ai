@@ -2,29 +2,53 @@
 
 ## Implemented Features (Latest)
 
-### Feb 2026 — Portfolio Health & Risk Calculation (D/R/C/P composite)
-Portfolio-level 0-100 Health score exposed on `GET /api/insights/v3-portfolio` as `health` block. Combines Diversification (30%) + Risk (25%) + Cost (20%) + Performance (25%) with top-5 risk drivers showing exactly "why this high".
+### Feb 2026 — Portfolio Health UNIFIED + What-If Projection + Stock V3 Scoring (Phase A+B)
 
-**Engine** (`services/portfolio_health.py` — ~815 LOC):
-- `compute_diversification` — HHI → Effective-N vs ideal 40; allocation deviation vs risk-profile target; value-weighted pairwise MF overlap.
-- `compute_risk` — portfolio variance with blanket ρ=0.5; vol band 8→30% and drawdown band 5→50% mapped linearly to 0-100.
-- `compute_cost` — expense band 0.5→2.0% + tax drag band + regular-plan weight driver.
-- `compute_performance` — Sharpe (0→1.5 band) + alpha vs benchmark (±10% band) + consistency (0-100 as-is).
-- `compute_portfolio_health` composes 30/25/20/25 and returns top-5 risk drivers sorted by impact_points desc.
-- `build_portfolio_health(user_id, force_refresh_stocks)` orchestrator pulls holdings + V3 enrichment + portfolio_intelligence overlap + Groww stock fundamentals + user risk profile, then calls the 4 scorers.
+**UNIFIED PORTFOLIO HEALTH** (Dashboard + Insights + Plan Board all consistent):
+- Removed legacy `services/__init__.compute_health_score` (stale heuristic).
+- `GET /api/portfolio/analytics.health_score` now calls `portfolio_health.build_portfolio_health()` and returns the V3 shape `{overall, grade, diversification, risk, cost_efficiency, performance, summary, risk_drivers, components, low_confidence}`.
+- `GET /api/insights/analysis.portfolio_health` attached for Insights tab — consistent grade B/64 across all three tabs for priyankamantri.
+- InsightsView `Portfolio Health` + `Risk Assessment` tiles rewritten to consume the new payload, render top 3 risk drivers.
 
-**Stock enrichment** (`services/stock_enricher.py` — NEW):
-- `enrich_stocks_for_user(user_id, force_refresh)` fetches market_cap from Groww's public stock API for every equity holding in parallel; caches per-symbol in `db.stock_fundamentals_cache` with 24h TTL. Falls back gracefully to heuristic when Groww fails.
-- `classify_market_cap` → {large (≥₹67,000 Cr) / mid (≥₹20,000 Cr) / small / unknown} per AMFI thresholds.
-- `stock_primitives_from_bucket` → β/σ heuristic table (Large 0.9/18, Mid 1.1/22, Small 1.3/30, Unknown 1.0/20).
+**LETTER GRADE MAPPING** — score_to_grade(): ≥90=A+, ≥80=A, ≥70=B+, ≥60=B, ≥50=C, ≥40=D, <40=F.
 
-**API** (`routes/insights.py` — `/api/insights/v3-portfolio` extended):
-- Top-level `health = {health_score, summary, low_confidence, components: {diversification, risk, cost, performance}, risk_drivers}`.
-- Each component returns `{name, score, weight, sub_scores, drivers, low_confidence, note}`.
-- Optional `?refresh_stocks=1` forces Groww re-fetch.
-- Early-return path (users with 0 MF holdings) still builds Health from equities.
+**WHAT-IF PROJECTION** (`services/portfolio_health_projection.py`):
+- `GET /api/plans/active/health-projection` returns `{current, projected, delta_total, delta_by_component, completed_count, pending_count, message}`.
+- Shadow-mutates holdings per PENDING action (EXIT/TRIM/SWITCH→Direct/ADD debt) and recomputes Health.
+- Plan Board header now shows a **HealthProjectionCard** (`/app/frontend/src/components/v2/HealthProjectionCard.jsx`) — "Completing pending actions lifts Health from 64→68 (+3.82)".
 
-**Testing**: 46 pure-logic unit tests (`tests/test_portfolio_health.py`) + 9 API integration tests (`tests/test_portfolio_health_api.py`). Testing agent iteration_37: **55/55 Portfolio Health tests pass, 100% backend acceptance**. Live verified on priyankamantri (64 holdings): Health = 63.21 · D 29 (10.8 effective stocks, 59pp allocation drift vs Moderate) · R 70 · C 72 (15.8% Regular plans) · P 90 (22% return vs 12% benchmark). Top drivers: "Too few effective stocks" (36.5pp), "Asset allocation drifted" (30pp), "Regular-plan MFs" (4.7pp).
+**STOCK COST PROXY + CAP-WEIGHTED BENCHMARK** — added to `portfolio_health.py`:
+- 0.2% p.a. stock brokerage/slippage baked into Cost component.
+- Benchmark return blends NIFTY 50 (large 12%) / Midcap 150 (mid 14%) / Smallcap 250 (small 16%) per equity mix.
+
+**STOCK V3 SCORING ENGINE** (`services/stock_scoring.py` — NEW):
+- User-approved refined framework (Feb 2026): Quality/Health/Exit/Add composite scores for direct equities.
+- **Quality** (non-market): ROE 25, D/E 15, EPS Growth 3Y 20, Promoter 10, Market-cap stability 10, Earnings consistency 20. **PE band removed** (valuation ≠ quality).
+- **Health** (trajectory): Revenue Growth 25, Profit Margin Trend 20, Debt Trend 15, Earnings Surprise 15, Volatility 10, Dividend 5. **Beta removed** (noisy for retail).
+- **Exit** (sell-signal): PE Overvaluation 25, Earnings Decline 25, Quality Deterioration 20, Debt Spike 10, Liquidity Risk 10, Tax 10.
+- **Add** (portfolio-driven): Sector Gap 30, Low Overlap 25, Relative Valuation 15, Quality 15, Momentum 10, Dividend 5.
+- `derive_recommendation` maps to BUY/HOLD/TRIM/EXIT/REVIEW.
+- Weights editable via admin UI (MongoDB `system_config.v3_stock_weights`).
+
+**POSTGRES SCHEMA** (`migrations/008_equity_scoring.sql`):
+- `stock_master` — canonical catalogue (symbol, cap_bucket, sector, is_nifty_100).
+- `stock_primitives` — all raw primitives needed by scoring (ROE, D/E, growth, margins, volatility, etc.).
+- `stock_scores` — V3 composite scores + component JSONB breakdown + recommendation.
+- Apply in production via existing migration runner; sandbox PG unavailable in dev.
+
+**ADMIN ENDPOINTS** (`routes/admin_v3_stock.py`):
+- `GET/PUT /api/admin/v3-stock-weights` — edit Quality/Health/Exit/Add weights, sum-to-100 validation.
+- `POST /api/admin/v3-stock-weights/reset` — restore defaults.
+- `GET /api/admin/v3-stock-master?nifty_100_only=true` — list scored stocks with composite scores + recommendation.
+
+**ADMIN UI TABS** (`AdminView.js`):
+- V3 Rules Engine: **Mutual Funds** tab (existing) / **Equity** tab (new — renders `V3StockWeightsSection.jsx`).
+- V3 Master Catalogue: **Mutual Funds** tab (existing) / **Equity** tab (new — renders `V3MasterStocksSection.jsx`).
+
+**Testing**: 165 backend tests green (67 `test_portfolio_health.py` + 24 `test_stock_scoring.py` + others). Live-verified: Dashboard `health_score.overall=64 grade=B`, Insights `portfolio_health.health_score=63.96 grade=B`, Plan projection `current=64, projected=68, delta=+3.82`.
+
+**PENDING (Phase B follow-up)**: Groww Nifty 100 scraper + daily APScheduler cron to populate `stock_master` / `stock_primitives` / `stock_scores`. Scoring engine + admin UI already wired and functional — just needs the scraper to start feeding data.
+
 
 
 

@@ -18,10 +18,56 @@ import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PromptsSection from "@/components/admin/PromptsSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
 import V3WeightsSection from "@/components/admin/V3WeightsSection";
+import V3StockWeightsSection from "@/components/admin/V3StockWeightsSection";
 import V3MasterFundsSection from "@/components/admin/V3MasterFundsSection";
+import V3MasterStocksSection from "@/components/admin/V3MasterStocksSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// ── Inline tab wrappers for MF vs Equity in V3 Rules Engine & Master Catalogue ──
+const SubTabSwitcher = ({ active, setActive, testidPrefix }) => (
+  <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit" data-testid={`${testidPrefix}-tabs`}>
+    {[
+      { id: "mf", label: "Mutual Funds" },
+      { id: "equity", label: "Equity" },
+    ].map((t) => (
+      <button
+        key={t.id}
+        onClick={() => setActive(t.id)}
+        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          active === t.id
+            ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+            : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+        }`}
+        data-testid={`${testidPrefix}-tab-${t.id}`}
+      >
+        {t.label}
+      </button>
+    ))}
+  </div>
+);
+
+const V3RulesEngineTabs = () => {
+  const [active, setActive] = useState("mf");
+  return (
+    <div className="space-y-3">
+      <SubTabSwitcher active={active} setActive={setActive} testidPrefix="v3-rules" />
+      {active === "mf" ? <V3WeightsSection /> : <V3StockWeightsSection />}
+    </div>
+  );
+};
+
+const V3MasterCatalogueTabs = () => {
+  const [active, setActive] = useState("mf");
+  return (
+    <div className="space-y-3">
+      <SubTabSwitcher active={active} setActive={setActive} testidPrefix="v3-master" />
+      {active === "mf" ? <V3MasterFundsSection /> : <V3MasterStocksSection />}
+    </div>
+  );
+};
+
 
 const ADMIN_TABS = [
   {
@@ -270,20 +316,20 @@ const AdminView = () => {
         </div>
       )}
 
-      {/* Tab 3 — V3 Rules Engine Management */}
+      {/* Tab 3 — V3 Rules Engine Management (MF + Equity sub-tabs) */}
       {activeTab === "engine" && (
         <div data-testid="admin-panel-engine" className="space-y-5">
           <V3EngineOverviewSection />
-          <V3WeightsSection />
+          <V3RulesEngineTabs />
           <RulesConfigSection />
           <PromptsSection />
         </div>
       )}
 
-      {/* Tab 4 — V3 Master Funds catalogue + Excel export */}
+      {/* Tab 4 — V3 Master catalogue (MF + Equity sub-tabs) */}
       {activeTab === "master" && (
         <div data-testid="admin-panel-master" className="space-y-5">
-          <V3MasterFundsSection />
+          <V3MasterCatalogueTabs />
         </div>
       )}
 
