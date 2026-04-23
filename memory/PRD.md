@@ -2,6 +2,22 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — DPDP compliance, name-norm + category rank (Iteration 44-45)
+
+Three follow-through tasks shipped as one batch:
+
+1. **Name-match normalisation in `pg_writer`** — `persist_moneycontrol_scrape` now has a 3rd-tier fuzzy fallback: `regexp_replace(LOWER(name), '[,-]', ' ') + whitespace collapse` on both the target and the DB column, so CAS-formatted names like `"HDFC Small Cap, Fund - Regular Plan, - Growth Plan"` resolve to the clean PG row.
+2. **Category rank** — MC's SSR doesn't expose rank, so computed internally. After the MF V3 scores are loaded, `_fetch_master_funds()` is grouped by `category`, sorted by `quality_score` desc (Direct plans only), and each holding gets `category_rank` + `category_rank_total` stamped on its payload. Frontend renders a small coloured pill (`#N/M`) next to the Morningstar stars with a colour map: top 10% = emerald, ≤25% = lime, ≤50% = amber, else rose. Hover title: `"Rank N of M in {category} (by V3 Quality)"`.
+3. **DPDP Act 2023 compliance layer** (4 new modules):
+   - `services/pii_security.py` — AES-256-GCM encrypt/decrypt for PAN + masking (`XXXXX1234X`) + PAN validator. Key sourced from `PII_ENCRYPTION_KEY` env → secrets → dev fallback (deterministic SHA-256, logged loudly).
+   - `services/audit.py` — immutable `audit_log` writer; 22 standardised action keys; PII sanitiser redacts anything matching `password / pan_plain / aadhaar / otp / token / secret`.
+   - `services/consents.py` — ledger of 5 DPDP purposes (`data_processing` required, 4 optional). Grant/withdraw write NEW rows with `event_ts` so the read side sorts reliably. Regrant/rewithdraw cycle verified.
+   - `routes/compliance.py` — 9 endpoints: `GET/POST /consents`, `DELETE /consents/{purpose}`, `GET/PUT/DELETE /pan`, `GET /audit`, `GET /export` (data-subject right to portability), `DELETE /account` (right to erasure, soft-deletes user + hard-deletes holdings/plans; audit retained 7 yrs per §8(6)).
+   - **Instrumentation**: login/logout, CAS upload, portfolio refresh now all write audit records. Plaintext PAN is NEVER stored or returned — only encrypted ciphertext in DB and masked form in API responses.
+
+**Testing**: iteration 44 found a CRITICAL consent-withdraw read bug (sort by `granted_at` DESC → null withdrawal rows sorted last). Iteration 45 fix verified: 13/13 backend pytest PASS + 100% frontend regression. Live verified grant → withdraw → regrant cycle on `partner_sharing`.
+
+
 ### Feb 2026 — Morningstar Rating end-to-end (Iteration 43)
 
 Full wiring of Morningstar ratings from Moneycontrol → PG → UI:
