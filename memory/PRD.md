@@ -2,6 +2,39 @@
 
 ## Implemented Features (Latest)
 
+### Feb 2026 — Actionable Portfolio UX round 2 (Iteration 41)
+
+5 user-requested UX enhancements turning the Portfolio page into a truly actionable decision surface:
+
+1. **Intelligent HOLD sub-labels** — `action_badge.sub_action` ∈ {Keep, Watch, Review, Rebalance}:
+   - **Keep** (Q ≥ 65 AND H ≥ 60) — solid fundamentals, no action needed.
+   - **Watch** (Q ≥ 50) — monitor next quarter.
+   - **Review** (Q < 50) — weak fundamentals, revisit.
+   - **Rebalance** (weight_pct ≥ 10) — oversized single position; trim to <10%.
+   - UI replaces the flat grey "HOLD" pill with contextual colour + label. For priyanka: 2 Keep / 15 Watch / 4 Review.
+
+2. **"Why this action" inline** — every row renders a one-line italic rationale directly below the holding name (`data-testid='row-why-{id}'`). Example: *"Why: Regular plan (high expense)"* or *"Why: Quality 61 · Health 41 — monitor next quarter."* No need to expand the row to see the reasoning.
+
+3. **Alerts → actionable CTAs** — `resolveAlertCta()` maps each alert component to a contextual button:
+   - `allocation` → **Rebalance** (opens Plan Board)
+   - `risk_alignment` → **Retake profile** (opens Risk Profile)
+   - `overlap` / `health` → **Resolve** (filters to Switch + Mutual Funds tab)
+   - `diversification` → **Review holdings** (opens Plan Board)
+   - `cost` → **View switches** (filters to Regular Plans + MF tab)
+   - `data_coverage` → **Refresh** (existing — triggers fundamentals refresh)
+
+4. **Inline Switch CTA** — SWITCH rows render a compact "Switch →" button right next to the action badge (`data-testid='inline-switch-{id}'`). Click stops propagation — opens Switch modal without expanding the row.
+
+5. **Portfolio Impact strip** — gradient banner above alerts summarising aggregate impact if all pending actions are completed (`data-testid='impact-strip'`):
+   - **₹X/yr cost savings** — sum of Regular→Direct expense-ratio savings across SWITCH rows (value × (old_er − 0.75) / 100).
+   - **₹X freed** — sum of value_rs across EXIT rows.
+   - **Health X→Y (+Δ)** — from the existing `project_health` endpoint (hidden if null).
+   - Breakdown pill: "3 Exit · 7 Switch · 5 Add".
+   - Right-side "Open Plan Board →" CTA button.
+
+**Testing**: iteration_41 — 10/10 pytest + full frontend acceptance (100% both). For priyanka: impact strip shows "15 pending actions · ₹1,122/yr · ₹5.55L freed"; 21 HOLD rows display 3 distinct sub-labels; all 7 SWITCH rows show inline button; alert CTAs navigate + filter correctly.
+
+
 ### Feb 2026 — Actionable Portfolio UX fixes (Iteration 40)
 
 Addressed 4 direct user-reported issues on the new Actionable Portfolio Engine:
