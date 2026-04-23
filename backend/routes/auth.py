@@ -92,6 +92,18 @@ async def google_auth(request: Request, response: Response):
         max_age=7 * 24 * 3600
     )
 
+    # DPDP audit — record successful sign-in.
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user_id, action="login",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"email": email, "new_user": not existing_user},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return user_doc
 
@@ -111,9 +123,22 @@ async def get_me(request: Request):
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
+    uid = None
     if session_token:
+        sess = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0, "user_id": 1})
+        uid = (sess or {}).get("user_id")
         await db.user_sessions.delete_many({"session_token": session_token})
     response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
+    if uid:
+        try:
+            from services import audit
+            await audit.record(
+                user_id=uid, action="logout",
+                ip=request.client.host if request.client else "",
+                ua=request.headers.get("user-agent", ""),
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return {"message": "Logged out"}
 
 

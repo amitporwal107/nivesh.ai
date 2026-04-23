@@ -402,6 +402,29 @@ async def build_enriched_portfolio(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: MF V3 join failed: {e}")
 
+    # Category rank (Direct-plan only, ranked by quality_score desc).
+    # Keyed by normalised scheme_name so the per-row lookup is trivial.
+    category_rank_by_name: Dict[str, Dict[str, int]] = {}
+    try:
+        from routes.admin_v3_master import _fetch_master_funds
+        from services.action_plan_manager import _normalize_fund_name
+        all_funds = await _fetch_master_funds(limit=None)
+        by_cat: Dict[str, List[Dict[str, Any]]] = {}
+        for f in all_funds:
+            cat = f.get("category")
+            q = (f.get("scores") or {}).get("quality")
+            # Rank only Direct-plan funds with a non-null quality score.
+            if cat and q is not None and f.get("plan_type") != "regular":
+                by_cat.setdefault(cat, []).append(f)
+        for cat, funds in by_cat.items():
+            funds.sort(key=lambda x: x["scores"]["quality"] or 0, reverse=True)
+            total = len(funds)
+            for i, f in enumerate(funds, start=1):
+                key = _normalize_fund_name(f.get("scheme_name") or "")
+                category_rank_by_name[key] = {"rank": i, "total": total}
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"enriched_portfolio: category rank build failed: {e}")
+
     # Portfolio Health (for risk drivers + totals)
     try:
         hr = await ph.build_portfolio_health(user_id)
@@ -457,6 +480,8 @@ async def build_enriched_portfolio(
                 rec_reason = s["recommendation_reason"]
                 ret_1y_ext = s.get("return_1y_pct")
             morningstar_rating = None
+            category_rank = None
+            category_rank_total = None
         elif at in ("mutual_fund", "etf"):
             total_mfs += 1
             m = mf_scores_by_name.get(name_l)
@@ -471,8 +496,15 @@ async def build_enriched_portfolio(
                 morningstar_rating = m.get("morningstar_rating")
             else:
                 morningstar_rating = None
+            # Category rank lookup (same-category Direct-plan funds)
+            from services.action_plan_manager import _normalize_fund_name as _nfn
+            cr = category_rank_by_name.get(_nfn(h.get("name") or ""))
+            category_rank = cr["rank"] if cr else None
+            category_rank_total = cr["total"] if cr else None
         else:
             morningstar_rating = None
+            category_rank = None
+            category_rank_total = None
 
         composite = composite_score(score_bundle)
         weight_pct = (val / grand_total_val * 100) if grand_total_val > 0 else None
@@ -526,6 +558,8 @@ async def build_enriched_portfolio(
             "scores": score_bundle,
             "composite_score": composite,
             "morningstar_rating": morningstar_rating,
+            "category_rank": category_rank,
+            "category_rank_total": category_rank_total,
             "recommendation": rec,
             "recommendation_reason": rec_reason,
             "action_badge": badge,

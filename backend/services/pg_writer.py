@@ -357,7 +357,16 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
         return None
 
     async with pool.acquire() as conn:
-        # Resolve to an existing MF: prefer ISIN, fall back to exact name match.
+        # Resolve to an existing MF: prefer ISIN, fall back to exact name match,
+        # then to comma-stripped / whitespace-normalised name match. CAS-parsed
+        # holdings often have stray commas (e.g. "HDFC Small Cap, Fund -
+        # Regular Plan, - Growth") that break naive LOWER() compares.
+        def _norm(s: str) -> str:
+            s = (s or "").lower()
+            s = s.replace(",", " ").replace("-", " ")
+            s = " ".join(s.split())  # collapse whitespace
+            return s
+
         mf_id: Optional[uuid.UUID] = None
         if isin:
             row = await conn.fetchrow(
@@ -372,6 +381,20 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
                 "SELECT instrument_id FROM instrument_master "
                 "WHERE LOWER(instrument_name) = LOWER($1) AND instrument_type = 'MUTUAL_FUND'",
                 scheme_name,
+            )
+            if row:
+                mf_id = row["instrument_id"]
+        if mf_id is None:
+            # Fuzzy whitespace/comma-insensitive fallback.
+            target = _norm(scheme_name)
+            row = await conn.fetchrow(
+                """SELECT instrument_id FROM instrument_master
+                   WHERE instrument_type = 'MUTUAL_FUND'
+                     AND regexp_replace(
+                           regexp_replace(LOWER(instrument_name), '[,-]', ' ', 'g'),
+                           '\\s+', ' ', 'g') = $1
+                   LIMIT 1""",
+                target,
             )
             if row:
                 mf_id = row["instrument_id"]

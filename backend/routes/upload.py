@@ -36,6 +36,16 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
         })
 
         logger.info(f"CAS PDF received: {len(content)} bytes, task {task_id}")
+        try:
+            from services import audit as _audit
+            await _audit.record(
+                user_id=user_id, action="cas_upload", resource=task_id,
+                ip=request.client.host if request.client else "",
+                ua=request.headers.get("user-agent", ""),
+                details={"size_bytes": len(content), "filename": filename[:100]},
+            )
+        except Exception:  # noqa: BLE001
+            pass
         asyncio.create_task(_process_cas_background(content, user_id, task_id))
         return {
             "task_id": task_id,

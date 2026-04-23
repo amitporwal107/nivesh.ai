@@ -319,10 +319,21 @@ async def refresh_stock_fundamentals(request: Request):
     user = await get_current_user(request)
     from services import groww_stock_scraper as _gs
     from services import redis_client as _rc
+    from services import audit as _audit
     result = await _gs.refresh_user_stocks(user["user_id"])
     # Invalidate the enriched-portfolio cache so the UI gets fresh scores.
     try:
         await _rc.cache_del(f"enriched_portfolio:{user['user_id']}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        await _audit.record(
+            user_id=user["user_id"], action="portfolio_refresh",
+            resource="stock_fundamentals",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details=result if isinstance(result, dict) else None,
+        )
     except Exception:  # noqa: BLE001
         pass
     return result
@@ -368,8 +379,9 @@ async def refresh_mf_ratings(request: Request):
             if not payload:
                 fail.append({"name": name, "reason": "fetch_failed"})
                 continue
-            # Force scheme_name so PG name-match fallback resolves.
-            payload["scheme_name"] = name
+            # Don't overwrite payload['scheme_name'] with the CAS comma-laden
+            # holding name — MC returns the canonical name which matches PG.
+            # But do surface the user's name for the fuzzy-match fallback.
             if h.get("ticker") and not payload.get("isin"):
                 payload["isin"] = h["ticker"]
             mf_id = await _pgw.persist_moneycontrol_scrape(payload)

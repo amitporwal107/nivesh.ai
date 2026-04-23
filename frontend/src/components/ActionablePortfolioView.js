@@ -601,10 +601,27 @@ export default function ActionablePortfolioView() {
                           <StarRating value={niveshStars(h.composite_score)} label="Nivesh Rating (composite-derived)" />
                         )}
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        {h.sector || h.nse_symbol || ""}
+                      <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
+                        <span>{h.sector || h.nse_symbol || ""}</span>
                         {h.morningstar_rating == null && h.composite_score != null && (
-                          <span className="ml-1 text-slate-300 italic">· Nivesh Rating</span>
+                          <span className="text-slate-300 italic">· Nivesh Rating</span>
+                        )}
+                        {h.category_rank && h.category_rank_total && h.category_rank_total > 3 && (
+                          <span
+                            className={`px-1.5 py-0 rounded-sm font-mono text-[9px] font-semibold ${
+                              h.category_rank <= Math.ceil(h.category_rank_total * 0.1)
+                                ? "bg-emerald-50 text-emerald-700"
+                                : h.category_rank <= Math.ceil(h.category_rank_total * 0.25)
+                                ? "bg-lime-50 text-lime-700"
+                                : h.category_rank <= Math.ceil(h.category_rank_total * 0.5)
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-rose-50 text-rose-700"
+                            }`}
+                            title={`Rank ${h.category_rank} of ${h.category_rank_total} in ${h.category || "category"} (by V3 Quality)`}
+                            data-testid={`cat-rank-${h.holding_id}`}
+                          >
+                            #{h.category_rank}/{h.category_rank_total}
+                          </span>
                         )}
                       </div>
                       {h.action_badge?.reason && (

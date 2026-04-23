@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 44 backend testing (DPDP compliance + category rank). Pytest: 9/10 PASS. One CRITICAL bug found: consent withdrawal is read-invisible (services/consents.py current_for_user sorts by granted_at DESC — withdrawal rows have granted_at=None so they always sort to the bottom, leaving 'granted' row as latest). PAN AES-256-GCM encrypt/decrypt roundtrip works, DB stores only ciphertext (no plaintext leak), PAN masking XXXXX1234X correct, invalid PAN 400s, DELETE /pan erases, consent catalogue lists 5 purposes with data_processing required, required-withdrawal blocked correctly (400), audit trail records consent_grant/pan_update/pan_view, audit sanitiser redacts passwords, data export masks PAN and omits pan_encrypted, category_rank/total surfaced on holdings-enriched. Frontend testing BLOCKED — preview URL returned 'Preview Unavailable!!!' (Emergent preview agent sleeping). Regression on frontend (cat-rank pill render, stars, impact strip, filter-WEAK, CSV export) could NOT be verified this iteration.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/compliance/consents (services/consents.py:current_for_user)", "issue": "Withdrawal is invisible to the read side. Sort is by granted_at DESC, but withdrawal rows have granted_at=None, so they sort last. After POST /consents/marketing_comms then DELETE /consents/marketing_comms, GET still reports status='granted'. Fix: sort by a unified timestamp — e.g. add COALESCE(granted_at, withdrawn_at) or store an 'event_ts' field on every row and sort by that.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Dashboard portfolio view", "issue": "Preview URL currently returns 'Preview Unavailable!!!' (agent sleeping) — could not load /dashboard#portfolio. Retry after preview wakes up OR test against local.", "affected_selectors": ["actionable-portfolio-view", "cat-rank-*"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration44_compliance.py",
+    "/app/test_reports/pytest/iteration_44.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix services/consents.py current_for_user() sort so withdrawal rows supersede grant rows. Sort by COALESCE(granted_at, withdrawn_at) DESC, or add a single event_ts field on insert.",
+    "Retry frontend UI testing (cat-rank pill, impact strip, filter-WEAK, CSV export) once preview URL is awake."
+  ],
+  "critical_code_review_comments": [
+    "services/consents.py:current_for_user — sort key bug (see critical issue above). Withdrawal rows are durable but the read-side never returns them as the latest state.",
+    "services/pii_security.py: AES-256-GCM roundtrip verified; dev-fallback key is deterministic sha256 — fine for sandbox but must log a loud warning in prod (already logs).",
+    "services/audit.py:_sanitise correctly redacts keys containing password/pan_plain/aadhaar/otp/token/secret — verified via pan_update payload containing password='abc' — stored as [REDACTED].",
+    "routes/compliance.py PUT /pan correctly: validates PAN, enforces data_processing consent (403), encrypts, stores pan_last4=digits[5:9] (='1234' for ABCDE1234F), audits. GET /pan never returns plaintext, only masked.",
+    "services/portfolio_enrichment.py category_rank builds per-category ranking over Direct-plan funds sorted by quality_score DESC — verified at least one MF holding gets rank/total ints with rank<=total.",
+    "pg_writer.persist_moneycontrol_scrape 3rd-tier regexp_replace fallback ([,-]→space, whitespace collapse) — not directly exercised in this iteration's pytest (requires a real MC scrape round-trip + existing PG fund with commas). Code review looks correct: target and DB value both go through identical normalisation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration44_compliance.py"
+  ],
+  "success_rate": {"backend": "90%", "frontend": "unknown (preview unavailable)"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com)",
+  "seed_data_creation": "Test writes real consent_records / audit_log rows and sets/clears PAN=ABCDE1234F on priyanka. PAN is deleted by test_set_get_delete_pan teardown (implicit). Consent rows accumulate (immutable by design) — expected per DPDP ledger semantics.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Priyanka's session token still valid. Key finding: consent withdrawal bug in services/consents.py — fix sort to use COALESCE(granted_at, withdrawn_at). PAN encryption fully verified: roundtrip works, db.users.pan_encrypted stored, plaintext 'ABCDE1234F' NEVER appears in users doc. Audit sanitiser redacts password key to [REDACTED]. Export endpoint masks PAN. Category rank confirmed present on holdings-enriched. Frontend NOT tested — preview URL was unavailable; main agent should retest cat-rank pill (data-testid='cat-rank-{holding_id}') and regression once preview wakes.",
+  "rca of the issue": "Consent withdrawal read-bug RCA: withdraw() inserts row with granted_at=None, withdrawn_at=NOW(). current_for_user() does .sort('granted_at', -1) — MongoDB sorts nulls last in DESC order. First match per purpose becomes the earlier grant row. User sees status='granted' even after successful withdraw. Repro: POST /api/compliance/consents/marketing_comms → 200 granted. DELETE /api/compliance/consents/marketing_comms → 200 withdrawn. GET /api/compliance/consents → marketing_comms status STILL 'granted' (should be 'withdrawn'). Fix: change sort to use an event_ts field populated on both grant and withdraw paths (e.g. event_ts = granted_at or withdrawn_at at insert)."
+}
