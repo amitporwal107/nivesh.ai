@@ -295,9 +295,14 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                                   ss.quality_score, ss.health_score,
                                   ss.exit_score, ss.add_score,
                                   ss.recommendation, ss.recommendation_reason,
-                                  ss.low_confidence
+                                  ss.low_confidence, sp.return_1y_pct
                            FROM stock_scores ss
                            JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                           LEFT JOIN LATERAL (
+                             SELECT return_1y_pct FROM stock_primitives
+                             WHERE nse_symbol = ss.nse_symbol
+                             ORDER BY as_of_date DESC LIMIT 1
+                           ) sp ON TRUE
                            WHERE ss.nse_symbol = ANY($1::text[])""",
                         symbols,
                     )
@@ -314,13 +319,13 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                         "sector": r["sector"],
                         "cap_bucket": r["cap_bucket"],
                         "low_confidence": bool(r["low_confidence"]) if r["low_confidence"] is not None else False,
+                        "return_1y_pct": float(r["return_1y_pct"]) if r["return_1y_pct"] is not None else None,
                     }
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: stock score join failed: {e}")
 
     # Load MF V3 scores via the existing v3_portfolio endpoint's logic
     mf_scores_by_name: Dict[str, Dict[str, Any]] = {}
-    mf_candidates: List[Dict[str, Any]] = []
     try:
         from services import v3_integration
         mf_holdings = [h for h in holdings
@@ -344,6 +349,7 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                 )
                 if v3:
                     key = (m["scheme_name"] or "").lower().strip()
+                    prim = v3.get("v3_primitives") or {}
                     mf_scores_by_name[key] = {
                         "scores": {
                             "quality": v3.get("quality_score"),
@@ -352,7 +358,10 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                             "add":     v3.get("add_score"),
                         },
                         "category": v3.get("category"),
-                        "expense_ratio": (v3.get("v3_primitives") or {}).get("expense_ratio_direct"),
+                        "expense_ratio": prim.get("expense_ratio_direct"),
+                        "ret_1y": prim.get("ret_1y"),
+                        "ret_3y": prim.get("ret_3y"),
+                        "ret_5y": prim.get("ret_5y"),
                     }
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: MF V3 join failed: {e}")
@@ -372,6 +381,8 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
     alloc: Dict[str, float] = {}
     scored_equities = 0
     total_equities = 0
+    scored_mfs = 0
+    total_mfs = 0
     for h in holdings:
         at = (h.get("asset_type") or "").lower()
         qty = float(h.get("quantity") or 0)
@@ -390,6 +401,9 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         category: Optional[str] = h.get("category")
         expense_ratio: Optional[float] = None
         is_regular = "regular" in name_l and "direct" not in name_l
+        ret_1y_ext: Optional[float] = None   # external CAGR (Groww/MC)
+        ret_3y_ext: Optional[float] = None
+        ret_5y_ext: Optional[float] = None
 
         if at == "equity":
             total_equities += 1
@@ -400,17 +414,46 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
                 score_bundle = s["scores"]
                 rec = s["recommendation"]
                 rec_reason = s["recommendation_reason"]
+                ret_1y_ext = s.get("return_1y_pct")
         elif at in ("mutual_fund", "etf"):
+            total_mfs += 1
             m = mf_scores_by_name.get(name_l)
             if m:
+                scored_mfs += 1
                 score_bundle = m["scores"]
                 category = category or m.get("category")
                 expense_ratio = m.get("expense_ratio")
+                ret_1y_ext = m.get("ret_1y")
+                ret_3y_ext = m.get("ret_3y")
+                ret_5y_ext = m.get("ret_5y")
 
         composite = composite_score(score_bundle)
         badge = derive_action_badge(score_bundle, rec,
                                      is_regular_plan=is_regular, high_overlap=False)
-        xirr_pct = _holding_xirr(h.get("buy_date"), bp, cp, qty)
+
+        # Personal XIRR from avg-cost lump-sum proxy
+        raw_xirr = _holding_xirr(h.get("buy_date"), bp, cp, qty)
+        xirr_pct = None
+        xirr_source = None
+        if raw_xirr is not None:
+            # CAS gives avg cost + earliest buy_date; true XIRR needs full SIP
+            # cashflows. Clamp to realistic band to suppress avg-cost inflation
+            # artefacts (e.g. avg cost ₹10 for a ₹2000 stock over 5 yrs → 366% IRR).
+            if -80.0 <= raw_xirr <= 150.0:
+                xirr_pct = round(raw_xirr, 2)
+                xirr_source = "personal"
+
+        # Fallback to 3y > 1y > 5y scraped CAGR when personal XIRR unavailable
+        # or was capped as an artifact.
+        cagr_pct = ret_3y_ext if ret_3y_ext is not None else (
+            ret_1y_ext if ret_1y_ext is not None else ret_5y_ext
+        )
+        if xirr_pct is None and cagr_pct is not None:
+            xirr_pct = round(float(cagr_pct), 2)
+            xirr_source = (
+                "cagr_3y" if ret_3y_ext is not None
+                else ("cagr_1y" if ret_1y_ext is not None else "cagr_5y")
+            )
 
         enriched.append({
             "holding_id": h.get("holding_id"),
@@ -423,7 +466,11 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
             "value_rs": round(val, 2), "invested_rs": round(inv, 2),
             "pnl_rs": round(val - inv, 2),
             "pnl_pct": round((val - inv) / inv * 100, 2) if inv > 0 else 0,
-            "xirr_pct": round(xirr_pct, 2) if xirr_pct is not None else None,
+            "xirr_pct": xirr_pct,
+            "xirr_source": xirr_source,
+            "cagr_1y_pct": round(float(ret_1y_ext), 2) if ret_1y_ext is not None else None,
+            "cagr_3y_pct": round(float(ret_3y_ext), 2) if ret_3y_ext is not None else None,
+            "cagr_5y_pct": round(float(ret_5y_ext), 2) if ret_5y_ext is not None else None,
             "is_regular_plan": is_regular,
             "scores": score_bundle,
             "composite_score": composite,
@@ -467,23 +514,19 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
 
-    # Portfolio XIRR from all flows
-    flows = []
-    for h in holdings:
-        qty = float(h.get("quantity") or 0); bp = float(h.get("buy_price") or 0)
-        cp = float(h.get("current_price") or 0)
-        if h.get("buy_date") and qty > 0 and bp > 0:
-            try:
-                bd = datetime.strptime(h["buy_date"][:10], "%Y-%m-%d").date()
-                flows.append((bd, -bp * qty))
-            except (ValueError, TypeError):
-                pass
-    if flows:
-        flows.append((datetime.now(timezone.utc).date(), total_val))
-        port_xirr = xirr(flows)
-        port_xirr_pct = round(port_xirr * 100, 2) if port_xirr is not None else None
-    else:
-        port_xirr_pct = None
+    # Portfolio XIRR — value-weighted average of per-holding XIRRs.
+    # (Flow-based XIRR explodes when avg-cost + single buy_date is used as a
+    # lump-sum proxy for SIPs, so we use the weighted-average approach which
+    # is also what Groww / Kuvera show.)
+    weighted_num = 0.0
+    weighted_den = 0.0
+    for row in enriched:
+        r = row.get("xirr_pct")
+        v = float(row.get("value_rs") or 0)
+        if r is not None and v > 0:
+            weighted_num += r * v
+            weighted_den += v
+    port_xirr_pct = round(weighted_num / weighted_den, 2) if weighted_den > 0 else None
 
     alerts = derive_portfolio_alerts(
         health_payload=health_payload,
@@ -493,7 +536,10 @@ async def build_enriched_portfolio(user_id: str) -> Dict[str, Any]:
         total_equity_count=total_equities,
     )
 
-    coverage_pct = round((scored_equities / total_equities) * 100, 1) if total_equities else 100.0
+    # Coverage: scored (equities + MFs) / (equities + MFs). ETFs count towards MFs.
+    total_scorable = total_equities + total_mfs
+    scored_total = scored_equities + scored_mfs
+    coverage_pct = round((scored_total / total_scorable) * 100, 1) if total_scorable else 100.0
 
     return {
         "holdings": enriched,

@@ -231,6 +231,9 @@ async def enrich_candidates_with_v3(
                 "aum_cr", "fund_age_years", "expense_ratio_direct", "manager_tenure_years",
                 "max_drawdown_pct", "consistency_score", "downside_capture_pct",
                 "aum_trend_score", "turnover_ratio", "top10_concentration_pct",
+                # Performance returns (surface so Portfolio Engine can fall back
+                # to CAGR when personal XIRR is unreliable / missing).
+                "ret_1y", "ret_3y", "ret_5y", "sharpe", "sortino",
                 # Debt-specific (Moneycontrol-sourced) — surface so the insights
                 # UI can display credit/duration profile for bond funds.
                 "credit_quality_score", "duration_risk_score", "ytm",

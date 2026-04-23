@@ -13,6 +13,19 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmtINR = (n) => n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;
 const fmtPct = (n, dp = 1) => n == null ? "—" : `${n.toFixed(dp)}%`;
 
+// Score band (Strong / Good / Average / Weak) — user-approved Feb 2026.
+// `inverted` flips colours for Exit-score where LOW = GOOD.
+const scoreBand = (v, inverted = false) => {
+  if (v == null) return { label: "—", tone: "text-slate-400 bg-slate-50", hex: "#CBD5E1" };
+  const good = inverted ? v < 20 : v >= 80;
+  const ok   = inverted ? v < 40 : v >= 60;
+  const avg  = inverted ? v < 60 : v >= 40;
+  if (good) return { label: "Strong",  tone: "text-emerald-700 bg-emerald-50", hex: "#10B981" };
+  if (ok)   return { label: "Good",    tone: "text-lime-700 bg-lime-50",       hex: "#84CC16" };
+  if (avg)  return { label: "Average", tone: "text-amber-700 bg-amber-50",     hex: "#F59E0B" };
+  return    { label: "Weak",     tone: "text-rose-700 bg-rose-50",      hex: "#EF4444" };
+};
+
 const BADGE_STYLE = {
   EXIT:   { bg: "bg-rose-100 text-rose-800 border-rose-200" },
   SWITCH: { bg: "bg-amber-100 text-amber-800 border-amber-200" },
@@ -27,6 +40,15 @@ const ALERT_TONE = {
   info:    "border-sky-200 bg-sky-50 text-sky-800",
 };
 
+const ASSET_TABS = [
+  { id: "all",          label: "All",           test: () => true },
+  { id: "mutual_fund",  label: "Mutual Funds",  test: (h) => h.asset_type === "mutual_fund" },
+  { id: "equity",       label: "Stocks",        test: (h) => h.asset_type === "equity" },
+  { id: "etf",          label: "ETFs",          test: (h) => h.asset_type === "etf" },
+  { id: "gold",         label: "Gold / SGB",    test: (h) => h.asset_type === "gold" || /sgb|gold/i.test(h.name || "") },
+  { id: "other",        label: "Other",         test: (h) => !["mutual_fund","equity","etf","gold"].includes(h.asset_type) },
+];
+
 const FILTERS = [
   { id: "all",   label: "All" },
   { id: "EXIT",  label: "🔴 Exit" },
@@ -38,12 +60,17 @@ const FILTERS = [
   { id: "UNSCORED", label: "⚠️ Unscored" },
 ];
 
-const ScorePill = ({ value }) => {
+const ScorePill = ({ value, inverted = false }) => {
   if (value == null) return <span className="text-slate-300">—</span>;
-  const color = value >= 70 ? "text-emerald-700 bg-emerald-50" :
-                value >= 50 ? "text-amber-700 bg-amber-50" :
-                              "text-rose-700 bg-rose-50";
-  return <span className={`inline-block px-2 py-0.5 rounded font-mono text-xs font-semibold ${color}`}>{Math.round(value)}</span>;
+  const b = scoreBand(value, inverted);
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded font-mono text-xs font-semibold ${b.tone}`}
+      title={b.label}
+    >
+      {Math.round(value)}
+    </span>
+  );
 };
 
 const ActionBadge = ({ badge }) => {
@@ -63,10 +90,10 @@ const ActionBadge = ({ badge }) => {
 const ExpandedRow = ({ h, onSwitch }) => {
   const s = h.scores || {};
   const subs = [
-    { label: "Quality",  value: s.quality,  desc: "Long-term business strength" },
-    { label: "Health",   value: s.health,   desc: "Momentum + stability" },
-    { label: "Exit",     value: s.exit,     desc: "Sell-signal (higher = weaker)" },
-    { label: "Add",      value: s.add,      desc: "Portfolio-fit for new allocation" },
+    { label: "Quality",  value: s.quality,  inverted: false, desc: "Long-term business strength" },
+    { label: "Health",   value: s.health,   inverted: false, desc: "Momentum + stability" },
+    { label: "Exit",     value: s.exit,     inverted: true,  desc: "Sell-signal (lower = safer)" },
+    { label: "Add",      value: s.add,      inverted: false, desc: "Portfolio-fit for new allocation" },
   ];
   return (
     <tr className="bg-slate-50 border-b border-slate-100" data-testid={`row-expanded-${h.holding_id}`}>
@@ -75,22 +102,22 @@ const ExpandedRow = ({ h, onSwitch }) => {
           <div className="lg:col-span-2">
             <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Score Breakdown</h5>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {subs.map((x) => (
-                <div key={x.label} className="bg-white rounded-xl p-3 border border-slate-100">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-semibold text-slate-600">{x.label}</span>
-                    <ScorePill value={x.value} />
+              {subs.map((x) => {
+                const b = scoreBand(x.value, x.inverted);
+                return (
+                  <div key={x.label} className="bg-white rounded-xl p-3 border border-slate-100">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-slate-600">{x.label}</span>
+                      <ScorePill value={x.value} inverted={x.inverted} />
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full transition-all"
+                           style={{ width: `${x.value || 0}%`, background: b.hex }} />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1.5 truncate">{b.label} · {x.desc}</p>
                   </div>
-                  <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                    <div className="h-full rounded-full transition-all"
-                         style={{
-                           width: `${x.value || 0}%`,
-                           background: (x.value || 0) >= 70 ? "#10B981" : (x.value || 0) >= 50 ? "#F59E0B" : "#EF4444",
-                         }} />
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1.5 truncate">{x.desc}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {h.recommendation_reason && (
               <div className="mt-3 text-[12px] text-slate-600 bg-white border border-slate-100 rounded-lg p-3">
@@ -99,10 +126,19 @@ const ExpandedRow = ({ h, onSwitch }) => {
             )}
           </div>
           <div className="space-y-2">
-            <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Tax / Cost</h5>
+            <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Returns / Cost</h5>
             <div className="text-[13px] bg-white rounded-xl p-3 border border-slate-100 space-y-1.5">
-              <div className="flex justify-between"><span className="text-slate-500">XIRR</span><span className={`font-mono font-semibold ${(h.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.xirr_pct, 2)}</span></div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">
+                  {h.xirr_source === "personal" ? "XIRR (avg-cost proxy)" :
+                   h.xirr_source?.startsWith("cagr") ? `CAGR ${h.xirr_source.replace("cagr_","").toUpperCase()} (Groww)` : "Return"}
+                </span>
+                <span className={`font-mono font-semibold ${(h.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.xirr_pct, 2)}</span>
+              </div>
               <div className="flex justify-between"><span className="text-slate-500">Abs. return</span><span className={`font-mono font-semibold ${(h.pnl_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.pnl_pct, 1)}</span></div>
+              {h.cagr_3y_pct != null && h.xirr_source !== "cagr_3y" && (
+                <div className="flex justify-between"><span className="text-slate-500">3y CAGR</span><span className="font-mono">{fmtPct(h.cagr_3y_pct, 1)}</span></div>
+              )}
               {h.expense_ratio != null && (
                 <div className="flex justify-between"><span className="text-slate-500">Expense ratio</span><span className="font-mono">{fmtPct(h.expense_ratio, 2)}</span></div>
               )}
@@ -148,6 +184,7 @@ const exportCSV = (rows) => {
 export default function ActionablePortfolioView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [assetTab, setAssetTab] = useState("all");
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState(new Set());
   const [search, setSearch] = useState("");
@@ -175,9 +212,21 @@ export default function ActionablePortfolioView() {
     finally { setRefreshing(false); }
   };
 
+  const assetCounts = useMemo(() => {
+    const counts = {};
+    if (!data) return counts;
+    ASSET_TABS.forEach((t) => {
+      counts[t.id] = data.holdings.filter(t.test).length;
+    });
+    return counts;
+  }, [data]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     let rows = data.holdings;
+    // Asset-type tab first
+    const tab = ASSET_TABS.find((t) => t.id === assetTab) || ASSET_TABS[0];
+    rows = rows.filter(tab.test);
     if (search.trim()) {
       const q = search.toLowerCase();
       rows = rows.filter(h => (h.name || "").toLowerCase().includes(q) || (h.sector || "").toLowerCase().includes(q));
@@ -196,7 +245,7 @@ export default function ActionablePortfolioView() {
       return sortBy.dir === "asc" ? (A > B ? 1 : -1) : (A > B ? -1 : 1);
     });
     return rows;
-  }, [data, filter, search, sortBy]);
+  }, [data, assetTab, filter, search, sortBy]);
 
   const toggleExpand = (id) => {
     const next = new Set(expanded);
@@ -232,13 +281,35 @@ export default function ActionablePortfolioView() {
           <div className={`text-xl font-bold mt-1 ${(t.pnl_rs || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtINR(t.pnl_rs)} <span className="text-sm">({fmtPct(t.pnl_pct)})</span></div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold">XIRR</div>
+          <div className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+            XIRR
+            <span title="Value-weighted average of per-holding returns. Uses personal XIRR where buy_date + avg cost are reliable; falls back to 3y CAGR from Groww for mutual funds.">
+              <Info className="w-3 h-3 text-slate-300" />
+            </span>
+          </div>
           <div className={`text-xl font-bold mt-1 ${(t.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(t.xirr_pct, 2)}</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">value-weighted</div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold">Score Coverage</div>
+          <div className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+            Score Coverage
+            <span title="% of mutual funds + equities with fundamentals scored. Low coverage? Click the Refresh button in the alert banner below.">
+              <Info className="w-3 h-3 text-slate-300" />
+            </span>
+          </div>
           <div className="text-xl font-bold text-slate-900 mt-1">{fmtPct(data.coverage_pct)}</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">MFs + equities</div>
         </CardContent></Card>
+      </div>
+
+      {/* Score-band legend */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500" data-testid="score-legend">
+        <span className="font-semibold text-slate-500 uppercase tracking-wider">Score guide:</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-mono">80+ Strong</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-lime-50 text-lime-700 border border-lime-100 font-mono">60–80 Good</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 font-mono">40–60 Average</span>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-100 font-mono">&lt;40 Weak</span>
+        <span className="text-slate-400 italic ml-2">Exit score is inverted — lower is better.</span>
       </div>
 
       {/* Alerts banner */}
@@ -262,6 +333,31 @@ export default function ActionablePortfolioView() {
           ))}
         </div>
       )}
+
+      {/* Asset-type tabs */}
+      <div className="border-b border-slate-200" data-testid="asset-tabs">
+        <div className="flex flex-wrap items-center gap-1">
+          {ASSET_TABS.map((t) => {
+            const count = assetCounts[t.id] || 0;
+            if (t.id !== "all" && count === 0) return null;
+            const active = assetTab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setAssetTab(t.id)}
+                className={`px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px ${
+                  active
+                    ? "border-emerald-500 text-emerald-700"
+                    : "border-transparent text-slate-500 hover:text-slate-900"
+                }`}
+                data-testid={`asset-tab-${t.id}`}
+              >
+                {t.label} <span className={`ml-1 text-[11px] ${active ? "text-emerald-600" : "text-slate-400"}`}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Filters + Search + Export */}
       <div className="flex flex-wrap items-center gap-2 justify-between">

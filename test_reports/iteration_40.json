@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 40 — All 4 user-reported bug fixes verified on priyanka (64 holdings). Backend: 6/6 new pytest + 5/5 regression pytest passed. totals.xirr_pct=15.47% (value-weighted, was 367%); coverage_pct=56.2% (was 35.7%, now MFs+eq); xirr_source distribution: personal=17, cagr_3y=18, cagr_1y=11, None=18; no per-holding xirr violates [-80,150] clamp; 18 MFs fall back to cagr_3y. Frontend: asset-tabs render All(64)/Mutual Funds(26)/Stocks(28)/ETFs(10) + bonus Gold/SGB(2); score-legend shows 4 bands (80+ Strong / 60–80 Good / 40–60 Average / <40 Weak) + 'Exit score is inverted — lower is better' note; XIRR tile '15.47% value-weighted'; Coverage tile '56.2% MFs + equities'. Row-expansion Score Breakdown has 4 cards — Exit INVERTED verified: Ambuja exit=8 → 'Strong', Axis-SC exit=61 → 'Weak'. For cagr_3y holding (Axis Small Cap) Returns panel label reads 'CAGR 3Y (Groww) 19.63%' instead of XIRR. CSV button + filter pills + asset tabs all interactive.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard first load", "issues": ["ActionPlanManager modal still auto-opens and needs Escape to dismiss before Portfolio is usable — same pre-existing issue flagged in iteration 39."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_xirr_coverage_cagr.py",
+    "/app/backend/tests/test_actionable_portfolio.py",
+    "/app/test_reports/pytest/iteration_40_api.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "portfolio_enrichment.py XIRR clamping + value-weighted rollup + CAGR fallback all behave correctly on live priyanka data; coverage formula (scored_mf+scored_eq)/(total_mf+total_eq) == 56.2% matches spec.",
+    "ActionablePortfolioView.js scoreBand() + inverted Exit coloring render correctly in DOM; no visual regressions.",
+    "ActionablePortfolioView.js is approaching the 700-line threshold (still near 432+). Consider extracting the score-breakdown row expansion into its own subcomponent in a future refactor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration40_xirr_coverage_cagr.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings)",
+  "seed_data_creation": "None — used priyanka account.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 40 fixes are fully verified. Data-testids present: asset-tabs, asset-tab-{all|mutual_fund|equity|etf|gold_sgb}, score-legend, row-{holding_id}. Returns panel label swaps to 'CAGR 3Y (Groww)' / 'CAGR 1Y (Groww)' / 'CAGR 5Y (Groww)' based on xirr_source; falls back to 'XIRR (avg-cost proxy)' when source=='personal'. Exit score coloring is inverted — low value => Strong band (emerald), high => Weak (rose). Asset-type field on holdings payload is 'asset_type' (NOT asset_class) — keep this in mind for future tests. Known pre-existing: ActionPlanManager modal auto-opens on dashboard landing (Escape to dismiss).",
+  "rca of the issue": "Not applicable — all 4 reported bugs (asset tabs, 367% XIRR, 35.7% coverage, score bands with inverted Exit) are fixed and verified end-to-end."
+}
