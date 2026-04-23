@@ -12,6 +12,7 @@ import {
   AlertTriangle, FileText, Zap, Activity, RefreshCw, LifeBuoy,
 } from "lucide-react";
 import PriorityChip from "./PriorityChip";
+import CasConnectButton from "@/components/CasConnectButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -121,7 +122,25 @@ export default function MfdOnboardingWizard({ onComplete }) {
     }
   };
 
-  // ── STEP 3-4 · Upload + polling ---------------------------------------
+  // ── STEP 3 · CAS Connect widget handler -------------------------------
+  // We no longer need our own dropzone / password field / polling — the
+  // CAS Parser widget handles PDF upload, Gmail inbox fetch, and CDSL OTP
+  // in one modal and returns parsed data directly. On success the backend
+  // has already persisted holdings under the impersonated client's shadow
+  // user_id, so we just need to animate the stages and fetch the profile.
+  const onCasConnected = async (importResult) => {
+    setUploadError(null);
+    setStep("processing");
+    setStage("parse", "done");
+    setStage("score", "active");
+    await new Promise((r) => setTimeout(r, 500));
+    setStage("score", "done");
+    setStage("insight", "active");
+    await new Promise((r) => setTimeout(r, 400));
+    await completeProcessing();
+  };
+
+  // ── STEP 3-4 · Upload + polling (legacy path, kept as fallback) -------
   const setStage = (id, status) =>
     setProcessingStages((cur) =>
       cur.map((s) => (s.id === id ? { ...s, status } : s)));
@@ -300,10 +319,8 @@ export default function MfdOnboardingWizard({ onComplete }) {
         {step === "upload" && (
           <UploadStep
             client={createdProfile}
-            password={password} setPassword={setPassword}
-            onFile={startUpload}
+            onCasSuccess={onCasConnected}
             error={uploadError}
-            fileRef={fileRef}
           />
         )}
 
@@ -513,19 +530,20 @@ const AddClientStep = ({ client, setClient, addTag, creating, onBack, onNext }) 
   </div>
 );
 
-// ── STEP 3 ─ Upload ─────────────────────────────────────────────────────
-const UploadStep = ({ client, password, setPassword, onFile, error, fileRef }) => (
+// ── STEP 3 ─ Upload (via CAS Connect widget) ────────────────────────────
+const UploadStep = ({ client, onCasSuccess, error }) => (
   <div className="space-y-5" data-testid="step-upload">
     <div>
       <div className="text-[10px] uppercase tracking-wider text-indigo-600 font-bold mb-1 flex items-center gap-1.5">
         <Upload className="w-3 h-3" /> Step 3 of 6
       </div>
       <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">
-        Upload {client?.name}'s CAS
+        Import {client?.name}'s portfolio
       </h1>
       <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-        Drop the Consolidated Account Statement PDF — we'll extract their
-        holdings, score the portfolio, and surface the top risks in under a minute.
+        Launch <strong>CAS Connect</strong> to import {client?.name}'s
+        portfolio — the widget handles PDF upload, Gmail auto-fetch, and
+        CDSL OTP in one place.
       </p>
     </div>
 
@@ -537,18 +555,10 @@ const UploadStep = ({ client, password, setPassword, onFile, error, fileRef }) =
         <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
           <div className="text-sm font-semibold text-rose-800 dark:text-rose-300">
-            Couldn't read the CAS clearly
+            Couldn't import the portfolio
           </div>
           <div className="text-xs text-rose-700 dark:text-rose-400 mt-0.5">{error}</div>
           <div className="mt-2 flex items-center gap-2">
-            <Button
-              size="sm" variant="outline"
-              onClick={() => fileRef.current?.click()}
-              data-testid="cas-retry-btn"
-              className="h-7 text-xs"
-            >
-              <RefreshCw className="w-3 h-3 mr-1" /> Try another file
-            </Button>
             <a
               href="mailto:support@nivesh.ai?subject=CAS upload help"
               data-testid="cas-support-link"
@@ -562,42 +572,24 @@ const UploadStep = ({ client, password, setPassword, onFile, error, fileRef }) =
       </div>
     )}
 
-    <div
-      className="rounded-xl p-8 border-2 border-dashed border-indigo-300 bg-indigo-50/40 hover:bg-indigo-50 cursor-pointer transition-colors text-center"
-      onClick={() => fileRef.current?.click()}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}
-      data-testid="wizard-cas-dropzone"
-    >
-      <input
-        ref={fileRef} type="file" accept=".pdf,application/pdf"
-        className="hidden"
-        onChange={(e) => onFile(e.target.files?.[0])}
-        data-testid="wizard-cas-file-input"
+    <Card className="p-6 rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/60 via-white to-white dark:from-indigo-900/20 dark:via-slate-900 dark:to-slate-900 text-center">
+      <div className="w-12 h-12 mx-auto rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mb-3">
+        <Sparkles className="w-6 h-6 text-indigo-600" strokeWidth={1.5} />
+      </div>
+      <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+        One widget · three import paths
+      </div>
+      <div className="text-xs text-slate-500 mt-1 mb-5">
+        PDF upload · Gmail inbox fetch · CDSL OTP — no password field needed,
+        the widget asks for it inline when required.
+      </div>
+      <CasConnectButton
+        onSuccess={onCasSuccess}
+        className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-11 px-6"
+        label={`Launch CAS Connect for ${client?.name || "client"}`}
+        testId="wizard-cas-connect-btn"
       />
-      <FileText className="w-10 h-10 mx-auto text-indigo-600 mb-3" />
-      <div className="text-base font-semibold text-slate-700 dark:text-slate-200">
-        Drop the CAS PDF here, or <span className="text-indigo-600 underline">click to browse</span>
-      </div>
-      <div className="text-xs text-slate-500 mt-1">
-        Typically <code>~NSDL.PDF</code> or <code>~CDSL.PDF</code> from the depository email.
-      </div>
-    </div>
-
-    <div className="flex items-center gap-2">
-      <Lock className="w-3.5 h-3.5 text-slate-400" />
-      <Input
-        type="password"
-        placeholder="CAS password (if protected)"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        className="h-8 text-xs max-w-xs"
-        data-testid="wizard-cas-password"
-      />
-      <div className="text-[10px] text-slate-400">
-        PAN-based password — used only for parsing, never stored.
-      </div>
-    </div>
+    </Card>
   </div>
 );
 
