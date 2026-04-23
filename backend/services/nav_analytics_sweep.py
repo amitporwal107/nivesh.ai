@@ -147,12 +147,15 @@ async def recent_logs(job_name: Optional[str] = None, limit: int = 20) -> List[D
 # ── Parallel sweep runners ───────────────────────────────────────────────
 async def _process_one_analytics(iid: str, sem: asyncio.Semaphore) -> Tuple[str, str]:
     """Single-fund analytics refresh. Returns (iid, status)."""
+    from services import pipeline_progress
     async with sem:
         try:
             await nav_analytics.refresh_all_analytics(iid)
+            await pipeline_progress.tick("analytics_sweep", processed_delta=1)
             return iid, "ok"
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[analytics_sweep] {iid} failed: {e}")
+            await pipeline_progress.tick("analytics_sweep", processed_delta=0, failed_delta=1)
             return iid, "failed"
 
 
@@ -161,22 +164,37 @@ async def run_analytics_sweep(
     only_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Parallel recompute of NAV-derived primitives for every eligible fund."""
+    from services import pipeline_progress
     t_start = time.time()
     ids = only_ids or await _eligible_fund_ids()
+    await pipeline_progress.start("analytics_sweep", total=len(ids))
     if not ids:
         dur = int((time.time() - t_start) * 1000)
         await _log_job_row("analytics_sweep", "ok",
                            {"total": 0, "processed": 0, "skipped": 0, "failed": 0}, dur)
+        await pipeline_progress.finish("analytics_sweep", "ok", total=0, processed=0, failed=0)
         return {"status": "ok", "funds_total": 0, "duration_ms": dur}
 
-    sem = asyncio.Semaphore(concurrency)
-    results = await asyncio.gather(*[_process_one_analytics(iid, sem) for iid in ids])
+    try:
+        sem = asyncio.Semaphore(concurrency)
+        results = await asyncio.gather(*[_process_one_analytics(iid, sem) for iid in ids])
+    except Exception as e:  # noqa: BLE001
+        dur = int((time.time() - t_start) * 1000)
+        await _log_job_row("analytics_sweep", "failed",
+                           {"total": len(ids), "processed": 0, "skipped": 0, "failed": len(ids)},
+                           dur, str(e)[:500])
+        await pipeline_progress.finish("analytics_sweep", "failed", error_msg=str(e))
+        raise
     processed = sum(1 for _, s in results if s == "ok")
     failed = sum(1 for _, s in results if s == "failed")
     dur = int((time.time() - t_start) * 1000)
     status = "ok" if failed == 0 else ("partial" if processed > 0 else "failed")
     totals = {"total": len(ids), "processed": processed, "skipped": 0, "failed": failed}
     await _log_job_row("analytics_sweep", status, totals, dur)
+    await pipeline_progress.finish(
+        "analytics_sweep", status, total=len(ids),
+        processed=processed, failed=failed,
+    )
     logger.info(
         f"[analytics_sweep] status={status} processed={processed}/{len(ids)} "
         f"failed={failed} duration={dur}ms"
@@ -247,9 +265,11 @@ async def run_v3_rescore(
     only_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Parallel recompute of Quality+Health composites → PG + Redis."""
+    from services import pipeline_progress
     t_start = time.time()
     pool = await pg_client.get_pool()
     if pool is None:
+        await pipeline_progress.finish("v3_rescore", "failed", error_msg="no_pg")
         return {"status": "failed", "reason": "no_pg"}
 
     if only_ids:
@@ -260,17 +280,32 @@ async def run_v3_rescore(
                 "SELECT instrument_id::text AS iid FROM mutual_fund_metadata"
             )
         ids = [r["iid"] for r in rows]
+    await pipeline_progress.start("v3_rescore", total=len(ids))
     if not ids:
         dur = int((time.time() - t_start) * 1000)
         await _log_job_row("v3_rescore", "ok",
                            {"total": 0, "processed": 0, "skipped": 0, "failed": 0}, dur)
+        await pipeline_progress.finish("v3_rescore", "ok", total=0, processed=0, failed=0)
         return {"status": "ok", "funds_total": 0, "duration_ms": dur}
 
-    sem = asyncio.Semaphore(concurrency)
-    async def worker(i: str) -> Tuple[str, str]:
-        async with sem:
-            return await _compute_and_cache_scores(i)
-    results = await asyncio.gather(*[worker(i) for i in ids])
+    try:
+        sem = asyncio.Semaphore(concurrency)
+        async def worker(i: str) -> Tuple[str, str]:
+            async with sem:
+                res = await _compute_and_cache_scores(i)
+                if res[1] == "ok":
+                    await pipeline_progress.tick("v3_rescore", processed_delta=1)
+                elif res[1] == "failed":
+                    await pipeline_progress.tick("v3_rescore", processed_delta=0, failed_delta=1)
+                return res
+        results = await asyncio.gather(*[worker(i) for i in ids])
+    except Exception as e:  # noqa: BLE001
+        dur = int((time.time() - t_start) * 1000)
+        await pipeline_progress.finish("v3_rescore", "failed", error_msg=str(e))
+        await _log_job_row("v3_rescore", "failed",
+                           {"total": len(ids), "processed": 0, "skipped": 0, "failed": len(ids)},
+                           dur, str(e)[:500])
+        raise
     processed = sum(1 for _, s in results if s == "ok")
     skipped = sum(1 for _, s in results if s == "skipped")
     failed = sum(1 for _, s in results if s == "failed")
@@ -278,6 +313,10 @@ async def run_v3_rescore(
     status = "ok" if failed == 0 else ("partial" if processed > 0 else "failed")
     totals = {"total": len(ids), "processed": processed, "skipped": skipped, "failed": failed}
     await _log_job_row("v3_rescore", status, totals, dur)
+    await pipeline_progress.finish(
+        "v3_rescore", status, total=len(ids),
+        processed=processed, failed=failed,
+    )
     logger.info(
         f"[v3_rescore] status={status} processed={processed}/{len(ids)} "
         f"skipped={skipped} failed={failed} duration={dur}ms"
@@ -288,7 +327,7 @@ async def run_v3_rescore(
 # ── Status snapshot for Admin UI ────────────────────────────────────────
 async def pipeline_status() -> Dict[str, Any]:
     """Used by `GET /api/admin/data-pipeline/status`."""
-    from services import mf_scheduler
+    from services import mf_scheduler, pipeline_progress
     last_nav = await _last_nav_cron_summary()
     last_sweep = await _last_success("analytics_sweep")
     last_rescore = await _last_success("v3_rescore")
@@ -296,6 +335,9 @@ async def pipeline_status() -> Dict[str, Any]:
     scrape_queue = await _scrape_queue_summary()
     sched = await _scheduler_snapshot()
     cache_stats = await v3_score_cache.get_stats()
+    # Live progress overlay — any job currently running (or recently finished)
+    # surfaces a record here with real-time counts + pct + elapsed_s.
+    live = await pipeline_progress.read_all()
     return {
         "jobs": {
             "nav_cron": last_nav,
@@ -303,6 +345,7 @@ async def pipeline_status() -> Dict[str, Any]:
             "v3_rescore": last_rescore,
             "nifty100_refresh": last_nifty100,
         },
+        "live_progress": live,
         "scrape_queue": scrape_queue,
         "scheduler": sched,
         "redis_cache": cache_stats,

@@ -221,6 +221,7 @@ async def get_fund_data(
 async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
                       force: bool = False) -> Dict[str, Any]:
     import asyncio
+    from services import pipeline_progress
     if not force and not _is_off_hours():
         return {"skipped": True, "reason": "not off-hours"}
 
@@ -228,75 +229,88 @@ async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
         {"status": "queued"}, {"_id": 0}
     ).sort("queued_at", 1).limit(max_items).to_list(max_items)
 
+    await pipeline_progress.start("drain_queue", total=len(pending))
     ok, failed = 0, 0
-    for item in pending:
-        t0 = time.time()
-        try:
-            fresh = await groww_client.fetch_fund_with_sibling(
-                item["scheme_name"], item.get("slug")
-            )
-            dur = int((time.time() - t0) * 1000)
-            if fresh:
-                # PG first, then resolve for instrument_id, then cache the enriched
-                await pg_writer.persist_scrape(fresh)
-                meta = fresh.get("metadata") or {}
-                resolved2 = await resolve_instrument(
-                    fresh.get("scheme_name") or item["scheme_name"],
-                    meta.get("scheme_code"), meta.get("isin"),
+    try:
+        for item in pending:
+            t0 = time.time()
+            try:
+                fresh = await groww_client.fetch_fund_with_sibling(
+                    item["scheme_name"], item.get("slug")
                 )
-                enriched = {**fresh, **resolved2}
-                await redis_client.set_holdings(
-                    item["instrument_key"], {**enriched, "instrument_key": item["instrument_key"]}
-                )
-                await db.fund_holdings_cache.update_one(
-                    {"instrument_key": item["instrument_key"]},
-                    {"$set": {**enriched, "instrument_key": item["instrument_key"]}},
-                    upsert=True,
-                )
-                if fresh.get("slug"):
-                    await redis_client.set_slug(item["instrument_key"], fresh["slug"])
-                await db.scrape_queue.update_one(
-                    {"instrument_key": item["instrument_key"]},
-                    {"$set": {"status": "done",
-                              "done_at": datetime.now(timezone.utc).isoformat()}},
-                )
-                import uuid as _uuid
-                iid = resolved2.get("instrument_id")
-                try:
-                    iid_uuid = _uuid.UUID(iid) if iid else None
-                except (TypeError, ValueError):
-                    iid_uuid = None
-                await pg_writer.log_scrape_attempt(
-                    instrument_id=iid_uuid,
-                    instrument_name=item["scheme_name"],
-                    slug=fresh.get("slug"),
-                    status="ok" if fresh.get("valid") else "partial",
-                    holdings_count=len(fresh.get("holdings") or []),
-                    validation_issues=", ".join(fresh.get("validation_issues") or []) or None,
-                    source="drain",
-                    duration_ms=dur,
-                )
-                ok += 1
-            else:
-                await db.scrape_queue.update_one(
-                    {"instrument_key": item["instrument_key"]},
-                    {"$set": {"status": "failed",
-                              "failed_at": datetime.now(timezone.utc).isoformat()}},
-                )
-                await pg_writer.log_scrape_attempt(
-                    instrument_id=None,
-                    instrument_name=item["scheme_name"],
-                    slug=item.get("slug"),
-                    status="failed",
-                    source="drain",
-                    duration_ms=dur,
-                )
+                dur = int((time.time() - t0) * 1000)
+                if fresh:
+                    # PG first, then resolve for instrument_id, then cache the enriched
+                    await pg_writer.persist_scrape(fresh)
+                    meta = fresh.get("metadata") or {}
+                    resolved2 = await resolve_instrument(
+                        fresh.get("scheme_name") or item["scheme_name"],
+                        meta.get("scheme_code"), meta.get("isin"),
+                    )
+                    enriched = {**fresh, **resolved2}
+                    await redis_client.set_holdings(
+                        item["instrument_key"], {**enriched, "instrument_key": item["instrument_key"]}
+                    )
+                    await db.fund_holdings_cache.update_one(
+                        {"instrument_key": item["instrument_key"]},
+                        {"$set": {**enriched, "instrument_key": item["instrument_key"]}},
+                        upsert=True,
+                    )
+                    if fresh.get("slug"):
+                        await redis_client.set_slug(item["instrument_key"], fresh["slug"])
+                    await db.scrape_queue.update_one(
+                        {"instrument_key": item["instrument_key"]},
+                        {"$set": {"status": "done",
+                                  "done_at": datetime.now(timezone.utc).isoformat()}},
+                    )
+                    import uuid as _uuid
+                    iid = resolved2.get("instrument_id")
+                    try:
+                        iid_uuid = _uuid.UUID(iid) if iid else None
+                    except (TypeError, ValueError):
+                        iid_uuid = None
+                    await pg_writer.log_scrape_attempt(
+                        instrument_id=iid_uuid,
+                        instrument_name=item["scheme_name"],
+                        slug=fresh.get("slug"),
+                        status="ok" if fresh.get("valid") else "partial",
+                        holdings_count=len(fresh.get("holdings") or []),
+                        validation_issues=", ".join(fresh.get("validation_issues") or []) or None,
+                        source="drain",
+                        duration_ms=dur,
+                    )
+                    ok += 1
+                    await pipeline_progress.tick("drain_queue", processed_delta=1)
+                else:
+                    await db.scrape_queue.update_one(
+                        {"instrument_key": item["instrument_key"]},
+                        {"$set": {"status": "failed",
+                                  "failed_at": datetime.now(timezone.utc).isoformat()}},
+                    )
+                    await pg_writer.log_scrape_attempt(
+                        instrument_id=None,
+                        instrument_name=item["scheme_name"],
+                        slug=item.get("slug"),
+                        status="failed",
+                        source="drain",
+                        duration_ms=dur,
+                    )
+                    failed += 1
+                    await pipeline_progress.tick("drain_queue", processed_delta=0, failed_delta=1)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"drain: {item.get('instrument_key')} error: {e}")
                 failed += 1
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"drain: {item.get('instrument_key')} error: {e}")
-            failed += 1
-        await asyncio.sleep(delay_between_s)
+                await pipeline_progress.tick("drain_queue", processed_delta=0, failed_delta=1)
+            await asyncio.sleep(delay_between_s)
+    except Exception as e:  # noqa: BLE001
+        await pipeline_progress.finish("drain_queue", "failed", error_msg=str(e),
+                                        processed=ok, failed=failed)
+        raise
 
+    status = "ok" if failed == 0 else ("partial" if ok > 0 else "failed")
+    await pipeline_progress.finish(
+        "drain_queue", status, total=len(pending), processed=ok, failed=failed,
+    )
     return {"processed": ok + failed, "ok": ok, "failed": failed, "skipped": False}
 
 

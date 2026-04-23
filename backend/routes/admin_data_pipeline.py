@@ -154,3 +154,14 @@ async def invalidate_cache(request: Request) -> Dict[str, Any]:
     await require_admin(request)
     deleted = await v3_score_cache.invalidate_all()
     return {"status": "ok", "keys_deleted": deleted}
+
+
+@router.post("/progress/{job_name}/clear")
+async def clear_progress(job_name: str, request: Request) -> Dict[str, Any]:
+    """Clear a stuck live-progress record (admin recovery). Does NOT kill the
+    underlying task — use when a progress record is orphaned (job crashed
+    silently) and you want the UI to stop showing 'running/stuck'."""
+    await require_admin(request)
+    from services import pipeline_progress
+    await pipeline_progress.clear(job_name)
+    return {"status": "ok", "cleared": job_name}

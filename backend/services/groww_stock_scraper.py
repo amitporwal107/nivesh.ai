@@ -662,13 +662,18 @@ async def refresh_nifty_100(
 
     Returns summary: {total, succeeded, failed, duration_s}.
     """
-    from services import pg_client
+    from services import pg_client, pipeline_progress
     start = datetime.now(timezone.utc)
     t0 = start
+    # Progress is tracked under the canonical 'nifty100_refresh' key so the
+    # dashboard UI sees both scheduled and manual runs on the same tile.
+    progress_key = "nifty100_refresh"
+    await pipeline_progress.start(progress_key, total=None)
 
     pool = await pg_client.get_pool()
     if pool is None:
         await _log_stock_refresh(job_name, "failed", 0, 0, 0, 0, "Postgres unavailable")
+        await pipeline_progress.finish(progress_key, "failed", error_msg="Postgres unavailable")
         return {"ok": False, "error": "Postgres unavailable", "duration_s": 0}
 
     try:
@@ -677,11 +682,15 @@ async def refresh_nifty_100(
             if not constituents:
                 dur_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
                 await _log_stock_refresh(job_name, "failed", 0, 0, 0, dur_ms, "No constituents scraped")
+                await pipeline_progress.finish(progress_key, "failed", error_msg="No constituents scraped")
                 return {"ok": False, "error": "No constituents scraped", "duration_s": 0}
 
             if symbols_subset:
                 subset = {s.upper() for s in symbols_subset}
                 constituents = [c for c in constituents if c["nse_symbol"] in subset]
+
+            # Now that we know the real total, push it into the progress record.
+            await pipeline_progress.tick(progress_key, processed_delta=0, total=len(constituents))
 
             sem = asyncio.Semaphore(CONCURRENCY)
             succeeded: List[str] = []
@@ -693,6 +702,7 @@ async def refresh_nifty_100(
                         raw = await fetch_stock_details(con["slug"], session)
                         if not raw:
                             failed.append({"symbol": con["nse_symbol"], "reason": "scrape_empty"})
+                            await pipeline_progress.tick(progress_key, processed_delta=0, failed_delta=1)
                             return
                         prim = map_to_primitives(raw)
                         async with pool.acquire() as conn:
@@ -701,14 +711,17 @@ async def refresh_nifty_100(
                                 await upsert_primitives(conn, con["nse_symbol"], prim)
                                 await score_and_persist(conn, con["nse_symbol"], prim)
                         succeeded.append(con["nse_symbol"])
+                        await pipeline_progress.tick(progress_key, processed_delta=1)
                     except Exception as e:  # noqa: BLE001
                         logger.warning(f"{con['nse_symbol']} refresh failed: {e}")
                         failed.append({"symbol": con["nse_symbol"], "reason": str(e)[:200]})
+                        await pipeline_progress.tick(progress_key, processed_delta=0, failed_delta=1)
 
             await asyncio.gather(*[_worker(c) for c in constituents])
     except Exception as e:  # noqa: BLE001
         dur_ms = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
         await _log_stock_refresh(job_name, "failed", 0, 0, 0, dur_ms, str(e)[:500])
+        await pipeline_progress.finish(progress_key, "failed", error_msg=str(e))
         raise
 
     dur_s = (datetime.now(timezone.utc) - start).total_seconds()
@@ -721,6 +734,9 @@ async def refresh_nifty_100(
     if failed:
         err_msg = "; ".join(f"{f['symbol']}:{f['reason']}" for f in failed[:5])[:500]
     await _log_stock_refresh(job_name, status, total, n_ok, n_fail, dur_ms, err_msg)
+    await pipeline_progress.finish(
+        progress_key, status, total=total, processed=n_ok, failed=n_fail, error_msg=err_msg,
+    )
 
     return {
         "ok": True,

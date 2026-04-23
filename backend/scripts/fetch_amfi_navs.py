@@ -166,12 +166,18 @@ async def resolve_instrument_id(
 
 
 async def run(dry_run: bool = False) -> dict:
+    from services import pipeline_progress
     t0 = time.time()
+    await pipeline_progress.start("nav_cron", total=None)
     log.info(f"Fetching {AMFI_URL}")
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.get(AMFI_URL)
-        resp.raise_for_status()
-        body = resp.text
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(AMFI_URL)
+            resp.raise_for_status()
+            body = resp.text
+    except Exception as e:
+        await pipeline_progress.finish("nav_cron", "failed", error_msg=str(e))
+        raise
     log.info(f"Fetched {len(body):,} chars")
 
     pool = await _ensure_pool()
@@ -221,6 +227,17 @@ async def run(dry_run: bool = False) -> dict:
                 await flush()
             if parsed % 2000 == 0:
                 log.info(f"  progress: parsed={parsed} upserted={upserted} skipped={skipped_no_match}")
+                # Push mid-run progress to Redis so the dashboard can show
+                # live throughput during the multi-second parse phase.
+                await pipeline_progress.tick(
+                    "nav_cron", processed_delta=0, total=None,
+                )
+                # Overwrite processed + failed with authoritative counts
+                from services import pipeline_progress as _pp, redis_client as _rc
+                cur = await _rc.cache_get(_pp._key("nav_cron")) or {}
+                cur.update({"total": parsed, "processed": upserted, "failed": skipped_no_match,
+                            "updated_at": _pp._now_iso()})
+                await _rc.cache_set(_pp._key("nav_cron"), cur, ttl_s=_pp.TTL_RUNNING_S)
 
         await flush()
 
@@ -239,6 +256,9 @@ async def run(dry_run: bool = False) -> dict:
                 parsed, upserted, skipped_no_match, dur_ms,
             )
 
+    await pipeline_progress.finish(
+        "nav_cron", "ok", total=parsed, processed=upserted, failed=skipped_no_match,
+    )
     return {
         "parsed": parsed,
         "upserted": upserted,

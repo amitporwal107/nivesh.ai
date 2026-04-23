@@ -37,10 +37,16 @@ async def _drain_job():
 
 async def _stale_refresh_job():
     """Re-enqueue funds whose metadata.last_scraped_at is stale (>15 days)."""
+    from services import pipeline_progress
+    await pipeline_progress.start("stale_refresh", total=None)
     pool = await pg_client.get_pool()
     if pool is None:
+        await pipeline_progress.finish("stale_refresh", "failed", error_msg="no_pg")
         return
-    threshold = datetime.now(timezone.utc) - timedelta(days=15)
+    # `mutual_fund_metadata.last_scraped_at` is stored as TIMESTAMP WITHOUT
+    # TIME ZONE in Postgres; asyncpg rejects a tz-aware comparand. We convert
+    # to naive UTC for the parameter binding.
+    threshold = (datetime.now(timezone.utc) - timedelta(days=15)).replace(tzinfo=None)
     queued = 0
     try:
         async with pool.acquire() as conn:
@@ -71,9 +77,15 @@ async def _stale_refresh_job():
                 upsert=True,
             )
             queued += 1
+            await pipeline_progress.tick("stale_refresh", processed_delta=1)
         logger.info(f"scheduler stale_refresh: {queued} funds requeued")
+        await pipeline_progress.finish(
+            "stale_refresh", "ok", total=queued, processed=queued, failed=0,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"stale_refresh error: {e}")
+        await pipeline_progress.finish("stale_refresh", "failed",
+                                        error_msg=str(e), processed=queued, failed=0)
 
 
 async def _amfi_navs_job():
