@@ -66,6 +66,16 @@ async def search_instruments(q: str = ""):
 
 # ==================== HOLDINGS CRUD ====================
 
+@router.get("/portfolio/holdings-enriched")
+async def get_enriched_holdings(request: Request):
+    """Actionable Portfolio payload — per-holding scores + action badges +
+    XIRR + portfolio alerts. Powers the new decision-engine Portfolio page.
+    """
+    user = await get_current_user(request)
+    from services import portfolio_enrichment as _pe
+    return await _pe.build_enriched_portfolio(user["user_id"])
+
+
 @router.get("/portfolio/holdings")
 async def get_holdings(request: Request, portfolio_id: str = "", asset_type: str = ""):
     user = await get_current_user(request)
