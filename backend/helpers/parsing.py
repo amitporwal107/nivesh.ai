@@ -540,12 +540,14 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
         if has_mf:
             try:
                 from services import fund_data_resolver as _fdr
-                res = await _fdr.seed_portfolio_queue(user_id=user_id)
+                res = await _fdr.scrape_user_mfs_inline(user_id, concurrency=5)
                 logger.info(
-                    f"post-upload MF queue seed for {user_id}: "
-                    f"queued {res.get('queued', 0)} schemes"
+                    f"post-upload MF inline scrape for {user_id}: "
+                    f"scraped {res.get('succeeded', 0)}/{res.get('total', 0)} "
+                    f"(cached {res.get('cached', 0)}, failed {res.get('failed', 0)}) "
+                    f"in {res.get('duration_s', 0)}s"
                 )
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"post-upload MF queue seed failed: {e}")
+                logger.warning(f"post-upload MF inline scrape failed: {e}")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"_enrich_after_upload crashed: {e}")

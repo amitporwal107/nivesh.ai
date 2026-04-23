@@ -8,10 +8,11 @@ are enqueued in db.scrape_queue for the off-hours drain job (see
 routes/mf_data.py admin_drain_queue and Phase 2 APScheduler).
 """
 from __future__ import annotations
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, Any
+from typing import Dict, List, Optional, Any
 
 from deps import db
 from services import groww_client, pg_client, pg_writer, redis_client
@@ -337,3 +338,87 @@ async def seed_portfolio_queue(user_id: Optional[str] = None,
         await _queue_scrape(resolved["instrument_key"], resolved["scheme_name"], None)
         queued += 1
     return {"queued": queued}
+
+
+# ── Inline (runtime) scrape for user's MFs after CAS upload ───────────
+async def scrape_user_mfs_inline(
+    user_id: str,
+    *,
+    concurrency: int = 5,
+    force_refresh: bool = False,
+) -> Dict[str, Any]:
+    """Scrape MF primitives INLINE (runtime) for every MF in a user's
+    portfolio. Used as the post-upload enrichment path so Insights/Plan
+    Board surface accurate V3 scores on the user's next request — no
+    "queued for off-hours" delay.
+
+    Uses `get_fund_data(..., allow_scrape=True)` which hits Groww and
+    persists primitives to Postgres. Runs up to `concurrency` fetches
+    in parallel.
+
+    Returns: {total, succeeded, failed, cached, duration_s}.
+    """
+    import time as _t
+    start = _t.time()
+
+    pipeline = [
+        {"$match": {
+            "user_id": user_id,
+            "asset_type": {"$in": ["mutual_fund", "MUTUAL_FUND"]},
+        }},
+        {"$group": {"_id": {"name": "$name", "ticker": "$ticker"}}},
+    ]
+    schemes: List[Dict[str, Any]] = []
+    async for row in db.holdings.aggregate(pipeline):
+        rid = row.get("_id") or {}
+        name = rid.get("name")
+        ticker = rid.get("ticker")
+        if not name:
+            continue
+        isin = ticker if ticker and len(ticker) == 12 and ticker.isalnum() else None
+        scheme_code = ticker if ticker and not isin else None
+        schemes.append({"name": name, "isin": isin, "scheme_code": scheme_code})
+
+    if not schemes:
+        return {"total": 0, "succeeded": 0, "failed": 0, "cached": 0,
+                "duration_s": 0.0}
+
+    sem = asyncio.Semaphore(concurrency)
+    succeeded = 0
+    failed = 0
+    cached_hits = 0
+    fail_details: List[Dict[str, str]] = []
+
+    async def _scrape_one(s: Dict[str, Any]):
+        nonlocal succeeded, failed, cached_hits
+        async with sem:
+            try:
+                res = await get_fund_data(
+                    scheme_name=s["name"], scheme_code=s["scheme_code"],
+                    isin=s["isin"], force_refresh=force_refresh,
+                    allow_scrape=True,
+                )
+                if res.get("available"):
+                    if res.get("source") == "cache":
+                        cached_hits += 1
+                    succeeded += 1
+                else:
+                    failed += 1
+                    fail_details.append({
+                        "scheme": s["name"][:60],
+                        "reason": (res.get("reason") or "unknown")[:120],
+                    })
+            except Exception as e:  # noqa: BLE001
+                failed += 1
+                fail_details.append({"scheme": s["name"][:60], "reason": str(e)[:120]})
+
+    await asyncio.gather(*[_scrape_one(s) for s in schemes])
+
+    return {
+        "total": len(schemes),
+        "succeeded": succeeded,
+        "failed": failed,
+        "cached": cached_hits,
+        "duration_s": round(_t.time() - start, 2),
+        "fail_details": fail_details[:10],
+    }

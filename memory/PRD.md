@@ -8,7 +8,7 @@
 
 **`helpers/parsing.py:save_holdings`** (used by all upload paths — CAS PDF, CSV, Excel) now fires a background task `_enrich_after_upload(user_id, holdings_added)` after DB insert completes. Background task:
 - **Equity holdings** → `groww_stock_scraper.refresh_user_stocks(user_id)` — scrapes ROE, D/E, growth, margins, volatility, momentum from Groww; writes primitives to Postgres `stock_primitives`; scores via V3 engine; persists to `stock_scores`. Fire-and-forget.
-- **MF holdings** → `fund_data_resolver.seed_portfolio_queue(user_id=user_id)` — enqueues each scheme in `db.scrape_queue` for the off-hours drain job (Tickertape/Moneycontrol primitives).
+- **MF holdings** → **`fund_data_resolver.scrape_user_mfs_inline(user_id)` — INLINE runtime scrape** (5 concurrent, hits Groww + persists primitives to Postgres immediately). No more off-hours queue delay. Cold-cache takes ~10-15s for 22 MFs; warm-cache ~1.5s. Runs in the background via `asyncio.create_task` so upload response is instant.
 
 **`routes/analytics.py:refresh-prices`** — same background enrichment fires after live-price refresh. Keeps stock scores aligned with latest cap-bucket classification + momentum.
 

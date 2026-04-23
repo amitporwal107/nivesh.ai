@@ -293,15 +293,15 @@ async def refresh_equity_prices(request: Request):
                 }}
             )
 
-    # Fire-and-forget enrichment (Groww fundamentals + MF queue seed).
-    # Cached 6h / 24h respectively so repeated refreshes are near-free.
+    # Fire-and-forget enrichment (Groww stock fundamentals + inline MF scrape).
+    # Redis cache (6h / 30d respectively) makes repeat refreshes near-free.
     import asyncio as _asyncio
     async def _bg():
         try:
             from services.groww_stock_scraper import refresh_user_stocks
             from services import fund_data_resolver as _fdr
             await refresh_user_stocks(uid)
-            await _fdr.seed_portfolio_queue(user_id=uid)
+            await _fdr.scrape_user_mfs_inline(uid)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"refresh-prices bg enrichment failed: {e}")
     _asyncio.create_task(_bg())
