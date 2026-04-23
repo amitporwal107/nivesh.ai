@@ -109,16 +109,18 @@ async def get_ms_token() -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def _clean_name(name: str) -> str:
-    """Strip common legal suffixes so the search term matches better."""
+    """Strip ONLY generic legal/filler words — never meaningful business words like
+    BANK, INDUSTRIES, INFRASTRUCTURE etc. which are key for disambiguation."""
     name = re.sub(
-        r"\b(LIMITED|LTD\.?|CORPORATION|CORP\.?|INDUSTRIES|INDUSTRY|"
-        r"PRIVATE|PVT\.?|LLP|INC\.?|BANK)\b",
-        "",
+        r"\b(LIMITED|LTD\.?|CORPORATION|CORP\.?|PRIVATE|PVT\.?|LLP|INC\.?|"
+        r"THE|AND|COMPANY|CO\.?)\b",
+        " ",
         name,
         flags=re.IGNORECASE,
     ).strip()
-    # Remove extra whitespace / punctuation
-    return re.sub(r"[^a-zA-Z0-9 ]", " ", name).strip()
+    # Remove punctuation / extra whitespace
+    name = re.sub(r"[^a-zA-Z0-9 ]", " ", name)
+    return " ".join(name.split())  # collapse multiple spaces
 
 
 def _name_similarity(a: str, b: str) -> float:
