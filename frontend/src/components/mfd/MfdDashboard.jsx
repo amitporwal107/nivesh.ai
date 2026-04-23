@@ -6,8 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Users, Plus, ArrowRight, Activity, AlertTriangle, Search,
   Briefcase, Trash2, TrendingUp, Calendar, Filter,
+  RefreshCw, Scale, Eye, CheckCircle2, Sparkles, ClipboardCheck,
 } from "lucide-react";
 import AddClientDialog from "./AddClientDialog";
 import PriorityChip from "./PriorityChip";
@@ -15,16 +19,12 @@ import PriorityChip from "./PriorityChip";
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 /**
- * MfdDashboard — Multi-Client Operating View.
+ * MfdDashboard — Multi-Client Operating View (v2: action-first).
  *
- * Top-level surface for an MFD workspace. Lists every profile (CLIENT +
- * SELF) sorted by computed priority. Clicking a row "activates" the
- * profile (server-side impersonation) and navigates into the normal
- * portfolio/insights views — they now render that client's data
- * unchanged, courtesy of the shadow-user mechanism.
- *
- * Per PRD: this is the daily operating table that answers
- * "Which client should I act on today?"
+ * Every row is a decision: we derive a Top Issue tag and an Action verb
+ * from `priority.factors` so MFDs never see blank columns or "which client
+ * needs what" ambiguity. The Priority chip keeps the explainability
+ * tooltip from PriorityChip.jsx.
  */
 
 const fmtRs = (n) => {
@@ -35,7 +35,7 @@ const fmtRs = (n) => {
 };
 
 const fmtDaysSince = (iso) => {
-  if (!iso) return "never";
+  if (!iso) return "First review";
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (d === 0) return "today";
   if (d === 1) return "yesterday";
@@ -44,12 +44,122 @@ const fmtDaysSince = (iso) => {
   return `${Math.floor(d / 365)}y ago`;
 };
 
+// ── Issue + Action derivation ──────────────────────────────────────────
+// These are intentionally simple ladders; once we have more MFD feedback
+// we'll lift them into the backend priority_engine so the server-side
+// notification system uses the same verbs.
+
+const deriveTopIssue = (p) => {
+  const f = p.priority?.factors || {};
+  const unreviewed = !p.last_reviewed_at;
+  if (f.risk >= 0.6) return { key: "over-risk", label: "Over-risk", tone: "rose" };
+  if (f.portfolio_weakness >= 0.4) return { key: "underperforming", label: "Underperforming", tone: "rose" };
+  if (f.recommendation_severity >= 0.7) return { key: "exit-switch", label: "Exit/Switch due", tone: "rose" };
+  if (f.recommendation_severity >= 0.4) return { key: "rebalance", label: "Rebalance pending", tone: "amber" };
+  if (unreviewed) return { key: "unreviewed", label: "Not reviewed yet", tone: "amber" };
+  if (f.recency >= 1.0) return { key: "stale", label: "Review stale", tone: "amber" };
+  if ((p.recommendation_count || 0) > 0) return { key: "review", label: "Review suggested", tone: "slate" };
+  return { key: "healthy", label: "Healthy", tone: "emerald" };
+};
+
+const deriveAction = (p) => {
+  const f = p.priority?.factors || {};
+  const unreviewed = !p.last_reviewed_at;
+  if (f.recommendation_severity >= 0.7) return { label: "Switch",       tone: "rose",    Icon: RefreshCw };
+  if (f.recommendation_severity >= 0.4) return { label: "Rebalance",    tone: "amber",   Icon: Scale };
+  if (f.portfolio_weakness >= 0.4)      return { label: "Rebalance",    tone: "amber",   Icon: Scale };
+  if (unreviewed)                       return { label: "First review", tone: "indigo",  Icon: ClipboardCheck };
+  if (f.recency >= 1.0)                 return { label: "Review",       tone: "amber",   Icon: Eye };
+  if ((p.recommendation_count || 0) > 0) return { label: "Review",      tone: "slate",   Icon: Eye };
+  return { label: "All good", tone: "emerald", Icon: CheckCircle2 };
+};
+
+const TONE_CLASSES = {
+  rose:    { bg: "bg-rose-50 dark:bg-rose-900/20",       border: "border-rose-200 dark:border-rose-800",       text: "text-rose-700 dark:text-rose-300",       dot: "bg-rose-500",    btn: "bg-rose-600 hover:bg-rose-700 text-white" },
+  amber:   { bg: "bg-amber-50 dark:bg-amber-900/20",     border: "border-amber-200 dark:border-amber-800",     text: "text-amber-700 dark:text-amber-300",     dot: "bg-amber-500",   btn: "bg-amber-500 hover:bg-amber-600 text-white" },
+  indigo:  { bg: "bg-indigo-50 dark:bg-indigo-900/20",   border: "border-indigo-200 dark:border-indigo-800",   text: "text-indigo-700 dark:text-indigo-300",   dot: "bg-indigo-500",  btn: "bg-indigo-600 hover:bg-indigo-700 text-white" },
+  slate:   { bg: "bg-slate-100 dark:bg-slate-800",       border: "border-slate-200 dark:border-slate-700",     text: "text-slate-600 dark:text-slate-300",     dot: "bg-slate-400",   btn: "bg-slate-600 hover:bg-slate-700 text-white" },
+  emerald: { bg: "bg-emerald-50 dark:bg-emerald-900/20", border: "border-emerald-200 dark:border-emerald-800", text: "text-emerald-700 dark:text-emerald-300", dot: "bg-emerald-500", btn: "bg-emerald-600 hover:bg-emerald-700 text-white" },
+};
+
+// Score bar tone derived from the value itself. ≥70 is healthy; 50-69
+// is amber; <50 is rose. For risk we invert the semantics (high risk = rose)
+// but present the same bar width.
+const qualityTone = (v) => (v == null ? "slate" : v >= 70 ? "emerald" : v >= 50 ? "amber" : "rose");
+const riskTone    = (v) => (v == null ? "slate" : v < 40 ? "emerald" : v < 60 ? "amber" : "rose");
+
+// ── Score bar (replaces "—") ───────────────────────────────────────────
+const ScoreBar = ({ value, tone, testId, label }) => {
+  const t = TONE_CLASSES[tone] || TONE_CLASSES.slate;
+  if (value == null) {
+    return (
+      <div className="w-full" data-testid={testId}>
+        <div className="flex items-center justify-between text-[9px] uppercase tracking-wider font-semibold text-slate-400 mb-0.5">
+          <span>{label}</span>
+          <span className="italic">Calculating…</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-700 to-transparent animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div className="w-full" data-testid={testId}>
+      <div className="flex items-center justify-between text-[9px] uppercase tracking-wider font-semibold text-slate-400 mb-0.5">
+        <span>{label}</span>
+        <span className={`tabular-nums ${t.text}`}>{v}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div className={`h-full rounded-full ${t.dot}`} style={{ width: `${v}%` }} />
+      </div>
+    </div>
+  );
+};
+
+// ── Issue tag pill ─────────────────────────────────────────────────────
+const IssueTag = ({ issue }) => {
+  const t = TONE_CLASSES[issue.tone] || TONE_CLASSES.slate;
+  return (
+    <span
+      data-testid={`issue-tag-${issue.key}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${t.bg} ${t.border} ${t.text}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
+      {issue.label}
+    </span>
+  );
+};
+
+// ── Summary tile ───────────────────────────────────────────────────────
+const SummaryTile = ({ label, count, tone, icon: Icon, testId, active, onClick }) => {
+  const t = TONE_CLASSES[tone] || TONE_CLASSES.slate;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testId}
+      className={`text-left rounded-xl border p-3 transition-all hover:-translate-y-0.5 ${t.bg} ${t.border} ${active ? "ring-2 ring-offset-1 ring-indigo-400 dark:ring-indigo-500" : ""}`}
+    >
+      <div className="flex items-center gap-2">
+        <div className={`w-7 h-7 rounded-md flex items-center justify-center ${t.dot} text-white`}>
+          <Icon className="w-3.5 h-3.5" />
+        </div>
+        <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">{label}</div>
+      </div>
+      <div className={`mt-2 text-2xl font-bold tabular-nums ${t.text}`}>{count}</div>
+    </button>
+  );
+};
+
 export default function MfdDashboard({ onEnterProfile }) {
   const [workspace, setWorkspace] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [bucketFilter, setBucketFilter] = useState("all");
+  const [issueFilter, setIssueFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
   const [activating, setActivating] = useState(null);
 
@@ -70,9 +180,6 @@ export default function MfdDashboard({ onEnterProfile }) {
 
   const upgradeToAdvisory = async () => {
     try {
-      // Flip to ADVISORY AND mark onboarding incomplete so the wizard
-      // mounts automatically (via Dashboard.js). It'll guide the user
-      // through firm setup → first client → upload → first value.
       await axios.patch(`${API}/mfd/workspace`,
         { mode: "ADVISORY", mfd_onboarding_completed: false },
         { withCredentials: true });
@@ -110,34 +217,59 @@ export default function MfdDashboard({ onEnterProfile }) {
     }
   };
 
-  // ── derived ----------------------------------------------------------
+  // ── Decorate each profile with derived Top Issue + Action ─────────────
+  const decorated = useMemo(() => profiles.map((p) => ({
+    ...p,
+    _issue: deriveTopIssue(p),
+    _action: deriveAction(p),
+  })), [profiles]);
+
+  // ── Counts for summary strip & filter pills ──────────────────────────
+  const counts = useMemo(() => {
+    const c = {
+      actionNeeded: 0, overRisk: 0, underperforming: 0,
+      rebalance: 0, stale: 0, healthy: 0,
+      high: 0, medium: 0, low: 0,
+    };
+    for (const p of decorated) {
+      if (p.priority?.bucket === "high") c.high++;
+      else if (p.priority?.bucket === "medium") c.medium++;
+      else c.low++;
+      if (p._issue.key === "over-risk") c.overRisk++;
+      if (p._issue.key === "underperforming") c.underperforming++;
+      if (p._issue.key === "rebalance" || p._issue.key === "exit-switch") c.rebalance++;
+      if (p._issue.key === "stale" || p._issue.key === "unreviewed") c.stale++;
+      if (p._issue.key === "healthy") c.healthy++;
+      if (p._action.label !== "All good") c.actionNeeded++;
+    }
+    return c;
+  }, [decorated]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return profiles.filter((p) => {
+    return decorated.filter((p) => {
       if (q && !p.name.toLowerCase().includes(q)) return false;
       if (bucketFilter !== "all" && p.priority.bucket !== bucketFilter) return false;
+      if (issueFilter !== "all") {
+        if (issueFilter === "over-risk"        && p._issue.key !== "over-risk") return false;
+        if (issueFilter === "underperforming"  && p._issue.key !== "underperforming") return false;
+        if (issueFilter === "rebalance"        && p._issue.key !== "rebalance" && p._issue.key !== "exit-switch") return false;
+        if (issueFilter === "stale"            && p._issue.key !== "stale" && p._issue.key !== "unreviewed") return false;
+        if (issueFilter === "healthy"          && p._issue.key !== "healthy") return false;
+      }
       return true;
     });
-  }, [profiles, search, bucketFilter]);
-
-  const bucketCounts = useMemo(() => {
-    const c = { high: 0, medium: 0, low: 0 };
-    for (const p of profiles) c[p.priority.bucket] = (c[p.priority.bucket] || 0) + 1;
-    return c;
-  }, [profiles]);
+  }, [decorated, search, bucketFilter, issueFilter]);
 
   const totalAum = useMemo(
     () => profiles.reduce((acc, p) => acc + (p.aum_rs || 0), 0),
     [profiles],
   );
 
-  // ── ADVISORY-mode gate — offer upgrade on INDIVIDUAL workspace
+  // ── ADVISORY-mode gate (unchanged)
   if (workspace && workspace.type === "INDIVIDUAL") {
     return (
-      <div
-        data-testid="mfd-upgrade-card"
-        className="max-w-xl mx-auto mt-16"
-      >
+      <div data-testid="mfd-upgrade-card" className="max-w-xl mx-auto mt-16">
         <Card className="p-6 border-2 border-dashed border-indigo-300">
           <Briefcase className="w-8 h-8 text-indigo-600 mb-3" />
           <div className="text-lg font-bold text-slate-800 dark:text-slate-100">
@@ -161,22 +293,32 @@ export default function MfdDashboard({ onEnterProfile }) {
     );
   }
 
+  // ── Actionable header sentence ───────────────────────────────────────
+  const headerSentence =
+    counts.actionNeeded === 0
+      ? "All clients are on track — no action needed today."
+      : `${counts.actionNeeded} ${counts.actionNeeded === 1 ? "client needs" : "clients need"} action today.`;
+
   return (
     <div className="space-y-4" data-testid="mfd-dashboard">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-indigo-600" />
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
               Advisor Dashboard
             </h2>
-            <Badge variant="outline" className="text-[10px]">
-              {workspace?.type}
-            </Badge>
+            <Badge variant="outline" className="text-[10px]">{workspace?.type}</Badge>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Decision standardization across portfolios — see who to act on first.
+          <p
+            className={`text-sm mt-1 font-medium ${counts.actionNeeded > 0 ? "text-rose-700 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-400"}`}
+            data-testid="mfd-header-sentence"
+          >
+            {headerSentence}
+          </p>
+          <p className="text-xs text-slate-500">
+            Book: {profiles.filter((p) => p.type === "CLIENT").length} clients · AUM {fmtRs(totalAum)}
           </p>
         </div>
         <Button
@@ -188,40 +330,47 @@ export default function MfdDashboard({ onEnterProfile }) {
         </Button>
       </div>
 
-      {/* Top metrics strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricTile
-          testId="mfd-metric-clients"
-          label="Clients"
-          value={profiles.filter((p) => p.type === "CLIENT").length}
-          icon={Users}
-          tone="indigo"
-        />
-        <MetricTile
-          testId="mfd-metric-aum"
-          label="Book AUM"
-          value={fmtRs(totalAum)}
-          icon={TrendingUp}
-          tone="emerald"
-        />
-        <MetricTile
-          testId="mfd-metric-high"
-          label="High-priority"
-          value={bucketCounts.high || 0}
-          icon={AlertTriangle}
+      {/* ── Quick summary strip — 4 action-tiles ───────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="mfd-summary-strip">
+        <SummaryTile
+          testId="summary-over-risk"
+          label="Over-risk"
+          count={counts.overRisk}
           tone="rose"
-          highlight={bucketCounts.high > 0}
+          icon={AlertTriangle}
+          active={issueFilter === "over-risk"}
+          onClick={() => setIssueFilter(issueFilter === "over-risk" ? "all" : "over-risk")}
         />
-        <MetricTile
-          testId="mfd-metric-medium"
-          label="Medium-priority"
-          value={bucketCounts.medium || 0}
-          icon={Activity}
+        <SummaryTile
+          testId="summary-underperforming"
+          label="Underperforming"
+          count={counts.underperforming}
+          tone="rose"
+          icon={TrendingUp}
+          active={issueFilter === "underperforming"}
+          onClick={() => setIssueFilter(issueFilter === "underperforming" ? "all" : "underperforming")}
+        />
+        <SummaryTile
+          testId="summary-rebalance"
+          label="Rebalance pending"
+          count={counts.rebalance}
           tone="amber"
+          icon={Scale}
+          active={issueFilter === "rebalance"}
+          onClick={() => setIssueFilter(issueFilter === "rebalance" ? "all" : "rebalance")}
+        />
+        <SummaryTile
+          testId="summary-stale"
+          label="Review stale"
+          count={counts.stale}
+          tone="amber"
+          icon={Calendar}
+          active={issueFilter === "stale"}
+          onClick={() => setIssueFilter(issueFilter === "stale" ? "all" : "stale")}
         />
       </div>
 
-      {/* Controls */}
+      {/* ── Search + bucket + issue filter chips ──────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 max-w-sm">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -244,22 +393,35 @@ export default function MfdDashboard({ onEnterProfile }) {
               onClick={() => setBucketFilter(b)}
               data-testid={`mfd-filter-${b}`}
             >
-              {b}{b !== "all" && bucketCounts[b] ? ` · ${bucketCounts[b]}` : ""}
+              {b}
+              {b !== "all" && counts[b] ? ` · ${counts[b]}` : ""}
             </Button>
           ))}
         </div>
+        {issueFilter !== "all" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setIssueFilter("all")}
+            className="h-7 text-[11px] text-slate-500 hover:text-slate-700"
+            data-testid="mfd-clear-issue-filter"
+          >
+            Clear issue filter ×
+          </Button>
+        )}
       </div>
 
-      {/* Client table */}
+      {/* ── Client table ──────────────────────────────────────────── */}
       <Card className="overflow-hidden" data-testid="mfd-client-table">
+        {/* Header row — 12-col grid tuned for action-first layout */}
         <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800 text-[10px] uppercase tracking-wider font-semibold text-slate-500 border-b dark:border-slate-700">
-          <div className="col-span-4">Client</div>
-          <div className="col-span-2 text-right">AUM</div>
-          <div className="col-span-1 text-right">Quality</div>
-          <div className="col-span-1 text-right">Risk</div>
-          <div className="col-span-1 text-right">Last review</div>
-          <div className="col-span-2">Priority</div>
-          <div className="col-span-1"></div>
+          <div className="col-span-3">Client</div>
+          <div className="col-span-2">Top issue</div>
+          <div className="col-span-2">Scores</div>
+          <div className="col-span-1 text-right">AUM</div>
+          <div className="col-span-1 text-right">Review</div>
+          <div className="col-span-1 text-right">Priority</div>
+          <div className="col-span-2 text-right">Action</div>
         </div>
 
         {loading && (
@@ -271,7 +433,7 @@ export default function MfdDashboard({ onEnterProfile }) {
 
         {!loading && filtered.length === 0 && (
           <div className="py-10 text-center text-xs text-slate-500" data-testid="mfd-empty-state">
-            {search || bucketFilter !== "all" ? (
+            {search || bucketFilter !== "all" || issueFilter !== "all" ? (
               <>No clients match your filters.</>
             ) : (
               <>
@@ -288,69 +450,123 @@ export default function MfdDashboard({ onEnterProfile }) {
         )}
 
         <div className="divide-y dark:divide-slate-800">
-          {filtered.map((p) => (
-            <button
-              key={p.profile_id}
-              type="button"
-              onClick={() => activateProfile(p)}
-              disabled={activating === p.profile_id}
-              data-testid={`mfd-client-row-${p.profile_id}`}
-              className="w-full text-left grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors disabled:opacity-60"
-            >
-              <div className="col-span-4 min-w-0">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                    aria-hidden
-                  >
-                    {p.name?.slice(0, 1).toUpperCase() || "?"}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1.5">
-                      {p.name}
-                      {p.type === "SELF" && (
-                        <Badge variant="outline" className="text-[8px] h-4 px-1">
-                          YOU
-                        </Badge>
-                      )}
+          {filtered.map((p) => {
+            const actionTone = TONE_CLASSES[p._action.tone] || TONE_CLASSES.slate;
+            const ActionIcon = p._action.Icon;
+            return (
+              <div
+                key={p.profile_id}
+                data-testid={`mfd-client-row-${p.profile_id}`}
+                className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+              >
+                {/* Client */}
+                <button
+                  type="button"
+                  onClick={() => activateProfile(p)}
+                  disabled={activating === p.profile_id}
+                  className="col-span-3 min-w-0 text-left disabled:opacity-60"
+                  data-testid={`mfd-client-name-${p.profile_id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                      aria-hidden
+                    >
+                      {p.name?.slice(0, 1).toUpperCase() || "?"}
                     </div>
-                    <div className="text-[10px] text-slate-500 truncate">
-                      {(p.tags || []).join(" · ") || "—"}
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1.5">
+                        {p.name}
+                        {p.type === "SELF" && (
+                          <Badge variant="outline" className="text-[8px] h-4 px-1">YOU</Badge>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">
+                        {(p.tags || []).join(" · ") || "—"}
+                      </div>
                     </div>
                   </div>
+                </button>
+
+                {/* Top issue */}
+                <div className="col-span-2">
+                  <IssueTag issue={p._issue} />
+                </div>
+
+                {/* Score bars */}
+                <div className="col-span-2 space-y-1.5 min-w-0">
+                  <ScoreBar
+                    testId={`quality-bar-${p.profile_id}`}
+                    label="Quality"
+                    value={p.portfolio_score}
+                    tone={qualityTone(p.portfolio_score)}
+                  />
+                  <ScoreBar
+                    testId={`risk-bar-${p.profile_id}`}
+                    label="Risk"
+                    value={p.risk_score}
+                    tone={riskTone(p.risk_score)}
+                  />
+                </div>
+
+                {/* AUM */}
+                <div className="col-span-1 text-right tabular-nums text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {fmtRs(p.aum_rs)}
+                </div>
+
+                {/* Review (replaces "never" wording) */}
+                <div className="col-span-1 text-right text-[11px]">
+                  {p.last_reviewed_at ? (
+                    <div className="inline-flex items-center gap-1 text-slate-500">
+                      <Calendar className="w-3 h-3" /> {fmtDaysSince(p.last_reviewed_at)}
+                    </div>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-medium">
+                      <Sparkles className="w-3 h-3" /> Needs first review
+                    </span>
+                  )}
+                </div>
+
+                {/* Priority chip (with existing tooltip) */}
+                <div className="col-span-1 flex justify-end">
+                  <PriorityChip priority={p.priority} />
+                </div>
+
+                {/* Action */}
+                <div className="col-span-2 flex items-center justify-end gap-1.5">
+                  <TooltipProvider delayDuration={150}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => activateProfile(p)}
+                          disabled={activating === p.profile_id}
+                          data-testid={`mfd-action-btn-${p.profile_id}`}
+                          className={`inline-flex items-center gap-1.5 rounded-lg px-3 h-8 text-[11px] font-semibold transition-all disabled:opacity-60 ${actionTone.btn}`}
+                        >
+                          <ActionIcon className="w-3.5 h-3.5" />
+                          {p._action.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-xs max-w-xs">
+                        Open {p.name}'s portfolio to {p._action.label.toLowerCase()}.
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  {p.type === "CLIENT" && (
+                    <button
+                      onClick={(e) => removeProfile(p, e)}
+                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 text-slate-400 hover:text-rose-600"
+                      data-testid={`mfd-delete-${p.profile_id}`}
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="col-span-2 text-right tabular-nums text-sm">
-                {fmtRs(p.aum_rs)}
-              </div>
-              <div className="col-span-1 text-right text-sm font-semibold tabular-nums">
-                {p.portfolio_score != null ? Math.round(p.portfolio_score) : "—"}
-              </div>
-              <div className="col-span-1 text-right text-sm tabular-nums">
-                {p.risk_score != null ? Math.round(p.risk_score) : "—"}
-              </div>
-              <div className="col-span-1 text-right text-[11px] text-slate-500 flex items-center justify-end gap-1">
-                <Calendar className="w-3 h-3" />
-                {fmtDaysSince(p.last_reviewed_at)}
-              </div>
-              <div className="col-span-2">
-                <PriorityChip priority={p.priority} />
-              </div>
-              <div className="col-span-1 text-right flex items-center justify-end gap-1">
-                {p.type === "CLIENT" && (
-                  <button
-                    onClick={(e) => removeProfile(p, e)}
-                    className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 text-slate-400 hover:text-rose-600"
-                    data-testid={`mfd-delete-${p.profile_id}`}
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </Card>
 
@@ -362,30 +578,3 @@ export default function MfdDashboard({ onEnterProfile }) {
     </div>
   );
 }
-
-const MetricTile = ({ label, value, icon: Icon, tone, testId, highlight }) => {
-  const tones = {
-    indigo: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    rose: "bg-rose-50 text-rose-700 border-rose-200",
-    amber: "bg-amber-50 text-amber-700 border-amber-200",
-  };
-  return (
-    <div
-      data-testid={testId}
-      className={`rounded-xl border bg-white dark:bg-slate-900 p-3 ${highlight ? "ring-2 ring-rose-200" : ""}`}
-    >
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-          {label}
-        </div>
-        <div className={`w-6 h-6 rounded-md ${tones[tone] || tones.indigo} flex items-center justify-center`}>
-          <Icon className="w-3 h-3" />
-        </div>
-      </div>
-      <div className="text-2xl font-bold tabular-nums text-slate-800 dark:text-slate-100">
-        {value}
-      </div>
-    </div>
-  );
-};
