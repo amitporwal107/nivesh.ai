@@ -85,6 +85,7 @@ class ChatMessageInput(BaseModel):
 class JourneyType(str, Enum):
     EXISTING_INVESTOR = "existing_investor"
     NEW_INVESTOR = "new_investor"
+    MFD_ADVISOR = "mfd_advisor"
 
 
 class JourneyInput(BaseModel):

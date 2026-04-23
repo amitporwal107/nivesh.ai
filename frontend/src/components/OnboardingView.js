@@ -5,6 +5,7 @@ import {
   Landmark, Home, GraduationCap, Plane, Shield, Target,
   Upload, Mail, Link2, FileText, CheckCircle2, Loader2,
   Calendar, Crosshair, Clock, IndianRupee, BarChart3, Wallet, BookOpen, Sparkles,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -118,6 +119,21 @@ const OnboardingView = ({ onComplete, userProfile }) => {
     setInvestorType(type);
     setSubmitting(true);
     try {
+      if (type === "mfd_advisor") {
+        // MFD path — flip workspace to ADVISORY, then complete retail
+        // onboarding so the Dashboard mounts and shows the full-screen
+        // MfdOnboardingWizard (triggered by workspace.type === 'ADVISORY'
+        // && mfd_onboarding_completed === false).
+        await axios.post(`${API}/user/journey`, { journey_type: type }, { withCredentials: true });
+        await axios.patch(
+          `${API}/mfd/workspace`,
+          { mode: "ADVISORY" },
+          { withCredentials: true },
+        );
+        await axios.post(`${API}/user/complete-onboarding`, {}, { withCredentials: true });
+        onComplete();
+        return;
+      }
       await axios.post(`${API}/user/journey`, { journey_type: type }, { withCredentials: true });
       goTo(type === "new_investor" ? "age" : "data-source");
     } catch (err) {
@@ -239,34 +255,40 @@ const OnboardingView = ({ onComplete, userProfile }) => {
           Let's set up your personalized investment experience in under 2 minutes.
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         {[
           { id: "existing_investor", icon: Briefcase, title: "Existing Investor", desc: "I already invest in stocks, mutual funds, or other assets.", color: "emerald" },
           { id: "new_investor", icon: Sprout, title: "New to Investing", desc: "I want to start investing and need a plan.", color: "blue" },
-        ].map((opt) => (
-          <Card
-            key={opt.id}
-            data-testid={`journey-option-${opt.id}`}
-            onClick={() => !submitting && handleInvestorType(opt.id)}
-            className={`cursor-pointer p-6 rounded-2xl border-2 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
-              investorType === opt.id
-                ? opt.color === "emerald"
-                  ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20"
-                  : "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20"
-                : "border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-200"
-            }`}
-          >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
-              investorType === opt.id
-                ? opt.color === "emerald" ? "bg-emerald-100 dark:bg-emerald-800" : "bg-blue-100 dark:bg-blue-800"
-                : "bg-slate-100 dark:bg-slate-800"
-            }`}>
-              <opt.icon className={`w-6 h-6 ${investorType === opt.id ? (opt.color === "emerald" ? "text-emerald-600" : "text-blue-600") : "text-slate-500"}`} strokeWidth={1.5} />
-            </div>
-            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>{opt.title}</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{opt.desc}</p>
-          </Card>
-        ))}
+          { id: "mfd_advisor", icon: Users, title: "MFD / Advisor", desc: "I manage portfolios for multiple clients as a distributor or advisor.", color: "indigo" },
+        ].map((opt) => {
+          const palette = {
+            emerald: { border: "border-emerald-500", bg: "bg-emerald-50/50 dark:bg-emerald-900/20", iconBg: "bg-emerald-100 dark:bg-emerald-800", iconFg: "text-emerald-600" },
+            blue:    { border: "border-blue-500",    bg: "bg-blue-50/50 dark:bg-blue-900/20",    iconBg: "bg-blue-100 dark:bg-blue-800",    iconFg: "text-blue-600" },
+            indigo:  { border: "border-indigo-500",  bg: "bg-indigo-50/50 dark:bg-indigo-900/20",  iconBg: "bg-indigo-100 dark:bg-indigo-800",  iconFg: "text-indigo-600" },
+          };
+          const p = palette[opt.color];
+          const selected = investorType === opt.id;
+          return (
+            <Card
+              key={opt.id}
+              data-testid={`journey-option-${opt.id}`}
+              onClick={() => !submitting && handleInvestorType(opt.id)}
+              className={`cursor-pointer p-6 rounded-2xl border-2 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
+                selected
+                  ? `${p.border} ${p.bg}`
+                  : "border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-200"
+              }`}
+            >
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
+                selected ? p.iconBg : "bg-slate-100 dark:bg-slate-800"
+              }`}>
+                <opt.icon className={`w-6 h-6 ${selected ? p.iconFg : "text-slate-500"}`} strokeWidth={1.5} />
+              </div>
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>{opt.title}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{opt.desc}</p>
+            </Card>
+          );
+        })}
       </div>
       {submitting && (
         <div className="flex justify-center"><Loader2 className="w-6 h-6 text-emerald-600 animate-spin" /></div>

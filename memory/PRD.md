@@ -2,6 +2,16 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — MFD/Advisor path on Welcome Onboarding screen
+User feedback: welcome onboarding only offered "Existing Investor" and "New to Investing" — there was no way for an MFD/distributor to declare themselves, so the workspace stayed INDIVIDUAL and the full-screen `MfdOnboardingWizard` never triggered.
+
+**Change**:
+- Added 3rd card `MFD / Advisor` (indigo accent, `Users` icon) on `OnboardingView.js`.
+- Added `MFD_ADVISOR = "mfd_advisor"` to `JourneyType` enum (`/app/backend/models.py`).
+- Selecting the card runs a one-shot: `/api/user/journey` → `/api/mfd/workspace` PATCH `mode=ADVISORY` → `/api/user/complete-onboarding`. Dashboard then auto-mounts `MfdOnboardingWizard` (6-step flow already wired).
+
+Verified: backend accepts the new enum value via curl. Frontend lint clean. Visual verification blocked by Emergent preview tunnel resting; local services healthy.
+
 ### Feb 2026 — V3 + Morningstar + Category Rank in Insights + Dual Rating + Sub-cat filters (Iterations 47-48)
 
 Two user requests:
