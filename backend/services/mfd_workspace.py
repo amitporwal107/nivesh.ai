@@ -179,6 +179,12 @@ async def delete_profile(profile_id: str) -> bool:
     shadow_uid = prof["shadow_user_id"]
     await db.profiles.delete_one({"profile_id": profile_id})
     await db.users.delete_one({"user_id": shadow_uid, "is_shadow": True})
+    # Clear any sessions still impersonating this (now-deleted) profile so
+    # the UI doesn't show a dangling "Viewing X" banner after delete.
+    await db.user_sessions.update_many(
+        {"active_profile_id": profile_id},
+        {"$set": {"active_profile_id": None}},
+    )
     # Best-effort: purge the shadow user's portfolio/holdings/goals too.
     for coll in ("portfolios", "holdings", "user_goals", "insights_cache"):
         try:
