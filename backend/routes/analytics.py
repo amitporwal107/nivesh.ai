@@ -292,6 +292,94 @@ async def refresh_equity_prices(request: Request):
     return {"message": "Prices refreshed", **stats}
 
 
+@router.post("/portfolio/refresh-stock-fundamentals")
+async def refresh_stock_fundamentals(request: Request):
+    """Trigger Groww fundamentals refresh for the user's equity holdings.
+    Scrapes ROE, D/E, growth, margins, volatility + computes V3 composite
+    Quality/Health/Exit/Add scores. Typically takes 3-5s for a 10-stock
+    portfolio.
+    """
+    user = await get_current_user(request)
+    from services import groww_stock_scraper as _gs
+    result = await _gs.refresh_user_stocks(user["user_id"])
+    return result
+
+
+@router.get("/portfolio/stock-scores")
+async def get_user_stock_scores(request: Request):
+    """Return V3 composite scores (Quality/Health/Exit/Add) for every equity
+    holding the user owns. Data lives in Postgres `stock_scores` — populated
+    by `refresh-stock-fundamentals` or the daily Nifty 100 cron.
+    """
+    user = await get_current_user(request)
+    cursor = db.holdings.find(
+        {"user_id": user["user_id"], "asset_type": "equity"},
+        {"_id": 0, "nse_symbol": 1, "name": 1, "quantity": 1, "current_price": 1},
+    )
+    holdings = await cursor.to_list(500)
+    if not holdings:
+        return {"holdings": [], "coverage": 0}
+    symbols = [h["nse_symbol"].upper() for h in holdings if h.get("nse_symbol")]
+    if not symbols:
+        return {"holdings": [], "coverage": 0}
+
+    try:
+        from services import pg_client
+        pool = await pg_client.get_pool()
+        if pool is None:
+            return {"holdings": [], "coverage": 0, "error": "Postgres unavailable"}
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT sm.nse_symbol, sm.company_name, sm.sector, sm.cap_bucket,
+                       sm.market_cap_cr,
+                       ss.quality_score, ss.health_score, ss.exit_score, ss.add_score,
+                       ss.recommendation, ss.recommendation_reason, ss.low_confidence,
+                       ss.computed_at
+                FROM stock_master sm
+                LEFT JOIN stock_scores ss ON ss.nse_symbol = sm.nse_symbol
+                WHERE sm.nse_symbol = ANY($1::text[])
+                """,
+                symbols,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"stock-scores fetch failed: {e}")
+        return {"holdings": [], "coverage": 0, "error": str(e)}
+
+    by_sym = {r["nse_symbol"]: r for r in rows}
+    out = []
+    scored = 0
+    for h in holdings:
+        sym = (h.get("nse_symbol") or "").upper()
+        row = by_sym.get(sym)
+        val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        entry = {
+            "nse_symbol": sym, "name": h.get("name"),
+            "quantity": h.get("quantity"), "current_value_rs": round(val, 2),
+            "scores": None, "recommendation": None,
+        }
+        if row and row["quality_score"] is not None:
+            entry["scores"] = {
+                "quality": float(row["quality_score"]),
+                "health": float(row["health_score"]) if row["health_score"] else None,
+                "exit": float(row["exit_score"]) if row["exit_score"] else None,
+                "add": float(row["add_score"]) if row["add_score"] else None,
+            }
+            entry["recommendation"] = {
+                "action": row["recommendation"] or "REVIEW",
+                "reason": row["recommendation_reason"],
+            }
+            entry["sector"] = row["sector"]
+            entry["cap_bucket"] = row["cap_bucket"]
+            entry["computed_at"] = row["computed_at"].isoformat() if row["computed_at"] else None
+            entry["low_confidence"] = bool(row["low_confidence"])
+            scored += 1
+        out.append(entry)
+
+    coverage = round((scored / len(holdings)) * 100, 1) if holdings else 0
+    return {"holdings": out, "coverage_pct": coverage, "scored": scored, "total": len(holdings)}
+
+
 @router.get("/portfolio/simulate")
 async def simulate_portfolio(request: Request, portfolio_id: str = ""):
     """Simulate optimized portfolio."""

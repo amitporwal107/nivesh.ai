@@ -109,6 +109,22 @@ async def _v3_rescore_job():
         logger.warning(f"v3_rescore error: {e}")
 
 
+async def _stock_nifty100_refresh_job():
+    """Daily Groww Nifty 100 scrape + score — runs 23:00 IST.
+    Populates stock_master / stock_primitives / stock_scores for all 100
+    Nifty constituents."""
+    try:
+        from services.groww_stock_scraper import refresh_nifty_100
+        res = await refresh_nifty_100()
+        logger.info(
+            f"nifty100_refresh ok={res.get('ok')} "
+            f"succeeded={res.get('succeeded')}/{res.get('total')} "
+            f"dur={res.get('duration_s')}s"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"nifty100_refresh error: {e}")
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -146,6 +162,12 @@ def start():
     _scheduler.add_job(
         _v3_rescore_job, CronTrigger(hour=22, minute=45),
         id="v3_rescore_daily", replace_existing=True, max_instances=1,
+    )
+    # Nifty 100 stock refresh: daily 23:00 IST — scrapes Groww for all 100
+    # constituents, writes primitives + V3 composite scores to Postgres.
+    _scheduler.add_job(
+        _stock_nifty100_refresh_job, CronTrigger(hour=23, minute=0),
+        id="nifty100_refresh_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

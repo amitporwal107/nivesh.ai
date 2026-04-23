@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { RefreshCw, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { toast } from "sonner";
+import { RefreshCw, TrendingUp, TrendingDown, Minus, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -43,6 +44,25 @@ export default function V3MasterStocksSection() {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [nifty100Only]);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const triggerFullRefresh = async () => {
+    if (!window.confirm("Trigger live Groww scrape of all 100 Nifty constituents? This takes ~60–90s.")) return;
+    setRefreshing(true);
+    try {
+      const res = await axios.post(`${API}/admin/v3-stock-refresh`, null, { withCredentials: true, timeout: 180000 });
+      if (res.data.ok) {
+        toast.success(`Refreshed ${res.data.succeeded}/${res.data.total} stocks in ${res.data.duration_s}s`);
+        await load();
+      } else {
+        toast.error(`Refresh failed: ${res.data.error || "unknown"}`);
+      }
+    } catch (e) {
+      toast.error(`Refresh failed: ${e.response?.data?.detail || e.message}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   return (
     <div className="space-y-4" data-testid="v3-stock-master-section">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between flex-wrap gap-3">
@@ -59,6 +79,11 @@ export default function V3MasterStocksSection() {
           </label>
           <Button size="sm" variant="outline" onClick={load} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />Refresh
+          </Button>
+          <Button size="sm" onClick={triggerFullRefresh} disabled={refreshing}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="stock-scraper-trigger">
+            <Download className={`w-4 h-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Scraping Groww…" : "Scrape Nifty 100"}
           </Button>
         </div>
       </div>

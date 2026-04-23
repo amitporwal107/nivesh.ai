@@ -82,6 +82,20 @@ async def reset_v3_stock_weights(request: Request):
     return {"status": "ok", "weights": stock_scoring.get_full_config()}
 
 
+# ── Groww scraper refresh endpoint ──────────────────────────────────────
+@router.post("/admin/v3-stock-refresh")
+async def trigger_v3_stock_refresh(request: Request, symbol: Optional[str] = None):
+    """Trigger Groww Nifty 100 scrape + score. `symbol` (optional) refreshes
+    just that NSE symbol. No-arg = full Nifty 100 refresh (runs in request
+    thread; typically 60-90s)."""
+    await require_admin(request)
+    from services import groww_stock_scraper as _gs
+    subset = [symbol.upper()] if symbol else None
+    result = await _gs.refresh_nifty_100(symbols_subset=subset)
+    logger.info(f"v3-stock-refresh done: {result.get('succeeded', 0)}/{result.get('total', 0)}")
+    return result
+
+
 # ── Stock master listing ───────────────────────────────────────────────
 @router.get("/admin/v3-stock-master")
 async def get_v3_stock_master(
