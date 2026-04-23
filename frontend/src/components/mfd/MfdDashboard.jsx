@@ -129,7 +129,7 @@ const ScoreBar = ({ value, tone, testId, label }) => {
           <span>{label}</span>
           <span className="italic">Calculating…</span>
         </div>
-        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-slate-200 dark:via-slate-700 to-transparent animate-pulse" />
         </div>
       </div>
