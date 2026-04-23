@@ -131,7 +131,7 @@ const OnboardingView = ({ onComplete, userProfile }) => {
           { withCredentials: true },
         );
         await axios.post(`${API}/user/complete-onboarding`, {}, { withCredentials: true });
-        onComplete();
+        onComplete({ destination: "advisor" });
         return;
       }
       await axios.post(`${API}/user/journey`, { journey_type: type }, { withCredentials: true });

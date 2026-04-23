@@ -144,10 +144,11 @@ const Dashboard = () => {
     }
   }, [user, loading, navigate, fetchData, fetchProfile]);
 
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = (opts) => {
     fetchProfile();
+    fetchWorkspace();
     fetchData();
-    setActiveTab("overview");
+    setActiveTab(opts?.destination || "overview");
   };
 
   const handleRiskProfileComplete = () => {
