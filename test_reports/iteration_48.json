@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 48 — Morningstar + Category-Rank surfaced in /api/insights/v3-portfolio AND rendered in V3PortfolioInsights (Insights tab). Backend: 12/12 pytest pass on new test_iteration48_insights_v3_morningstar_rank.py. Live aggregate for priyanka matches spec EXACTLY: n_morningstar_rated=14, avg_morningstar_rating=4.64, n_morningstar_4plus=13, n_category_ranked=21, n_top_quartile=8 (n_funds=26, n_scored=25). All 3 fund-level spot-checks pass: Aditya Birla Sun Life Large Cap Direct ms=4 rank in Large Cap (total 18-21), ICICI Prudential Value Discovery ms=5 rank in Value Oriented (total 4-6), HDFC Small Cap Direct ms=4 rank in Small Cap (total 15-19). funds[] each carry morningstar_rating / category_rank / category_rank_total / category_rank_sub keys (null where N/A). Frontend source code review: V3PortfolioInsights.jsx (L111-151) renders both `data-testid=\"v3-morningstar-tile\"` and `data-testid=\"v3-top-quartile-tile\"` with correct copy (\"N at 4★+ · X/Y rated\" and \"Top-25% by V3 Quality · N ranked\"). V3FundBreakdown.jsx (L167-192) correctly renders `data-testid='ms-rating-{iid_or_name}'` pill (MS label + 5 ★ spans using text-sky-500 for filled / text-slate-200 for unfilled, title='Morningstar: N/5') and `data-testid='v3-cat-rank-{iid_or_name}'` pill (#N/M, 4-tier emerald/lime/amber/rose colouring by ceil(total*0.1/0.25/0.5), title='Rank N of M in {sub_category} (by V3 Quality)') gated on category_rank_total>3. Frontend Playwright E2E: Login via cookie session succeeds (header 'Portfolio Analysis' renders), sub-tabs 'AI Overview | Performance & Benchmark | Fund & Overlap Insights' all present. V3PortfolioInsights component IS mounted under the 'Fund & Overlap Insights' sub-tab → Fund Overlap collapsible → PortfolioIntelligenceTab → pi-v3-section (confirmed via InsightsView.js L457 + PortfolioIntelligenceTab.jsx L599). Playwright could not consistently drive into the nested CollapsibleSection (defaultHeight=750, inner-scroll) within the tool timeout budget — one of 3 attempts returned `v3-insights-loading` testid via evaluate() but never promoted to `v3-portfolio-insights` before timeout. Code path & data shape are verified correct; main agent can self-verify visually by opening /dashboard#insights → Fund & Overlap Insights → scrolling inside Fund Overlap section.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Insights → Fund & Overlap Insights", "issues": ["V3 Portfolio Insights section is buried 3 levels deep (sub-tab → Fund Overlap collapsible with defaultHeight=750 → PortfolioIntelligenceTab scroll). Users likely need to scroll inside the overlap card to see the new Morningstar + Top-Quartile tiles. Consider raising `defaultHeight` or moving V3PortfolioInsights to its own top-level section so the new tiles are above the fold."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration48_insights_v3_morningstar_rank.py",
+    "/app/test_reports/pytest/iteration_48.xml"
+  ],
+  "action_items": [
+    "(Optional UX) Promote V3PortfolioInsights out of the inner Fund Overlap collapsible so the new Morningstar/Top-Quartile tiles are more discoverable — currently a user has to open the Fund & Overlap Insights sub-tab AND scroll inside the Fund Overlap card.",
+    "(Main agent self-verify) Open /dashboard#insights → 'Fund & Overlap Insights' tab → scroll down inside the Fund Overlap card → confirm the two new tiles render with values 4.6/5 (13 at 4★+ · 14/26 rated) and 8 funds (Top-25% · 21 ranked)."
+  ],
+  "critical_code_review_comments": [
+    "Backend aggregate compute (insights.py L880-906) is correct: top_quartile uses `max(1, round(total*0.25))` matching the spec's 25% cut, and n_category_ranked counts only funds with a rank (not totals). Returns 8/21 for priyanka exactly as the spec demanded.",
+    "Frontend V3FundBreakdown conditionally hides category_rank pill when category_rank_total ≤ 3 — matches spec. Morningstar pill shows whenever the rating is non-null (no rating-floor), which is the correct behaviour.",
+    "Tile border palette (sky-100 for Morningstar, emerald-100 for Top-Quartile) maintains visual parity with existing v3 tiles. Hover tooltip on the cat-rank pill now includes the sub-category name (e.g. 'Large Cap'), resolving the iteration 46 cosmetic gap.",
+    "Nesting concern: V3PortfolioInsights lives inside CollapsibleSection defaultHeight=750 → whenever the Fund Overlap content alone exceeds 750px, the new tiles are below the scroll fold. Not a bug, but the headline feature of this iteration (\"surface Morningstar/Top-Quartile\") is less discoverable than the previous spec implied."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration48_insights_v3_morningstar_rank.py (new — 12 tests: 6 aggregate assertions + 3 fund-level structural + 3 named-fund spot-checks)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "Source review 100%; live Playwright drill-down into nested collapsible not achieved within 3 attempts (loop-prevention)."},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com) — valid & confirmed via header render",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is rock-solid — aggregate + per-fund keys all match spec exactly (14/4.64/13/21/8). Frontend component source is correct (V3PortfolioInsights + V3FundBreakdown both render the new testids). Live Playwright drill-down was blocked by a nested CollapsibleSection (defaultHeight=750) under the 'Fund & Overlap Insights' sub-tab — V3PortfolioInsights is mounted inside PortfolioIntelligenceTab.jsx L599 (pi-v3-section). To drive it in Playwright: after switching to Fund & Overlap Insights sub-tab, scroll inside the Fund Overlap collapsible (not just the window), or click its focus/expand icon, or temporarily bump defaultHeight. Session cookie still valid; use domain='portfolio-plan-board.preview.emergentagent.com'.",
+  "rca of the issue": "N/A — no bug. Feature ask was to surface existing V3 Morningstar + category_rank fields into the Insights tab aggregates + tiles. Backend endpoint exposes them correctly and frontend renders the new tiles + per-fund pills with matching data-testids. Only follow-up is UX discoverability (deeply nested section)."
+}

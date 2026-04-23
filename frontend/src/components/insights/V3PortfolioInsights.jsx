@@ -88,7 +88,7 @@ export default function V3PortfolioInsights() {
   return (
     <div className="space-y-4" data-testid="v3-portfolio-insights">
       {/* Headline tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         <ScoreTile
           testid="v3-avg-has"
           label="Avg HAS"
@@ -107,6 +107,48 @@ export default function V3PortfolioInsights() {
           value={portfolio.avg_health_score}
           sub="Manager, turnover, concentration"
         />
+        {/* Morningstar aggregate */}
+        <div
+          data-testid="v3-morningstar-tile"
+          className="flex flex-col gap-1 rounded-xl border border-sky-100 bg-sky-50/40 px-4 py-3 dark:bg-slate-900 dark:border-slate-700"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sky-500 text-xs">★</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-slate-400">
+              Avg Morningstar
+            </span>
+          </div>
+          <div className="flex items-end gap-1">
+            <span className="text-2xl font-bold tabular-nums text-sky-800 dark:text-sky-300">
+              {portfolio.avg_morningstar_rating != null ? portfolio.avg_morningstar_rating.toFixed(1) : "—"}
+            </span>
+            <span className="text-xs text-slate-400 mb-1">/5</span>
+          </div>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            {portfolio.n_morningstar_4plus ?? 0} at 4★+ · {portfolio.n_morningstar_rated ?? 0}/{portfolio.n_funds} rated
+          </span>
+        </div>
+        {/* Category rank aggregate */}
+        <div
+          data-testid="v3-top-quartile-tile"
+          className="flex flex-col gap-1 rounded-xl border border-emerald-100 bg-emerald-50/40 px-4 py-3 dark:bg-slate-900 dark:border-slate-700"
+        >
+          <div className="flex items-center gap-2">
+            <Award className="w-3 h-3 text-emerald-600" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-slate-400">
+              Top Quartile
+            </span>
+          </div>
+          <div className="flex items-end gap-1">
+            <span className="text-2xl font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+              {portfolio.n_top_quartile ?? 0}
+            </span>
+            <span className="text-xs text-slate-400 mb-1">funds</span>
+          </div>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            Top-25% by V3 Quality · {portfolio.n_category_ranked ?? 0} ranked
+          </span>
+        </div>
         <div
           data-testid="v3-coverage-tile"
           className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:bg-slate-900 dark:border-slate-700"

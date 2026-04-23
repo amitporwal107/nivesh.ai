@@ -163,6 +163,34 @@ const FundRow = ({ fund }) => {
               {fund.scheme_name}
             </span>
             <RecBadge rec={rec} />
+            {/* Morningstar ★ rating — sky-500 to distinguish from amber Nivesh */}
+            {fund.morningstar_rating != null && (
+              <span
+                className="inline-flex items-center gap-0.5 text-[9px] font-mono"
+                title={`Morningstar: ${fund.morningstar_rating}/5`}
+                data-testid={`ms-rating-${fund.instrument_id || fund.scheme_name}`}
+              >
+                <span className="text-slate-400 font-semibold mr-0.5">MS</span>
+                {[1,2,3,4,5].map((n) => (
+                  <span key={n} className={n <= fund.morningstar_rating ? "text-sky-500" : "text-slate-200"}>★</span>
+                ))}
+              </span>
+            )}
+            {/* Category peer rank */}
+            {fund.category_rank && fund.category_rank_total && fund.category_rank_total > 3 && (
+              <span
+                className={`px-1.5 py-0 rounded-sm font-mono text-[9px] font-semibold ${
+                  fund.category_rank <= Math.ceil(fund.category_rank_total * 0.1) ? "bg-emerald-50 text-emerald-700"
+                  : fund.category_rank <= Math.ceil(fund.category_rank_total * 0.25) ? "bg-lime-50 text-lime-700"
+                  : fund.category_rank <= Math.ceil(fund.category_rank_total * 0.5) ? "bg-amber-50 text-amber-700"
+                  : "bg-rose-50 text-rose-700"
+                }`}
+                title={`Rank ${fund.category_rank} of ${fund.category_rank_total} in ${fund.category_rank_sub || 'category'} (by V3 Quality)`}
+                data-testid={`v3-cat-rank-${fund.instrument_id || fund.scheme_name}`}
+              >
+                #{fund.category_rank}/{fund.category_rank_total}
+              </span>
+            )}
             {has?.category && (
               <Badge
                 variant="outline"

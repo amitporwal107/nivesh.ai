@@ -700,6 +700,29 @@ async def v3_portfolio_summary(request: Request):
     n_switch_recs = 0
     n_review_recs = 0
 
+    # ── Category rank map (sub_category partition, direct-plan only) ──
+    category_rank_by_iid: Dict[str, Dict[str, Any]] = {}
+    try:
+        from routes.admin_v3_master import _fetch_master_funds
+        all_funds = await _fetch_master_funds(limit=None)
+        by_cat: Dict[str, list] = {}
+        for f in all_funds:
+            sub = f.get("sub_category") or f.get("category")
+            q = (f.get("scores") or {}).get("quality")
+            if sub and q is not None and f.get("plan_type") != "regular":
+                by_cat.setdefault(sub, []).append(f)
+        for sub, funds in by_cat.items():
+            funds.sort(key=lambda x: x["scores"]["quality"] or 0, reverse=True)
+            total = len(funds)
+            for i, f in enumerate(funds, start=1):
+                iid_f = f.get("instrument_id")
+                if iid_f:
+                    category_rank_by_iid[iid_f] = {
+                        "rank": i, "total": total, "sub_category": sub,
+                    }
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"v3-portfolio category-rank build failed: {e}")
+
     for m in mf_investments:
         iid = m.get("instrument_id")
         name = m.get("scheme_name", "")
@@ -727,7 +750,23 @@ async def v3_portfolio_summary(request: Request):
             "plan_type": plan_type,
             "cost_leak_rs_per_yr": round(cost_leak, 0) if cost_leak else None,
             "scores": None,
+            "morningstar_rating": None,
+            "category_rank": None,
+            "category_rank_total": None,
+            "category_rank_sub": None,
         }
+        # Surface Morningstar + Category Rank from v3 + master catalogue.
+        prim = (v3 or {}).get("v3_primitives") or {}
+        entry["morningstar_rating"] = prim.get("morningstar_rating")
+        # Use the INSTRUMENT_ID FROM THE MATCHED V3 BUNDLE, not the mongo holding
+        # (mongo's instrument_id is often None for CAS-parsed holdings).
+        v3_iid = (v3 or {}).get("instrument_id") or iid
+        if v3_iid:
+            cr = category_rank_by_iid.get(v3_iid)
+            if cr:
+                entry["category_rank"] = cr["rank"]
+                entry["category_rank_total"] = cr["total"]
+                entry["category_rank_sub"] = cr["sub_category"]
         if v3:
             bundle = {**v3, "switch_score": switch_score}
             entry["scores"] = {
@@ -838,6 +877,14 @@ async def v3_portfolio_summary(request: Request):
             has_value_weighted += ha["has"] * f.get("value_rs", 0)
             has_value_weights += f.get("value_rs", 0)
 
+    # Morningstar + category-rank aggregate summary
+    ms_values = [f["morningstar_rating"] for f in funds_out if f.get("morningstar_rating") is not None]
+    top_quartile = sum(
+        1 for f in funds_out
+        if f.get("category_rank") and f.get("category_rank_total")
+        and f["category_rank"] <= max(1, round(f["category_rank_total"] * 0.25))
+    )
+
     portfolio = {
         "avg_quality_score": round(quality_weighted / quality_weights, 2) if quality_weights else None,
         "avg_health_score": round(health_weighted / health_weights, 2) if health_weights else None,
@@ -850,6 +897,12 @@ async def v3_portfolio_summary(request: Request):
         "n_review_recs": n_review_recs,
         "has_action_counts": has_tally,
         "target_weight_pct_per_fund": round(target_weight_pct, 2),
+        # New: third-party + peer-group signals
+        "n_morningstar_rated": len(ms_values),
+        "avg_morningstar_rating": round(sum(ms_values) / len(ms_values), 2) if ms_values else None,
+        "n_morningstar_4plus": sum(1 for v in ms_values if v >= 4),
+        "n_category_ranked": sum(1 for f in funds_out if f.get("category_rank")),
+        "n_top_quartile": top_quartile,
     }
     coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
 
