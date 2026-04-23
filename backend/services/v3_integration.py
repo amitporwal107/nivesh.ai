@@ -86,6 +86,7 @@ async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[
               mfmd.credit_quality_score::float, mfmd.duration_risk_score::float,
               mfmd.ytm::float, mfmd.modified_duration::float,
               mfmd.investment_style, mfmd.moneycontrol_imid,
+              mfmd.morningstar_rating::int AS morningstar_rating,
               mfpr.ret_1y::float, mfpr.ret_3y::float, mfpr.ret_5y::float,
               mfpr.sharpe::float, mfpr.sortino::float
             FROM mutual_fund_metadata mfmd
@@ -238,6 +239,7 @@ async def enrich_candidates_with_v3(
                 # UI can display credit/duration profile for bond funds.
                 "credit_quality_score", "duration_risk_score", "ytm",
                 "modified_duration", "investment_style", "moneycontrol_imid",
+                "morningstar_rating",
             )},
         }
         # Dual-index: by iid AND by normalised scheme_name (for lookup when

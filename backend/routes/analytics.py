@@ -328,6 +328,73 @@ async def refresh_stock_fundamentals(request: Request):
     return result
 
 
+@router.post("/portfolio/refresh-mf-ratings")
+async def refresh_mf_ratings(request: Request):
+    """Trigger Moneycontrol rescrape for the user's mutual fund holdings to
+    refresh Morningstar ratings + CAGR + investment-style primitives.
+
+    Runs sequentially with a 15-fund cap per call (~10s). Invalidates the
+    enriched-portfolio Redis cache on completion.
+    """
+    user = await get_current_user(request)
+    from deps import db
+    from services import moneycontrol_client as _mc
+    from services import pg_writer as _pgw
+    from services import redis_client as _rc
+
+    cursor = db.holdings.find(
+        {"user_id": user["user_id"], "asset_type": {"$in": ["mutual_fund", "etf"]}},
+        {"_id": 0, "name": 1, "ticker": 1},
+    )
+    holdings = await cursor.to_list(200)
+    # De-dupe by name (Regular/Direct share a rating, so scrape once)
+    seen = set()
+    uniq = []
+    for h in holdings:
+        nl = (h.get("name") or "").lower().strip()
+        if nl and nl not in seen:
+            seen.add(nl); uniq.append(h)
+    ok = 0
+    fail: list[dict] = []
+    rated = 0
+    for h in uniq:  # process all unique MFs (no artificial cap)
+        name = h.get("name") or ""
+        try:
+            hit = await _mc.search_fund(name)
+            if not hit:
+                fail.append({"name": name, "reason": "mc_search_miss"})
+                continue
+            payload = await _mc.fetch_by_url(hit["url"])
+            if not payload:
+                fail.append({"name": name, "reason": "fetch_failed"})
+                continue
+            # Force scheme_name so PG name-match fallback resolves.
+            payload["scheme_name"] = name
+            if h.get("ticker") and not payload.get("isin"):
+                payload["isin"] = h["ticker"]
+            mf_id = await _pgw.persist_moneycontrol_scrape(payload)
+            if mf_id:
+                ok += 1
+                if payload.get("morningstar_rating") is not None:
+                    rated += 1
+        except Exception as e:  # noqa: BLE001
+            fail.append({"name": name, "reason": str(e)[:120]})
+
+    try:
+        await _rc.cache_del(f"enriched_portfolio:{user['user_id']}")
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {
+        "ok": True,
+        "total": len(holdings),
+        "scraped": ok,
+        "with_rating": rated,
+        "failed": len(fail),
+        "failed_details": fail[:10],
+    }
+
+
 @router.get("/portfolio/stock-scores")
 async def get_user_stock_scores(request: Request):
     """Return V3 composite scores (Quality/Health/Exit/Add) for every equity

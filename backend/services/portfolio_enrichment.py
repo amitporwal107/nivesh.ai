@@ -397,6 +397,7 @@ async def build_enriched_portfolio(
                         "ret_1y": prim.get("ret_1y"),
                         "ret_3y": prim.get("ret_3y"),
                         "ret_5y": prim.get("ret_5y"),
+                        "morningstar_rating": prim.get("morningstar_rating"),
                     }
     except Exception as e:  # noqa: BLE001
         logger.warning(f"enriched_portfolio: MF V3 join failed: {e}")
@@ -455,6 +456,7 @@ async def build_enriched_portfolio(
                 rec = s["recommendation"]
                 rec_reason = s["recommendation_reason"]
                 ret_1y_ext = s.get("return_1y_pct")
+            morningstar_rating = None
         elif at in ("mutual_fund", "etf"):
             total_mfs += 1
             m = mf_scores_by_name.get(name_l)
@@ -466,6 +468,11 @@ async def build_enriched_portfolio(
                 ret_1y_ext = m.get("ret_1y")
                 ret_3y_ext = m.get("ret_3y")
                 ret_5y_ext = m.get("ret_5y")
+                morningstar_rating = m.get("morningstar_rating")
+            else:
+                morningstar_rating = None
+        else:
+            morningstar_rating = None
 
         composite = composite_score(score_bundle)
         weight_pct = (val / grand_total_val * 100) if grand_total_val > 0 else None
@@ -518,6 +525,7 @@ async def build_enriched_portfolio(
             "is_regular_plan": is_regular,
             "scores": score_bundle,
             "composite_score": composite,
+            "morningstar_rating": morningstar_rating,
             "recommendation": rec,
             "recommendation_reason": rec_reason,
             "action_badge": badge,

@@ -411,6 +411,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
                 fund_age_years = COALESCE(fund_age_years, $17),
                 manager_name = COALESCE(manager_name, $18),
                 manager_tenure_years = COALESCE(manager_tenure_years, $19),
+                morningstar_rating = COALESCE($20, morningstar_rating),
                 last_scraped_at = NOW(),
                 updated_at = NOW()
             WHERE instrument_id = $1
@@ -434,6 +435,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
             data.get("fund_age_years"),
             data.get("manager_name"),
             data.get("manager_tenure_years"),
+            _to_int(data.get("morningstar_rating")),
         )
 
         # Latest-period performance ratios (only if MC surfaced them).
@@ -700,6 +702,18 @@ async def get_fund_detail(instrument_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+def _to_int(v: Any) -> Optional[int]:
+    """Lenient int coercion — returns None on empty/None/unparseable."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+
 def _parse_date(s: Optional[str]) -> Optional[date]:
     if not s:
         return None

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 43 — Morningstar rating end-to-end wiring fully verified. BACKEND (5/5 pytest PASS): (1) GET /api/portfolio/holdings-enriched returns `morningstar_rating` field on every MF row (int 1-5 or null). (2) 14/26 MFs have non-null morningstar_rating for priyanka (>=10 threshold met). (3) Spec-named funds match exactly — HDFC Flexi Cap=★5, Axis Small Cap=★5, Sundaram Value=★2. (4) POST /api/portfolio/refresh-mf-ratings returns correct shape {ok, total=36, scraped=19 (unique), with_rating=15, failed, failed_details}. (5) Idempotent — run1 vs run2 same total=36, same with_rating=15 (diff <=2). FRONTEND: StarRating picks morningstar_rating when present — row-level DOM inspection confirms HDFC Flexi Cap → data-testid='stars-5' + title='Morningstar Rating: 5/5' with NO '· Nivesh Rating' subtitle; Axis Small Cap → stars-5 + 'Morningstar Rating: 5/5'; SUNDARAM VALUE → stars-2 + 'Morningstar Rating: 2/5'. Nivesh fallback works — equity tab shows 27/27 equity rows with stars AND the '· Nivesh Rating' italic suffix. Page-wide star pill counts {stars-1:1, stars-2:7, stars-3:18, stars-4:16, stars-5:11}=53 renders. 'Nivesh Rating' fallback subtitle appears 39× (rows without morningstar_rating). Regression testids all present: portfolio-header, impact-strip, score-legend, asset-tab-{all,mutual_fund,equity}, header-refresh-scores, header-export-csv, filter-WEAK, Switch buttons visible on regular-plan rows. Screenshot confirms visual stars render correctly on all Morningstar-rated rows. No critical issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/portfolio/refresh-mf-ratings", "issue": "One transient 'fetch_failed' on 'Franklin India Small Cap Fund' during run2 (not run1) — Moneycontrol URL resolution can intermittently 502; no impact on with_rating count (stays 15). Consider a 1x retry inside the scrape loop."},
+      {"endpoint": "POST /api/portfolio/refresh-mf-ratings", "issue": "`total` counts raw MF holdings (36) but `scraped` counts unique-by-name scrapes (19). Field names are technically correct but a `unique_funds` field alongside `total` would be clearer (total=36 vs unique=19). Non-blocking."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard landing", "issues": ["Pre-existing: ActionPlanManager modal auto-opens and requires Escape to dismiss — carried over from prior iterations."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration43_morningstar.py",
+    "/app/test_reports/pytest/iteration_43.xml"
+  ],
+  "action_items": [
+    "(Minor) Add 1x retry in refresh-mf-ratings loop on fetch_failed to reduce transient flakiness.",
+    "(Minor) Rename response fields or add `unique_funds` counter for clarity (total=raw holdings, scraped=unique scrapes).",
+    "(Pre-existing, low priority) ActionPlanManager modal auto-open dismissal friction."
+  ],
+  "critical_code_review_comments": [
+    "pg_writer.persist_moneycontrol_scrape correctly adds morningstar_rating as $20 param with COALESCE semantics — preserves existing non-null when scrape returns null. _to_int helper is a clean addition.",
+    "v3_integration SELECT includes mfmd.morningstar_rating::int alias — v3_primitives payload surfaces it untouched.",
+    "portfolio_enrichment.py: mf_scores_by_name now carries morningstar_rating, and per-row payload exposes it as a separate field (not merged with composite_score) — allows frontend to choose source.",
+    "ActionablePortfolioView StarRating: `h.morningstar_rating != null ? Morningstar : niveshStars(composite)` branch is correct. Title attr differentiates source ('Morningstar Rating: N/5' vs 'Nivesh Rating (composite-derived): N/5'). Subtitle '· Nivesh Rating' only appears when morningstar_rating == null && composite_score != null — verified via DOM (39 occurrences, 0 on tested Morningstar rows).",
+    "ActionablePortfolioView.js is at 742 lines — still past 700 threshold flagged in iter42. Extract PortfolioHeader + StarRating + AlertCTA next iteration.",
+    "/api/portfolio/refresh-mf-ratings correctly invalidates Redis cache key `enriched_portfolio:{uid}` after scraping — subsequent holdings-enriched GET will fetch fresh."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration43_morningstar.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com)",
+  "seed_data_creation": "None — used priyanka live account, no TEST_ data created.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Morningstar wiring confirmed working end-to-end. 14 MFs have real morningstar_rating (HDFC Flexi Cap, Axis Small Cap, Parag Parikh, Nippon Small Cap, ICICI Value, HDFC Balanced Advantage all ★5; Sundaram Value ★2). Frontend uses title attribute to identify source ('Morningstar Rating: N/5' vs 'Nivesh Rating (composite-derived): N/5') + suffix '· Nivesh Rating' visible only on fallback rows. refresh-mf-ratings endpoint takes ~25s for 36 holdings (19 unique). StarRating component picks morningstar_rating when non-null. Star pill distribution on DOM: stars-1=1, stars-2=7, stars-3=18, stars-4=16, stars-5=11.",
+  "rca of the issue": "N/A — all acceptance criteria met."
+}
