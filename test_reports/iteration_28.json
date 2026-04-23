@@ -28,7 +28,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "100%", "frontend": "100%"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings, active plan with 6 actions)",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com, 64 holdings, active plan with 6 actions)",
   "seed_data_creation": "None — used existing priyankamantri user.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

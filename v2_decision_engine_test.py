@@ -11,7 +11,7 @@ from datetime import datetime
 
 class V2DecisionEngineAPITester:
     def __init__(self):
-        self.base_url = "https://fund-overlap-3.preview.emergentagent.com"
+        self.base_url = "https://portfolio-pro-985.preview.emergentagent.com"
         self.session_token = "370eff71-fda1-46d8-b506-b81b894d634f"
         self.user_id = "user_f087c6332922"
         self.email = "priyankamantri@gmail.com"

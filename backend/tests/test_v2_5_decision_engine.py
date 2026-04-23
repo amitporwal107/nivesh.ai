@@ -22,7 +22,7 @@ import requests
 # Enable local imports of /app/backend/*
 sys.path.insert(0, "/app/backend")
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://portfolio-plan-board.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://portfolio-pro-985.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 SESSION_TOKEN = "370eff71-fda1-46d8-b506-b81b894d634f"
 USER_ID = "user_f087c6332922"

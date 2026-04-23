@@ -38,7 +38,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "91% (10/11 pytest)", "frontend": "100% (6/6 UI checks)"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 64 holdings, MODERATE risk)",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com, 64 holdings, MODERATE risk)",
   "seed_data_creation": "None. One test holding created+deleted during POST buy_date=null test. Restored all mutated buy_dates where possible (best-effort) for holdings we edited — but the end-to-end test did change hold_b14f2a9d9108 buy_date from 2026-04-18 to 2024-03-15 (not restored). Not critical — can be re-edited via UI.",
   "retest_needed": true,
   "main_agent_can_self_test": true,

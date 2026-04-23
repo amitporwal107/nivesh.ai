@@ -32,7 +32,7 @@
     "/app/backend/tests/test_portfolio_health_api.py (NEW — 9 API integration tests)"
   ],
   "success_rate": {"backend": "100% on portfolio health (46 unit + 9 API = 55/55 pass)", "frontend": "N/A (backend-only run)"},
-  "test_credentials": "priyankamantri@gmail.com / session_token=370eff71-fda1-46d8-b506-b81b894d634f — verified working. aporwal107@gmail.com session works but has holdings (contradicts credentials doc).",
+  "test_credentials": "priyankamantri@gmail.com / session_token=portfolio-pro-985 — verified working. aporwal107@gmail.com session works but has holdings (contradicts credentials doc).",
   "seed_data_creation": "test_portfolio_health_api.py creates 2 transient synthetic users (TEST_zero_* and TEST_eq_*) with pymongo sync driver and cleans up in teardown. No persistent seed data left behind.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

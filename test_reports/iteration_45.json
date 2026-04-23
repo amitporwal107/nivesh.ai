@@ -29,7 +29,7 @@
     "/app/backend/tests/test_iteration44_compliance.py (+TestConsentWithdrawFix class: 3 new tests for fix-validation)"
   ],
   "success_rate": {"backend": "100% (13/13)", "frontend": "100% (all tested selectors + flows)"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com)",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com)",
   "seed_data_creation": "TestConsentWithdrawFix inserts real grant/withdraw rows for priyanka on partner_sharing & marketing_comms (immutable ledger, expected to accumulate). test_legacy_row_coalesce_fallback temporarily purges priyanka's scraping_fetch rows, inserts 2 legacy-shaped rows, runs the assertion, then purges seed rows AND restores the saved originals — net-zero state on this purpose.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

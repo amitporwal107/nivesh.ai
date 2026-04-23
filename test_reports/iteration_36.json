@@ -34,7 +34,7 @@
     "/app/backend/tests/test_goals_api.py (NEW — 15 API integration tests)"
   ],
   "success_rate": {"backend": "100% (39/39: 24 engine + 15 API)", "frontend": "100% (snapshot wizard, goal wizard, goal card, detail modal, scenario simulator, what-if panel all verified)"},
-  "test_credentials": "priyankamantri@gmail.com session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin, risk=moderate, 1 existing goal 'Retire at 55').",
+  "test_credentials": "priyankamantri@gmail.com session_token=portfolio-pro-985 (admin, risk=moderate, 1 existing goal 'Retire at 55').",
   "seed_data_creation": "Tests create TEST_GoalAPI_* goals and soft-delete (abandon) them in module teardown. Existing 'Retire at 55' goal not modified. Snapshot PUT is value-preserving idempotent round-trip.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

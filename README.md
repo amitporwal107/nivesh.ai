@@ -583,7 +583,7 @@ V3_SWEEP_CONCURRENCY  → default 8
 
 Frontend:
 ```
-REACT_APP_BACKEND_URL=https://<preview-slug>.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://portfolio-pro-985.preview.emergentagent.com
 ```
 
 ---

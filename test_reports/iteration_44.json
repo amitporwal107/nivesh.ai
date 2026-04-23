@@ -33,7 +33,7 @@
     "/app/backend/tests/test_iteration44_compliance.py"
   ],
   "success_rate": {"backend": "90%", "frontend": "unknown (preview unavailable)"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com)",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com)",
   "seed_data_creation": "Test writes real consent_records / audit_log rows and sets/clears PAN=ABCDE1234F on priyanka. PAN is deleted by test_set_get_delete_pan teardown (implicit). Consent rows accumulate (immutable by design) — expected per DPDP ledger semantics.",
   "retest_needed": true,
   "main_agent_can_self_test": true,

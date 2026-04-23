@@ -26,7 +26,7 @@
     "/app/backend/tests/test_iteration48_insights_v3_morningstar_rank.py (new — 12 tests: 6 aggregate assertions + 3 fund-level structural + 3 named-fund spot-checks)"
   ],
   "success_rate": {"backend": "100% (12/12)", "frontend": "Source review 100%; live Playwright drill-down into nested collapsible not achieved within 3 attempts (loop-prevention)."},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com) — valid & confirmed via header render",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com) — valid & confirmed via header render",
   "seed_data_creation": "None.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

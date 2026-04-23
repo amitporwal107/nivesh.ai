@@ -35,7 +35,7 @@
     "/app/backend/tests/test_v3_portfolio_has_api.py (NEW)"
   ],
   "success_rate": {"backend": "100% (53/53 tests)", "frontend": "100% (all acceptance criteria met)"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f for priyankamantri@gmail.com (from /app/memory/test_credentials.md)",
+  "test_credentials": "session_token=portfolio-pro-985 for priyankamantri@gmail.com (from /app/memory/test_credentials.md)",
   "seed_data_creation": "None — used existing portfolio for priyankamantri (26 V3-bearing funds: 20 equity + 5 hybrid + 1 missing).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

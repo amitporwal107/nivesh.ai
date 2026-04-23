@@ -34,7 +34,7 @@
     "/app/backend/tests/test_post_deploy_migration.py (NEW)"
   ],
   "success_rate": {"backend": "100% (7/7 pytest + 2/2 CLI)", "frontend": "100% (card + buttons + integration verified)"},
-  "test_credentials": "priyankamantri@gmail.com session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin)",
+  "test_credentials": "priyankamantri@gmail.com session_token=portfolio-pro-985 (admin)",
   "seed_data_creation": "None — tests are read-only / idempotent against existing preview data.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

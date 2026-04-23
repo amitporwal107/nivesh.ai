@@ -35,7 +35,7 @@
     "/app/backend/tests/test_admin_rules_prompts_api.py (new, 21 test cases)"
   ],
   "success_rate": {"backend": "95% (20/21)", "frontend": "100%"},
-  "test_credentials": "priyankamantri@gmail.com / session_token=370eff71-fda1-46d8-b506-b81b894d634f (admin)",
+  "test_credentials": "priyankamantri@gmail.com / session_token=portfolio-pro-985 (admin)",
   "seed_data_creation": "Test custom rules created and deleted per-test (prefix TEST_). Overridden prompt (financial_advisor_system) is reset in finally block. No residual state.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

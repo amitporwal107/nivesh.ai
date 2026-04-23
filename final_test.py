@@ -5,7 +5,7 @@ import json
 
 async def final_integration_test():
     """Test that the integration works correctly even without PostgreSQL data."""
-    BASE_URL = "https://fund-overlap-3.preview.emergentagent.com/api"
+    BASE_URL = "https://portfolio-pro-985.preview.emergentagent.com/api"
     TEST_USER_SESSION = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"
     
     headers = {

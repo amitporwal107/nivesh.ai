@@ -38,7 +38,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_v2_5_decision_engine.py"],
   "success_rate": {"backend": "100% (23/23 pytest)", "frontend": "not tested (review_request: backend only)"},
-  "test_credentials": "session_token=370eff71-fda1-46d8-b506-b81b894d634f (priyankamantri@gmail.com, 26 MFs, MODERATE risk)",
+  "test_credentials": "session_token=portfolio-pro-985 (priyankamantri@gmail.com, 26 MFs, MODERATE risk)",
   "seed_data_creation": "None. Test suite creates preview plans and saves one (no destructive writes on holdings).",
   "retest_needed": false,
   "main_agent_can_self_test": true,
