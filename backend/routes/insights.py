@@ -744,12 +744,12 @@ async def v3_portfolio_summary(request: Request):
                 switch_score = None
 
         # ── Switch Decision Engine v2 — full PRD logic ────────────────
-        # Only runs for Regular plans with available cost data. Computes
-        # tax/exit/saving/alpha and picks one of STRONG_SWITCH_DIRECT,
-        # PARTIAL_SWITCH, HOLD_DEFER, HOLD_TAX, HOLD_EXIT_LOAD, HOLD.
+        # Runs for BOTH Regular and Direct plans. Regular gets Direct-plan
+        # priority (Case A). All plans get peer-group fund-to-fund analysis
+        # (Case B) hydrated from pg_mirror mutual fund metadata + ratios.
         switch_decision_dict = None
         current_val = float(m.get("value") or 0)
-        if plan_type == "regular" and current_val > 0:
+        if current_val > 0:
             h_name = _normalize_fund_name(name)
             holding_age_days = age_by_name.get(h_name)
             # Find the holding's invested amount + exit_load_pct
@@ -760,17 +760,41 @@ async def v3_portfolio_summary(request: Request):
                     invested = float(h.get("quantity", 0) or 0) * float(h.get("buy_price", 0) or 0)
                     exit_load_pct = float(h.get("exit_load_pct") or 0)
                     break
-            # Derive expense_diff from cost_leak (₹/yr ÷ current_value)
-            expense_reg = expense_dir = None
-            if cost_leak and current_val > 0:
-                diff_frac = float(cost_leak) / current_val   # decimal fraction
-                # We don't know the absolute expense ratios; we only need
-                # the diff for cost_saving math. Use a convention: put
-                # the diff on expense_regular, leave direct at 0.
-                expense_reg = diff_frac
-                expense_dir = 0.0
             try:
                 from services import switch_decision_engine as sde
+                from services import candidate_fund_hydrator as cfh
+
+                # Real current-fund context (expense, returns, drawdown,
+                # consistency, sub_category) from pg_mirror, not a hack.
+                ctx = await cfh.fetch_current_fund_context(
+                    db, instrument_id=iid, scheme_name=name
+                ) or {}
+                sub_cat = ctx.get("sub_category")
+                expense_reg = ctx.get("expense_current")
+                expense_dir = ctx.get("expense_direct")
+
+                # Fallback: derive expense diff from cost_leak when pg_mirror
+                # lookup misses (CAS-only holdings without instrument_id).
+                if expense_reg is None and cost_leak and current_val > 0:
+                    expense_reg = float(cost_leak) / current_val
+                    expense_dir = 0.0
+
+                direct_available = bool(
+                    (expense_reg is not None and expense_dir is not None
+                     and expense_reg > expense_dir)
+                    or (plan_type == "regular" and cost_leak is not None and cost_leak > 0)
+                )
+
+                # Peer universe — only when we have a sub-category. Exclude
+                # the current holding's instrument_id from its own peers.
+                peers = []
+                if sub_cat:
+                    peers = await cfh.fetch_candidates_for_category(
+                        db, sub_cat,
+                        prefer_direct=True,
+                        exclude_instrument_id=iid,
+                    )
+
                 inp = sde.DecisionInputs(
                     quality=v3.get("quality_score") if v3 else None,
                     health=v3.get("health_score") if v3 else None,
@@ -783,14 +807,19 @@ async def v3_portfolio_summary(request: Request):
                     exit_load_pct=exit_load_pct,
                     expense_current=expense_reg,
                     expense_direct=expense_dir,
-                    direct_plan_available=(cost_leak is not None and cost_leak > 0),
+                    current_return_5y=ctx.get("current_return_5y"),
+                    current_drawdown=ctx.get("current_drawdown"),
+                    current_consistency=ctx.get("current_consistency"),
+                    current_category=sub_cat,
                     current_fund_name=name,
-                    # Candidate universe empty for MVP — fund-to-fund Case B
-                    # returns HOLD_NO_OPTION unless Direct is available.
-                    # To be populated by a future fund recommender.
-                    candidate_funds=[],
+                    direct_plan_available=direct_available,
+                    candidate_funds=peers,
                 )
-                switch_decision_dict = sde.result_to_dict(sde.decide(inp, plan_type="regular"))
+                switch_decision_dict = sde.result_to_dict(
+                    sde.decide(inp, plan_type=plan_type or "regular")
+                )
+                # Surface peer-universe size for observability (UI debug only).
+                switch_decision_dict["_n_candidates"] = len(peers)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"switch_decision_engine failed for {name}: {e}")
                 switch_decision_dict = None
