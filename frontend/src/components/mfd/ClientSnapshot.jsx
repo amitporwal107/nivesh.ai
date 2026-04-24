@@ -10,7 +10,7 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, Target, AlertTriangle, CheckCircle2,
   Calendar, Sparkles, ArrowRight, Activity, Scale, RefreshCw, Plus, Eye,
   ShieldCheck, Receipt, Share2, Mail, MessageSquare, StickyNote, Save, Copy,
-  Wallet, IndianRupee,
+  Wallet, IndianRupee, ChevronDown, ChevronRight,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -69,6 +69,82 @@ const ACTION_VIEW = {
 
 // Product cap — keep in sync with MAX_GOALS in GoalsView.jsx and backend.
 const MAX_GOALS_CLIENT = 4;
+
+
+// ── Reason-code → human label + badge mapping ────────────────────────
+const REASON_CODE_META = {
+  AMC_CONCENTRATION_EXIT:     { label: "Cuts AMC concentration",    tone: "rose" },
+  CATEGORY_CONCENTRATION_EXIT:{ label: "Cuts category concentration", tone: "rose" },
+  OVERLAP_CONSOLIDATION:      { label: "Removes overlap",            tone: "amber" },
+  REGULAR_DIRECT_DUPLICATE:   { label: "Switches to direct plan",    tone: "amber" },
+  COST_LEAK_SWITCH_TO_DIRECT: { label: "Lowers expense ratio",       tone: "amber" },
+  UNDERPERFORMER_REPLACEMENT: { label: "Replaces laggard",           tone: "rose" },
+  recent_investment_lockout:  { label: "New investment — monitor",   tone: "slate" },
+};
+
+// V3 action.type → broad priority bucket. `priority` (1-5, lower = higher
+// importance) is also factored in so a low-priority EXIT slips into
+// Optimise rather than Critical.
+const bucketFor = (action) => {
+  const verb = (action.type || "").toUpperCase();
+  const prio = action.priority ?? 5;
+  if (verb === "EXIT"      && prio <= 2) return "critical";
+  if (verb === "REDUCE"    && prio <= 2) return "critical";
+  if (verb === "EXIT"      || verb === "REDUCE") return "optimise";
+  if (verb === "SWITCH"    || verb === "REBALANCE") return "optimise";
+  if (verb === "INCREASE_SIP" || verb === "ADD_MORE" || verb === "ADD") return "enhance";
+  // Fallback — anything we don't recognise goes in optimise.
+  return "optimise";
+};
+
+const BUCKET_META = {
+  critical: { label: "Critical fixes",  sub: "Do these first",              tone: "rose",    Icon: AlertTriangle },
+  optimise: { label: "Optimisations",   sub: "Portfolio-level improvements", tone: "amber",   Icon: Scale },
+  enhance:  { label: "Enhancements",    sub: "Nice-to-have additions",       tone: "indigo",  Icon: Plus },
+};
+
+// Build impact badges per action. Each badge is a tiny pill ("+₹6L freed",
+// "Cuts AMC concentration", "ST gain ₹31k") rendered next to the action
+// title. Badges come from three sources:
+//   - reason_codes: mapped via REASON_CODE_META
+//   - amount: "Frees ₹X" (buy-side: "Deploys ₹X")
+//   - tax_impact: only shown if material (> ₹1k)
+const impactBadgesFor = (action) => {
+  const out = [];
+  const verb = (action.type || "").toUpperCase();
+
+  // Amount badge
+  if (action.amount) {
+    const sign = (verb === "EXIT" || verb === "REDUCE") ? "Frees" : "Deploys";
+    out.push({ tone: "slate", label: `${sign} ${fmtRs(action.amount)}` });
+  }
+
+  // Reason-code driven badges (primary signal).
+  for (const code of (action.reason_codes || [])) {
+    const meta = REASON_CODE_META[code];
+    if (meta) out.push({ tone: meta.tone, label: meta.label });
+  }
+
+  // Confidence — only when non-default.
+  if (action.confidence && action.confidence !== "MEDIUM") {
+    out.push({
+      tone: action.confidence === "HIGH" ? "emerald" : "slate",
+      label: `${action.confidence} confidence`,
+    });
+  }
+
+  // Tax impact — only if material.
+  const ti = action.tax_impact;
+  if (ti && ti.capital_gain && Math.abs(ti.capital_gain) >= 1000) {
+    const isShort = !ti.is_long_term;
+    out.push({
+      tone: isShort ? "rose" : "slate",
+      label: `${isShort ? "ST" : "LT"} gain ${fmtRs(Math.abs(ti.capital_gain))}`,
+    });
+  }
+
+  return out;
+};
 
 // ── Score ring (SVG) ──────────────────────────────────────────────────
 const ScoreRing = ({ value, tone, testId }) => {
@@ -224,6 +300,8 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [activePlan, setActivePlan] = useState(null);
   const [actions, setActions] = useState([]);
   const [updatingActionId, setUpdatingActionId] = useState(null);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [collapsedBuckets, setCollapsedBuckets] = useState({ enhance: true }); // enhance starts collapsed
   const [trend, setTrend] = useState(null);
   const [notes, setNotes] = useState({
     note: "", sip_amount_rs: "", sip_frequency: "monthly",
@@ -257,7 +335,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       const list = (plan?.actions || [])
         .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
         .sort((a, b) => (a.priority || 99) - (b.priority || 99))
-        .slice(0, 5);
+        .slice(0, 10);
       setActions(list);
       setTrend(tRes?.data || null);
       if (nRes?.data) {
@@ -320,7 +398,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           (updated.actions || [])
             .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
             .sort((a, b) => (a.priority || 99) - (b.priority || 99))
-            .slice(0, 5),
+            .slice(0, 10),
         );
       } else {
         // Fallback — optimistic removal if the response shape is minimal.
@@ -348,6 +426,51 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       toast.error(e.response?.data?.detail || "Could not generate plan", { id: "gen-plan" });
     }
   };
+
+  // Bulk "Mark all done" within a priority bucket.
+  const bulkMarkBucket = async (bucketKey, bucketActions) => {
+    if (!activePlan || !bucketActions.length) return;
+    if (!window.confirm(
+      `Mark all ${bucketActions.length} "${BUCKET_META[bucketKey].label}" actions as done?`,
+    )) return;
+    setBulkUpdating(true);
+    try {
+      const planId = activePlan.plan_id || activePlan.id;
+      let latest = null;
+      for (const a of bucketActions) {
+        const res = await axios.patch(
+          `${API}/plans/${planId}/actions/${a.action_id || a.id}`,
+          { status: "COMPLETED" },
+          { withCredentials: true },
+        );
+        latest = res.data?.plan || res.data || latest;
+      }
+      if (latest?.actions) {
+        setActivePlan(latest);
+        setActions(
+          (latest.actions || [])
+            .filter((x) => !["COMPLETED", "SKIPPED"].includes((x.status || "").toUpperCase()))
+            .sort((x, y) => (x.priority || 99) - (y.priority || 99))
+            .slice(0, 10),
+        );
+      }
+      toast.success(`${bucketActions.length} action${bucketActions.length === 1 ? "" : "s"} marked done`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Bulk update failed");
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const toggleBucket = (key) =>
+    setCollapsedBuckets((c) => ({ ...c, [key]: !c[key] }));
+
+  // Group actions by bucket for the card render.
+  const groupedActions = useMemo(() => {
+    const g = { critical: [], optimise: [], enhance: [] };
+    for (const a of actions) g[bucketFor(a)].push(a);
+    return g;
+  }, [actions]);
 
   const patchNote = (field, value) => {
     setNotes((n) => ({ ...n, [field]: value }));
@@ -602,7 +725,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                   </div>
                   <div className="text-[11px] text-slate-500 truncate">
                     {activePlan
-                      ? `V3 plan · ${(activePlan.actions || []).length} total`
+                      ? `V3 plan · ${actions.length} open`
                       : "No active plan yet"}
                   </div>
                 </div>
@@ -630,63 +753,123 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 All recommended actions completed. Nice work.
               </div>
             ) : (
-              <ul className="space-y-2.5">
-                {actions.map((a, i) => {
-                  const verb = (a.type || a.action_type || a.action || "").toLowerCase();
-                  const view = ACTION_VIEW[verb] || { label: a.type || "Review", Icon: Eye, tone: "slate" };
-                  const t = TONE[view.tone] || TONE.slate;
-                  const actionId = a.action_id || a.id;
-                  const isUpdating = actionId === updatingActionId;
-                  const assetName = a.asset_name || a.fund_name || a.scheme_name;
-                  const reason = a.reason_text || a.reason || a.rationale || a.description;
+              <div className="space-y-3" data-testid="snapshot-action-groups">
+                {["critical", "optimise", "enhance"].map((bucketKey) => {
+                  const bucketActions = groupedActions[bucketKey];
+                  if (!bucketActions.length) return null;
+                  const meta = BUCKET_META[bucketKey];
+                  const t = TONE[meta.tone];
+                  const collapsed = collapsedBuckets[bucketKey];
                   return (
-                    <li
-                      key={actionId || i}
-                      data-testid={`snapshot-action-${i}`}
-                      className={`rounded-lg border ${t.border} ${t.bgSoft} overflow-hidden`}
+                    <div
+                      key={bucketKey}
+                      data-testid={`bucket-${bucketKey}`}
+                      className={`rounded-lg border ${t.border}`}
                     >
-                      <div className="flex items-start gap-2.5 p-3">
-                        <view.Icon className={`w-4 h-4 ${t.text} flex-shrink-0 mt-0.5`} />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 line-clamp-2">
-                            {view.label}{assetName ? ` · ${assetName}` : ""}
-                          </div>
-                          {reason && (
-                            <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
-                              {reason}
-                            </div>
-                          )}
-                          {a.amount != null && (
-                            <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mt-0.5 tabular-nums">
-                              {fmtRs(a.amount)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-end gap-1 px-3 pb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
-                        <Button
-                          size="sm" variant="ghost"
-                          disabled={isUpdating}
-                          onClick={() => updateActionStatus(a, "COMPLETED")}
-                          className="h-6 text-[10px] text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
-                          data-testid={`snapshot-action-done-${i}`}
+                      {/* Bucket header */}
+                      <div className={`flex items-center justify-between px-3 py-2 ${t.bgSoft}`}>
+                        <button
+                          type="button"
+                          onClick={() => toggleBucket(bucketKey)}
+                          data-testid={`bucket-toggle-${bucketKey}`}
+                          className="flex items-center gap-2 flex-1 text-left"
                         >
-                          <CheckCircle2 className="w-3 h-3 mr-1" /> Mark done
-                        </Button>
-                        <Button
-                          size="sm" variant="ghost"
-                          disabled={isUpdating}
-                          onClick={() => updateActionStatus(a, "SKIPPED")}
-                          className="h-6 text-[10px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                          data-testid={`snapshot-action-skip-${i}`}
-                        >
-                          Dismiss
-                        </Button>
+                          {collapsed
+                            ? <ChevronRight className={`w-3.5 h-3.5 ${t.text}`} />
+                            : <ChevronDown  className={`w-3.5 h-3.5 ${t.text}`} />}
+                          <meta.Icon className={`w-3.5 h-3.5 ${t.text}`} />
+                          <span className={`text-xs font-bold ${t.text}`}>{meta.label}</span>
+                          <span className={`text-[10px] ${t.text} opacity-80`}>· {bucketActions.length}</span>
+                          <span className="text-[10px] text-slate-500 ml-2 truncate">{meta.sub}</span>
+                        </button>
+                        {bucketActions.length > 1 && (
+                          <Button
+                            size="sm" variant="ghost"
+                            onClick={() => bulkMarkBucket(bucketKey, bucketActions)}
+                            disabled={bulkUpdating}
+                            data-testid={`bucket-bulk-done-${bucketKey}`}
+                            className={`h-6 text-[10px] ${t.text} hover:opacity-80`}
+                          >
+                            Mark all done
+                          </Button>
+                        )}
                       </div>
-                    </li>
+
+                      {/* Actions in this bucket */}
+                      {!collapsed && (
+                        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {bucketActions.map((a, i) => {
+                            const verb = (a.type || a.action_type || a.action || "").toLowerCase();
+                            const view = ACTION_VIEW[verb] || { label: a.type || "Review", Icon: Eye, tone: meta.tone };
+                            const actionId = a.action_id || a.id;
+                            const isUpdating = actionId === updatingActionId || bulkUpdating;
+                            const assetName = a.asset_name || a.fund_name || a.scheme_name;
+                            const reason = a.reason_text || a.reason || a.rationale || a.description;
+                            const badges = impactBadgesFor(a);
+                            return (
+                              <li
+                                key={actionId || i}
+                                data-testid={`snapshot-action-${bucketKey}-${i}`}
+                                className="p-3"
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <view.Icon className={`w-4 h-4 ${t.text} flex-shrink-0 mt-0.5`} />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 line-clamp-2">
+                                      {view.label}{assetName ? ` · ${assetName}` : ""}
+                                    </div>
+                                    {/* Impact badges — tone-mixed, concise */}
+                                    {badges.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1.5" data-testid={`action-badges-${bucketKey}-${i}`}>
+                                        {badges.map((b, bi) => {
+                                          const bt = TONE[b.tone] || TONE.slate;
+                                          return (
+                                            <span
+                                              key={bi}
+                                              className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold border ${bt.bgSoft} ${bt.border} ${bt.text}`}
+                                            >
+                                              {b.label}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {reason && (
+                                      <div className="text-[11px] text-slate-500 mt-1 line-clamp-2">
+                                        {reason}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-end gap-1 mt-2">
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    disabled={isUpdating}
+                                    onClick={() => updateActionStatus(a, "COMPLETED")}
+                                    className="h-6 text-[10px] text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
+                                    data-testid={`snapshot-action-done-${bucketKey}-${i}`}
+                                  >
+                                    <CheckCircle2 className="w-3 h-3 mr-1" /> Mark done
+                                  </Button>
+                                  <Button
+                                    size="sm" variant="ghost"
+                                    disabled={isUpdating}
+                                    onClick={() => updateActionStatus(a, "SKIPPED")}
+                                    className="h-6 text-[10px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                                    data-testid={`snapshot-action-skip-${bucketKey}-${i}`}
+                                  >
+                                    Dismiss
+                                  </Button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   );
                 })}
-              </ul>
+              </div>
             )}
 
             <Button
