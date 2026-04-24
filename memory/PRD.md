@@ -2,6 +2,61 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Phase 1: Portfolio Time-Machine (Snapshot Engine)
+User's new north-star: transform Nivesh from a static portfolio analyzer into a "Continuous Portfolio Intelligence System" with 4 pillars (Gmail sync / Orchestrator / Snapshot Engine / Historical Client 360). Phase 1 ships the Snapshot Engine + Time-Travel API + header strip UI.
+
+**Engine** (`services/portfolio_snapshot.py` — NEW):
+- `build_snapshot_payload(user_id, trigger)` — computes total_value, total_invested, return_pct, allocation{equity/mf/gold/other}, holdings_summary (per-asset-class count+value), top 10 holdings by value with weight_pct, Portfolio Health scores (overall + 4 components + grade). Pure read — no persistence.
+- `persist_snapshot()` — upserts into Mongo `portfolio_snapshots` keyed by `(user_id, snapshot_date)`. Same-day trigger overwrites (later wins). Empty portfolios skipped.
+- `list_snapshot_dates() / get_snapshot() / get_latest_snapshot() / get_snapshot_on_or_before()` — query helpers. The `on_or_before` fallback enables timeline scrubbing on non-snapshot days (weekends/holidays).
+- `build_trend_series(days)` — lightweight sparkline feed (date + value + health + allocation).
+- `diff_snapshots(new, old)` — UI-ready diff: value_delta, value_pct_change, health_delta, allocation_delta_pp per bucket, holdings_added / holdings_removed (via top-10 names).
+- `run_eod_snapshot_job()` — cron entry point; scans all user_ids with holdings and snapshots each.
+
+**API** (`routes/portfolio_snapshots.py` — NEW, 5 endpoints under `/api/portfolio/`):
+- `GET /snapshots` — available dates (newest first).
+- `GET /snapshot?date=YYYY-MM-DD` — exact or closest earlier; defaults to latest.
+- `GET /trend?days=30` — ascending time series for sparklines.
+- `GET /compare?from=...&to=...` — full diff (defaults: latest vs 2nd-latest).
+- `POST /snapshot` — manual advisor trigger (same-day overwrite).
+
+**Cron** (`services/mf_scheduler.py`):
+- `_portfolio_snapshot_job` @ 23:30 IST daily — runs after AMFI NAV (22:00), analytics sweep (22:30), V3 rescore (22:45), and Nifty 100 refresh (23:00), so snapshots reflect freshest EOD numbers.
+
+**Post-CAS trigger** (`helpers/parsing.py`):
+- `_enrich_after_upload()` now fires `persist_snapshot(trigger='cas_upload')` after Groww + MF enrichment completes. Same-day CAS uploads overwrite the morning's EOD snapshot.
+
+**Frontend** (`components/mfd/TimeMachineStrip.jsx` — NEW):
+- Mounted at top of `ClientSnapshot.jsx`, directly below the client header strip and above the "Today's brief" banner.
+- 3-column grid: Value Δ card (green/red) · Health Δ card · 30-day SVG sparkline (no chart lib).
+- Prev / Next arrows to rewind through dates; date picker dropdown lists all snapshots; "Snap now" button triggers manual snapshot.
+- Empty state with a "Take first snapshot" CTA when no history exists.
+- Allocation shift pills at the bottom (equity +0.4pp, mf -0.4pp, etc.) when any bucket moved ≥ 0.1pp.
+- Full data-testid coverage: `time-machine-strip`, `-prev`, `-next`, `-date-picker`, `-date-list`, `-date-{d}`, `-snap-now`, `delta-value`, `delta-health`, `sparkline-value`, `alloc-delta-{bucket}`, `time-machine-empty`, `take-snapshot-btn`.
+
+**Testing**: iteration_50 — 16/16 pytest PASS (100%). Live-verified: priyanka's active profile (AMIT PORWAL, 110 holdings) snapshots to ₹1.02 Cr total_value, grade B, health=69.3, allocation equity 17.19% / mf 82.81%. `/compare` diff correctly returns value_delta=+₹2.05L, value_pct_change=+2.04%, health_delta=+0.8, allocation shift mf +0.21pp / equity -0.21pp across a seeded 4-day history. 5 test snapshot dates seeded for UI dev (2026-04-18 → 2026-04-24). Unauth 401 on all 5 endpoints.
+
+### Apr 2026 — Nivesh Copilot (Embedded CIO Assistant)
+Per user PRD: NOT a standalone chatbot — an embedded CIO layer in Client 360 that explains portfolios, justifies actions, drafts client messages, optimises taxes.
+
+**Backend** (`routes/copilot.py` — NEW, ~370 LOC):
+- 5 endpoints under `/api/copilot/`:
+  - `GET /models` — lists 3 model options (Gemini 2.5 Flash default · Claude Sonnet 4.5 · GPT-5.2) with tier/price hints.
+  - `POST /brief` — **bundled one-shot CIO brief** returning `{summary, risk, tax, performance, priority}` in ONE LLM call (token-efficient vs 4 separate `/explain` calls). Cached 24h in Mongo `copilot_cache`.
+  - `POST /explain?focus=risk|tax|performance|general` — targeted narrative.
+  - `POST /client-message?channel=whatsapp|email&tone=warm_professional|formal|concise` — client-ready message draft.
+  - `POST /ask` — free-form Q&A with portfolio context + short conversation history.
+- Uses `emergentintegrations` library with `EMERGENT_LLM_KEY`. Prompts are tight (≤ 60 words), grounded in concrete numbers from `_build_context()` (client name, AUM, return%, health, components, top issues, open actions, tax, goals).
+- 24h SHA1 cache on `(model, prompt_name, context, user_prompt)`; `/client-message` uses 6h (tone variations more likely); `/ask` not cached.
+
+**Frontend** (`components/mfd/NiveshCopilot.jsx` — NEW):
+- Slide-in right drawer (440px) with gradient indigo-violet header and 3 tabs: **Brief** (auto-loads 5 coloured section cards) · **Ask** (4 suggested prompts + free-form textarea with conversation history) · **Draft** (channel + tone + optional advisor note → generate → copy + WhatsApp share).
+- Model switcher in header; switching model invalidates the cached brief.
+- Mounted in `ClientSnapshot.jsx` header via "Copilot" button (`data-testid='snapshot-open-copilot'`, gradient indigo-violet).
+- Backdrop click + X button both close.
+
+**Testing**: iteration_49 — 9/9 backend pytest PASS. Frontend Playwright verified open→brief→ask→draft flows. Real brief output for priyanka grounded in actual numbers ("Priyanka, your portfolio stands at ₹1.01 Cr with a 20.6% return, graded 'B'…"). Hydration warning on `<option>` child fixed via template-literal string expression.
+
 ### Apr 2026 — MFD/Advisor path on Welcome Onboarding screen
 User feedback: welcome onboarding only offered "Existing Investor" and "New to Investing" — there was no way for an MFD/distributor to declare themselves, so the workspace stayed INDIVIDUAL and the full-screen `MfdOnboardingWizard` never triggered.
 
