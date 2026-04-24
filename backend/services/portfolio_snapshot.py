@@ -211,7 +211,7 @@ async def build_trend_series(
     cursor = db.portfolio_snapshots.find(
         {"user_id": user_id, "snapshot_date": {"$gte": cutoff}},
         {"_id": 0, "snapshot_date": 1, "total_value": 1, "health_score": 1,
-         "allocation": 1, "return_pct": 1},
+         "allocation": 1, "return_pct": 1, "scores": 1},
     ).sort("snapshot_date", 1)
     return [doc async for doc in cursor]
 
