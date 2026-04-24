@@ -2,7 +2,28 @@
 
 ## Implemented Features (Latest)
 
-### Apr 2026 — Client CAS Invite (Shareable Gmail-Connect Link for MFDs)
+### Apr 2026 — Client CAS Invite v2 (24h + Consent + Regenerate)
+User PRD refinement of the Client CAS Invite flow per the "secure, advisor-led, WhatsApp-native investment onboarding" spec.
+
+**Changes**:
+- **24h expiry** (was 7d) + explicit `is_active` flag. Expired/revoked invites return **410** with a structured payload `{reason, advisor_name, advisor_mobile, advisor_firm}` so the public page can render a "Notify my advisor" CTA.
+- **Regenerate endpoint** `POST /api/mfd/profiles/{profile_id}/cas-invite/regenerate` — deactivates ANY prior active invite on the profile atomically (`update_many is_active:true → is_active:false + status:REVOKED`) and issues a fresh token with a 24h TTL. Wrapper around `create_invite` with `regenerate=true`.
+- **MFD pre-fill** — `POST /cas-invite` accepts optional `client_name / client_mobile / client_email`. These surface in the public page (prefills form + auto-fills WhatsApp/email share links).
+- **Client details step** — new `POST /api/public/cas-invite/{token}/client-details` (NO auth). Accepts `name, mobile, email, pan` + 3 consents (`consent_cas_access` required, `consent_gmail_access`, `consent_advisor_access` required). Validates PAN format (`ABCDE1234F`), mobile (≥10 digits), email (has @ + domain). Persists to invite doc; status → `DETAILS_CAPTURED`.
+- **PAN auto-used as CAS password** — `POST /{token}/import` defaults to the stored PAN; client no longer has to type it twice.
+- **Advisor mobile** — now fetched from advisor's user record when creating an invite (falls back to `mobile` or `phone` field) and returned on the public details/error payloads so the "Notify Advisor on WhatsApp" button can deep-link via `wa.me/{mobile}?text=...`.
+
+**Frontend updates**:
+- `CasConnect.jsx` restructured to 5-step wizard: **Welcome → Your details → Sign in → Pick → Done**. Consents rendered as 3 checkboxes with required indicators. Password input removed from Pick step (lock message replaces it). Error card now renders a WhatsApp CTA for expired/revoked states, with mailto fallback.
+- `ClientCasInviteModal.jsx` rewritten: client contact pre-fill inputs (name / mobile / email) on the empty-state form, `Regenerate` button on the active-invite card (alongside WhatsApp / Email / Copy), `Expires in Xh Ym` countdown (was a date), new `DETAILS_CAPTURED` status badge (sky tone).
+
+**DB additions on `client_cas_invites`**: `is_active (bool)`, `advisor_mobile`, `client_name_prefill`, `client_mobile_prefill`, `client_email_prefill`, `client_name`, `client_mobile`, `client_email`, `client_pan`, `consents {cas_access, gmail_access, advisor_access : {approved, at}}`, `details_submitted_at`, `gmail_account_email`.
+
+**Testing**: iteration_52 — 28/28 backend pytest PASS (15 original + 13 new for 24h expiry, regenerate deactivation, client-details validation + consent rules, import-password fallback). Frontend Playwright verified full 5-step flow + bad-PAN toast + expired invite Notify-Advisor CTA. 100% both.
+
+---
+
+### Apr 2026 — Client CAS Invite v1 (Shareable Gmail-Connect Link for MFDs)
 User requirement: the MFD cannot touch a client's Gmail directly (the client is on a different machine), so we need a per-profile shareable link. The MFD sends it to the client (WhatsApp/email), the client opens it on their own device, signs in with their own Gmail, picks which CAMS/KFintech CAS emails to share, and we parse + attach holdings to the advisor's client profile.
 
 **Backend** (`routes/client_cas_invite.py` — NEW, ~330 LOC):
