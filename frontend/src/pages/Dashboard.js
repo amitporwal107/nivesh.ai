@@ -80,35 +80,17 @@ const Dashboard = () => {
 
   useEffect(() => { if (user) fetchWorkspace(); }, [user, fetchWorkspace]);
 
-  // Auto-correct the active tab when the MFD context changes so we never
-  // leave the user on a hidden tab. Rules:
-  //   - ADVISORY + no active client → "advisor"
-  //   - ADVISORY + active client, tab is "advisor" or "overview" → "snapshot"
-  // Retail users are left alone. We only flip if the current tab is invalid
-  // for the new context (otherwise we'd fight manual navigation).
+  // When an advisor lands on the dashboard with a legacy "#overview" URL
+  // (retail-only tab that's hidden in advisor mode), bounce them to the
+  // Advisor tab once we know their workspace is ADVISORY. We do this
+  // *inline* rather than in a reactive effect to avoid update loops with
+  // React Router's location sync.
   useEffect(() => {
-    if (!workspace) return;
-    const isAdvisor = workspace.type === "ADVISORY";
-    if (!isAdvisor) return;
-
-    const RETAIL_ONLY = new Set(["overview"]);   // hidden in advisor mode
-    const ADVISOR_ONLY = new Set(["advisor"]);   // hidden in client mode
-
-    if (!activeProfile) {
-      // Advisor workspace, no client selected.
-      if (activeTab !== "advisor" && !["snapshot"].includes(activeTab)) {
-        // snapshot requires a client — if somehow landed here, bounce out.
-      }
-      if (activeTab === "snapshot" || RETAIL_ONLY.has(activeTab)) {
-        setActiveTab("advisor");
-      }
-    } else {
-      // Advisor workspace, impersonating a client.
-      if (ADVISOR_ONLY.has(activeTab) || RETAIL_ONLY.has(activeTab)) {
-        setActiveTab("snapshot");
-      }
+    if (workspace?.type === "ADVISORY" && !activeProfile && activeTab === "overview") {
+      setActiveTab("advisor");
     }
-  }, [workspace, activeProfile, activeTab, setActiveTab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.type]);   // intentionally only triggers on first workspace load
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -146,19 +128,23 @@ const Dashboard = () => {
   // every existing view (portfolio / insights / goals) re-renders against
   // the client's data. A one-line toast tells the user what happened.
   const enterProfile = useCallback(async (profile, opts) => {
+    // Set the destination tab FIRST so the right component mounts before
+    // we kick off the retail data fetch. Otherwise MfdDashboard stays
+    // mounted during the fetch and can get in the way of the snapshot.
+    const destination = opts?.tab || "snapshot";
+    setActiveTab(destination);
     setActiveProfile(profile);
     await fetchData();
-    setActiveTab(opts?.tab || "snapshot");
   }, [setActiveTab, fetchData]);
 
   // Exit impersonation — returns the MFD to the client list.
   const exitProfile = useCallback(async () => {
     try {
       await axios.post(`${API}/mfd/profiles/deactivate`, {}, { withCredentials: true });
+      setActiveTab("advisor");
       setActiveProfile(null);
       await fetchData();
       toast.success("Back to advisor view");
-      setActiveTab("advisor");
     } catch {
       toast.error("Could not exit client view");
     }
