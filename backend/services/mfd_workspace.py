@@ -59,18 +59,34 @@ async def get_or_create_workspace(
 
 
 async def set_workspace_mode(owner_user_id: str, mode: str) -> Dict[str, Any]:
-    """Switch between INDIVIDUAL and ADVISORY. Idempotent."""
+    """Switch between INDIVIDUAL and ADVISORY. Idempotent.
+
+    When switching INTO ADVISORY for the first time, we also initialise
+    `mfd_onboarding_completed=False` so the Dashboard knows to mount
+    `MfdOnboardingWizard` (which strict-equals-checks the flag)."""
     if mode not in (WORKSPACE_INDIVIDUAL, WORKSPACE_ADVISORY):
         raise ValueError(f"Invalid workspace mode: {mode}")
     ws = await get_or_create_workspace(owner_user_id)
     if ws["type"] == mode:
+        # Even on idempotent calls, ensure the wizard flag is set when
+        # switching INTO ADVISORY (in case a legacy workspace exists).
+        if mode == WORKSPACE_ADVISORY and "mfd_onboarding_completed" not in ws:
+            await db.workspaces.update_one(
+                {"workspace_id": ws["workspace_id"]},
+                {"$set": {"mfd_onboarding_completed": False}},
+            )
+            ws["mfd_onboarding_completed"] = False
         return ws
+    update: Dict[str, Any] = {"type": mode, "mode_selected_at": _now_iso()}
+    if mode == WORKSPACE_ADVISORY and "mfd_onboarding_completed" not in ws:
+        update["mfd_onboarding_completed"] = False
     await db.workspaces.update_one(
-        {"workspace_id": ws["workspace_id"]},
-        {"$set": {"type": mode, "mode_selected_at": _now_iso()}},
+        {"workspace_id": ws["workspace_id"]}, {"$set": update},
     )
     ws["type"] = mode
-    ws["mode_selected_at"] = _now_iso()
+    ws["mode_selected_at"] = update["mode_selected_at"]
+    if "mfd_onboarding_completed" in update:
+        ws["mfd_onboarding_completed"] = False
     return ws
 
 
