@@ -743,6 +743,52 @@ async def v3_portfolio_summary(request: Request):
             except Exception:  # noqa: BLE001
                 switch_score = None
 
+        # ── Switch Decision Engine v2 — full PRD logic ────────────────
+        # Only runs for Regular plans with available cost data. Computes
+        # tax/exit/saving/alpha and picks one of STRONG_SWITCH_DIRECT,
+        # PARTIAL_SWITCH, HOLD_DEFER, HOLD_TAX, HOLD_EXIT_LOAD, HOLD.
+        switch_decision_dict = None
+        current_val = float(m.get("value") or 0)
+        if plan_type == "regular" and current_val > 0:
+            h_name = _normalize_fund_name(name)
+            holding_age_days = age_by_name.get(h_name)
+            # Find the holding's invested amount + exit_load_pct
+            invested = 0.0
+            exit_load_pct = 0.0
+            for h in mf_holdings:
+                if _normalize_fund_name(h.get("name", "")) == h_name:
+                    invested = float(h.get("quantity", 0) or 0) * float(h.get("buy_price", 0) or 0)
+                    exit_load_pct = float(h.get("exit_load_pct") or 0)
+                    break
+            # Derive expense_diff from cost_leak (₹/yr ÷ current_value)
+            expense_reg = expense_dir = None
+            if cost_leak and current_val > 0:
+                diff_frac = float(cost_leak) / current_val   # decimal fraction
+                # We don't know the absolute expense ratios; we only need
+                # the diff for cost_saving math. Use a convention: put
+                # the diff on expense_regular, leave direct at 0.
+                expense_reg = diff_frac
+                expense_dir = 0.0
+            try:
+                from services import switch_decision_engine as sde
+                inp = sde.DecisionInputs(
+                    quality=v3.get("quality_score") if v3 else None,
+                    health=v3.get("health_score") if v3 else None,
+                    exit_s=v3.get("exit_score") if v3 else None,
+                    add=v3.get("add_score") if v3 else None,
+                    invested_amount=invested,
+                    current_value=current_val,
+                    holding_period_days=holding_age_days,
+                    is_equity=True,   # MF path assumes equity-oriented; refined later
+                    exit_load_pct=exit_load_pct,
+                    expense_regular=expense_reg,
+                    expense_direct=expense_dir,
+                )
+                switch_decision_dict = sde.result_to_dict(sde.decide(inp, plan_type="regular"))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"switch_decision_engine failed for {name}: {e}")
+                switch_decision_dict = None
+
         entry = {
             "scheme_name": name,
             "instrument_id": iid,
@@ -768,7 +814,7 @@ async def v3_portfolio_summary(request: Request):
                 entry["category_rank_total"] = cr["total"]
                 entry["category_rank_sub"] = cr["sub_category"]
         if v3:
-            bundle = {**v3, "switch_score": switch_score}
+            bundle = {**v3, "switch_score": switch_score, "switch_decision": switch_decision_dict}
             entry["scores"] = {
                 "quality": v3.get("quality_score"),
                 "health": v3.get("health_score"),
@@ -789,6 +835,10 @@ async def v3_portfolio_summary(request: Request):
                 bundle, plan_type=plan_type, cost_leak_rs=cost_leak,
             )
             entry["recommendation"] = recommendation
+            # Expose full decision engine details so the UI can render
+            # the reason + economics breakdown under the SWITCH chip.
+            if switch_decision_dict:
+                entry["switch_decision"] = switch_decision_dict
             entry["explanation"] = v3_explainer.build_explanation(
                 bundle,
                 scheme_name=name,
@@ -798,7 +848,7 @@ async def v3_portfolio_summary(request: Request):
             action = recommendation["action"]
             if action == "EXIT":
                 n_exit_recs += 1
-            elif action == "SWITCH":
+            elif action in ("SWITCH", "STRONG_SWITCH_DIRECT", "STRONG_SWITCH_FUND", "PARTIAL_SWITCH"):
                 n_switch_recs += 1
             elif action == "REVIEW":
                 n_review_recs += 1

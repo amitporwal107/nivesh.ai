@@ -241,8 +241,26 @@ def derive_recommendation(
                        f"exiting this fund."),
         }
 
-    # 2) SWITCH — Regular→Direct with strong saving
-    if plan_type == "regular" and switch is not None and switch >= 2.0:
+    # 2) SWITCH — delegate to the full Switch Decision Engine (v2).
+    # The engine considers tax, exit load, expense diff, holding age,
+    # Add/Quality/Health signals, and returns one of:
+    #   STRONG_SWITCH_DIRECT | PARTIAL_SWITCH | HOLD_DEFER |
+    #   HOLD_TAX | HOLD_EXIT_LOAD
+    # We only invoke it when there's enough data to make the call.
+    sd = bundle.get("switch_decision")
+    if sd and sd.get("action") not in (None, "HOLD"):
+        return {
+            "action": sd["action"],
+            "label": sd.get("label", sd["action"].replace("_", " ").title()),
+            "reason": sd.get("reason", ""),
+            "decision_case": sd.get("decision_case"),
+            "economics": sd.get("economics"),
+            "switch_score": sd.get("switch_score"),
+        }
+
+    # Legacy fallback — only used when the v2 engine didn't run (e.g.
+    # missing expense data). Keeps behaviour for stocks / pre-v2 calls.
+    if sd is None and plan_type == "regular" and switch is not None and switch >= 2.0:
         saving = f"~₹{cost_leak_rs:,.0f}/yr" if cost_leak_rs else "meaningful"
         return {
             "action": "SWITCH",

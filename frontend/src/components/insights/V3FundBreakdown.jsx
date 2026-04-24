@@ -78,6 +78,36 @@ const REC_META = {
     rowBorder: 'border-l-indigo-500',
     icon: ArrowLeftRight,
   },
+  STRONG_SWITCH_DIRECT: {
+    tone: 'bg-indigo-600 text-white hover:bg-indigo-600',
+    rowBorder: 'border-l-indigo-500',
+    icon: ArrowLeftRight,
+  },
+  STRONG_SWITCH_FUND: {
+    tone: 'bg-indigo-700 text-white hover:bg-indigo-700',
+    rowBorder: 'border-l-indigo-500',
+    icon: ArrowLeftRight,
+  },
+  PARTIAL_SWITCH: {
+    tone: 'bg-sky-600 text-white hover:bg-sky-600',
+    rowBorder: 'border-l-sky-500',
+    icon: ArrowLeftRight,
+  },
+  HOLD_TAX: {
+    tone: 'bg-slate-500 text-white hover:bg-slate-500',
+    rowBorder: 'border-l-amber-400',
+    icon: CheckCircle2,
+  },
+  HOLD_EXIT_LOAD: {
+    tone: 'bg-slate-500 text-white hover:bg-slate-500',
+    rowBorder: 'border-l-rose-400',
+    icon: CheckCircle2,
+  },
+  HOLD_DEFER: {
+    tone: 'bg-slate-500 text-white hover:bg-slate-500',
+    rowBorder: 'border-l-slate-400',
+    icon: CheckCircle2,
+  },
   TRIM: {
     tone: 'bg-orange-500 text-white hover:bg-orange-500',
     rowBorder: 'border-l-orange-500',
