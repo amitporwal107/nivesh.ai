@@ -224,11 +224,29 @@ async def list_goals(request: Request):
 async def create_goal(payload: GoalCreate, request: Request):
     user_id = await _user_id(request)
 
+    # Hard cap: a user can track at most 4 active goals at a time. This
+    # keeps the consolidated dashboard view legible and forces the user
+    # to prioritise before adding another life goal.
+    MAX_GOALS = 4
+
     # Fetch the user's risk profile from snapshot
     pool = await pg_client.get_pool()
     if pool is None:
         raise HTTPException(500, "postgres_unavailable")
     async with pool.acquire() as conn:
+        # Count existing goals for this user.
+        existing = await conn.fetchval(
+            "SELECT COUNT(*) FROM user_goals WHERE user_id = $1",
+            _user_uuid(user_id),
+        )
+        if existing is not None and existing >= MAX_GOALS:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Goal limit reached — you can track up to {MAX_GOALS} "
+                    "goals at a time. Delete or merge one before adding a new one."
+                ),
+            )
         snap = await conn.fetchrow(
             "SELECT risk_profile FROM user_financial_snapshots WHERE user_id = $1",
             _user_uuid(user_id),

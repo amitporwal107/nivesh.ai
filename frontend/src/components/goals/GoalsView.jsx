@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import {
   Target, Plus, TrendingUp, Shield, Sparkles, X,
   CheckCircle2, AlertCircle, RefreshCw, PlayCircle,
-  Home, GraduationCap, Briefcase, Wallet,
+  Home, GraduationCap, Briefcase, Wallet, Trash2,
+  Layers, Calendar, IndianRupee, Flame,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,6 +20,10 @@ import GoalWizard from "./GoalCreateWizard";
 import ScenarioSimulator from "./ScenarioSimulator";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Product constraint: at most 4 active goals at a time. Keeps the
+// consolidated view legible + nudges the user to prioritise.
+const MAX_GOALS = 4;
 
 const GOAL_TYPE_META = {
   retirement: { label: "Retirement", icon: Briefcase, color: "bg-indigo-500" },
@@ -45,7 +50,7 @@ const onTrackTone = (pct) => {
 };
 
 // ── GoalCard ───────────────────────────────────────────────────────────
-const GoalCard = ({ goal, onOpen, onSimulate, simulating }) => {
+const GoalCard = ({ goal, onOpen, onSimulate, onDelete, simulating, deleting }) => {
   const meta = GOAL_TYPE_META[goal.goal_type] || GOAL_TYPE_META.custom;
   const Icon = meta.icon;
   const sim = goal.last_simulation || {};
@@ -54,7 +59,7 @@ const GoalCard = ({ goal, onOpen, onSimulate, simulating }) => {
 
   return (
     <Card
-      className="rounded-2xl border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-shadow cursor-pointer"
+      className="rounded-2xl border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-shadow cursor-pointer relative group"
       data-testid={`goal-card-${goal.goal_id}`}
       onClick={() => onOpen(goal)}
     >
@@ -71,9 +76,20 @@ const GoalCard = ({ goal, onOpen, onSimulate, simulating }) => {
               </div>
             </div>
           </div>
-          <Badge className={onTrackTone(goal.on_track_pct)}>
-            {goal.on_track_pct != null ? `${goal.on_track_pct.toFixed(0)}% on track` : "—"}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge className={onTrackTone(goal.on_track_pct)}>
+              {goal.on_track_pct != null ? `${goal.on_track_pct.toFixed(0)}% on track` : "—"}
+            </Badge>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(goal); }}
+              disabled={deleting === goal.goal_id}
+              title="Delete goal"
+              data-testid={`goal-delete-btn-${goal.goal_id}`}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-900/30 text-slate-400 hover:text-rose-600"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-xs">
@@ -120,6 +136,147 @@ const GoalCard = ({ goal, onOpen, onSimulate, simulating }) => {
   );
 };
 
+// ── ConsolidatedOverview ──────────────────────────────────────────────
+// A single card that rolls up every active goal into one portfolio-wide
+// view. It recomputes whenever goals change (create / edit / delete /
+// simulate) — the parent owns the goals[] list and re-renders this.
+const ConsolidatedOverview = ({ goals }) => {
+  const rollup = useMemo(() => {
+    if (!goals.length) return null;
+    const total_target = goals.reduce((s, g) => s + (g.target_amount_rs || 0), 0);
+    const total_sip    = goals.reduce((s, g) => s + (g.monthly_sip_rs || 0), 0);
+    const with_track   = goals.filter((g) => g.on_track_pct != null);
+    // Weighted by target amount so a large goal dominates the portfolio %.
+    const wOnTrack = with_track.length
+      ? with_track.reduce((s, g) => s + (g.on_track_pct * (g.target_amount_rs || 1)), 0) /
+        Math.max(1, with_track.reduce((s, g) => s + (g.target_amount_rs || 1), 0))
+      : null;
+    const maxHorizon = Math.max(0, ...goals.map((g) => g.horizon_years || 0));
+    const minHorizon = Math.min(Infinity, ...goals.map((g) => g.horizon_years || Infinity));
+    const atRisk     = goals.filter((g) => g.on_track_pct != null && g.on_track_pct < 60).length;
+    const onTrack    = goals.filter((g) => g.on_track_pct != null && g.on_track_pct >= 85).length;
+    return {
+      total_target, total_sip, wOnTrack,
+      maxHorizon, minHorizon: minHorizon === Infinity ? 0 : minHorizon,
+      atRisk, onTrack,
+    };
+  }, [goals]);
+
+  if (!rollup) return null;
+  const tone = onTrackTone(rollup.wOnTrack);
+
+  return (
+    <Card
+      className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50/80 via-white to-white dark:from-emerald-900/20 dark:via-slate-900 dark:to-slate-900"
+      data-testid="goals-consolidated-view"
+    >
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+              <Layers className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                All goals at a glance
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {goals.length} of {MAX_GOALS} goals tracked · updates live as you add, edit or remove
+              </div>
+            </div>
+          </div>
+          <Badge className={tone} data-testid="consolidated-on-track">
+            {rollup.wOnTrack != null ? `${rollup.wOnTrack.toFixed(0)}% overall on track` : "Simulate goals to see rollup"}
+          </Badge>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div data-testid="consolidated-target">
+            <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-slate-500 mb-1">
+              <IndianRupee className="w-3 h-3" /> Combined target
+            </div>
+            <div className="text-xl font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+              {fmtRs(rollup.total_target)}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">in today's rupees</div>
+          </div>
+          <div data-testid="consolidated-sip">
+            <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-slate-500 mb-1">
+              <TrendingUp className="w-3 h-3" /> Total SIP
+            </div>
+            <div className="text-xl font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+              {fmtRs(rollup.total_sip)}/mo
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">across {goals.length} goals</div>
+          </div>
+          <div data-testid="consolidated-horizon">
+            <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-slate-500 mb-1">
+              <Calendar className="w-3 h-3" /> Horizon span
+            </div>
+            <div className="text-xl font-bold text-slate-800 dark:text-slate-100">
+              {rollup.minHorizon === rollup.maxHorizon
+                ? `${rollup.maxHorizon}y`
+                : `${rollup.minHorizon}–${rollup.maxHorizon}y`}
+            </div>
+            <div className="text-[10px] text-slate-500 mt-0.5">shortest to longest</div>
+          </div>
+          <div data-testid="consolidated-health">
+            <div className="flex items-center gap-1 text-[9px] uppercase tracking-wider text-slate-500 mb-1">
+              <Flame className="w-3 h-3" /> Goal health
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-bold text-emerald-600 tabular-nums">{rollup.onTrack}</span>
+              <span className="text-[10px] text-slate-500">on track</span>
+              {rollup.atRisk > 0 && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span className="text-xl font-bold text-rose-600 tabular-nums">{rollup.atRisk}</span>
+                  <span className="text-[10px] text-slate-500">at risk</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Per-goal mini-bars */}
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          {goals.map((g) => {
+            const meta = GOAL_TYPE_META[g.goal_type] || GOAL_TYPE_META.custom;
+            const Icon = meta.icon;
+            const pct = g.on_track_pct != null ? Math.min(100, Math.max(0, g.on_track_pct)) : 0;
+            return (
+              <div
+                key={g.goal_id}
+                data-testid={`consolidated-goal-row-${g.goal_id}`}
+                className="flex items-center gap-3"
+              >
+                <div className={`w-6 h-6 ${meta.color} rounded-md flex items-center justify-center flex-shrink-0`}>
+                  <Icon className="w-3 h-3 text-white" />
+                </div>
+                <div className="text-xs font-medium text-slate-700 dark:text-slate-300 flex-shrink-0 w-28 truncate">
+                  {g.goal_name}
+                </div>
+                <div className="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${g.on_track_pct == null ? "bg-slate-300" : g.on_track_pct >= 85 ? "bg-emerald-500" : g.on_track_pct >= 60 ? "bg-amber-500" : "bg-rose-500"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <div className="text-[11px] text-slate-500 tabular-nums w-14 text-right">
+                  {g.on_track_pct != null ? `${g.on_track_pct.toFixed(0)}%` : "—"}
+                </div>
+                <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 tabular-nums w-20 text-right">
+                  {fmtRs(g.monthly_sip_rs)}/mo
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 // ── GoalDetailModal ────────────────────────────────────────────────────
 const GoalDetailModal = ({ goal, open, onOpenChange, onRefresh }) => {
   if (!goal) return null;
@@ -146,6 +303,7 @@ export default function GoalsView() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState(null);
   const [simulating, setSimulating] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,7 +346,24 @@ export default function GoalsView() {
     }
   };
 
+  const deleteGoal = async (goal) => {
+    if (!window.confirm(
+      `Delete "${goal.goal_name}"? This can't be undone — your SIP targets and simulations for this goal will be removed.`,
+    )) return;
+    setDeleting(goal.goal_id);
+    try {
+      await axios.delete(`${API}/goals/${goal.goal_id}`, { withCredentials: true });
+      toast.success(`${goal.goal_name} removed`);
+      await load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Delete failed");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   const needsSnapshot = !snapshot;
+  const atGoalLimit = goals.length >= MAX_GOALS;
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-7xl mx-auto space-y-6" data-testid="goals-view">
@@ -213,11 +388,13 @@ export default function GoalsView() {
           <Button
             size="sm"
             onClick={() => setWizardOpen(true)}
-            disabled={needsSnapshot}
+            disabled={needsSnapshot || atGoalLimit}
+            title={atGoalLimit ? `You can track up to ${MAX_GOALS} goals at a time. Delete one to add another.` : undefined}
             data-testid="goals-create-btn"
             className="bg-emerald-600 hover:bg-emerald-700"
           >
-            <Plus className="w-4 h-4 mr-2" /> New goal
+            <Plus className="w-4 h-4 mr-2" />
+            {atGoalLimit ? `${goals.length} / ${MAX_GOALS} — limit reached` : "New goal"}
           </Button>
         </div>
       </div>
@@ -270,6 +447,9 @@ export default function GoalsView() {
         </Card>
       )}
 
+      {/* Consolidated at-a-glance view (updates live as goals change) */}
+      {!loading && goals.length > 0 && <ConsolidatedOverview goals={goals} />}
+
       {/* Goals grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="goals-grid">
         {loading && <div className="col-span-full text-center text-sm text-slate-500 py-12">Loading…</div>}
@@ -291,7 +471,9 @@ export default function GoalsView() {
             goal={g}
             onOpen={openGoal}
             onSimulate={simulate}
+            onDelete={deleteGoal}
             simulating={simulating}
+            deleting={deleting}
           />
         ))}
       </div>
