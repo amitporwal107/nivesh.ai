@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -56,6 +56,7 @@ const TONE = {
   slate:   { text: "text-slate-500",   bar: "bg-slate-400",   ring: "text-slate-400",   bgSoft: "bg-slate-100 dark:bg-slate-800",       border: "border-slate-200 dark:border-slate-700" },
 };
 
+// V3 plan actions use uppercase `type` values — lowercase for lookup.
 const ACTION_VIEW = {
   exit:         { label: "Exit",         Icon: RefreshCw, tone: "rose"    },
   switch:       { label: "Switch",       Icon: RefreshCw, tone: "rose"    },
@@ -65,6 +66,9 @@ const ACTION_VIEW = {
   add_more:     { label: "Add more",     Icon: Plus,      tone: "indigo"  },
   add:          { label: "Add more",     Icon: Plus,      tone: "indigo"  },
 };
+
+// Product cap — keep in sync with MAX_GOALS in GoalsView.jsx and backend.
+const MAX_GOALS_CLIENT = 4;
 
 // ── Score ring (SVG) ──────────────────────────────────────────────────
 const ScoreRing = ({ value, tone, testId }) => {
@@ -116,6 +120,103 @@ const ComponentBar = ({ label, value, tone, testId }) => {
   );
 };
 
+// ── GoalsRollup — consolidated view for Client 360 ───────────────────
+// Same shape as the retail /goals page but compact: stats strip + per-goal
+// progress rows. Re-renders on every goals[] change (add / edit / delete).
+const GoalsRollup = ({ goals }) => {
+  const rollup = useMemo(() => {
+    const total_target = goals.reduce((s, g) => s + (g.target_amount_rs || 0), 0);
+    const total_sip    = goals.reduce((s, g) => s + (g.monthly_sip_rs || 0), 0);
+    const with_track   = goals.filter((g) => g.on_track_pct != null);
+    const wOnTrack = with_track.length
+      ? with_track.reduce((s, g) => s + (g.on_track_pct * (g.target_amount_rs || 1)), 0) /
+        Math.max(1, with_track.reduce((s, g) => s + (g.target_amount_rs || 1), 0))
+      : null;
+    const minH = Math.min(Infinity, ...goals.map((g) => g.horizon_years || Infinity));
+    const maxH = Math.max(0, ...goals.map((g) => g.horizon_years || 0));
+    return {
+      total_target, total_sip, wOnTrack,
+      minH: minH === Infinity ? 0 : minH, maxH,
+      onTrack: goals.filter((g) => g.on_track_pct != null && g.on_track_pct >= 85).length,
+      atRisk:  goals.filter((g) => g.on_track_pct != null && g.on_track_pct < 60).length,
+    };
+  }, [goals]);
+
+  const tone = healthTone(rollup.wOnTrack);
+
+  return (
+    <div data-testid="client360-goals-rollup">
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div data-testid="rollup-target">
+          <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">Combined target</div>
+          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums mt-0.5">
+            {fmtRs(rollup.total_target)}
+          </div>
+        </div>
+        <div data-testid="rollup-sip">
+          <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">Total SIP</div>
+          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums mt-0.5">
+            {fmtRs(rollup.total_sip)}/mo
+          </div>
+        </div>
+        <div data-testid="rollup-horizon">
+          <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">Horizon</div>
+          <div className="text-lg font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+            {rollup.minH === rollup.maxH ? `${rollup.maxH}y` : `${rollup.minH}–${rollup.maxH}y`}
+          </div>
+        </div>
+        <div data-testid="rollup-on-track">
+          <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">Overall</div>
+          <div className={`text-lg font-bold ${TONE[tone].text} tabular-nums mt-0.5`}>
+            {rollup.wOnTrack != null ? `${Math.round(rollup.wOnTrack)}%` : "Simulate"}
+          </div>
+          <div className="text-[9px] text-slate-500">
+            {rollup.onTrack} on track · {rollup.atRisk} at risk
+          </div>
+        </div>
+      </div>
+
+      {/* Per-goal rows */}
+      <div className="mt-3 space-y-2">
+        {goals.map((g) => {
+          const pct = g.on_track_pct != null ? Math.min(100, Math.max(0, g.on_track_pct)) : 0;
+          const gTone = g.on_track_pct == null ? "slate" : g.on_track_pct >= 85 ? "emerald" : g.on_track_pct >= 60 ? "amber" : "rose";
+          return (
+            <div
+              key={g.goal_id}
+              data-testid={`rollup-goal-row-${g.goal_id}`}
+              className="flex items-center gap-3"
+            >
+              <div className="text-xs font-semibold text-slate-800 dark:text-slate-100 w-32 truncate flex-shrink-0">
+                {g.goal_name || "Untitled"}
+              </div>
+              <div className="hidden sm:block text-[10px] text-slate-500 w-16 flex-shrink-0 capitalize">
+                {g.goal_type}
+              </div>
+              <div className="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${TONE[gTone].bar}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <div className={`text-xs font-bold tabular-nums w-12 text-right ${TONE[gTone].text}`}>
+                {g.on_track_pct != null ? `${Math.round(g.on_track_pct)}%` : "—"}
+              </div>
+              <div className="hidden md:block text-[11px] text-slate-500 tabular-nums w-16 text-right flex-shrink-0">
+                {g.horizon_years}y
+              </div>
+              <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 tabular-nums w-20 text-right flex-shrink-0">
+                {fmtRs(g.monthly_sip_rs)}/mo
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh }) {
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
@@ -150,10 +251,12 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       setGoals(gRes?.data?.goals || gRes?.data || []);
       const plan = pRes?.data?.plan || null;
       setActivePlan(plan);
-      // Top 5 pending/in-progress actions from the V3 engine's active plan.
+      // Top 5 open actions from the V3 engine's active plan.
+      // V3 action shape: { action_id, type: "EXIT"|"SWITCH"|..., asset_name,
+      // reason_text, priority (1=highest), status: "PENDING"|"COMPLETED"|"SKIPPED" }
       const list = (plan?.actions || [])
         .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
-        .sort((a, b) => (b.impact_score || b.priority || 0) - (a.impact_score || a.priority || 0))
+        .sort((a, b) => (a.priority || 99) - (b.priority || 99))
         .slice(0, 5);
       setActions(list);
       setTrend(tRes?.data || null);
@@ -202,22 +305,26 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   // ── Plan / action management ────────────────────────────────────
   const updateActionStatus = async (action, newStatus) => {
     if (!activePlan) return;
-    setUpdatingActionId(action.action_id || action.id);
+    const actionId = action.action_id || action.id;
+    setUpdatingActionId(actionId);
     try {
       const res = await axios.patch(
-        `${API}/plans/${activePlan.plan_id || activePlan.id}/actions/${action.action_id || action.id}`,
+        `${API}/plans/${activePlan.plan_id || activePlan.id}/actions/${actionId}`,
         { status: newStatus },
         { withCredentials: true },
       );
-      const updated = res.data?.plan;
-      if (updated) {
+      const updated = res.data?.plan || res.data;
+      if (updated?.actions) {
         setActivePlan(updated);
         setActions(
           (updated.actions || [])
             .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
-            .sort((a, b) => (b.impact_score || b.priority || 0) - (a.impact_score || a.priority || 0))
+            .sort((a, b) => (a.priority || 99) - (b.priority || 99))
             .slice(0, 5),
         );
+      } else {
+        // Fallback — optimistic removal if the response shape is minimal.
+        setActions((prev) => prev.filter((a) => (a.action_id || a.id) !== actionId));
       }
       toast.success(
         newStatus === "COMPLETED" ? "Marked as done" :
@@ -439,8 +546,12 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
                   Portfolio Health
                 </div>
-                <div className={`text-lg font-semibold mt-1 ${hsT.text}`}>
-                  {health?.grade ? `Grade ${health.grade}` : "Scoring…"}
+                <div className={`text-lg font-semibold mt-1 ${hsT.text}`} data-testid="snapshot-grade-label">
+                  {hs != null && health?.grade
+                    ? `Grade ${health.grade} · ${Math.round(hs)}/100`
+                    : hs != null
+                      ? `${Math.round(hs)}/100`
+                      : "Scoring…"}
                 </div>
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 leading-relaxed" data-testid="snapshot-health-summary">
                   {health?.summary || client.ai_summary || "No summary available yet."}
@@ -454,16 +565,20 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               </div>
             </div>
 
-            {/* Component breakdown */}
+            {/* Component breakdown — component keys come from the backend
+                response (diversification / risk / cost / performance) so we
+                iterate the actual object rather than a hard-coded list. */}
             {health?.components && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-                {["quality", "risk", "diversification", "performance"].map((k) => {
-                  const c = health.components[k];
+                {Object.entries(health.components).map(([k, c]) => {
                   const tone = c ? healthTone(c.score) : "slate";
+                  const label = (c?.name || c?.label || k)
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, (s) => s.toUpperCase());
                   return (
                     <ComponentBar
                       key={k}
-                      label={(c?.label || k).replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase())}
+                      label={label}
                       value={c?.score}
                       tone={tone}
                       testId={`snapshot-component-${k}`}
@@ -517,30 +632,37 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
             ) : (
               <ul className="space-y-2.5">
                 {actions.map((a, i) => {
-                  const verb = (a.action_type || a.type || a.action || "").toLowerCase();
-                  const view = ACTION_VIEW[verb] || { label: a.action_type || a.type || "Review", Icon: Eye, tone: "slate" };
+                  const verb = (a.type || a.action_type || a.action || "").toLowerCase();
+                  const view = ACTION_VIEW[verb] || { label: a.type || "Review", Icon: Eye, tone: "slate" };
                   const t = TONE[view.tone] || TONE.slate;
-                  const isUpdating = (a.action_id || a.id) === updatingActionId;
+                  const actionId = a.action_id || a.id;
+                  const isUpdating = actionId === updatingActionId;
+                  const assetName = a.asset_name || a.fund_name || a.scheme_name;
+                  const reason = a.reason_text || a.reason || a.rationale || a.description;
                   return (
                     <li
-                      key={a.action_id || a.id || i}
+                      key={actionId || i}
                       data-testid={`snapshot-action-${i}`}
                       className={`rounded-lg border ${t.border} ${t.bgSoft} overflow-hidden`}
                     >
                       <div className="flex items-start gap-2.5 p-3">
                         <view.Icon className={`w-4 h-4 ${t.text} flex-shrink-0 mt-0.5`} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
-                            {a.title || `${view.label}${a.fund_name ? ` · ${a.fund_name}` : a.scheme_name ? ` · ${a.scheme_name}` : ""}`}
+                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 line-clamp-2">
+                            {view.label}{assetName ? ` · ${assetName}` : ""}
                           </div>
-                          {(a.reason || a.rationale || a.description) && (
+                          {reason && (
                             <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
-                              {a.reason || a.rationale || a.description}
+                              {reason}
+                            </div>
+                          )}
+                          {a.amount != null && (
+                            <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mt-0.5 tabular-nums">
+                              {fmtRs(a.amount)}
                             </div>
                           )}
                         </div>
                       </div>
-                      {/* Inline edit bar */}
                       <div className="flex items-center justify-end gap-1 px-3 pb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
                         <Button
                           size="sm" variant="ghost"
@@ -577,7 +699,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
             </Button>
           </Card>
 
-          {/* ── Goals grid (full width) ──────────────────────────── */}
+          {/* ── Goals rollup (consolidated view, updates live) ───── */}
           <Card className="lg:col-span-3 p-5" data-testid="snapshot-goals-card">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -585,8 +707,10 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                   <Target className="w-4 h-4 text-emerald-600" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100">Goal progress</div>
-                  <div className="text-[11px] text-slate-500">{goals.length || 0} goal{goals.length === 1 ? "" : "s"} tracked</div>
+                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100">Goal rollup</div>
+                  <div className="text-[11px] text-slate-500">
+                    {goals.length} of {MAX_GOALS_CLIENT} goals tracked
+                  </div>
                 </div>
               </div>
               <Button
@@ -610,45 +734,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {goals.slice(0, 6).map((g) => {
-                  const pct = g.progress_percent ?? g.progress ?? (g.current_value && g.target_value ? (g.current_value / g.target_value) * 100 : 0);
-                  const onTrack = pct >= 90;
-                  const tone = onTrack ? "emerald" : pct >= 60 ? "amber" : "rose";
-                  const t = TONE[tone];
-                  return (
-                    <div
-                      key={g.id || g._id || g.name}
-                      data-testid={`snapshot-goal-${g.id || g.name}`}
-                      className="rounded-xl border border-slate-100 dark:border-slate-800 p-3"
-                    >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
-                          {g.name || g.title || "Untitled"}
-                        </div>
-                        <span className={`text-xs font-bold tabular-nums ${t.text}`}>
-                          {Math.round(pct)}%
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                        <div className={`h-full rounded-full ${t.bar}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1.5">
-                        <span>
-                          <Calendar className="w-3 h-3 inline -mt-0.5 mr-0.5" />
-                          {g.target_year || g.horizon_years ? `${g.target_year || `${g.horizon_years}y`}` : "—"}
-                        </span>
-                        <span>Target {fmtRs(g.target_value)}</span>
-                      </div>
-                      {g.monthly_sip_required && (
-                        <div className="text-[10px] text-indigo-600 font-medium mt-1">
-                          SIP {fmtRs(g.monthly_sip_required)}/mo needed
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <GoalsRollup goals={goals} />
             )}
           </Card>
 
