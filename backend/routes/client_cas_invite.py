@@ -151,16 +151,25 @@ async def create_invite(profile_id: str, payload: InviteCreateRequest, request: 
 
     token = uuid.uuid4().hex
     ttl = payload.ttl_hours or INVITE_TTL_HOURS
-    # Fetch the MFD's own user record (not the impersonated client's)
+    # Advisor identity — prefer the onboarding-captured fields on the
+    # workspace; fall back to the user doc, then fall back to firm_name.
     advisor = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1, "email": 1, "full_name": 1, "mobile": 1, "phone": 1})
     advisor_name = (
-        (advisor or {}).get("full_name")
+        ws.get("advisor_name")
+        or (advisor or {}).get("full_name")
         or (advisor or {}).get("name")
         or ws.get("firm_name")
         or "Your advisor"
     )
-    advisor_email = (advisor or {}).get("email")
-    advisor_mobile = (advisor or {}).get("mobile") or (advisor or {}).get("phone")
+    advisor_email = (
+        ws.get("advisor_email")
+        or (advisor or {}).get("email")
+    )
+    advisor_mobile = (
+        ws.get("advisor_mobile")
+        or (advisor or {}).get("mobile")
+        or (advisor or {}).get("phone")
+    )
     doc = {
         "invite_token": token,
         "workspace_id": prof["workspace_id"],
@@ -175,11 +184,12 @@ async def create_invite(profile_id: str, payload: InviteCreateRequest, request: 
         "expires_at": _expiry_iso(ttl),
         "is_active": True,
         "status": "PENDING",
-        # Pre-filled client contact info (optional). Client can edit on the
-        # public page; these are hints the MFD captured at invite time.
-        "client_name_prefill": payload.client_name,
-        "client_mobile_prefill": payload.client_mobile,
-        "client_email_prefill": payload.client_email,
+        # Pre-filled client contact info. Explicit payload wins; else
+        # fall back to whatever was stored on the profile (captured at
+        # AddClient time).
+        "client_name_prefill":   payload.client_name   or prof.get("name"),
+        "client_mobile_prefill": payload.client_mobile or prof.get("mobile"),
+        "client_email_prefill":  payload.client_email  or prof.get("email"),
         "processed_files": [],
     }
     await db.client_cas_invites.insert_one(doc)

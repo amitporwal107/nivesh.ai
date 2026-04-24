@@ -35,6 +35,15 @@ class WorkspaceModeUpdate(BaseModel):
     firm_name: Optional[str] = Field(None, max_length=120)
     client_count_range: Optional[str] = Field(None, description="<100 | 100-500 | 500+")
     mfd_onboarding_completed: Optional[bool] = None
+    # ── NEW: advisor identity fields captured in Firm step ───────────
+    # These are REQUIRED for the Client CAS Invite flow so we can
+    # populate the 'Notify Advisor on WhatsApp' CTA when a link
+    # expires. Stored on the workspace doc (not the user doc) because
+    # a single MFD could run multiple firms in future.
+    advisor_name: Optional[str] = Field(None, max_length=120)
+    advisor_mobile: Optional[str] = Field(None, max_length=20)
+    advisor_email: Optional[str] = Field(None, max_length=255)
+    arn_or_ria: Optional[str] = Field(None, max_length=50, description="ARN-xxxxx or INA-xxxxx")
 
 
 class ProfileCreate(BaseModel):
@@ -42,6 +51,12 @@ class ProfileCreate(BaseModel):
     aum_rs: Optional[float] = None
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
+    # ── NEW: mandatory-in-UI client contact (so the invite-CAS flow
+    # can auto-fill WhatsApp + email share). Backend keeps them
+    # optional to avoid breaking any callers that pre-create profiles
+    # without contacts (e.g. CAS-first import flow).
+    email: Optional[str] = Field(None, max_length=255)
+    mobile: Optional[str] = Field(None, max_length=20)
 
 
 class ProfileUpdate(BaseModel):
@@ -49,6 +64,8 @@ class ProfileUpdate(BaseModel):
     aum_rs: Optional[float] = None
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
+    email: Optional[str] = Field(None, max_length=255)
+    mobile: Optional[str] = Field(None, max_length=20)
     last_reviewed_at: Optional[str] = None   # ISO string
 
 
@@ -218,6 +235,10 @@ async def update_workspace_mode(payload: WorkspaceModeUpdate, request: Request):
         firm_name=payload.firm_name,
         client_count_range=payload.client_count_range,
         mfd_onboarding_completed=payload.mfd_onboarding_completed,
+        advisor_name=payload.advisor_name,
+        advisor_mobile=payload.advisor_mobile,
+        advisor_email=payload.advisor_email,
+        arn_or_ria=payload.arn_or_ria,
     )
     return ws
 
@@ -260,6 +281,7 @@ async def create_profile(payload: ProfileCreate, request: Request):
         ws["workspace_id"],
         name=payload.name, aum_rs=payload.aum_rs,
         tags=payload.tags, notes=payload.notes,
+        email=payload.email, mobile=payload.mobile,
         owner_user_id=owner_uid,
     )
     return await _profile_with_priority(prof)

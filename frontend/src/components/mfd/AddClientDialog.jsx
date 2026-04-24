@@ -27,6 +27,8 @@ const SUGGESTED_TAGS = ["Retail", "HNI", "Ultra-HNI", "Conservative", "Moderate"
 
 export default function AddClientDialog({ open, onClose, onCreated }) {
   const [name, setName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
   const [aum, setAum] = useState("");
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
@@ -34,7 +36,8 @@ export default function AddClientDialog({ open, onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
-    setName(""); setAum(""); setTags([]); setTagInput(""); setNotes("");
+    setName(""); setMobile(""); setEmail(""); setAum("");
+    setTags([]); setTagInput(""); setNotes("");
   };
 
   const addTag = (t) => {
@@ -47,13 +50,21 @@ export default function AddClientDialog({ open, onClose, onCreated }) {
   const removeTag = (t) => setTags(tags.filter((x) => x !== t));
 
   const submit = async () => {
-    if (!name.trim()) {
-      toast.error("Client name is required"); return;
+    if (!name.trim()) { toast.error("Client name is required"); return; }
+    if (!/^\d{10,}$/.test(mobile.replace(/\D/g, ""))) {
+      toast.error("Mobile is required (≥10 digits) — we use it to send the CAS invite link");
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      toast.error("Email is required — we'll send a backup link there");
+      return;
     }
     setSaving(true);
     try {
       const payload = {
         name: name.trim(),
+        mobile: mobile.trim(),
+        email: email.trim(),
         aum_rs: aum ? Number(aum) : null,
         tags: tags.length ? tags : null,
         notes: notes.trim() || null,
@@ -95,6 +106,36 @@ export default function AddClientDialog({ open, onClose, onCreated }) {
               className="mt-1"
               autoFocus
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="mfd-client-mobile" className="text-xs">Mobile (WhatsApp) *</Label>
+              <Input
+                id="mfd-client-mobile"
+                data-testid="add-client-mobile"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                placeholder="98xxxxxxxx"
+                inputMode="tel"
+                className="mt-1 font-mono tabular-nums"
+              />
+            </div>
+            <div>
+              <Label htmlFor="mfd-client-email" className="text-xs">Email *</Label>
+              <Input
+                id="mfd-client-email"
+                data-testid="add-client-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="rahul@example.com"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <div className="text-[10px] text-slate-500 -mt-2">
+            Used for the secure CAS invite — WhatsApp first, email as backup.
           </div>
 
           <div>

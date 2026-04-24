@@ -79,9 +79,15 @@ async def update_workspace_meta(
     firm_name: Optional[str] = None,
     client_count_range: Optional[str] = None,
     mfd_onboarding_completed: Optional[bool] = None,
+    advisor_name: Optional[str] = None,
+    advisor_mobile: Optional[str] = None,
+    advisor_email: Optional[str] = None,
+    arn_or_ria: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Patch MFD-specific workspace fields captured during the onboarding
-    wizard. All fields optional — unspecified keys are untouched."""
+    wizard. All fields optional — unspecified keys are untouched.
+    Advisor contact fields are required for the Client CAS invite flow
+    (so the 'Notify Advisor on WhatsApp' CTA can deep-link)."""
     ws = await get_or_create_workspace(owner_user_id)
     updates: Dict[str, Any] = {}
     if firm_name is not None:
@@ -92,6 +98,15 @@ async def update_workspace_meta(
         updates["mfd_onboarding_completed"] = bool(mfd_onboarding_completed)
         if mfd_onboarding_completed:
             updates["mfd_onboarding_completed_at"] = _now_iso()
+    if advisor_name is not None:
+        updates["advisor_name"] = advisor_name.strip() or None
+    if advisor_mobile is not None:
+        digits = "".join(ch for ch in advisor_mobile if ch.isdigit())
+        updates["advisor_mobile"] = digits or None
+    if advisor_email is not None:
+        updates["advisor_email"] = advisor_email.strip().lower() or None
+    if arn_or_ria is not None:
+        updates["arn_or_ria"] = arn_or_ria.strip().upper() or None
     if not updates:
         return ws
     await db.workspaces.update_one(
@@ -126,18 +141,26 @@ async def create_client_profile(
     workspace_id: str, *, name: str, aum_rs: Optional[float] = None,
     tags: Optional[List[str]] = None, notes: Optional[str] = None,
     owner_user_id: Optional[str] = None,
+    email: Optional[str] = None, mobile: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Client profile gets its own **shadow user_id** so the existing
     engine (portfolio/insights/goals/V3) runs against it unchanged.
 
     We materialize a minimal user row so any code that joins on
     `users.user_id` (session lookups, audit, etc.) keeps working.
+
+    `email` + `mobile` are stored both on the shadow user (so the
+    invite flow can read them) and on the profile (so the MFD list
+    surfaces them).
     """
     shadow_user_id = str(uuid.uuid4())
+    clean_email = (email or "").strip().lower() or None
+    clean_mobile = "".join(ch for ch in (mobile or "") if ch.isdigit()) or None
     shadow_user = {
         "user_id": shadow_user_id,
         "name": name,
-        "email": None,                  # clients don't log in in MVP
+        "email": clean_email,
+        "mobile": clean_mobile,
         "is_shadow": True,              # flag so we never expose shadow users in auth flows
         "shadow_of_workspace": workspace_id,
         "shadow_owner_user_id": owner_user_id,
@@ -154,6 +177,8 @@ async def create_client_profile(
         "aum_rs": aum_rs,
         "tags": tags or [],
         "notes": notes,
+        "email": clean_email,
+        "mobile": clean_mobile,
         "last_reviewed_at": None,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
@@ -179,20 +204,39 @@ async def get_profile(profile_id: str) -> Optional[Dict[str, Any]]:
 async def update_profile(
     profile_id: str, *, name: Optional[str] = None, aum_rs: Optional[float] = None,
     tags: Optional[List[str]] = None, notes: Optional[str] = None,
+    email: Optional[str] = None, mobile: Optional[str] = None,
     last_reviewed_at: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     updates: Dict[str, Any] = {"updated_at": _now_iso()}
+    shadow_updates: Dict[str, Any] = {}
     if name is not None:
         updates["name"] = name
+        shadow_updates["name"] = name
     if aum_rs is not None:
         updates["aum_rs"] = aum_rs
     if tags is not None:
         updates["tags"] = tags
     if notes is not None:
         updates["notes"] = notes
+    if email is not None:
+        clean_email = email.strip().lower() or None
+        updates["email"] = clean_email
+        shadow_updates["email"] = clean_email
+    if mobile is not None:
+        clean_mobile = "".join(ch for ch in mobile if ch.isdigit()) or None
+        updates["mobile"] = clean_mobile
+        shadow_updates["mobile"] = clean_mobile
     if last_reviewed_at is not None:
         updates["last_reviewed_at"] = last_reviewed_at
     await db.profiles.update_one({"profile_id": profile_id}, {"$set": updates})
+    # Mirror contact updates to the shadow user doc so downstream code
+    # (CAS invite flow, audit, etc.) sees consistent values.
+    if shadow_updates:
+        prof = await get_profile(profile_id)
+        if prof and prof.get("shadow_user_id"):
+            await db.users.update_one(
+                {"user_id": prof["shadow_user_id"]}, {"$set": shadow_updates},
+            )
     return await get_profile(profile_id)
 
 

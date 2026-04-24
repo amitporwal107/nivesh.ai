@@ -50,12 +50,15 @@ const SUGGESTED_TAGS = ["Retail", "HNI", "Ultra-HNI", "Conservative", "Moderate"
 
 export default function MfdOnboardingWizard({ onComplete }) {
   const [step, setStep] = useState("firm");
-  const [firm, setFirm] = useState({ firm_name: "", client_count_range: null });
+  const [firm, setFirm] = useState({
+    firm_name: "", client_count_range: null,
+    advisor_name: "", advisor_mobile: "", advisor_email: "", arn_or_ria: "",
+  });
   const [savingFirm, setSavingFirm] = useState(false);
 
   // Step 2: client identity
   const [client, setClient] = useState({
-    name: "", aum_rs: "", tags: [], tag_input: "",
+    name: "", aum_rs: "", tags: [], tag_input: "", email: "", mobile: "",
   });
   const [createdProfile, setCreatedProfile] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -76,12 +79,28 @@ export default function MfdOnboardingWizard({ onComplete }) {
 
   // ── STEP 1 · Firm setup ------------------------------------------------
   const saveFirm = async (skip = false) => {
+    if (!skip) {
+      // Mandatory fields (for the Client CAS invite flow downstream)
+      if (!firm.advisor_name.trim()) { toast.error("Your name is required"); return; }
+      if (!/^\d{10,}$/.test(firm.advisor_mobile.replace(/\D/g, ""))) {
+        toast.error("Enter a valid mobile number (≥10 digits)"); return;
+      }
+      if (!/^\S+@\S+\.\S+$/.test(firm.advisor_email.trim())) {
+        toast.error("Enter a valid email address"); return;
+      }
+      if (!firm.firm_name.trim()) { toast.error("Firm name is required"); return; }
+      if (!firm.client_count_range) { toast.error("Pick your book size"); return; }
+    }
     setSavingFirm(true);
     try {
       await axios.patch(`${API}/mfd/workspace`, {
         mode: "ADVISORY",
-        firm_name: skip ? null : (firm.firm_name || null),
+        firm_name:          skip ? null : (firm.firm_name || null),
         client_count_range: skip ? null : firm.client_count_range,
+        advisor_name:       skip ? null : (firm.advisor_name.trim() || null),
+        advisor_mobile:     skip ? null : (firm.advisor_mobile || null),
+        advisor_email:      skip ? null : (firm.advisor_email.trim().toLowerCase() || null),
+        arn_or_ria:         skip ? null : (firm.arn_or_ria.trim().toUpperCase() || null),
       }, { withCredentials: true });
       setStep("add_client");
     } catch (e) {
@@ -103,12 +122,22 @@ export default function MfdOnboardingWizard({ onComplete }) {
       toast.error("Client name is required");
       return;
     }
+    if (!/^\d{10,}$/.test(client.mobile.replace(/\D/g, ""))) {
+      toast.error("Client mobile is required (≥10 digits) — we need it to send the CAS invite link");
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(client.email.trim())) {
+      toast.error("Client email is required — we'll email a backup link");
+      return;
+    }
     setCreatingClient(true);
     try {
       const res = await axios.post(`${API}/mfd/profiles`, {
         name: client.name.trim(),
         aum_rs: client.aum_rs ? Number(client.aum_rs) : null,
         tags: client.tags.length ? client.tags : null,
+        email:  client.email.trim(),
+        mobile: client.mobile.trim(),
       }, { withCredentials: true });
       setCreatedProfile(res.data);
       // Activate impersonation so the CAS upload lands on this profile.
@@ -353,19 +382,75 @@ const FirmStep = ({ firm, setFirm, saving, onNext, onSkip }) => (
   <div className="space-y-6" data-testid="step-firm">
     <div>
       <div className="text-[10px] uppercase tracking-wider text-indigo-600 font-bold mb-1">
-        Firm setup · optional
+        Advisor setup
       </div>
       <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">
         Tell us about your practice
       </h1>
       <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-        Just the basics — we'll tailor the dashboard for your book size. You can skip this and fill it in later from settings.
+        We need these to power client onboarding invites — your name and mobile
+        appear on the secure link clients use to share their CAS.
       </p>
     </div>
 
     <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="advisor-name" className="text-xs">Your name *</Label>
+          <Input
+            id="advisor-name"
+            data-testid="advisor-name-input"
+            value={firm.advisor_name}
+            onChange={(e) => setFirm({ ...firm, advisor_name: e.target.value })}
+            placeholder="Priyanka Sharma"
+            className="mt-1"
+            autoFocus
+          />
+        </div>
+        <div>
+          <Label htmlFor="advisor-mobile" className="text-xs">Mobile (WhatsApp) *</Label>
+          <Input
+            id="advisor-mobile"
+            data-testid="advisor-mobile-input"
+            value={firm.advisor_mobile}
+            onChange={(e) => setFirm({ ...firm, advisor_mobile: e.target.value })}
+            placeholder="98xxxxxxxx"
+            inputMode="tel"
+            className="mt-1 font-mono tabular-nums"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="advisor-email" className="text-xs">Email *</Label>
+          <Input
+            id="advisor-email"
+            data-testid="advisor-email-input"
+            value={firm.advisor_email}
+            onChange={(e) => setFirm({ ...firm, advisor_email: e.target.value })}
+            placeholder="you@firm.com"
+            type="email"
+            className="mt-1"
+          />
+        </div>
+        <div>
+          <Label htmlFor="advisor-arn" className="text-xs">
+            ARN / RIA <span className="text-slate-400">· optional</span>
+          </Label>
+          <Input
+            id="advisor-arn"
+            data-testid="advisor-arn-input"
+            value={firm.arn_or_ria}
+            onChange={(e) => setFirm({ ...firm, arn_or_ria: e.target.value.toUpperCase() })}
+            placeholder="ARN-12345"
+            className="mt-1 font-mono"
+          />
+        </div>
+      </div>
+
       <div>
-        <Label htmlFor="firm-name" className="text-xs">Firm name</Label>
+        <Label htmlFor="firm-name" className="text-xs">Firm name *</Label>
         <Input
           id="firm-name"
           data-testid="firm-name-input"
@@ -373,12 +458,11 @@ const FirmStep = ({ firm, setFirm, saving, onNext, onSkip }) => (
           onChange={(e) => setFirm({ ...firm, firm_name: e.target.value })}
           placeholder="Sharma Wealth Advisors"
           className="mt-1"
-          autoFocus
         />
       </div>
 
       <div>
-        <Label className="text-xs">How many clients do you manage?</Label>
+        <Label className="text-xs">How many clients do you manage? *</Label>
         <div className="grid grid-cols-3 gap-2 mt-2">
           {CLIENT_RANGE_OPTIONS.map((o) => (
             <button
@@ -446,6 +530,34 @@ const AddClientStep = ({ client, setClient, addTag, creating, onBack, onNext }) 
           placeholder="Rahul Sharma"
           className="mt-1" autoFocus
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="client-mobile" className="text-xs">Mobile (WhatsApp) *</Label>
+          <Input
+            id="client-mobile" data-testid="client-mobile-input"
+            value={client.mobile}
+            onChange={(e) => setClient({ ...client, mobile: e.target.value })}
+            placeholder="98xxxxxxxx"
+            inputMode="tel"
+            className="mt-1 font-mono tabular-nums"
+          />
+        </div>
+        <div>
+          <Label htmlFor="client-email" className="text-xs">Email *</Label>
+          <Input
+            id="client-email" data-testid="client-email-input"
+            type="email"
+            value={client.email}
+            onChange={(e) => setClient({ ...client, email: e.target.value })}
+            placeholder="rahul@example.com"
+            className="mt-1"
+          />
+        </div>
+      </div>
+      <div className="text-[10px] text-slate-500 -mt-2">
+        Used to send your client the secure CAS-sharing link. Mobile = WhatsApp, Email = backup.
       </div>
 
       <div>
