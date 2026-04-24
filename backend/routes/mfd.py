@@ -381,6 +381,109 @@ async def put_client_notes(
     return _notes_doc_out(doc)
 
 
+@router.get("/profiles/{profile_id}/tax-summary")
+async def tax_summary(profile_id: str, request: Request):
+    """Unrealized gain/loss scan across a profile's holdings, split into
+    STCG (held <12 months for equity, <36 months for debt/hybrid) vs LTCG.
+    For holdings without a valid `buy_date` (older CAS imports before we
+    fixed the bogus-date bug), we bucket into `undated` so the UI can flag
+    them instead of silently miscategorising the tax bucket."""
+    from datetime import datetime, timezone
+    user = await get_current_user(request)
+    prof = await _owned_or_404(profile_id, _session_user_id(user))
+    shadow = prof["shadow_user_id"]
+    now = datetime.now(timezone.utc)
+
+    total_invested = 0.0
+    total_current  = 0.0
+    stcg, ltcg, undated_gain = 0.0, 0.0, 0.0
+    stcg_n, ltcg_n, undated_n = 0, 0, 0
+    biggest = []  # for "top gains to harvest" list
+
+    async for h in db.holdings.find(
+        {"user_id": shadow},
+        {"_id": 0, "name": 1, "asset_type": 1, "quantity": 1, "buy_price": 1,
+         "current_price": 1, "buy_date": 1},
+    ):
+        qty = float(h.get("quantity") or 0)
+        bp  = float(h.get("buy_price") or 0)
+        cp  = float(h.get("current_price") or 0)
+        if qty <= 0 or bp <= 0:
+            continue
+        invested = qty * bp
+        current  = qty * cp
+        gain     = current - invested
+        total_invested += invested
+        total_current  += current
+
+        bd_raw = h.get("buy_date")
+        days_held = None
+        if bd_raw:
+            try:
+                bd = datetime.fromisoformat(str(bd_raw).replace("Z", "+00:00"))
+                if bd.tzinfo is None:
+                    bd = bd.replace(tzinfo=timezone.utc)
+                days_held = (now - bd).days
+            except Exception:  # noqa: BLE001
+                pass
+
+        asset = (h.get("asset_type") or "").lower()
+        # Equity/hybrid: 12 months for LT. Debt (incl. gold/ETF treated as
+        # non-equity here): 36 months. Treat ETFs conservatively as equity
+        # since most Indian ETFs are equity-linked.
+        lt_threshold_days = 366 if asset in ("equity", "mutual_fund", "etf") else 1096
+
+        bucket = None
+        if days_held is None:
+            undated_gain += gain
+            undated_n += 1
+            bucket = "undated"
+        elif days_held >= lt_threshold_days:
+            ltcg += gain
+            ltcg_n += 1
+            bucket = "ltcg"
+        else:
+            stcg += gain
+            stcg_n += 1
+            bucket = "stcg"
+
+        if abs(gain) >= 10000:
+            biggest.append({
+                "name": h.get("name"),
+                "asset_type": asset,
+                "gain": round(gain, 2),
+                "bucket": bucket,
+                "days_held": days_held,
+            })
+
+    biggest.sort(key=lambda x: x["gain"], reverse=True)
+    total_unrealized = total_current - total_invested
+
+    # Indian tax rates (post-Jul 2024 regime):
+    # - STCG on equity/MF: 20%
+    # - LTCG on equity/MF over ₹1.25 L exemption: 12.5%
+    # We compute an indicative tax only (simple; ignores the 1.25L LTCG
+    # exemption for precision — call-out in the UI).
+    est_tax_if_realized = max(0, stcg) * 0.20 + max(0, ltcg) * 0.125
+
+    return {
+        "total_invested_rs": round(total_invested, 2),
+        "total_current_rs":  round(total_current, 2),
+        "total_unrealized_rs": round(total_unrealized, 2),
+        "stcg_rs": round(stcg, 2),
+        "ltcg_rs": round(ltcg, 2),
+        "undated_gain_rs": round(undated_gain, 2),
+        "stcg_count": stcg_n,
+        "ltcg_count": ltcg_n,
+        "undated_count": undated_n,
+        "est_tax_if_realized_rs": round(est_tax_if_realized, 2),
+        "biggest_positions": biggest[:5],
+        "coverage_pct": round(
+            100.0 * (stcg_n + ltcg_n) / max(1, stcg_n + ltcg_n + undated_n), 1,
+        ),
+    }
+
+
 # ── Portfolio trend — derived, no schema change ─────────────────────────
 @router.get("/profiles/{profile_id}/portfolio-trend")
 async def portfolio_trend(profile_id: str, request: Request):

@@ -10,7 +10,7 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, Target, AlertTriangle, CheckCircle2,
   Calendar, Sparkles, ArrowRight, Activity, Scale, RefreshCw, Plus, Eye,
   ShieldCheck, Receipt, Share2, Mail, MessageSquare, StickyNote, Save, Copy,
-  Wallet, IndianRupee, ChevronDown, ChevronRight,
+  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -97,10 +97,78 @@ const computeTopIssues = (health) => {
   return { issues, projected, totalDelta };
 };
 
-// Deterministic 3-4 line portfolio narrative — no LLM. Combines grade,
-// best/worst component, top issue, and action pressure. Easy to upgrade
-// to GPT-5.2 later (same output contract) once we're happy with the
-// product shape.
+// ── Wealth tier detection ─────────────────────────────────────────────
+// HNI threshold set to ₹5 Cr as per product brief. Above this we show a
+// subtle "Wealth tier" chip next to the client name and unlock the
+// Rebalance All CTA / deeper tax narrative.
+const wealthTierFor = (aumRs) => {
+  if (aumRs == null) return { key: "unknown", label: null };
+  if (aumRs >= 25e7) return { key: "uhni",    label: "UHNI · ₹25 Cr+" };
+  if (aumRs >= 5e7)  return { key: "hni",     label: "HNI · ₹5 Cr+" };
+  if (aumRs >= 1e7)  return { key: "mass",    label: "Mass affluent" };
+  return { key: "retail", label: null };
+};
+
+// Estimate the gross rupee impact of the client's entire action plan
+// (sum of `amount` across all open actions). Shown as the label inside
+// the "Execute All" CTA so the MFD sees "₹1.2 Cr shifts" upfront.
+const grossActionValue = (actions) =>
+  (actions || []).reduce((s, a) => s + (a.amount || 0), 0);
+
+// CIO-tone narrative — sharper + more specific than Pass-2 generic
+// template. Same signature as buildNarrative so callers stay compatible.
+const buildCioNarrative = ({ health, actions, tax, trend }) => {
+  if (!health?.components) return null;
+  const entries = Object.entries(health.components)
+    .filter(([, c]) => c?.score != null)
+    .map(([, c]) => ({ name: c.name, score: c.score, drivers: c.drivers || [] }));
+  if (!entries.length) return null;
+  const sorted   = [...entries].sort((a, b) => b.score - a.score);
+  const weakest  = sorted[sorted.length - 1];
+  const grade    = health.grade;
+  const critical = actions.filter((a) => bucketFor(a) === "critical").length;
+
+  // Line 1 — sharp framing
+  const l1 = grade === "A"
+    ? "Portfolio is structurally sound with consistent quality and performance."
+    : grade === "B"
+      ? `Portfolio is moderately strong but carries elevated ${weakest.name.toLowerCase()} risk.`
+      : grade === "C"
+        ? `Portfolio is underperforming its structure — ${weakest.name.toLowerCase()} is the primary drag.`
+        : `Portfolio has material structural issues across ${weakest.name.toLowerCase()} and needs a full review.`;
+
+  // Line 2 — performance statement (only if trend available)
+  const l2 = trend?.percent_change != null
+    ? `Since inception, corpus is ${trend.percent_change >= 0 ? "up" : "down"} ${Math.abs(trend.percent_change).toFixed(1)}% (${trend.percent_change >= 0 ? "+" : "-"}${fmtRs(Math.abs(trend.absolute_change_rs || 0))}).`
+    : null;
+
+  // Line 3 — tax + action pressure
+  const taxLine = tax && Math.abs(tax.total_unrealized_rs || 0) > 50000
+    ? ` Unrealized ${tax.total_unrealized_rs >= 0 ? "gain" : "loss"} is ${fmtRs(Math.abs(tax.total_unrealized_rs))} — rebalance needs a tax lens.`
+    : "";
+  const l3 = critical > 0
+    ? `A targeted rebalance across ${critical} critical action${critical === 1 ? "" : "s"} can improve stability without compromising returns.${taxLine}`
+    : `No urgent actions; monitor ${weakest.name.toLowerCase()} and keep allocations in band.${taxLine}`;
+
+  return [l1, l2, l3].filter(Boolean).join(" ");
+};
+
+// Allocation-drift extractor — pulls the asset allocation sub-scores from
+// the Diversification component so we can render the "Equity 68% (ideal
+// 55%)" block without another backend endpoint. Returns null when the
+// backend hasn't published allocation data.
+const allocationDriftFor = (health) => {
+  const c = Object.values(health?.components || {}).find((x) =>
+    (x?.name || "").toLowerCase().includes("diversification"),
+  );
+  const alloc = c?.sub_scores?.allocation_breakdown
+             || c?.allocation_breakdown
+             || c?.sub_scores?.asset_allocation;
+  if (!alloc || typeof alloc !== "object") return null;
+  return alloc;   // { current: {equity, debt, ...}, target: {equity, debt, ...} }
+};
+
+
 
 // Product cap — keep in sync with MAX_GOALS in GoalsView.jsx and backend.
 const MAX_GOALS_CLIENT = 4;
@@ -378,6 +446,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [collapsedBuckets, setCollapsedBuckets] = useState({ enhance: true }); // enhance starts collapsed
   const [trend, setTrend] = useState(null);
+  const [tax, setTax] = useState(null);
   const [notes, setNotes] = useState({
     note: "", sip_amount_rs: "", sip_frequency: "monthly",
     next_sip_due: "", preferred_channel: "",
@@ -393,12 +462,13 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
     if (!profileId) return;
     setLoading(true);
     try {
-      const [hRes, gRes, pRes, tRes, nRes] = await Promise.all([
+      const [hRes, gRes, pRes, tRes, nRes, xRes] = await Promise.all([
         axios.get(`${API}/insights/analysis`,    { withCredentials: true }).catch(() => null),
         axios.get(`${API}/goals`,                { withCredentials: true }).catch(() => null),
         axios.get(`${API}/plans/active`,         { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/portfolio-trend`, { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/notes`,           { withCredentials: true }).catch(() => null),
+        axios.get(`${API}/mfd/profiles/${profileId}/tax-summary`,     { withCredentials: true }).catch(() => null),
       ]);
       setHealth(hRes?.data?.portfolio_health || null);
       setGoals(gRes?.data?.goals || gRes?.data || []);
@@ -413,6 +483,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
         .slice(0, 10);
       setActions(list);
       setTrend(tRes?.data || null);
+      setTax(xRes?.data || null);
       if (nRes?.data) {
         setNotes({
           note: nRes.data.note || "",
@@ -576,9 +647,13 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   // Pass 2 derivations — insight layer.
   const topIssues = useMemo(() => computeTopIssues(health), [health]);
   const narrative = useMemo(
-    () => buildNarrative({ health, actions, goals }),
-    [health, actions, goals],
+    () => buildCioNarrative({ health, actions, tax, trend }),
+    [health, actions, tax, trend],
   );
+
+  // Pass 3 — HNI derivations
+  const wealthTier = useMemo(() => wealthTierFor(aumLive), [aumLive]);
+  const totalShift = useMemo(() => grossActionValue(actions), [actions]);
 
   // Today's brief — concise bulleted summary at the top of the snapshot.
   // Each bullet is a decision the MFD can act on today. Bullets are
@@ -668,6 +743,21 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               {client.name}
             </h2>
             <Badge variant="outline" className="text-[10px]">Snapshot</Badge>
+            {wealthTier.label && (
+              <span
+                data-testid="snapshot-wealth-tier"
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                  wealthTier.key === "uhni"
+                    ? "bg-gradient-to-r from-amber-100 to-yellow-100 border-amber-300 text-amber-900"
+                  : wealthTier.key === "hni"
+                    ? "bg-gradient-to-r from-indigo-100 to-violet-100 border-indigo-300 text-indigo-900 dark:from-indigo-900/40 dark:to-violet-900/40 dark:border-indigo-700 dark:text-indigo-100"
+                    : "bg-slate-100 border-slate-200 text-slate-600"
+                }`}
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                {wealthTier.label}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
             {fmtRs(aumLive)} AUM · Last review {fmtDaysAgo(client.last_reviewed_at)}
@@ -977,6 +1067,26 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               </div>
             ) : (
               <div className="space-y-3" data-testid="snapshot-action-groups">
+                {/* Execute All CTA — headline ₹ value, routes to Plan Board. */}
+                {totalShift > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("plan_board")}
+                    data-testid="snapshot-execute-all"
+                    className="w-full flex items-center justify-between rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 text-white px-3 py-2 hover:from-indigo-700 hover:to-violet-700 transition-colors shadow-sm"
+                  >
+                    <div className="flex items-center gap-2 text-left">
+                      <Zap className="w-4 h-4" />
+                      <div>
+                        <div className="text-xs font-bold">Execute all</div>
+                        <div className="text-[10px] opacity-90">
+                          Rebalance portfolio — {fmtRs(totalShift)} in shifts
+                        </div>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
                 {["critical", "optimise", "enhance"].map((bucketKey) => {
                   const bucketActions = groupedActions[bucketKey];
                   if (!bucketActions.length) return null;
@@ -1143,6 +1253,149 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               <GoalsRollup goals={goals} />
             )}
           </Card>
+
+          {/* ── Tax layer (HNI) + Allocation drift ───────────────── */}
+          {tax && (tax.total_invested_rs || 0) > 0 && (
+            <Card className="lg:col-span-2 p-5" data-testid="snapshot-tax-card">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center">
+                  <IndianRupee className="w-4 h-4 text-violet-600" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    Tax snapshot
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Unrealized gain / loss split — helps time the rebalance
+                  </div>
+                </div>
+              </div>
+
+              {/* Top row of big numbers */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div data-testid="tax-total-unrealized">
+                  <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-500">Unrealized gain</div>
+                  <div className={`text-lg font-bold tabular-nums mt-0.5 ${tax.total_unrealized_rs >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {tax.total_unrealized_rs >= 0 ? "+" : "-"}{fmtRs(Math.abs(tax.total_unrealized_rs))}
+                  </div>
+                  <div className="text-[10px] text-slate-500">across all holdings</div>
+                </div>
+                <div data-testid="tax-stcg">
+                  <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-500">STCG exposure</div>
+                  <div className="text-lg font-bold tabular-nums text-amber-600 mt-0.5">
+                    {fmtRs(Math.max(0, tax.stcg_rs))}
+                  </div>
+                  <div className="text-[10px] text-slate-500">{tax.stcg_count} position{tax.stcg_count === 1 ? "" : "s"}</div>
+                </div>
+                <div data-testid="tax-ltcg">
+                  <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-500">LTCG exposure</div>
+                  <div className="text-lg font-bold tabular-nums text-emerald-600 mt-0.5">
+                    {fmtRs(Math.max(0, tax.ltcg_rs))}
+                  </div>
+                  <div className="text-[10px] text-slate-500">{tax.ltcg_count} position{tax.ltcg_count === 1 ? "" : "s"}</div>
+                </div>
+                <div data-testid="tax-est">
+                  <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-500">If realised today</div>
+                  <div className="text-lg font-bold tabular-nums text-rose-600 mt-0.5">
+                    {fmtRs(tax.est_tax_if_realized_rs)}
+                  </div>
+                  <div className="text-[10px] text-slate-500">indicative tax bill</div>
+                </div>
+              </div>
+
+              {/* Coverage + undated caveat */}
+              {tax.undated_count > 0 && (
+                <div
+                  data-testid="tax-coverage-note"
+                  className="mt-3 flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-amber-800 dark:text-amber-300">
+                    {tax.undated_count} holding{tax.undated_count === 1 ? " is" : "s are"} missing buy date
+                    ({fmtRs(tax.undated_gain_rs)} gain not categorised). Re-import the latest CAS to split them into STCG / LTCG.
+                  </div>
+                </div>
+              )}
+
+              {/* Biggest positions by gain */}
+              {tax.biggest_positions?.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">
+                    Biggest positions by unrealized gain
+                  </div>
+                  <ul className="space-y-1.5">
+                    {tax.biggest_positions.slice(0, 5).map((p, i) => (
+                      <li
+                        key={i}
+                        data-testid={`tax-biggest-${i}`}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        <span className={`flex-shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                          p.bucket === "ltcg" ? "bg-emerald-100 text-emerald-700" :
+                          p.bucket === "stcg" ? "bg-amber-100 text-amber-700" :
+                          "bg-slate-100 text-slate-500"
+                        }`}>
+                          {p.bucket}
+                        </span>
+                        <span className="flex-1 text-slate-700 dark:text-slate-200 truncate">
+                          {p.name}
+                        </span>
+                        <span className={`font-bold tabular-nums flex-shrink-0 ${p.gain >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                          {p.gain >= 0 ? "+" : "-"}{fmtRs(Math.abs(p.gain))}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* ── Allocation drift (HNI) ───────────────────────────── */}
+          {(() => {
+            const drift = allocationDriftFor(health);
+            if (!drift || !drift.current) return null;
+            const buckets = Object.keys({ ...drift.current, ...(drift.target || {}) });
+            return (
+              <Card className="p-5" data-testid="snapshot-allocation-drift">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                    <PieChart className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100">Allocation drift</div>
+                    <div className="text-[11px] text-slate-500">Current vs target by asset class</div>
+                  </div>
+                </div>
+                <ul className="space-y-2.5">
+                  {buckets.map((b) => {
+                    const cur = (drift.current || {})[b] || 0;
+                    const tgt = (drift.target  || {})[b] || 0;
+                    const delta = cur - tgt;
+                    const absDelta = Math.abs(delta);
+                    const tone = absDelta >= 10 ? "rose" : absDelta >= 5 ? "amber" : "emerald";
+                    return (
+                      <li key={b} data-testid={`drift-${b}`} className="space-y-1">
+                        <div className="flex items-baseline justify-between text-xs">
+                          <span className="font-semibold capitalize text-slate-700 dark:text-slate-200">{b}</span>
+                          <span className="tabular-nums text-slate-600 dark:text-slate-300">
+                            {cur.toFixed(1)}% <span className="text-slate-400 text-[10px]">/ target {tgt.toFixed(1)}%</span>
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
+                          <div className={`absolute top-0 h-full ${TONE[tone].bar}`} style={{ width: `${Math.min(100, cur)}%` }} />
+                          <div className="absolute top-0 w-0.5 h-full bg-slate-600 dark:bg-slate-300" style={{ left: `${Math.min(100, tgt)}%` }} />
+                        </div>
+                        <div className={`text-[10px] font-medium ${TONE[tone].text}`}>
+                          {delta >= 0 ? "+" : ""}{delta.toFixed(1)}pp vs target
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Card>
+            );
+          })()}
 
           {/* ── Recent purchases + Advisor notes side-by-side ──── */}
           <Card className="lg:col-span-1 p-5" data-testid="snapshot-recent-buys-card">
