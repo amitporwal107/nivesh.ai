@@ -363,7 +363,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           )}
           <Button
             variant="outline" size="sm"
-            onClick={() => setActiveTab("overview")}
+            onClick={() => setActiveTab("portfolio")}
             data-testid="snapshot-open-portfolio"
             className="h-8 text-xs"
           >

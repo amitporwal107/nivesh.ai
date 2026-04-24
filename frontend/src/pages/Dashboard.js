@@ -80,6 +80,36 @@ const Dashboard = () => {
 
   useEffect(() => { if (user) fetchWorkspace(); }, [user, fetchWorkspace]);
 
+  // Auto-correct the active tab when the MFD context changes so we never
+  // leave the user on a hidden tab. Rules:
+  //   - ADVISORY + no active client → "advisor"
+  //   - ADVISORY + active client, tab is "advisor" or "overview" → "snapshot"
+  // Retail users are left alone. We only flip if the current tab is invalid
+  // for the new context (otherwise we'd fight manual navigation).
+  useEffect(() => {
+    if (!workspace) return;
+    const isAdvisor = workspace.type === "ADVISORY";
+    if (!isAdvisor) return;
+
+    const RETAIL_ONLY = new Set(["overview"]);   // hidden in advisor mode
+    const ADVISOR_ONLY = new Set(["advisor"]);   // hidden in client mode
+
+    if (!activeProfile) {
+      // Advisor workspace, no client selected.
+      if (activeTab !== "advisor" && !["snapshot"].includes(activeTab)) {
+        // snapshot requires a client — if somehow landed here, bounce out.
+      }
+      if (activeTab === "snapshot" || RETAIL_ONLY.has(activeTab)) {
+        setActiveTab("advisor");
+      }
+    } else {
+      // Advisor workspace, impersonating a client.
+      if (ADVISOR_ONLY.has(activeTab) || RETAIL_ONLY.has(activeTab)) {
+        setActiveTab("snapshot");
+      }
+    }
+  }, [workspace, activeProfile, activeTab, setActiveTab]);
+
   const fetchProfile = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/user/profile`, { withCredentials: true });
@@ -260,11 +290,13 @@ const Dashboard = () => {
         setActiveTab={setActiveTab}
         workspaceType={workspace?.type}
         activeProfileName={activeProfile?.name}
+        onExitProfile={exitProfile}
       />
       <main className="flex-1 ml-0 md:ml-64 min-h-screen min-w-0">
         {/* Top bar with user-profile dropdown */}
         <div className="sticky top-0 z-30 flex justify-between items-center gap-3 px-4 sm:px-6 lg:px-8 py-3 bg-[#F8FAFC]/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-slate-100 dark:border-slate-800">
-          {/* Impersonation strip — visible whenever MFD has activated a client */}
+          {/* Client context pill — compact reminder. Full header with
+              avatar + "Back to clients" CTA now lives in the sidebar. */}
           {activeProfile ? (
             <div
               data-testid="impersonation-strip"
@@ -274,15 +306,8 @@ const Dashboard = () => {
                 {activeProfile.name?.slice(0, 1).toUpperCase()}
               </span>
               <span className="text-indigo-900 dark:text-indigo-200">
-                Viewing <strong>{activeProfile.name}</strong>'s portfolio
+                Client context: <strong>{activeProfile.name}</strong>
               </span>
-              <button
-                onClick={exitProfile}
-                data-testid="impersonation-exit"
-                className="ml-1 text-indigo-700 dark:text-indigo-300 underline font-semibold hover:text-indigo-900"
-              >
-                Back to clients
-              </button>
             </div>
           ) : <div />}
           <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
