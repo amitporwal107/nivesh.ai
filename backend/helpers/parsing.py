@@ -472,7 +472,7 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
             "buy_price": buy_price_val,
             "current_price": current_price_val,
             "sector": h.get("sector", "Other"),
-            "buy_date": h.get("buy_date", "") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "buy_date": h.get("buy_date") or None,
             "source": "cas" if is_cas else h.get("source", "manual"),
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat()

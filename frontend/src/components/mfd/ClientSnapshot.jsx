@@ -120,7 +120,9 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
   const [goals, setGoals] = useState([]);
+  const [activePlan, setActivePlan] = useState(null);
   const [actions, setActions] = useState([]);
+  const [updatingActionId, setUpdatingActionId] = useState(null);
   const [trend, setTrend] = useState(null);
   const [notes, setNotes] = useState({
     note: "", sip_amount_rs: "", sip_frequency: "monthly",
@@ -137,19 +139,23 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
     if (!profileId) return;
     setLoading(true);
     try {
-      const [hRes, gRes, aRes, tRes, nRes] = await Promise.all([
-        axios.get(`${API}/insights/analysis`, { withCredentials: true }).catch(() => null),
-        axios.get(`${API}/goals`,             { withCredentials: true }).catch(() => null),
-        axios.get(`${API}/action-plan`,       { withCredentials: true }).catch(() => null),
+      const [hRes, gRes, pRes, tRes, nRes] = await Promise.all([
+        axios.get(`${API}/insights/analysis`,    { withCredentials: true }).catch(() => null),
+        axios.get(`${API}/goals`,                { withCredentials: true }).catch(() => null),
+        axios.get(`${API}/plans/active`,         { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/portfolio-trend`, { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/notes`,           { withCredentials: true }).catch(() => null),
       ]);
       setHealth(hRes?.data?.portfolio_health || null);
       setGoals(gRes?.data?.goals || gRes?.data || []);
-      const list = aRes?.data?.items || aRes?.data?.plans || aRes?.data || [];
-      setActions((Array.isArray(list) ? list : [])
-        .filter((a) => (a.status || "").toLowerCase() !== "archived")
-        .slice(0, 3));
+      const plan = pRes?.data?.plan || null;
+      setActivePlan(plan);
+      // Top 5 pending/in-progress actions from the V3 engine's active plan.
+      const list = (plan?.actions || [])
+        .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
+        .sort((a, b) => (b.impact_score || b.priority || 0) - (a.impact_score || a.priority || 0))
+        .slice(0, 5);
+      setActions(list);
       setTrend(tRes?.data || null);
       if (nRes?.data) {
         setNotes({
@@ -190,6 +196,49 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       toast.error("Could not save notes");
     } finally {
       setSavingNotes(false);
+    }
+  };
+
+  // ── Plan / action management ────────────────────────────────────
+  const updateActionStatus = async (action, newStatus) => {
+    if (!activePlan) return;
+    setUpdatingActionId(action.action_id || action.id);
+    try {
+      const res = await axios.patch(
+        `${API}/plans/${activePlan.plan_id || activePlan.id}/actions/${action.action_id || action.id}`,
+        { status: newStatus },
+        { withCredentials: true },
+      );
+      const updated = res.data?.plan;
+      if (updated) {
+        setActivePlan(updated);
+        setActions(
+          (updated.actions || [])
+            .filter((a) => !["COMPLETED", "SKIPPED"].includes((a.status || "").toUpperCase()))
+            .sort((a, b) => (b.impact_score || b.priority || 0) - (a.impact_score || a.priority || 0))
+            .slice(0, 5),
+        );
+      }
+      toast.success(
+        newStatus === "COMPLETED" ? "Marked as done" :
+        newStatus === "SKIPPED"   ? "Dismissed" :
+        "Updated",
+      );
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not update action");
+    } finally {
+      setUpdatingActionId(null);
+    }
+  };
+
+  const generatePlan = async () => {
+    try {
+      toast.loading("Generating action plan from V3 insights…", { id: "gen-plan" });
+      await axios.post(`${API}/plans/generate`, {}, { withCredentials: true });
+      await fetchAll();
+      toast.success("Action plan ready", { id: "gen-plan" });
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not generate plan", { id: "gen-plan" });
     }
   };
 
@@ -425,47 +474,92 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
             )}
           </Card>
 
-          {/* ── Top 3 actions card (right) ───────────────────────── */}
+          {/* ── V3 engine actions card (right) ───────────────────── */}
           <Card className="p-5" data-testid="snapshot-actions-card">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div>
-                <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                  Recommended actions
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
                 </div>
-                <div className="text-[11px] text-slate-500">Top priorities for this client</div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    Recommended actions
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate">
+                    {activePlan
+                      ? `V3 plan · ${(activePlan.actions || []).length} total`
+                      : "No active plan yet"}
+                  </div>
+                </div>
               </div>
+              {!activePlan && (
+                <Button
+                  size="sm"
+                  onClick={generatePlan}
+                  className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700"
+                  data-testid="snapshot-generate-plan"
+                >
+                  <Sparkles className="w-3.5 h-3.5 mr-1" /> Generate
+                </Button>
+              )}
             </div>
 
-            {actions.length === 0 ? (
+            {!activePlan ? (
+              <div className="text-center py-6 text-xs text-slate-500" data-testid="snapshot-no-plan">
+                <Sparkles className="w-5 h-5 mx-auto mb-1.5 opacity-40" />
+                Tap <strong>Generate</strong> to create an action plan from the V3 engine.
+              </div>
+            ) : actions.length === 0 ? (
               <div className="text-center py-6 text-xs text-slate-500" data-testid="snapshot-actions-empty">
                 <CheckCircle2 className="w-5 h-5 mx-auto mb-1.5 text-emerald-500" />
-                No open actions right now.
+                All recommended actions completed. Nice work.
               </div>
             ) : (
               <ul className="space-y-2.5">
                 {actions.map((a, i) => {
-                  const verb = (a.action || a.type || "").toLowerCase();
-                  const view = ACTION_VIEW[verb] || { label: a.action || a.type || "Review", Icon: Eye, tone: "slate" };
+                  const verb = (a.action_type || a.type || a.action || "").toLowerCase();
+                  const view = ACTION_VIEW[verb] || { label: a.action_type || a.type || "Review", Icon: Eye, tone: "slate" };
                   const t = TONE[view.tone] || TONE.slate;
+                  const isUpdating = (a.action_id || a.id) === updatingActionId;
                   return (
                     <li
-                      key={a.id || i}
+                      key={a.action_id || a.id || i}
                       data-testid={`snapshot-action-${i}`}
-                      className={`flex items-start gap-2.5 p-3 rounded-lg border ${t.border} ${t.bgSoft}`}
+                      className={`rounded-lg border ${t.border} ${t.bgSoft} overflow-hidden`}
                     >
-                      <view.Icon className={`w-4 h-4 ${t.text} flex-shrink-0 mt-0.5`} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                          {view.label}{a.fund_name ? ` · ${a.fund_name}` : a.scheme_name ? ` · ${a.scheme_name}` : ""}
-                        </div>
-                        {a.reason && (
-                          <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
-                            {a.reason}
+                      <div className="flex items-start gap-2.5 p-3">
+                        <view.Icon className={`w-4 h-4 ${t.text} flex-shrink-0 mt-0.5`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {a.title || `${view.label}${a.fund_name ? ` · ${a.fund_name}` : a.scheme_name ? ` · ${a.scheme_name}` : ""}`}
                           </div>
-                        )}
+                          {(a.reason || a.rationale || a.description) && (
+                            <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                              {a.reason || a.rationale || a.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Inline edit bar */}
+                      <div className="flex items-center justify-end gap-1 px-3 pb-2 border-t border-slate-100 dark:border-slate-800 pt-2">
+                        <Button
+                          size="sm" variant="ghost"
+                          disabled={isUpdating}
+                          onClick={() => updateActionStatus(a, "COMPLETED")}
+                          className="h-6 text-[10px] text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
+                          data-testid={`snapshot-action-done-${i}`}
+                        >
+                          <CheckCircle2 className="w-3 h-3 mr-1" /> Mark done
+                        </Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          disabled={isUpdating}
+                          onClick={() => updateActionStatus(a, "SKIPPED")}
+                          className="h-6 text-[10px] text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                          data-testid={`snapshot-action-skip-${i}`}
+                        >
+                          Dismiss
+                        </Button>
                       </div>
                     </li>
                   );
@@ -479,7 +573,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               data-testid="snapshot-open-plan-board"
               className="w-full mt-4 h-8 text-xs"
             >
-              Open action plan <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              Open full plan board <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </Button>
           </Card>
 
