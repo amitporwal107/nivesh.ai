@@ -779,10 +779,16 @@ async def v3_portfolio_summary(request: Request):
                     invested_amount=invested,
                     current_value=current_val,
                     holding_period_days=holding_age_days,
-                    is_equity=True,   # MF path assumes equity-oriented; refined later
+                    is_equity=True,
                     exit_load_pct=exit_load_pct,
-                    expense_regular=expense_reg,
+                    expense_current=expense_reg,
                     expense_direct=expense_dir,
+                    direct_plan_available=(cost_leak is not None and cost_leak > 0),
+                    current_fund_name=name,
+                    # Candidate universe empty for MVP — fund-to-fund Case B
+                    # returns HOLD_NO_OPTION unless Direct is available.
+                    # To be populated by a future fund recommender.
+                    candidate_funds=[],
                 )
                 switch_decision_dict = sde.result_to_dict(sde.decide(inp, plan_type="regular"))
             except Exception as e:  # noqa: BLE001
@@ -848,9 +854,10 @@ async def v3_portfolio_summary(request: Request):
             action = recommendation["action"]
             if action == "EXIT":
                 n_exit_recs += 1
-            elif action in ("SWITCH", "STRONG_SWITCH_DIRECT", "STRONG_SWITCH_FUND", "PARTIAL_SWITCH"):
+            elif action in ("SWITCH", "STRONG_SWITCH_DIRECT", "PHASED_SWITCH_DIRECT",
+                            "STRONG_SWITCH", "PARTIAL_SWITCH", "SIP_REDIRECT"):
                 n_switch_recs += 1
-            elif action == "REVIEW":
+            elif action in ("REVIEW", "WATCHLIST"):
                 n_review_recs += 1
 
             # ── Compute HAS (portfolio-aware holding action) ────────────

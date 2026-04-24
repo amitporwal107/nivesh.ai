@@ -241,21 +241,28 @@ def derive_recommendation(
                        f"exiting this fund."),
         }
 
-    # 2) SWITCH — delegate to the full Switch Decision Engine (v2).
-    # The engine considers tax, exit load, expense diff, holding age,
-    # Add/Quality/Health signals, and returns one of:
-    #   STRONG_SWITCH_DIRECT | PARTIAL_SWITCH | HOLD_DEFER |
-    #   HOLD_TAX | HOLD_EXIT_LOAD
-    # We only invoke it when there's enough data to make the call.
+    # 2) SWITCH — delegate to the Nivesh Switch Engine v2.
+    # Full 9-step decision. Returns one of:
+    #   STRONG_SWITCH_DIRECT | PHASED_SWITCH_DIRECT | STRONG_SWITCH |
+    #   PARTIAL_SWITCH | WATCHLIST | SIP_REDIRECT |
+    #   HOLD_TAX | HOLD_EXIT_LOAD | HOLD_DEFER | HOLD_NO_OPTION | HOLD
     sd = bundle.get("switch_decision")
-    if sd and sd.get("action") not in (None, "HOLD"):
+    switch_actions = {
+        "STRONG_SWITCH_DIRECT", "PHASED_SWITCH_DIRECT",
+        "STRONG_SWITCH", "PARTIAL_SWITCH",
+        "WATCHLIST", "SIP_REDIRECT",
+        "HOLD_TAX", "HOLD_EXIT_LOAD", "HOLD_DEFER",
+    }
+    if sd and sd.get("action") in switch_actions:
         return {
             "action": sd["action"],
             "label": sd.get("label", sd["action"].replace("_", " ").title()),
-            "reason": sd.get("reason", ""),
+            "reason": " ".join(sd.get("reason", [])) or sd.get("label", ""),
             "decision_case": sd.get("decision_case"),
-            "economics": sd.get("economics"),
+            "economics": sd.get("breakdown"),
             "switch_score": sd.get("switch_score"),
+            "allocation": sd.get("allocation"),
+            "to_fund": sd.get("to_fund"),
         }
 
     # Legacy fallback — only used when the v2 engine didn't run (e.g.

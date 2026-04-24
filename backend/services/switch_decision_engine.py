@@ -1,65 +1,83 @@
-"""Switch/Exit Decision Engine (v2 — PRD-driven).
+"""Nivesh Switch Engine — v2 (full PRD).
 
-Implements the user-provided spec exactly:
+Implements the full 9-step spec verbatim:
 
-  INPUTS:
-    - Scores: Q, H, E, A (all 0-100)
-    - Position: invested_amount, current_value, holding_period_days,
-                is_equity, exit_load_pct
-    - Cost: expense_regular, expense_direct, years_to_goal
-    - Alt fund: alt_expected_alpha, better_alternative_exists
+  Step 0: Inputs (scores, position, fund, goal, candidate universe)
+  Step 1: Tax + exit cost
+  Step 2: Switch score signals (exit/add/quality/health)
+  Step 3: Candidate universe filter + best-alt selection
+  Step 4: Benefit calc (cost saving, alpha gain, net benefit)
+  Step 5: Hard blockers (tax-ineff, exit-load, no option)
+  Step 6: Direct plan priority (STRONG / PHASED)
+  Step 7: Fund switch decision (STRONG / PARTIAL / WATCHLIST / HOLD)
+  Step 8: Tax optimisation layer (LTCG harvest, SIP redirect)
+  Step 9: Structured output {action, allocation, from/to, breakdown, reason[]}
 
-  DERIVED:
-    - gain, tax_cost (STCG 15% < 1y, LTCG 10% > 1y with ₹1L exemption,
-                       Debt = 30% slab)
-    - exit_cost = current_value × exit_load_pct
-    - annual_saving = current_value × (expense_reg − expense_dir)
-    - total_cost_saving = annual_saving × years_to_goal
-    - alpha_gain = current_value × alt_expected_alpha × years_to_goal
-    - net_benefit = total_cost_saving + alpha_gain − tax_cost − exit_cost
-
-  SIGNALS (composite switch_score, 0-5):
-    exit_signal:    E<40 → 2,  40≤E<60 → 1, else 0
-    add_signal:     A<50 → 1, else 0
-    quality_signal: Q<50 → 1, else 0
-    health_signal:  H<50 → 1, else 0
-
-  DECISION:
-    Case A — Direct Plan Switch (same fund):
-      IF expense_diff > 0.5%:
-        IF tax+exit < cost_saving*0.5 → STRONG_SWITCH_DIRECT
-        ELIF net_benefit > 0         → PARTIAL_SWITCH
-        ELSE                         → HOLD_DEFER (wait for LTCG/exit load)
-    Case B — Fund-to-Fund Switch:
-      IF !better_alternative_exists → HOLD
-      ELIF score≥3 AND net>0        → STRONG_SWITCH_FUND
-      ELIF score==2 AND net>0       → PARTIAL_SWITCH
-      ELSE                          → HOLD
-    Case C — Tax Override (CRITICAL):
-      IF holding<365 AND tax > (cost_saving + alpha) → HOLD_TAX
-    Case D — Exit Load Protection:
-      IF exit_cost > cost_saving → HOLD_EXIT_LOAD
-
-Pure function. No I/O. Fully testable.
+Pure function. No I/O. Candidate universe is passed in as a list;
+caller is responsible for hydrating it (MF metadata cache).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
-# ── Defaults (used when caller doesn't provide) ─────────────────────────
+# ── Defaults ─────────────────────────────────────────────────────────────
 DEFAULT_YEARS_TO_GOAL = 10
-DEFAULT_ALT_EXPECTED_ALPHA = 0.01          # 1.0% p.a. — conservative midpoint
-DEFAULT_EXIT_LOAD_PCT = 0.0                # most equity funds have 0 load after 1y
-DEFAULT_DEBT_SLAB_RATE = 0.30              # post-2023 debt taxation default
-LTCG_EXEMPTION_RS = 100_000                # ₹1L LTCG exemption on equity
+DEFAULT_EXIT_LOAD_PCT = 0.0
+DEFAULT_DEBT_SLAB_RATE = 0.30
+LTCG_EXEMPTION_RS = 100_000
 LTCG_RATE = 0.10
 STCG_EQUITY_RATE = 0.15
-EXPENSE_DIFF_MIN_FOR_CASE_A = 0.005        # 0.5% diff threshold
+EXPENSE_DIFF_MIN_FOR_DIRECT = 0.005         # 0.5%
+MIN_AUM_CR = 500                            # ₹500 Cr minimum for candidate
+MIN_TRACK_RECORD_YEARS = 3
+WEAK_CANDIDATE_RETURN_MIN = 0.01            # 1% return uplift floor
+WEAK_CANDIDATE_COST_MIN = 0.003             # 0.3% cost saving floor
+
+# ── Action constants ────────────────────────────────────────────────────
+ACTION_STRONG_SWITCH_DIRECT   = "STRONG_SWITCH_DIRECT"
+ACTION_PHASED_SWITCH_DIRECT   = "PHASED_SWITCH_DIRECT"
+ACTION_STRONG_SWITCH          = "STRONG_SWITCH"            # fund → fund, 100%
+ACTION_PARTIAL_SWITCH         = "PARTIAL_SWITCH"           # 25-50%
+ACTION_WATCHLIST              = "WATCHLIST"                # wait for tax eff.
+ACTION_SIP_REDIRECT           = "SIP_REDIRECT"             # new flows → alt
+ACTION_HOLD                   = "HOLD"
+ACTION_HOLD_TAX               = "HOLD_TAX"
+ACTION_HOLD_EXIT_LOAD         = "HOLD_EXIT_LOAD"
+ACTION_HOLD_DEFER             = "HOLD_DEFER"
+ACTION_HOLD_NO_OPTION         = "HOLD_NO_OPTION"
+
+UI_LABELS: Dict[str, Tuple[str, str]] = {
+    ACTION_STRONG_SWITCH_DIRECT: ("Switch to Direct",         "✅"),
+    ACTION_PHASED_SWITCH_DIRECT: ("Phased switch to Direct",  "📅"),
+    ACTION_STRONG_SWITCH:        ("Switch (better fund)",     "🔁"),
+    ACTION_PARTIAL_SWITCH:       ("Partial switch",           "⚖️"),
+    ACTION_WATCHLIST:            ("Watchlist",                "👀"),
+    ACTION_SIP_REDIRECT:         ("Redirect new SIPs",        "🔀"),
+    ACTION_HOLD:                 ("Hold",                     "—"),
+    ACTION_HOLD_TAX:             ("Hold · tax inefficient",   "⏳"),
+    ACTION_HOLD_EXIT_LOAD:       ("Hold · exit load high",    "🛑"),
+    ACTION_HOLD_DEFER:           ("Hold · defer switch",      "⏳"),
+    ACTION_HOLD_NO_OPTION:       ("Hold · no better option",  "—"),
+}
+
+
+# ── Data classes ────────────────────────────────────────────────────────
+@dataclass
+class CandidateFund:
+    """One fund in the candidate universe (Step 3)."""
+    name: str
+    category: str
+    expense: float                 # decimal fraction (0.0074 = 0.74%)
+    return_5y: float               # decimal fraction (0.14 = 14% CAGR)
+    drawdown: float                # decimal fraction (0.22 = -22%)
+    consistency: float             # 0-100 score
+    aum_cr: float                  # AUM in ₹ crore
+    track_record_years: float
 
 
 @dataclass
 class DecisionInputs:
-    # Scores
+    # Scores (Step 0)
     quality: Optional[float] = None
     health: Optional[float] = None
     exit_s: Optional[float] = None
@@ -70,13 +88,20 @@ class DecisionInputs:
     holding_period_days: Optional[int] = None
     is_equity: bool = True
     exit_load_pct: float = DEFAULT_EXIT_LOAD_PCT
-    # Cost (decimal fractions, e.g. 0.0185 = 1.85%)
-    expense_regular: Optional[float] = None
-    expense_direct: Optional[float] = None
+    # Fund data
+    expense_current: Optional[float] = None       # decimal fraction
+    expense_direct: Optional[float] = None        # decimal fraction (same fund's Direct variant)
+    current_return_5y: Optional[float] = None
+    current_drawdown: Optional[float] = None
+    current_consistency: Optional[float] = None
+    current_category: Optional[str] = None
+    current_fund_name: Optional[str] = None
+    # Goal
     years_to_goal: float = DEFAULT_YEARS_TO_GOAL
-    # Alt fund
-    alt_expected_alpha: float = DEFAULT_ALT_EXPECTED_ALPHA
-    better_alternative_exists: bool = False
+    # Flags
+    direct_plan_available: bool = False
+    # Candidate universe (Step 3)
+    candidate_funds: List[CandidateFund] = field(default_factory=list)
     # Taxation
     debt_slab_rate: float = DEFAULT_DEBT_SLAB_RATE
 
@@ -85,37 +110,19 @@ class DecisionInputs:
 class DecisionResult:
     action: str
     label: str
-    reason: str
-    decision_case: str                     # "A_direct" | "B_fund" | "C_tax" | "D_exit_load" | "default"
-    signals: Dict[str, int] = field(default_factory=dict)
-    switch_score: int = 0
-    economics: Dict[str, float] = field(default_factory=dict)
+    allocation_pct: int
+    from_fund: Optional[str]
+    to_fund: Optional[str]
+    switch_score: int
+    signals: Dict[str, int]
+    breakdown: Dict[str, float]
+    reason: List[str]
+    alt_score: Optional[float] = None
 
 
-# ── Decision action constants (UI-facing) ───────────────────────────────
-ACTION_STRONG_SWITCH_DIRECT = "STRONG_SWITCH_DIRECT"   # ✅ Switch (Direct)
-ACTION_STRONG_SWITCH_FUND   = "STRONG_SWITCH_FUND"     # 🔁 Switch (Better Fund)
-ACTION_PARTIAL_SWITCH       = "PARTIAL_SWITCH"         # ⚖️  Partial Switch (25-50%)
-ACTION_HOLD                 = "HOLD"                   # default hold
-ACTION_HOLD_TAX             = "HOLD_TAX"               # ⏳ Tax inefficient
-ACTION_HOLD_EXIT_LOAD       = "HOLD_EXIT_LOAD"         # 🛑 Exit load high
-ACTION_HOLD_DEFER           = "HOLD_DEFER"             # ⏳ defer (wait for LTCG/load drop)
-
-UI_LABELS = {
-    ACTION_STRONG_SWITCH_DIRECT: ("Switch to Direct",    "✅"),
-    ACTION_STRONG_SWITCH_FUND:   ("Switch (better fund)", "🔁"),
-    ACTION_PARTIAL_SWITCH:       ("Partial switch",      "⚖️"),
-    ACTION_HOLD:                 ("Hold",                "—"),
-    ACTION_HOLD_TAX:             ("Hold · tax inefficient", "⏳"),
-    ACTION_HOLD_EXIT_LOAD:       ("Hold · exit load high", "🛑"),
-    ACTION_HOLD_DEFER:           ("Hold · defer switch", "⏳"),
-}
-
-
+# ── Step 1: tax & exit ──────────────────────────────────────────────────
 def compute_tax_cost(inp: DecisionInputs) -> float:
-    """STCG 15% if equity & <365d, else LTCG 10% on (gain − ₹1L exemption).
-    Debt: flat slab rate."""
-    gain = max(0.0, inp.current_value - inp.invested_amount)
+    gain = inp.current_value - inp.invested_amount
     if gain <= 0:
         return 0.0
     if not inp.is_equity:
@@ -126,11 +133,10 @@ def compute_tax_cost(inp: DecisionInputs) -> float:
     return taxable * LTCG_RATE
 
 
+# ── Step 2: signals ─────────────────────────────────────────────────────
 def compute_signals(inp: DecisionInputs) -> Dict[str, int]:
-    """Per-PRD normalised boolean signals (each contributes to switch_score)."""
     e, a, q, h = inp.exit_s, inp.add, inp.quality, inp.health
-    sig = {}
-    # Exit signal — weighted heavier (up to 2 pts)
+    sig: Dict[str, int] = {}
     if e is None:
         sig["exit_signal"] = 0
     elif e < 40:
@@ -145,151 +151,246 @@ def compute_signals(inp: DecisionInputs) -> Dict[str, int]:
     return sig
 
 
+# ── Step 3: filter + score candidates ───────────────────────────────────
+def _filter_candidates(inp: DecisionInputs) -> List[CandidateFund]:
+    out: List[CandidateFund] = []
+    for f in inp.candidate_funds:
+        if inp.current_category and f.category != inp.current_category:
+            continue
+        if f.aum_cr < MIN_AUM_CR:
+            continue
+        if f.track_record_years < MIN_TRACK_RECORD_YEARS:
+            continue
+        out.append(f)
+    return out
+
+
+def _score_candidate(f: CandidateFund, inp: DecisionInputs) -> Optional[float]:
+    """Return weighted alt_score or None if weak-candidate reject triggers."""
+    cur_ret = inp.current_return_5y or 0.0
+    cur_dd  = inp.current_drawdown or 0.0
+    cur_exp = inp.expense_current or 0.0
+    cur_con = inp.current_consistency or 0.0
+
+    return_delta      = f.return_5y - cur_ret
+    risk_delta        = cur_dd - f.drawdown       # lower drawdown = better
+    cost_delta        = cur_exp - f.expense        # lower expense = better
+    consistency_delta = f.consistency - cur_con
+
+    # Weak-candidate reject (from PRD 3.2)
+    if return_delta < WEAK_CANDIDATE_RETURN_MIN and cost_delta < WEAK_CANDIDATE_COST_MIN and risk_delta <= 0:
+        return None
+    if consistency_delta < 0:
+        return None
+
+    return (
+        0.35 * return_delta
+        + 0.25 * risk_delta
+        + 0.20 * cost_delta
+        + 0.20 * (consistency_delta / 100.0)      # normalise 0-100 → 0-1
+    )
+
+
+def _find_best_alternative(inp: DecisionInputs) -> Tuple[Optional[CandidateFund], Optional[float]]:
+    best: Optional[CandidateFund] = None
+    best_score = float("-inf")
+    for f in _filter_candidates(inp):
+        s = _score_candidate(f, inp)
+        if s is None:
+            continue
+        if s > best_score:
+            best, best_score = f, s
+    return best, (best_score if best else None)
+
+
+# ── Main decision function ──────────────────────────────────────────────
 def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult:
-    """Main decision function — takes fully-hydrated inputs, returns action.
-    `plan_type` is "regular" | "direct" — only "regular" is eligible for
-    Case A (Regular → Direct of the same fund)."""
-    # ── Derived economics ────────────────────────────────────────────
+    # Step 1: tax + exit
     gain = inp.current_value - inp.invested_amount
     tax_cost = compute_tax_cost(inp)
     exit_cost = inp.current_value * max(0.0, inp.exit_load_pct)
 
-    expense_diff = 0.0
-    if inp.expense_regular is not None and inp.expense_direct is not None:
-        expense_diff = max(0.0, inp.expense_regular - inp.expense_direct)
-    annual_saving = inp.current_value * expense_diff
-    total_cost_saving = annual_saving * max(1.0, inp.years_to_goal)
-    alpha_gain = (
-        inp.current_value * max(0.0, inp.alt_expected_alpha) * max(1.0, inp.years_to_goal)
-        if inp.better_alternative_exists else 0.0
-    )
-    net_benefit = total_cost_saving + alpha_gain - tax_cost - exit_cost
-
+    # Step 2: score signals
     signals = compute_signals(inp)
-    switch_score = sum(signals.values())   # 0-5
+    switch_score = sum(signals.values())
 
-    economics = {
+    # Step 3: best alternative
+    best_alt, alt_score = _find_best_alternative(inp)
+    better_alternative_exists = best_alt is not None
+
+    # Step 4: benefit calc
+    # 4.1 alt-based
+    alt_cost_saving = 0.0
+    alpha_gain = 0.0
+    if better_alternative_exists:
+        exp_diff = max(0.0, (inp.expense_current or 0.0) - best_alt.expense)
+        alt_cost_saving = inp.current_value * exp_diff * max(1.0, inp.years_to_goal)
+        alpha = max(0.0, best_alt.return_5y - (inp.current_return_5y or 0.0))
+        alpha_gain = inp.current_value * alpha * max(1.0, inp.years_to_goal)
+
+    # 4.2 direct plan saving
+    direct_saving = 0.0
+    expense_diff_direct = 0.0
+    if inp.direct_plan_available and inp.expense_current is not None and inp.expense_direct is not None:
+        expense_diff_direct = max(0.0, inp.expense_current - inp.expense_direct)
+        direct_saving = inp.current_value * expense_diff_direct * max(1.0, inp.years_to_goal)
+
+    # 4.3 net benefit — two views depending on which path we take
+    net_benefit_alt = alt_cost_saving + alpha_gain - tax_cost - exit_cost
+    net_benefit_direct = direct_saving - tax_cost - exit_cost
+
+    breakdown = {
         "gain": round(gain, 2),
         "tax_cost": round(tax_cost, 2),
         "exit_cost": round(exit_cost, 2),
-        "annual_saving": round(annual_saving, 2),
-        "total_cost_saving": round(total_cost_saving, 2),
+        "cost_saving_alt": round(alt_cost_saving, 2),
         "alpha_gain": round(alpha_gain, 2),
-        "net_benefit": round(net_benefit, 2),
-        "expense_diff_pct": round(expense_diff * 100, 3),
+        "direct_saving": round(direct_saving, 2),
+        "expense_diff_direct_pct": round(expense_diff_direct * 100, 3),
+        "net_benefit_alt": round(net_benefit_alt, 2),
+        "net_benefit_direct": round(net_benefit_direct, 2),
     }
 
-    # ── Case D: Exit Load Protection (check before Case A to avoid false SWITCH) ──
-    if exit_cost > 0 and exit_cost > total_cost_saving and total_cost_saving > 0:
+    from_name = inp.current_fund_name
+    reasons: List[str] = []
+
+    # Helper to package a result
+    def _res(action: str, alloc: int, to_fund: Optional[str], reason_lines: List[str]) -> DecisionResult:
         return DecisionResult(
-            action=ACTION_HOLD_EXIT_LOAD,
-            label=UI_LABELS[ACTION_HOLD_EXIT_LOAD][0],
-            reason=f"Exit load ₹{exit_cost:,.0f} exceeds total cost saving ₹{total_cost_saving:,.0f}. Wait for the exit-load window.",
-            decision_case="D_exit_load",
-            signals=signals,
+            action=action,
+            label=UI_LABELS[action][0],
+            allocation_pct=alloc,
+            from_fund=from_name,
+            to_fund=to_fund,
             switch_score=switch_score,
-            economics=economics,
+            signals=signals,
+            breakdown=breakdown,
+            reason=reason_lines,
+            alt_score=round(alt_score, 4) if alt_score is not None else None,
         )
 
-    # ── Case C: Tax Override (STCG drag kills the switch) ──────────
-    if (inp.holding_period_days is not None and inp.holding_period_days < 365
-            and tax_cost > (total_cost_saving + alpha_gain)
-            and (total_cost_saving + alpha_gain) > 0):
-        return DecisionResult(
-            action=ACTION_HOLD_TAX,
-            label=UI_LABELS[ACTION_HOLD_TAX][0],
-            reason=f"STCG ₹{tax_cost:,.0f} exceeds the projected saving ₹{total_cost_saving + alpha_gain:,.0f}. Wait till 1-year LTCG window.",
-            decision_case="C_tax",
-            signals=signals,
-            switch_score=switch_score,
-            economics=economics,
-        )
+    # ── Step 5: HARD BLOCKERS ─────────────────────────────────────────
+    # 5a: Tax inefficiency inside 1 year
+    if gain > 0 and inp.holding_period_days is not None and inp.holding_period_days < 365:
+        benefit_ceiling = alt_cost_saving + alpha_gain if better_alternative_exists else direct_saving
+        if tax_cost > benefit_ceiling and benefit_ceiling > 0:
+            return _res(ACTION_HOLD_TAX, 0, None, [
+                f"STCG ₹{tax_cost:,.0f} exceeds projected saving ₹{benefit_ceiling:,.0f}.",
+                "Wait for 1-year LTCG window before switching.",
+            ])
 
-    # ── Case A: Direct Plan Switch (SAME fund) ─────────────────────
-    if plan_type == "regular" and expense_diff > EXPENSE_DIFF_MIN_FOR_CASE_A:
-        if (tax_cost + exit_cost) < total_cost_saving * 0.5:
-            return DecisionResult(
-                action=ACTION_STRONG_SWITCH_DIRECT,
-                label=UI_LABELS[ACTION_STRONG_SWITCH_DIRECT][0],
-                reason=(
-                    f"Switching to Direct saves ~₹{annual_saving:,.0f}/yr "
-                    f"(~₹{total_cost_saving:,.0f} over {int(inp.years_to_goal)}y). "
-                    f"Tax+exit cost ₹{tax_cost + exit_cost:,.0f} is < 50% of saving — clear economic win."
-                ),
-                decision_case="A_direct",
-                signals=signals,
-                switch_score=switch_score,
-                economics=economics,
-            )
-        if net_benefit > 0:
-            return DecisionResult(
-                action=ACTION_PARTIAL_SWITCH,
-                label=UI_LABELS[ACTION_PARTIAL_SWITCH][0],
-                reason=(
-                    f"Net benefit ₹{net_benefit:,.0f} is positive but tax+exit erodes it. "
-                    f"Phase the switch — stop Regular SIPs, migrate tranches as they cross LTCG."
-                ),
-                decision_case="A_direct",
-                signals=signals,
-                switch_score=switch_score,
-                economics=economics,
-            )
-        return DecisionResult(
-            action=ACTION_HOLD_DEFER,
-            label=UI_LABELS[ACTION_HOLD_DEFER][0],
-            reason=(
-                f"Tax+exit cost ₹{tax_cost + exit_cost:,.0f} currently exceeds projected saving "
-                f"₹{total_cost_saving:,.0f}. Revisit after LTCG eligibility or exit-load drop."
-            ),
-            decision_case="A_direct",
-            signals=signals,
-            switch_score=switch_score,
-            economics=economics,
-        )
-
-    # ── Case B: Fund-to-Fund Switch (only if alt exists) ───────────
-    if inp.better_alternative_exists:
-        if switch_score >= 3 and net_benefit > 0:
-            return DecisionResult(
-                action=ACTION_STRONG_SWITCH_FUND,
-                label=UI_LABELS[ACTION_STRONG_SWITCH_FUND][0],
-                reason=f"Switch score {switch_score}/5 with positive net benefit ₹{net_benefit:,.0f} — better alternative found.",
-                decision_case="B_fund",
-                signals=signals,
-                switch_score=switch_score,
-                economics=economics,
-            )
-        if switch_score == 2 and net_benefit > 0:
-            return DecisionResult(
-                action=ACTION_PARTIAL_SWITCH,
-                label=UI_LABELS[ACTION_PARTIAL_SWITCH][0],
-                reason=f"Switch score {switch_score}/5 with modest net benefit ₹{net_benefit:,.0f} — migrate 25-50% to alternative.",
-                decision_case="B_fund",
-                signals=signals,
-                switch_score=switch_score,
-                economics=economics,
-            )
-
-    # ── Default: HOLD ───────────────────────────────────────────────
-    return DecisionResult(
-        action=ACTION_HOLD,
-        label=UI_LABELS[ACTION_HOLD][0],
-        reason="No compelling switch case. Continue holding.",
-        decision_case="default",
-        signals=signals,
-        switch_score=switch_score,
-        economics=economics,
+    # 5b: Exit load protection
+    cost_saving_for_exit_check = (
+        alt_cost_saving if better_alternative_exists else direct_saving
     )
+    if exit_cost > 0 and exit_cost > cost_saving_for_exit_check and cost_saving_for_exit_check > 0:
+        return _res(ACTION_HOLD_EXIT_LOAD, 0, None, [
+            f"Exit load ₹{exit_cost:,.0f} exceeds total cost saving ₹{cost_saving_for_exit_check:,.0f}.",
+            "Wait for the exit-load window to expire.",
+        ])
+
+    # 5c: No better option AT ALL
+    if not better_alternative_exists and not inp.direct_plan_available:
+        return _res(ACTION_HOLD_NO_OPTION, 0, None, [
+            "No better fund alternative found and Direct plan unavailable.",
+            "Continue holding.",
+        ])
+
+    # ── Step 6: DIRECT PLAN PRIORITY (takes precedence over fund switch) ──
+    # Rationale: same fund + lower TER = zero diversification risk,
+    # just pure cost saving. Fund swap only makes sense when Direct
+    # isn't available OR when fund itself is truly weak.
+    if inp.direct_plan_available and expense_diff_direct >= EXPENSE_DIFF_MIN_FOR_DIRECT:
+        if (tax_cost + exit_cost) < direct_saving:
+            reasons = [
+                f"Direct plan saves ~₹{direct_saving / max(1, inp.years_to_goal):,.0f}/yr "
+                f"(~₹{direct_saving:,.0f} over {int(inp.years_to_goal)}y).",
+                f"Tax+exit cost ₹{tax_cost + exit_cost:,.0f} is covered by saving — clear economic win.",
+            ]
+            return _res(ACTION_STRONG_SWITCH_DIRECT, 100, "Direct plan (same fund)", reasons)
+        # Partial / phased
+        if net_benefit_direct > 0:
+            return _res(ACTION_PHASED_SWITCH_DIRECT, 40, "Direct plan (phase over time)", [
+                f"Net benefit ₹{net_benefit_direct:,.0f} is positive but tax+exit erodes half.",
+                "Stop Regular SIPs; migrate tranches as each crosses LTCG threshold.",
+            ])
+        # Net negative — defer
+        return _res(ACTION_HOLD_DEFER, 0, None, [
+            f"Tax+exit cost ₹{tax_cost + exit_cost:,.0f} currently exceeds direct-plan saving ₹{direct_saving:,.0f}.",
+            "Revisit after LTCG eligibility or exit-load drop.",
+        ])
+
+    # ── Step 7: FUND SWITCH DECISION ─────────────────────────────────
+    if better_alternative_exists:
+        if switch_score >= 3 and net_benefit_alt > 0:
+            reasons = [
+                f"Switch score {switch_score}/5 with net benefit ₹{net_benefit_alt:,.0f}.",
+                f"Better alternative found: {best_alt.name}.",
+            ]
+            _append_signal_reasons(reasons, signals)
+            return _res(ACTION_STRONG_SWITCH, 100, best_alt.name, reasons)
+
+        if switch_score == 2 and net_benefit_alt > 0:
+            reasons = [
+                f"Switch score 2/5 with modest benefit ₹{net_benefit_alt:,.0f}.",
+                f"Migrate 25-50% to {best_alt.name}; keep core for LTCG staging.",
+            ]
+            return _res(ACTION_PARTIAL_SWITCH, 40, best_alt.name, reasons)
+
+        if switch_score >= 3 and net_benefit_alt <= 0:
+            # Wait-for-tax-efficiency watchlist
+            return _res(ACTION_WATCHLIST, 0, best_alt.name, [
+                f"Switch score {switch_score}/5 — signals are weak but tax drag kills the deal.",
+                "Watchlisted: review monthly as LTCG threshold approaches.",
+            ])
+
+        # Step 8: SIP redirect fallback (switch_score ≥ 2 but net ≤ 0)
+        if switch_score >= 2 and net_benefit_alt <= 0:
+            return _res(ACTION_SIP_REDIRECT, 0, best_alt.name, [
+                f"Existing units stay put (tax drag). Redirect NEW SIPs to {best_alt.name}.",
+                "Zero-tax migration over the investment horizon.",
+            ])
+
+    # ── Step 8: LTCG harvesting (default fall-through) ───────────────
+    # If the fund is held ≥ 1yr and gain exceeds ₹1L exemption, even if
+    # we otherwise recommend HOLD, propose a partial harvest to lock in
+    # tax-free gains.
+    if inp.is_equity and inp.holding_period_days is not None and inp.holding_period_days >= 365 and gain > LTCG_EXEMPTION_RS:
+        return _res(ACTION_PARTIAL_SWITCH, 20, best_alt.name if best_alt else "Same fund (harvest)", [
+            f"Gain ₹{gain:,.0f} exceeds ₹1L LTCG exemption.",
+            "Harvest ₹1L tax-free annually to reset cost basis.",
+        ])
+
+    # ── Default: HOLD ────────────────────────────────────────────────
+    return _res(ACTION_HOLD, 0, None, ["No compelling switch case. Continue holding."])
 
 
+def _append_signal_reasons(reasons: List[str], signals: Dict[str, int]) -> None:
+    if signals.get("exit_signal", 0) >= 2:
+        reasons.append("Low exit score (E < 40)")
+    elif signals.get("exit_signal", 0) == 1:
+        reasons.append("Moderate exit signal (E 40-60)")
+    if signals.get("quality_signal"):
+        reasons.append("Weak quality (Q < 50)")
+    if signals.get("health_signal"):
+        reasons.append("Weak health (H < 50)")
+    if signals.get("add_signal"):
+        reasons.append("Low add-score fit (A < 50)")
+
+
+# ── Output serialiser (Step 9) ──────────────────────────────────────────
 def result_to_dict(res: DecisionResult) -> Dict[str, Any]:
-    """Serialise DecisionResult for JSON response."""
     return {
         "action": res.action,
         "label": res.label,
-        "reason": res.reason,
-        "decision_case": res.decision_case,
-        "signals": res.signals,
+        "allocation": f"{res.allocation_pct}%",
+        "allocation_pct": res.allocation_pct,
+        "from_fund": res.from_fund,
+        "to_fund": res.to_fund,
         "switch_score": res.switch_score,
-        "economics": res.economics,
+        "signals": res.signals,
+        "net_benefit": res.breakdown.get("net_benefit_alt") or res.breakdown.get("net_benefit_direct", 0),
+        "breakdown": res.breakdown,
+        "reason": res.reason,
+        "alt_score": res.alt_score,
     }
