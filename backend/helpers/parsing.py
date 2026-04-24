@@ -485,6 +485,13 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
             "quantity": holding_doc["quantity"],
         })
 
+    # Invalidate the MFD profile-signal cache for this user so the Advisor
+    # dashboard picks up the fresh health score on next load.
+    try:
+        await db.mfd_profile_signal_cache.delete_one({"user_id": user_id})
+    except Exception:  # noqa: BLE001
+        pass
+
     msg = f"{len(holdings_added)} holdings imported from {file_type}"
     if is_cas and old_count > 0:
         msg = f"{len(holdings_added)} holdings imported from {file_type} (replaced {old_count} previous)"

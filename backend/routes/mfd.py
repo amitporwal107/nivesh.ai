@@ -88,7 +88,29 @@ async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
         holdings — the "AUM as of today".
       - ai_summary: one-line explain-why, built from the Health summary.
       - recommendations: active action plan rows.
+
+    Results are cached in `mfd_profile_signal_cache` with a 15-minute TTL
+    so the Advisor list loads in <1s even for 10+ clients (the uncached
+    build_portfolio_health path is 10-15s per client).
     """
+    from datetime import datetime, timezone, timedelta
+    cache_ttl = timedelta(minutes=15)
+    now = datetime.now(timezone.utc)
+    cached = await db.mfd_profile_signal_cache.find_one({"user_id": user_id}, {"_id": 0})
+    if cached:
+        try:
+            cached_at = datetime.fromisoformat(cached["cached_at"])
+            if now - cached_at < cache_ttl:
+                return {
+                    "portfolio_score":     cached.get("portfolio_score"),
+                    "risk_score":          cached.get("risk_score"),
+                    "portfolio_value_rs":  cached.get("portfolio_value_rs") or 0.0,
+                    "ai_summary":          cached.get("ai_summary"),
+                    "recommendations":     cached.get("recommendations") or [],
+                }
+        except Exception:  # noqa: BLE001
+            pass
+
     out: Dict[str, Any] = {
         "portfolio_score": None,
         "risk_score": None,
@@ -105,8 +127,6 @@ async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
             out["portfolio_score"] = float(hr.health_score)
             risk_comp = (hr.components or {}).get("risk")
             if risk_comp is not None:
-                # Component score is "risk health" (higher = safer).
-                # Priority engine + UI expect risk where higher = riskier.
                 out["risk_score"] = max(0.0, min(100.0, 100.0 - float(risk_comp.score)))
             if hr.summary:
                 out["ai_summary"] = hr.summary
@@ -138,6 +158,12 @@ async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
     ).limit(10):
         out["recommendations"].append(ap)
 
+    # Persist to the cache collection — upsert so the TTL resets each call.
+    await db.mfd_profile_signal_cache.update_one(
+        {"user_id": user_id},
+        {"$set": {**out, "user_id": user_id, "cached_at": now.isoformat()}},
+        upsert=True,
+    )
     return out
 
 
@@ -201,14 +227,19 @@ async def update_workspace_mode(payload: WorkspaceModeUpdate, request: Request):
 async def list_profiles(request: Request, include_self: bool = True):
     """Returns every profile in the user's workspace, each with a live
     priority score so the UI can sort/filter client-side."""
+    import asyncio
     user = await get_current_user(request)
     ws = await mfd_workspace.get_or_create_workspace(_session_user_id(user))
     profs = await mfd_workspace.list_profiles(
         ws["workspace_id"], include_self=include_self,
     )
-    hydrated: List[Dict[str, Any]] = []
-    for p in profs:
-        hydrated.append(await _profile_with_priority(p))
+    # Hydrate all profiles in parallel — each call runs build_portfolio_health
+    # which is I/O-bound. Serial execution across 3-10 clients was the
+    # primary cause of the "Loading client book…" stall observed on the
+    # Advisor dashboard (Apr 2026).
+    hydrated = list(await asyncio.gather(*(
+        _profile_with_priority(p) for p in profs
+    )))
     # Sort by priority score DESC so HIGH clients surface first.
     hydrated.sort(key=lambda x: x["priority"]["score"], reverse=True)
     return {"workspace": ws, "profiles": hydrated, "count": len(hydrated)}
