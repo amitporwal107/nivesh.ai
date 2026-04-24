@@ -16,6 +16,7 @@ Critical invariant: every non-trivial mutation requires that the target
 profile lives in a workspace owned by the session user. See `_owned_or_404`.
 """
 from __future__ import annotations
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,6 +25,7 @@ from pydantic import BaseModel, Field
 from deps import db, get_current_user
 from services import mfd_workspace, priority_engine
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mfd", tags=["mfd"])
 
 
@@ -72,43 +74,85 @@ async def _owned_or_404(profile_id: str, session_user_id: str) -> Dict[str, Any]
 
 async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
     """Pull the latest V3 snapshot + recommendations for a given user_id so
-    the priority engine has something to chew on. Tolerant of missing data."""
+    the priority engine has something to chew on. Tolerant of missing data.
+
+    Returns:
+      - portfolio_score: unified Portfolio Health (0-100) from the same
+        service the dashboard uses — so the MFD row matches what they'll
+        see after impersonating.
+      - risk_score: 0-100 from the Health.components["risk"] sub-score,
+        inverted (the component is "risk health" where higher = safer;
+        we flip so higher = riskier to stay consistent with the priority
+        engine's convention).
+      - portfolio_value_rs: live sum of (quantity × current_price) across
+        holdings — the "AUM as of today".
+      - ai_summary: one-line explain-why, built from the Health summary.
+      - recommendations: active action plan rows.
+    """
     out: Dict[str, Any] = {
         "portfolio_score": None,
         "risk_score": None,
+        "portfolio_value_rs": 0.0,
+        "ai_summary": None,
         "recommendations": [],
     }
-    # Portfolio score / risk score — cached by the insights layer.
-    cached = await db.insights_cache.find_one(
-        {"user_id": user_id}, {"_id": 0},
-        sort=[("created_at", -1)],
-    )
-    if cached:
-        out["portfolio_score"] = (
-            cached.get("portfolio_score")
-            or cached.get("health_score")
-            or cached.get("quality_score")
-        )
-        out["risk_score"] = cached.get("risk_score")
-        out["recommendations"] = cached.get("recommendations") or []
-    # Also surface any recent action_plan entries as 'recommendations' so
-    # severity isn't always missing before the insights cache is populated.
-    if not out["recommendations"]:
-        async for ap in db.action_plans.find(
-            {"user_id": user_id, "status": {"$ne": "archived"}},
-            {"_id": 0, "action": 1, "type": 1},
-        ).limit(10):
-            out["recommendations"].append(ap)
+
+    # 1. Unified Portfolio Health (same service used by /insights/analysis).
+    try:
+        from services import portfolio_health as _ph
+        hr = await _ph.build_portfolio_health(user_id)
+        if hr and hr.health_score is not None:
+            out["portfolio_score"] = float(hr.health_score)
+            risk_comp = (hr.components or {}).get("risk")
+            if risk_comp is not None:
+                # Component score is "risk health" (higher = safer).
+                # Priority engine + UI expect risk where higher = riskier.
+                out["risk_score"] = max(0.0, min(100.0, 100.0 - float(risk_comp.score)))
+            if hr.summary:
+                out["ai_summary"] = hr.summary
+    except Exception:  # noqa: BLE001
+        logger.debug("build_portfolio_health failed for %s", user_id, exc_info=True)
+
+    # 2. Live AUM — sum(quantity × current_price) across all holdings.
+    try:
+        pipeline = [
+            {"$match": {"user_id": user_id}},
+            {"$group": {
+                "_id": None,
+                "value": {"$sum": {"$multiply": [
+                    {"$ifNull": ["$quantity", 0]},
+                    {"$ifNull": ["$current_price", 0]},
+                ]}},
+                "count": {"$sum": 1},
+            }},
+        ]
+        async for row in db.holdings.aggregate(pipeline):
+            out["portfolio_value_rs"] = float(row.get("value") or 0.0)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 3. Active action_plan entries → recommendations for priority engine.
+    async for ap in db.action_plans.find(
+        {"user_id": user_id, "status": {"$ne": "archived"}},
+        {"_id": 0, "action": 1, "type": 1},
+    ).limit(10):
+        out["recommendations"].append(ap)
+
     return out
 
 
 async def _profile_with_priority(prof: Dict[str, Any]) -> Dict[str, Any]:
     """Hydrate a profile dict with the computed priority result."""
     sig = await _latest_portfolio_signals(prof["shadow_user_id"])
+    # Prefer the live portfolio value (holdings × live price) over the
+    # manually-entered AUM field. The manual AUM is only a starting
+    # estimate from MFD onboarding; once holdings exist they are truth.
+    live_aum = sig.get("portfolio_value_rs") or 0.0
+    effective_aum = live_aum if live_aum > 0 else prof.get("aum_rs")
     pr = priority_engine.compute_priority(
         portfolio_score=sig.get("portfolio_score"),
         risk_score=sig.get("risk_score"),
-        aum_rs=prof.get("aum_rs"),
+        aum_rs=effective_aum,
         last_reviewed_at=prof.get("last_reviewed_at"),
         recommendations=sig.get("recommendations"),
         client_name=prof.get("name"),
@@ -117,6 +161,8 @@ async def _profile_with_priority(prof: Dict[str, Any]) -> Dict[str, Any]:
         **prof,
         "portfolio_score": sig.get("portfolio_score"),
         "risk_score": sig.get("risk_score"),
+        "portfolio_value_rs": live_aum if live_aum > 0 else None,
+        "ai_summary": sig.get("ai_summary"),
         "recommendation_count": len(sig.get("recommendations") or []),
         "priority": pr.to_dict(),
     }

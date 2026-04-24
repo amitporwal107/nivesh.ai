@@ -273,6 +273,10 @@ export default function MfdDashboard({ onEnterProfile }) {
   // ── Decorate ────────────────────────────────────────────────────────
   const decorated = useMemo(() => profiles.map((p) => ({
     ...p,
+    // Prefer live portfolio value (holdings × price). Fall back to the
+    // manually-entered AUM — used only for newly-onboarded clients before
+    // CAS upload completes.
+    _aum: (p.portfolio_value_rs && p.portfolio_value_rs > 0) ? p.portfolio_value_rs : p.aum_rs,
     _issue: deriveTopIssue(p),
     _action: deriveAction(p),
     _health: deriveHealth(p),
@@ -322,8 +326,8 @@ export default function MfdDashboard({ onEnterProfile }) {
   }, [decorated, search, filter]);
 
   const totalAum = useMemo(
-    () => profiles.reduce((acc, p) => acc + (p.aum_rs || 0), 0),
-    [profiles],
+    () => decorated.reduce((acc, p) => acc + (p._aum || 0), 0),
+    [decorated],
   );
 
   // ── ADVISORY-mode gate (unchanged) ──────────────────────────────────
@@ -579,16 +583,27 @@ export default function MfdDashboard({ onEnterProfile }) {
                         {p.name}
                         {p.type === "SELF" && (<Badge variant="outline" className="text-[8px] h-4 px-1">YOU</Badge>)}
                       </div>
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {(p.tags || []).join(" · ") || "—"}
-                      </div>
+                      {p.ai_summary ? (
+                        <div
+                          className="text-[10px] text-slate-500 truncate"
+                          title={p.ai_summary}
+                          data-testid={`ai-summary-${p.profile_id}`}
+                        >
+                          <Sparkles className="w-2.5 h-2.5 inline -mt-0.5 mr-0.5 text-indigo-500" />
+                          {p.ai_summary}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-500 truncate">
+                          {(p.tags || []).join(" · ") || "—"}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </button>
 
-                {/* AUM */}
+                {/* AUM — live portfolio value */}
                 <div className="col-span-1 text-right tabular-nums text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {fmtRs(p.aum_rs)}
+                  {fmtRs(p._aum)}
                 </div>
 
                 {/* Health score — north star + sub-scores inline */}
