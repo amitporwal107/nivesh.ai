@@ -22,13 +22,19 @@ def _resolve_gmail_redirect_uri(request: Request) -> str:
 
     Priority:
       1. `GMAIL_REDIRECT_URI` env/secret override (explicit production value)
-      2. Dynamic construction from the incoming request's base URL
-         → works across preview, custom domains, and production without
-         requiring a per-environment override.
+      2. Reconstruct from `X-Forwarded-Host` + `X-Forwarded-Proto` headers,
+         which the Kubernetes ingress sets to the **public** hostname
+         (request.base_url unfortunately returns the cluster-internal host
+         behind the ingress, which Google has NOT whitelisted → 400
+         redirect_uri_mismatch).
+      3. Fall back to `request.base_url` for local dev.
     """
     if GMAIL_REDIRECT_URI:
         return GMAIL_REDIRECT_URI
-    # `request.base_url` includes trailing slash; rstrip to normalise
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    fwd_proto = request.headers.get("x-forwarded-proto", "https")
+    if fwd_host:
+        return f"{fwd_proto}://{fwd_host}/api/oauth/gmail/callback"
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/oauth/gmail/callback"
 

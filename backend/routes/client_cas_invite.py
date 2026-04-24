@@ -105,11 +105,20 @@ async def _get_invite_or_404(token: str) -> dict:
 
 def _resolve_redirect_uri(request: Request) -> str:
     """Client OAuth redirect URI. We REUSE the existing whitelisted
-    `/api/oauth/gmail/callback` endpoint (which will dispatch to our
-    invite handler when it sees an `invite_*` state prefix). This
-    avoids needing to whitelist a new redirect URI in Google Console."""
+    `/api/oauth/gmail/callback` endpoint (which dispatches to our
+    invite handler when it sees an `invite_*` state prefix).
+
+    Priority mirrors `gmail._resolve_gmail_redirect_uri`:
+      1. GMAIL_REDIRECT_URI env override
+      2. X-Forwarded-Host (public hostname set by ingress)
+      3. request.base_url (cluster-internal — works only in local dev)
+    """
     if GMAIL_REDIRECT_URI:
         return GMAIL_REDIRECT_URI
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    fwd_proto = request.headers.get("x-forwarded-proto", "https")
+    if fwd_host:
+        return f"{fwd_proto}://{fwd_host}/api/oauth/gmail/callback"
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/oauth/gmail/callback"
 
