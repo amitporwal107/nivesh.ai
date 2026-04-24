@@ -284,3 +284,114 @@ async def deactivate_profile(request: Request):
         raise HTTPException(status_code=401, detail="No session token")
     await mfd_workspace.set_active_profile(token, None)
     return {"status": "ok", "active_profile_id": None}
+
+
+# ── Advisor notes (freeform + structured SIP meta) ──────────────────────
+class ClientNotesPayload(BaseModel):
+    """Structured notes about an MFD client. Stored per profile, editable
+    only by the workspace owner. SIP amount/due-date live here because
+    neither is reliably parsable from CAS — advisors input them manually
+    once, then we render it everywhere (snapshot · PDF report · priority
+    rules once we wire SIP-gap detection)."""
+    note: Optional[str] = Field(default=None, max_length=4000)
+    sip_amount_rs: Optional[float] = Field(default=None, ge=0)
+    sip_frequency: Optional[str] = None  # "monthly" | "quarterly" | etc.
+    next_sip_due: Optional[str] = None   # ISO yyyy-mm-dd
+    preferred_channel: Optional[str] = None  # "whatsapp" | "email" | "phone"
+
+
+def _notes_doc_out(doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Strip Mongo internals and default empty fields."""
+    if not doc:
+        return {
+            "note": None, "sip_amount_rs": None, "sip_frequency": None,
+            "next_sip_due": None, "preferred_channel": None,
+            "updated_at": None,
+        }
+    return {
+        "note": doc.get("note"),
+        "sip_amount_rs": doc.get("sip_amount_rs"),
+        "sip_frequency": doc.get("sip_frequency"),
+        "next_sip_due": doc.get("next_sip_due"),
+        "preferred_channel": doc.get("preferred_channel"),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
+@router.get("/profiles/{profile_id}/notes")
+async def get_client_notes(profile_id: str, request: Request):
+    user = await get_current_user(request)
+    await _owned_or_404(profile_id, _session_user_id(user))
+    doc = await db.mfd_client_notes.find_one(
+        {"profile_id": profile_id}, {"_id": 0},
+    )
+    return _notes_doc_out(doc)
+
+
+@router.put("/profiles/{profile_id}/notes")
+async def put_client_notes(
+    profile_id: str, payload: ClientNotesPayload, request: Request,
+):
+    from datetime import datetime, timezone
+    user = await get_current_user(request)
+    await _owned_or_404(profile_id, _session_user_id(user))
+    update = {
+        **payload.model_dump(exclude_none=False),
+        "profile_id": profile_id,
+        "owner_user_id": _session_user_id(user),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.mfd_client_notes.update_one(
+        {"profile_id": profile_id},
+        {"$set": update},
+        upsert=True,
+    )
+    doc = await db.mfd_client_notes.find_one({"profile_id": profile_id}, {"_id": 0})
+    return _notes_doc_out(doc)
+
+
+# ── Portfolio trend — derived, no schema change ─────────────────────────
+@router.get("/profiles/{profile_id}/portfolio-trend")
+async def portfolio_trend(profile_id: str, request: Request):
+    """Invested ₹ vs Current ₹ (live prices) for a profile's shadow user.
+    No real daily snapshot history exists yet, so we return the single
+    cumulative delta. The frontend renders it as a summary strip with an
+    optional "sparkline coming soon" placeholder."""
+    user = await get_current_user(request)
+    prof = await _owned_or_404(profile_id, _session_user_id(user))
+    shadow = prof["shadow_user_id"]
+    invested = 0.0
+    current = 0.0
+    recent_buys: List[Dict[str, Any]] = []
+    cursor = db.holdings.find(
+        {"user_id": shadow},
+        {"_id": 0, "name": 1, "quantity": 1, "buy_price": 1, "current_price": 1,
+         "buy_date": 1, "asset_type": 1},
+    )
+    async for h in cursor:
+        qty = float(h.get("quantity") or 0)
+        bp = float(h.get("buy_price") or 0)
+        cp = float(h.get("current_price") or 0)
+        invested += qty * bp
+        current  += qty * cp
+        bd = h.get("buy_date")
+        if bd:
+            recent_buys.append({
+                "name": h.get("name"),
+                "asset_type": h.get("asset_type"),
+                "quantity": qty,
+                "buy_price": bp,
+                "current_price": cp,
+                "value_rs": qty * cp,
+                "buy_date": bd,
+            })
+    recent_buys.sort(key=lambda r: r["buy_date"] or "", reverse=True)
+    delta = current - invested
+    pct = (delta / invested * 100.0) if invested > 0 else None
+    return {
+        "invested_rs": round(invested, 2),
+        "current_rs": round(current, 2),
+        "absolute_change_rs": round(delta, 2),
+        "percent_change": round(pct, 2) if pct is not None else None,
+        "recent_buys": recent_buys[:5],
+    }
