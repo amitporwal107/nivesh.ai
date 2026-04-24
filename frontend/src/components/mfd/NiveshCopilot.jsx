@@ -217,7 +217,7 @@ export default function NiveshCopilot({ open, onClose, clientName }) {
             >
               {models.map((m) => (
                 <option key={m.key} value={m.key} className="text-slate-900">
-                  {m.label} · {m.tier}
+                  {`${m.label} · ${m.tier}`}
                 </option>
               ))}
             </select>

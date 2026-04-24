@@ -145,6 +145,21 @@ async def _stock_nifty100_refresh_job():
         logger.warning(f"nifty100_refresh error: {e}")
 
 
+async def _portfolio_snapshot_job():
+    """Daily EOD portfolio snapshot — runs 23:30 IST, after all NAV /
+    analytics / V3 rescore jobs have completed, so per-holding
+    current_price + portfolio scores reflect the freshest EOD numbers."""
+    try:
+        from services.portfolio_snapshot import run_eod_snapshot_job
+        res = await run_eod_snapshot_job()
+        logger.info(
+            f"portfolio_snapshot ok={res.get('ok')}/{res.get('total')} "
+            f"failed={res.get('failed')} date={res.get('date')}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"portfolio_snapshot error: {e}")
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -188,6 +203,12 @@ def start():
     _scheduler.add_job(
         _stock_nifty100_refresh_job, CronTrigger(hour=23, minute=0),
         id="nifty100_refresh_daily", replace_existing=True, max_instances=1,
+    )
+    # Portfolio snapshot: daily 23:30 IST — immutable per-user snapshot
+    # of total value / allocation / V3 health. Powers the Time-Machine.
+    _scheduler.add_job(
+        _portfolio_snapshot_job, CronTrigger(hour=23, minute=30),
+        id="portfolio_snapshot_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

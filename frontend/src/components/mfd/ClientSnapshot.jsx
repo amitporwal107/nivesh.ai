@@ -13,6 +13,7 @@ import {
   Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Bot,
 } from "lucide-react";
 import NiveshCopilot from "./NiveshCopilot";
+import TimeMachineStrip from "./TimeMachineStrip";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -823,6 +824,11 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           </Button>
         </div>
       </div>
+
+      {/* ── Time Machine strip ─────────────────────────────────────
+          Sits directly below the header so the MFD sees "what
+          changed" as the first thing after the client's name.      */}
+      <TimeMachineStrip />
 
       {/* ── Today's brief banner ───────────────────────────────────
           Bullet list of "what to do today" for this client. Renders only

@@ -556,5 +556,20 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"post-upload MF inline scrape failed: {e}")
+
+        # Post-CAS snapshot — runs after enrichment so Health scores
+        # reflect the new holdings. Overwrites today's EOD snapshot if
+        # one already exists (later trigger wins).
+        try:
+            from services import portfolio_snapshot as _snap
+            snap = await _snap.persist_snapshot(user_id, trigger="cas_upload")
+            logger.info(
+                f"post-upload snapshot for {user_id}: "
+                f"value=₹{snap.get('total_value', 0):,.0f} "
+                f"holdings={snap.get('holdings_count', 0)} "
+                f"health={snap.get('health_score')}"
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"post-upload snapshot failed: {e}")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"_enrich_after_upload crashed: {e}")

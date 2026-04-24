@@ -51,6 +51,7 @@ from routes.plans import router as plans_router  # V2: Action Plans
 from routes.goals import router as goals_router  # Goal-Based Investment Planning
 from routes.compliance import router as compliance_router  # DPDP Act 2023 compliance
 from routes.mfd import router as mfd_router  # MFD multi-client layer
+from routes.portfolio_snapshots import router as portfolio_snapshots_router  # Time-Machine
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -83,6 +84,7 @@ app.include_router(plans_router)  # V2: Action Plans
 app.include_router(goals_router)  # Goal-Based Investment Planning
 app.include_router(compliance_router)  # DPDP: consent / audit / PAN / export
 app.include_router(mfd_router)  # MFD multi-client layer (User → Workspace → Profile)
+app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
 
 
 # Root endpoint
@@ -143,6 +145,12 @@ async def startup_seed():
             mf_scheduler.start()
     except Exception as e:
         logger.warning(f"MF scheduler start failed: {e}")
+    # Portfolio snapshot indexes (cheap, idempotent)
+    try:
+        from services import portfolio_snapshot as _snap
+        await _snap.ensure_indexes()
+    except Exception as e:
+        logger.warning(f"portfolio_snapshot index ensure failed: {e}")
 
 
 @app.on_event("shutdown")
