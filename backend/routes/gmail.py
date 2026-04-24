@@ -60,7 +60,19 @@ async def gmail_connect(request: Request):
 
 @router.get("/oauth/gmail/callback")
 async def gmail_callback(request: Request, code: str = "", state: str = "", error: str = ""):
-    """Handle Gmail OAuth callback from Google."""
+    """Handle Gmail OAuth callback from Google.
+
+    Dispatches by `state` prefix:
+      - `invite_*`  → client CAS invite flow (public, no session required)
+      - else        → standard logged-in user Gmail connect flow
+    """
+    # ── Dispatch: invite flow uses a dedicated handler that does not
+    # require the caller to be logged in to our app (the client who
+    # opened the public link is a stranger to our auth system).
+    if state and state.startswith("invite_"):
+        from routes.client_cas_invite import _handle_invite_oauth_callback
+        return await _handle_invite_oauth_callback(request, code, state, error)
+
     if error:
         logger.error(f"Gmail OAuth error: {error}")
         return RedirectResponse(url="/dashboard?gmail_error=denied")

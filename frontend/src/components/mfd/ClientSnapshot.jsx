@@ -10,10 +10,11 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, Target, AlertTriangle, CheckCircle2,
   Calendar, Sparkles, ArrowRight, Activity, Scale, RefreshCw, Plus, Eye,
   ShieldCheck, Receipt, Share2, Mail, MessageSquare, StickyNote, Save, Copy,
-  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Bot,
+  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Bot, Link2,
 } from "lucide-react";
 import NiveshCopilot from "./NiveshCopilot";
 import TimeMachineStrip from "./TimeMachineStrip";
+import ClientCasInviteModal from "./ClientCasInviteModal";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -458,6 +459,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [savingNotes, setSavingNotes] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const profileId = activeProfile?.profile_id;
 
@@ -806,6 +808,14 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               </button>
             </div>
           )}
+          <Button
+            variant="outline" size="sm"
+            onClick={() => setInviteOpen(true)}
+            data-testid="snapshot-invite-client"
+            className="h-8 text-xs"
+          >
+            <Link2 className="w-3.5 h-3.5 mr-1" /> Invite for CAS
+          </Button>
           <Button
             variant="default" size="sm"
             onClick={() => setCopilotOpen(true)}
@@ -1561,6 +1571,14 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
         open={copilotOpen}
         onClose={() => setCopilotOpen(false)}
         clientName={client.name}
+      />
+
+      {/* ── Client CAS invite modal ───────────────────────────────── */}
+      <ClientCasInviteModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        profileId={profileId}
+        profileName={client.name}
       />
     </div>
   );

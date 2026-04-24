@@ -52,6 +52,7 @@ from routes.goals import router as goals_router  # Goal-Based Investment Plannin
 from routes.compliance import router as compliance_router  # DPDP Act 2023 compliance
 from routes.mfd import router as mfd_router  # MFD multi-client layer
 from routes.portfolio_snapshots import router as portfolio_snapshots_router  # Time-Machine
+from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -85,6 +86,8 @@ app.include_router(goals_router)  # Goal-Based Investment Planning
 app.include_router(compliance_router)  # DPDP: consent / audit / PAN / export
 app.include_router(mfd_router)  # MFD multi-client layer (User → Workspace → Profile)
 app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
+app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
+app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 
 
 # Root endpoint

@@ -1,0 +1,39 @@
+{
+  "summary": "Full end-to-end coverage of Client CAS Invite flow (MFD auth routes + public client-facing routes + public wizard UI). Backend pytest: 15/15 passed. Frontend: MFD modal + public /cas-connect/:token wizard both behave correctly, including anonymous access and bad-token error state.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_client_cas_invite.py",
+    "/app/test_reports/pytest/iteration_51.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Public invite URL is built off request.headers.origin with a fallback to referer+base_url. Works in-browser but a pure curl (no Origin header) falls back to cluster-internal base_url — not a bug for real users, but worth keeping in mind.",
+    "oauth_tokens are correctly excluded from MFD list response via projection {'oauth_tokens': 0}. Confirmed in test.",
+    "Revoke clears oauth_tokens to None and sets status=REVOKED — good. Bad-token revoke returns 404 (safe).",
+    "_handle_invite_oauth_callback is reachable via both /api/public/cas-invite/oauth/callback (legacy shim) and /api/oauth/gmail/callback (dispatch via state prefix invite_*). Dispatch confirmed at routes/gmail.py line 72-74.",
+    "Public GET /{token} soft-expires invite to EXPIRED in DB on read when past expiry — good self-healing behaviour.",
+    "404 is returned for non-existent invites AND when revoke is requested on a token that doesn't belong to the profile/user — this prevents enumeration.",
+    "Token format is uuid4().hex (128-bit entropy) — acceptable for a 7-day shareable link."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_client_cas_invite.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "priyankamantri@gmail.com (session_token=370eff71-fda1-46d8-b506-b81b894d634f). Profile AMIT PORWAL id=4aed5824-6b0b-4a4a-9cf4-6bfb3cb6e321.",
+  "seed_data_creation": "Several test invites created under profile AMIT PORWAL during pytest + UI flow. Left in DB for next iteration's context (history card shows them).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend: 15 pytest cases in /app/backend/tests/test_client_cas_invite.py cover create/list/revoke/unauth/404/410/expired/public-details/gmail-connect-url/scan-guard/status. Uses pymongo directly to simulate expiry (MONGO_URL+DB_NAME env). Frontend: priyanka's Client 360 for AMIT PORWAL → header button data-testid='snapshot-invite-client' → modal data-testid='invite-modal' → data-testid='invite-active' + data-testid='invite-url-input' (must start with window.location.origin /cas-connect/<token>). Public page /cas-connect/:token renders without a session cookie; header data-testid='cas-connect-header'; Google sign-in button data-testid='cas-google-signin'. Invalid token shows 'Link not available' AlertCircle card. The 401s seen in browser console on the public page are from the global app bootstrap that tries /api/me — harmless; public page is not gated on it. Actual Google OAuth round-trip is intentionally not exercised.",
+  "rca of the issue": "N/A — no bugs found. Feature is production-ready for the scope tested."
+}

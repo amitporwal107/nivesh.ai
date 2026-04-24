@@ -9,6 +9,7 @@ import { Toaster } from "@/components/ui/sonner";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import CasCallback from "@/pages/CasCallback";
+import CasConnect from "@/pages/CasConnect";
 import Privacy from "@/pages/Privacy";
 
 const ProtectedRoute = ({ children }) => {
@@ -30,6 +31,7 @@ function AppRouter() {
       <Route path="/" element={<Landing />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/cas-callback" element={<CasCallback />} />
+      <Route path="/cas-connect/:token" element={<CasConnect />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

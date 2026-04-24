@@ -2,6 +2,35 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Client CAS Invite (Shareable Gmail-Connect Link for MFDs)
+User requirement: the MFD cannot touch a client's Gmail directly (the client is on a different machine), so we need a per-profile shareable link. The MFD sends it to the client (WhatsApp/email), the client opens it on their own device, signs in with their own Gmail, picks which CAMS/KFintech CAS emails to share, and we parse + attach holdings to the advisor's client profile.
+
+**Backend** (`routes/client_cas_invite.py` — NEW, ~330 LOC):
+
+MFD-authenticated endpoints (under `/api/mfd/`):
+- `POST /profiles/{profile_id}/cas-invite` — generate invite token + URL. Returns `{invite_token, invite_url, expires_at, advisor_name, advisor_firm}`. Auto-expires in 7 days (configurable 1–30).
+- `GET /profiles/{profile_id}/cas-invites` — list invite history (never leaks OAuth tokens).
+- `POST /profiles/{profile_id}/cas-invite/{token}/revoke` — revoke pending invite.
+
+Public endpoints (NO auth, under `/api/public/cas-invite/`):
+- `GET /{token}` — invite details for the public page (advisor name, profile name, expiry, status).
+- `GET /{token}/gmail/connect` — returns Google OAuth auth_url with state prefixed `invite_{token}_*`.
+- `POST /{token}/scan` — after OAuth, scans last 12 months of Gmail for CAMS/KFintech CAS emails.
+- `POST /{token}/import` — client picks email message_ids + PAN+DOB password → background parse → holdings attached to profile's shadow_user_id.
+- `GET /{token}/status` — poll endpoint for progress (processed_files with status/holdings_count/error per file).
+
+Google OAuth dispatch: `state` prefix `invite_*` is routed by the existing `/api/oauth/gmail/callback` handler to `_handle_invite_oauth_callback()`. **This reuses the existing whitelisted redirect URI** — no Google Cloud Console changes needed.
+
+Privacy: OAuth tokens are scoped to the invite document (`client_cas_invites.oauth_tokens`) and **discarded automatically on COMPLETED status**. Client's email is captured only for audit on the MFD-side invite history.
+
+DB collection: `client_cas_invites` with fields `{invite_token, workspace_id, profile_id, profile_name, advisor_name, advisor_email, advisor_firm, created_by_user_id, created_at, expires_at, status (PENDING|AUTHORIZED|COMPLETED|EXPIRED|REVOKED), client_email, authorized_at, completed_at, oauth_tokens, processed_files[]}`.
+
+**Frontend**:
+- `pages/CasConnect.jsx` — NEW public 4-step wizard mounted at `/cas-connect/:token` (no app shell, no login required). Welcome → Google sign-in → pick CAS emails with checkboxes → confirm PAN+DOB password → import with live progress polling. Gradient bg, stepper, Google icon, trust cues ("Read-only · Revocable · 2 minutes"), privacy footer.
+- `components/mfd/ClientCasInviteModal.jsx` — NEW. Shown from Client 360 header via "Invite for CAS" button. Generates link, copy button, WhatsApp / Email share, invite history with status badges (PENDING/AUTHORIZED/COMPLETED/EXPIRED/REVOKED) + revoke button. URL constructed from `window.location.origin` (not backend base_url) so it uses the externally-reachable host.
+
+**Testing**: Curl verified end-to-end: invite create returns well-formed `invite_url`; public details endpoint returns advisor + client info; unauth POST returns 401; bad token returns 404; Google OAuth URL generated with correct `state=invite_{token}_*`, scopes `gmail.readonly`, redirect_uri points at whitelisted `/api/oauth/gmail/callback`. Full OAuth round-trip requires real Google sign-in (deferred to manual QA).
+
 ### Apr 2026 — Phase 1: Portfolio Time-Machine (Snapshot Engine)
 User's new north-star: transform Nivesh from a static portfolio analyzer into a "Continuous Portfolio Intelligence System" with 4 pillars (Gmail sync / Orchestrator / Snapshot Engine / Historical Client 360). Phase 1 ships the Snapshot Engine + Time-Travel API + header strip UI.
 
