@@ -243,18 +243,27 @@ export default function MfdDashboard({ onEnterProfile }) {
     }
   };
 
-  const activateProfile = async (profile) => {
+  const activateProfile = async (profile, opts) => {
     setActivating(profile.profile_id);
     try {
       await axios.post(`${API}/mfd/profiles/${profile.profile_id}/activate`, {},
                        { withCredentials: true });
       toast.success(`Opened ${profile.name}'s portfolio`);
-      onEnterProfile?.(profile);
+      onEnterProfile?.(profile, opts);
     } catch (e) {
       toast.error("Could not open profile");
     } finally {
       setActivating(null);
     }
+  };
+
+  // Route the Rebalance / Switch action verbs to the Plan Board (where
+  // action cards live) and everything else to the standard Overview.
+  const openAction = (p) => {
+    const actionLabel = p._action?.label || "";
+    const tab = (actionLabel === "Rebalance" || actionLabel === "Switch")
+      ? "plan_board" : "overview";
+    activateProfile(p, { tab });
   };
 
   const removeProfile = async (profile, e) => {
@@ -461,7 +470,7 @@ export default function MfdDashboard({ onEnterProfile }) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => activateProfile(p)}
+                    onClick={() => openAction(p)}
                     disabled={activating === p.profile_id}
                     data-testid={`feed-action-${p.profile_id}`}
                     className={`inline-flex items-center gap-1.5 rounded-lg px-3 h-8 text-[11px] font-semibold transition-all disabled:opacity-60 flex-shrink-0 ${t.btn}`}
@@ -671,7 +680,7 @@ export default function MfdDashboard({ onEnterProfile }) {
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          onClick={() => activateProfile(p)}
+                          onClick={() => openAction(p)}
                           disabled={activating === p.profile_id}
                           data-testid={`mfd-action-btn-${p.profile_id}`}
                           className={`inline-flex items-center gap-1.5 rounded-lg px-3 h-8 text-[11px] font-semibold transition-all disabled:opacity-60 ${actionTone.btn}`}

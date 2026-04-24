@@ -114,10 +114,10 @@ const Dashboard = () => {
   // profile on the server (impersonation) and then navigate to Overview so
   // every existing view (portfolio / insights / goals) re-renders against
   // the client's data. A one-line toast tells the user what happened.
-  const enterProfile = useCallback(async (profile) => {
+  const enterProfile = useCallback(async (profile, opts) => {
     setActiveProfile(profile);
     await fetchData();
-    setActiveTab("overview");
+    setActiveTab(opts?.tab || "overview");
   }, [setActiveTab, fetchData]);
 
   // Exit impersonation — returns the MFD to the client list.
