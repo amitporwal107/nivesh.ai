@@ -67,8 +67,83 @@ const ACTION_VIEW = {
   add:          { label: "Add more",     Icon: Plus,      tone: "indigo"  },
 };
 
+// ── Top issues + projected health ────────────────────────────────────
+// Uses the pre-computed `risk_drivers` array from /insights/analysis. Each
+// driver carries an `impact_points` value (improvement possible within its
+// component). We multiply by component weight to project the portfolio-
+// level delta, and cap the projection at 100.
+const computeTopIssues = (health) => {
+  if (!health?.risk_drivers?.length) return { issues: [], projected: null };
+  const components = health.components || {};
+  // Lookup weight by component name (drivers carry `component` like "Diversification").
+  const weightByName = {};
+  for (const c of Object.values(components)) {
+    if (c?.name) weightByName[c.name] = c.weight || 0;
+  }
+  const issues = health.risk_drivers.slice(0, 3).map((d) => {
+    const weight = weightByName[d.component] || 0;
+    const portfolioDelta = (d.impact_points || 0) * weight;
+    return {
+      label: d.label,
+      detail: d.detail,
+      component: d.component,
+      impact: portfolioDelta,
+    };
+  });
+  const totalDelta = issues.reduce((s, x) => s + x.impact, 0);
+  const projected = health.health_score != null
+    ? Math.min(100, Math.round(health.health_score + totalDelta))
+    : null;
+  return { issues, projected, totalDelta };
+};
+
+// Deterministic 3-4 line portfolio narrative — no LLM. Combines grade,
+// best/worst component, top issue, and action pressure. Easy to upgrade
+// to GPT-5.2 later (same output contract) once we're happy with the
+// product shape.
+
 // Product cap — keep in sync with MAX_GOALS in GoalsView.jsx and backend.
 const MAX_GOALS_CLIENT = 4;
+
+const buildNarrative = ({ health, actions, goals }) => {
+  if (!health?.components) return null;
+  const entries = Object.entries(health.components)
+    .filter(([, c]) => c?.score != null)
+    .map(([, c]) => ({ name: c.name, score: c.score }));
+  if (!entries.length) return null;
+  const sorted = [...entries].sort((a, b) => b.score - a.score);
+  const strongest = sorted[0];
+  const weakest   = sorted[sorted.length - 1];
+  const grade     = health.grade;
+  const criticalCount = actions.filter((a) => bucketFor(a) === "critical").length;
+
+  // Line 1 — grade-level framing
+  const l1 = grade === "A"
+    ? "This is a high-quality portfolio overall — solid fundamentals across the board."
+    : grade === "B"
+      ? "This portfolio is in decent shape overall but has one or two clear gaps worth fixing."
+      : grade === "C"
+        ? "This portfolio needs attention — several components are below target and are dragging the health score down."
+        : "This portfolio has multiple structural issues that warrant an active review.";
+
+  // Line 2 — strongest + weakest contrast
+  const l2 = `Strongest area is ${strongest.name.toLowerCase()} (${Math.round(strongest.score)}/100)`
+    + `; the weakest is ${weakest.name.toLowerCase()} (${Math.round(weakest.score)}/100).`;
+
+  // Line 3 — fix pressure
+  const l3 = criticalCount > 0
+    ? `${criticalCount} critical action${criticalCount === 1 ? "" : "s"} are open — clearing ${criticalCount === 1 ? "it" : "them"} has the highest short-term impact on health.`
+    : actions.length > 0
+      ? `Open recommendations are all optimisations — no urgent fire to put out.`
+      : `No open recommendations — portfolio is on autopilot.`;
+
+  // Line 4 — goal context (only if any goals exist)
+  const l4 = (goals || []).length
+    ? `${goals.length} goal${goals.length === 1 ? "" : "s"} tracked; keep SIPs steady to stay on course.`
+    : null;
+
+  return [l1, l2, l3, l4].filter(Boolean).join(" ");
+};
 
 
 // ── Reason-code → human label + badge mapping ────────────────────────
@@ -498,6 +573,53 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
     return { label: "Risk higher than profile", tone: "rose" };
   })();
 
+  // Pass 2 derivations — insight layer.
+  const topIssues = useMemo(() => computeTopIssues(health), [health]);
+  const narrative = useMemo(
+    () => buildNarrative({ health, actions, goals }),
+    [health, actions, goals],
+  );
+
+  // Today's brief — concise bulleted summary at the top of the snapshot.
+  // Each bullet is a decision the MFD can act on today. Bullets are
+  // derived from action buckets + biggest top-issue, not from static copy.
+  const brief = useMemo(() => {
+    const bullets = [];
+    const grouped = { critical: [], optimise: [], enhance: [] };
+    for (const a of actions) grouped[bucketFor(a)].push(a);
+    if (grouped.critical.length) {
+      bullets.push({
+        icon: AlertTriangle, tone: "rose",
+        text: `Fix ${grouped.critical.length} critical action${grouped.critical.length === 1 ? "" : "s"}`,
+      });
+    }
+    if (grouped.optimise.length) {
+      bullets.push({
+        icon: Scale, tone: "amber",
+        text: `Review ${grouped.optimise.length} optimisation${grouped.optimise.length === 1 ? "" : "s"}`,
+      });
+    }
+    if (grouped.enhance.length) {
+      bullets.push({
+        icon: Plus, tone: "indigo",
+        text: `Consider ${grouped.enhance.length} enhancement${grouped.enhance.length === 1 ? "" : "s"}`,
+      });
+    }
+    if (topIssues.issues.length && topIssues.projected != null && topIssues.totalDelta >= 3) {
+      bullets.push({
+        icon: Sparkles, tone: "emerald",
+        text: `Fix top 3 issues → lifts health ${Math.round(health?.health_score || 0)} → ${topIssues.projected}`,
+      });
+    }
+    if (!goals.length) {
+      bullets.push({
+        icon: Target, tone: "slate",
+        text: "Capture goals to unlock SIP-gap analysis",
+      });
+    }
+    return bullets.slice(0, 4);
+  }, [actions, topIssues, goals, health]);
+
   // ── Share ────────────────────────────────────────────────────────
   // We build a plain-text summary the MFD can paste into WhatsApp or
   // email. Intentionally no raw link for now (there's no public share
@@ -602,6 +724,43 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
         </div>
       </div>
 
+      {/* ── Today's brief banner ───────────────────────────────────
+          Bullet list of "what to do today" for this client. Renders only
+          when there's something actionable — otherwise stays silent so
+          the MFD doesn't see empty cheerleader copy.                  */}
+      {!loading && brief.length > 0 && (
+        <Card
+          className="p-4 border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50/80 via-white to-white dark:from-indigo-900/20 dark:via-slate-900 dark:to-slate-900"
+          data-testid="snapshot-daily-brief"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-600">
+                Today's brief for {client.name}
+              </div>
+              <ul className="mt-1.5 grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-1">
+                {brief.map((b, i) => {
+                  const bt = TONE[b.tone] || TONE.slate;
+                  return (
+                    <li
+                      key={i}
+                      data-testid={`brief-item-${i}`}
+                      className="flex items-start gap-1.5 text-sm text-slate-700 dark:text-slate-200"
+                    >
+                      <b.icon className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${bt.text}`} />
+                      <span>{b.text}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* ── Portfolio trend strip ─────────────────────────────────── */}
       {trend && trend.invested_rs > 0 && (
         <Card className="p-4" data-testid="snapshot-trend-strip">
@@ -679,6 +838,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 leading-relaxed" data-testid="snapshot-health-summary">
                   {health?.summary || client.ai_summary || "No summary available yet."}
                 </p>
+                {/* riskAlignment stays below (same line) */}
                 <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium" data-testid="snapshot-risk-alignment">
                   <ShieldCheck className={`w-3.5 h-3.5 ${TONE[riskAlignment.tone].text}`} />
                   <span className={TONE[riskAlignment.tone].text}>
@@ -687,6 +847,69 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 </div>
               </div>
             </div>
+
+            {/* AI narrative — deterministic for now */}
+            {narrative && (
+              <div
+                data-testid="snapshot-ai-narrative"
+                className="mt-5 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border-l-4 border-indigo-400"
+              >
+                <div className="flex items-start gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-[12px] text-slate-700 dark:text-slate-200 leading-relaxed">
+                    {narrative}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Top issues + projected health */}
+            {topIssues.issues.length > 0 && (
+              <div
+                data-testid="snapshot-top-issues"
+                className="mt-4"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-rose-600 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3 h-3" /> Top issues hurting health
+                  </div>
+                  {topIssues.projected != null && hs != null && topIssues.totalDelta >= 3 && (
+                    <div
+                      data-testid="snapshot-projected-score"
+                      className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1"
+                    >
+                      <TrendingUp className="w-3 h-3" />
+                      Fix all → {Math.round(hs)} → {topIssues.projected}
+                    </div>
+                  )}
+                </div>
+                <ul className="space-y-1.5">
+                  {topIssues.issues.map((iss, i) => (
+                    <li
+                      key={i}
+                      data-testid={`top-issue-${i}`}
+                      className="flex items-start gap-2 text-xs rounded-md bg-rose-50/60 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800/50 p-2"
+                    >
+                      <span className="flex-shrink-0 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-bold flex items-center justify-center">
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">
+                          {iss.label}
+                        </div>
+                        <div className="text-[10px] text-slate-500 line-clamp-2">{iss.detail}</div>
+                      </div>
+                      <span
+                        className="flex-shrink-0 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 tabular-nums"
+                        title="Projected health improvement if fixed"
+                      >
+                        +{iss.impact.toFixed(1)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Component breakdown — component keys come from the backend
                 response (diversification / risk / cost / performance) so we
