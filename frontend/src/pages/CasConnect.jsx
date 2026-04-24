@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   ShieldCheck, Mail, Loader2, CheckCircle2, AlertCircle, Lock,
   Calendar, User, Building2, Sparkles, FileText, ArrowRight,
+  Phone, CreditCard, MessageSquare,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -16,16 +17,12 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 /**
  * Public CAS-Connect page — standalone wizard, NO app shell, NO auth.
  *
- * The MFD sends this URL to the client on WhatsApp/email. The client
- * opens it on their own device, signs in with their own Gmail, picks
- * which CAS statements to import, and confirms PAN+DOB to unlock PDFs.
- * We fetch + parse + attach holdings to the advisor's client profile.
- *
- * 4 steps:
- *   0. Welcome / trust          — shows advisor name + firm
- *   1. Google sign-in           — one-click OAuth
- *   2. Pick CAS emails          — checkboxes, last 12 months
- *   3. Confirm PAN+DOB + import — kicks off background parse
+ * Updated flow (5 steps):
+ *   0. Welcome / trust         — advisor intro
+ *   1. Your details            — Name · Mobile · Email · PAN + 3 consents
+ *   2. Google sign-in          — one-click OAuth (uses captured email as hint)
+ *   3. Pick CAS emails         — checkboxes, PAN auto-used as password
+ *   4. Done + progress         — live poll of background processing
  */
 export default function CasConnect() {
   const { token } = useParams();
@@ -34,24 +31,43 @@ export default function CasConnect() {
 
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null);       // {detail, reason, advisor_mobile, advisor_name}
 
   // Step state
   const [step, setStep] = useState(0);
+
+  // Step 1 — client details
+  const [form, setForm] = useState({ name: "", mobile: "", email: "", pan: "" });
+  const [consents, setConsents] = useState({ cas: true, gmail: true, advisor: true });
+  const [submittingDetails, setSubmittingDetails] = useState(false);
+
+  // Step 3 — email picker
   const [emails, setEmails] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [password, setPassword] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [processStatus, setProcessStatus] = useState(null); // {status, processed_files}
 
-  // ── Load invite details on mount ──
+  // Step 4 — import + poll
+  const [importing, setImporting] = useState(false);
+  const [processStatus, setProcessStatus] = useState(null);
+
+  // ── Load invite details ──
   const loadDetails = useCallback(async () => {
     try {
       const { data } = await axios.get(`${API}/public/cas-invite/${token}`);
       setDetails(data);
-      if (data.status === "AUTHORIZED" || preAuthorized) setStep(2);
-      if (data.status === "COMPLETED") setStep(3);
+      // Pre-fill form with hints from MFD
+      if (data.prefill) {
+        setForm((f) => ({
+          name:   f.name   || data.prefill.name   || "",
+          mobile: f.mobile || data.prefill.mobile || "",
+          email:  f.email  || data.prefill.email  || "",
+          pan:    f.pan    || "",
+        }));
+      }
+      // Resume at the right step
+      if (data.status === "COMPLETED") setStep(4);
+      else if (data.status === "AUTHORIZED" || preAuthorized) setStep(3);
+      else if (data.status === "DETAILS_CAPTURED" || data.has_client_details) setStep(2);
     } catch (e) {
       setError(e?.response?.data?.detail || "Invite link invalid or expired.");
     } finally {
@@ -61,15 +77,51 @@ export default function CasConnect() {
 
   useEffect(() => { loadDetails(); }, [loadDetails]);
 
-  // After Google OAuth returns, auto-scan
+  // Auto-scan when we arrive on the picker step authorized
   useEffect(() => {
-    if ((details?.status === "AUTHORIZED" || preAuthorized) && step === 2 && emails.length === 0 && !scanning) {
-      scanEmails();
-    }
+    if (step === 3 && emails.length === 0 && !scanning) scanEmails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [details, preAuthorized, step]);
+  }, [step]);
 
-  // ── Step 1: launch Gmail OAuth ──
+  // ── Step 1: submit client details ──
+  const submitDetails = async () => {
+    if (!consents.cas || !consents.advisor) {
+      toast.error("CAS access and Advisor access consents are required");
+      return;
+    }
+    const pan = form.pan.trim().toUpperCase();
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+      toast.error("PAN format should be ABCDE1234F");
+      return;
+    }
+    setSubmittingDetails(true);
+    try {
+      const { data } = await axios.post(`${API}/public/cas-invite/${token}/client-details`, {
+        name: form.name.trim(),
+        mobile: form.mobile.trim(),
+        email: form.email.trim(),
+        pan,
+        consent_cas_access: consents.cas,
+        consent_gmail_access: consents.gmail,
+        consent_advisor_access: consents.advisor,
+      });
+      toast.success("Details captured");
+      if (consents.gmail) {
+        setStep(2);
+      } else {
+        // CAS upload fallback path — out of scope for this round, prompt
+        toast.message("Please contact your advisor to upload CAS manually", {
+          description: "Gmail consent is needed for auto-import in this version.",
+        });
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not save details");
+    } finally {
+      setSubmittingDetails(false);
+    }
+  };
+
+  // ── Step 2: Gmail OAuth ──
   const connectGmail = async () => {
     try {
       const { data } = await axios.get(`${API}/public/cas-invite/${token}/gmail/connect`);
@@ -79,13 +131,12 @@ export default function CasConnect() {
     }
   };
 
-  // ── Step 2: scan Gmail for CAS emails ──
+  // ── Step 3: scan + select ──
   const scanEmails = async () => {
     setScanning(true);
     try {
       const { data } = await axios.post(`${API}/public/cas-invite/${token}/scan`);
       setEmails(data.emails || []);
-      // Pre-select all non-already-imported emails
       const sel = new Set();
       (data.emails || []).forEach((e) => {
         if (!e.already_imported) sel.add(e.message_id);
@@ -110,10 +161,6 @@ export default function CasConnect() {
       toast.error("Select at least one statement to import");
       return;
     }
-    if (!password || password.length < 6) {
-      toast.error("Please enter the CAS password (PAN or PAN+DOB)");
-      return;
-    }
     setImporting(true);
     try {
       const selections = emails
@@ -129,11 +176,9 @@ export default function CasConnect() {
         setImporting(false);
         return;
       }
-      await axios.post(`${API}/public/cas-invite/${token}/import`, {
-        selections,
-        password,
-      });
-      setStep(3);
+      // No password field — backend auto-uses captured PAN
+      await axios.post(`${API}/public/cas-invite/${token}/import`, { selections });
+      setStep(4);
       pollStatus();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Import failed");
@@ -141,7 +186,6 @@ export default function CasConnect() {
     }
   };
 
-  // ── Step 3: poll background progress ──
   const pollStatus = useCallback(async () => {
     let attempts = 0;
     const poll = async () => {
@@ -151,10 +195,7 @@ export default function CasConnect() {
         const allDone = (data.processed_files || []).every(
           (f) => f.status === "completed" || f.status === "error"
         );
-        if (allDone || attempts > 60) {
-          setImporting(false);
-          return;
-        }
+        if (allDone || attempts > 60) { setImporting(false); return; }
       } catch { /* transient */ }
       attempts += 1;
       setTimeout(poll, 3000);
@@ -163,20 +204,50 @@ export default function CasConnect() {
   }, [token]);
 
   // ── Render ──
-  if (loading) {
-    return <FullScreen><Loader2 className="w-6 h-6 animate-spin text-indigo-600" /></FullScreen>;
-  }
+  if (loading) return <FullScreen><Loader2 className="w-6 h-6 animate-spin text-indigo-600" /></FullScreen>;
+
   if (error) {
+    const errObj = typeof error === "string" ? { detail: error } : error;
+    const isExpired = errObj?.reason === "expired" || errObj?.reason === "revoked";
+    const advisorMobile = errObj?.advisor_mobile;
+    const notifyText = encodeURIComponent("Hi — the CAS connect link you sent me has expired. Please share a fresh one.");
     return (
       <FullScreen>
-        <Card className="max-w-md p-8 text-center">
+        <Card className="max-w-md p-8 text-center" data-testid="cas-error-card">
           <AlertCircle className="w-10 h-10 text-rose-500 mx-auto mb-3" />
-          <h1 className="text-lg font-bold text-slate-800 mb-2">Link not available</h1>
-          <p className="text-sm text-slate-600">{error}</p>
+          <h1 className="text-lg font-bold text-slate-800 mb-2">
+            {isExpired ? "This link has expired" : "Link not available"}
+          </h1>
+          <p className="text-sm text-slate-600 mb-4">
+            {isExpired
+              ? "For your security, invite links expire after 24 hours. Ask your advisor for a fresh link."
+              : errObj?.detail || "The link is invalid."}
+          </p>
+          {advisorMobile && (
+            <a
+              href={`https://wa.me/${String(advisorMobile).replace(/\D/g, "")}?text=${notifyText}`}
+              target="_blank" rel="noreferrer"
+              data-testid="cas-notify-advisor-whatsapp"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700"
+            >
+              <MessageSquare className="w-4 h-4" /> Notify my advisor on WhatsApp
+            </a>
+          )}
+          {!advisorMobile && errObj?.advisor_email && (
+            <a
+              href={`mailto:${errObj.advisor_email}?subject=${encodeURIComponent("Please resend my CAS link")}`}
+              data-testid="cas-notify-advisor-email"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+            >
+              <Mail className="w-4 h-4" /> Email my advisor
+            </a>
+          )}
         </Card>
       </FullScreen>
     );
   }
+
+  const stepLabels = ["Welcome", "Your details", "Sign in", "Pick", "Done"];
 
   return (
     <FullScreen>
@@ -184,7 +255,7 @@ export default function CasConnect() {
         {/* Header */}
         <div className="text-center mb-6" data-testid="cas-connect-header">
           <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase tracking-wider">
-            <ShieldCheck className="w-3 h-3" /> Secure · Read-only · Revocable
+            <ShieldCheck className="w-3 h-3" /> Secure · 24h link · Revocable
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-slate-50">
             Share your CAS with <span className="text-indigo-600">{details.advisor_name}</span>
@@ -198,7 +269,7 @@ export default function CasConnect() {
 
         {/* Stepper */}
         <div className="flex items-center justify-center gap-1 mb-6" data-testid="cas-connect-stepper">
-          {["Welcome", "Sign in", "Pick", "Done"].map((label, i) => (
+          {stepLabels.map((label, i) => (
             <React.Fragment key={label}>
               <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${
                 i === step ? "text-indigo-700" : i < step ? "text-emerald-600" : "text-slate-400"
@@ -212,7 +283,9 @@ export default function CasConnect() {
                 </div>
                 <span className="hidden sm:inline">{label}</span>
               </div>
-              {i < 3 && <div className={`flex-1 max-w-10 h-0.5 ${i < step ? "bg-emerald-500" : "bg-slate-200"}`} />}
+              {i < stepLabels.length - 1 && (
+                <div className={`flex-1 max-w-6 h-0.5 ${i < step ? "bg-emerald-500" : "bg-slate-200"}`} />
+              )}
             </React.Fragment>
           ))}
         </div>
@@ -220,64 +293,99 @@ export default function CasConnect() {
         {/* Step 0: Welcome */}
         {step === 0 && (
           <Card className="p-6" data-testid="cas-step-welcome">
-            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">
-              What happens next
-            </h2>
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-3">What happens next</h2>
             <ul className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
-              <Bullet icon={User} label="You'll sign in with your own Google account" />
-              <Bullet icon={Mail} label="We scan only emails from CAMS and KFintech for your CAS statements" />
-              <Bullet icon={Lock} label="Your PAN+DOB password is used to open the PDF — we never store it" />
-              <Bullet icon={ShieldCheck} label="Read-only access · disconnect anytime from your Google account settings" />
+              <Bullet icon={User} label="Enter your basic details (Name · Mobile · Email · PAN)" />
+              <Bullet icon={Mail} label="Sign in with your own Google account (read-only Gmail access)" />
+              <Bullet icon={FileText} label="Pick which CAMS/KFintech statements to share" />
+              <Bullet icon={ShieldCheck} label="Only parsed holdings reach your advisor — never raw emails" />
             </ul>
-            <div className="mt-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-600 dark:text-slate-300">
-              Your advisor <b>{details.advisor_name}</b> will receive only the parsed holdings — not raw emails, attachments, or any other Gmail content.
-            </div>
-            <Button
-              type="button"
-              onClick={() => setStep(1)}
-              data-testid="cas-continue-to-signin"
-              className="w-full mt-5 h-10 text-sm"
-            >
+            <Button type="button" onClick={() => setStep(1)} data-testid="cas-continue-to-details" className="w-full mt-5 h-10 text-sm">
               Continue <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Card>
         )}
 
-        {/* Step 1: Google sign-in */}
+        {/* Step 1: Your details */}
         {step === 1 && (
+          <Card className="p-6" data-testid="cas-step-details">
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-4">Your details</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField icon={User} label="Full name">
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="As on PAN card" data-testid="cas-field-name" />
+              </FormField>
+              <FormField icon={Phone} label="Mobile (WhatsApp)">
+                <Input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder="10-digit mobile" inputMode="numeric" data-testid="cas-field-mobile" />
+              </FormField>
+              <FormField icon={Mail} label="Email">
+                <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" type="email" data-testid="cas-field-email" />
+              </FormField>
+              <FormField icon={CreditCard} label="PAN">
+                <Input
+                  value={form.pan}
+                  onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
+                  placeholder="ABCDE1234F" maxLength={10}
+                  data-testid="cas-field-pan"
+                />
+              </FormField>
+            </div>
+
+            <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Consents</div>
+              <ConsentRow
+                checked={consents.cas} onChange={(v) => setConsents({ ...consents, cas: v })}
+                required testid="consent-cas"
+                label="Allow sharing parsed CAS holdings with the advisor"
+                detail="Required. Only fund names, units, NAV, and market value are shared — no raw CAS PDFs."
+              />
+              <ConsentRow
+                checked={consents.gmail} onChange={(v) => setConsents({ ...consents, gmail: v })}
+                testid="consent-gmail"
+                label="Allow read-only Gmail scan for CAS emails"
+                detail="Required for auto-import. We only read emails from CAMS/KFintech; everything else stays private."
+              />
+              <ConsentRow
+                checked={consents.advisor} onChange={(v) => setConsents({ ...consents, advisor: v })}
+                required testid="consent-advisor"
+                label={`Allow ${details.advisor_name} to view + manage this portfolio`}
+                detail="Required. You can revoke this anytime by contacting your advisor."
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mt-5">
+              <button type="button" onClick={() => setStep(0)} className="text-[11px] text-slate-400 hover:text-slate-600">← Back</button>
+              <Button
+                type="button" onClick={submitDetails} disabled={submittingDetails}
+                data-testid="cas-submit-details" className="h-10 text-sm px-6"
+              >
+                {submittingDetails ? (<><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Saving…</>) : (<>Continue <ArrowRight className="w-4 h-4 ml-1" /></>)}
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Step 2: Google sign-in */}
+        {step === 2 && (
           <Card className="p-6 text-center" data-testid="cas-step-signin">
             <Sparkles className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
-            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-2">
-              Sign in with Google
-            </h2>
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-2">Sign in with Google</h2>
             <p className="text-xs text-slate-600 mb-4">
-              You'll be redirected to Google's secure sign-in. We only request <b>read-only access to your Gmail</b>, and you can revoke it anytime.
+              You'll be redirected to Google. We request <b>read-only access to your Gmail</b>, which you can revoke anytime from your Google account.
             </p>
             <Button
-              type="button"
-              onClick={connectGmail}
-              data-testid="cas-google-signin"
+              type="button" onClick={connectGmail} data-testid="cas-google-signin"
               className="w-full h-10 text-sm bg-white text-slate-800 hover:bg-slate-50 border border-slate-300"
             >
               <GoogleIcon /> Continue with Google
             </Button>
-            <button
-              type="button"
-              onClick={() => setStep(0)}
-              className="text-[11px] text-slate-400 hover:text-slate-600 mt-3"
-            >
-              ← Back
-            </button>
           </Card>
         )}
 
-        {/* Step 2: Pick CAS emails */}
-        {step === 2 && (
+        {/* Step 3: Pick CAS emails */}
+        {step === 3 && (
           <Card className="p-5" data-testid="cas-step-pick">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                Select statements to share
-              </h2>
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Select statements to share</h2>
               <span className="text-[10px] text-slate-500">
                 {emails.length} found · {selectedIds.size} selected
               </span>
@@ -317,13 +425,11 @@ export default function CasConnect() {
                           {e.subject || "CAS Statement"}
                         </span>
                         {e.already_imported && (
-                          <span className="text-[9px] bg-slate-200 text-slate-600 rounded px-1.5 py-0.5">
-                            Already shared
-                          </span>
+                          <span className="text-[9px] bg-slate-200 text-slate-600 rounded px-1.5 py-0.5">Already shared</span>
                         )}
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
-                        <span className="truncate max-w-[180px]">{e.from || e.sender}</span>
+                        <span className="truncate max-w-[200px]">{e.from || e.sender}</span>
                         {e.date && (<><span>·</span><Calendar className="w-2.5 h-2.5" /> {e.date}</>)}
                       </div>
                     </div>
@@ -333,31 +439,11 @@ export default function CasConnect() {
             )}
 
             {!scanning && selectedIds.size > 0 && (
-              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
-                <label className="block">
-                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> CAS password
-                  </span>
-                  <Input
-                    type="text"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Your PAN in UPPERCASE (e.g. ABCDE1234F) or PAN+DOB"
-                    className="mt-1 text-sm"
-                    data-testid="cas-password-input"
-                    autoComplete="off"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-1 block">
-                    The password printed in the CAS email from CAMS/KFintech. Used only to decrypt the PDF; never stored.
-                  </span>
-                </label>
-                <Button
-                  type="button"
-                  onClick={runImport}
-                  disabled={importing || !password}
-                  data-testid="cas-import-btn"
-                  className="w-full h-10 text-sm"
-                >
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                  <Lock className="w-3 h-3" /> CAS PDFs will be unlocked with the PAN you entered earlier
+                </div>
+                <Button type="button" onClick={runImport} disabled={importing} data-testid="cas-import-btn" className="w-full h-10 text-sm">
                   {importing ? (<><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Importing…</>) :
                                 (<>Share {selectedIds.size} statement{selectedIds.size > 1 ? "s" : ""} with advisor</>)}
                 </Button>
@@ -366,15 +452,13 @@ export default function CasConnect() {
           </Card>
         )}
 
-        {/* Step 3: Done / progress */}
-        {step === 3 && (
+        {/* Step 4: Done */}
+        {step === 4 && (
           <Card className="p-6 text-center" data-testid="cas-step-done">
             {importing ? (
               <>
                 <Loader2 className="w-10 h-10 text-indigo-500 mx-auto mb-3 animate-spin" />
-                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">
-                  Processing your statements…
-                </h2>
+                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">Processing your statements…</h2>
                 <p className="text-xs text-slate-600">
                   This usually takes 10-30 seconds per CAS. You can close this tab — the import continues in the background.
                 </p>
@@ -382,9 +466,7 @@ export default function CasConnect() {
             ) : (
               <>
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">
-                  You're all set!
-                </h2>
+                <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 mb-1">You're all set!</h2>
                 <p className="text-xs text-slate-600">
                   {details.advisor_name} has received your holdings. You can safely close this page.
                 </p>
@@ -396,9 +478,7 @@ export default function CasConnect() {
                   <div key={f.message_id} className="flex items-center justify-between text-[11px]">
                     <span className="truncate flex-1 text-slate-600 dark:text-slate-300">{f.filename}</span>
                     {f.status === "completed" ? (
-                      <span className="text-emerald-600 font-semibold">
-                        ✓ {f.holdings_count || 0} holdings
-                      </span>
+                      <span className="text-emerald-600 font-semibold">✓ {f.holdings_count || 0} holdings</span>
                     ) : f.status === "error" ? (
                       <span className="text-rose-600" title={f.error}>✗ Failed</span>
                     ) : (
@@ -411,9 +491,8 @@ export default function CasConnect() {
           </Card>
         )}
 
-        {/* Footer */}
         <p className="text-[10px] text-center text-slate-400 mt-6">
-          Powered by <b>nivesh.ai</b> · We do not read, store, or share any of your email content — only parsed portfolio holdings are exchanged.
+          Powered by <b>nivesh.ai</b> · Read-only · Revocable anytime · We never store raw email content
         </p>
       </div>
     </FullScreen>
@@ -437,6 +516,32 @@ function Bullet({ icon: Icon, label }) {
       </div>
       <span>{label}</span>
     </li>
+  );
+}
+
+function FormField({ icon: Icon, label, children }) {
+  return (
+    <label className="block">
+      <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+        <Icon className="w-3 h-3" /> {label}
+      </span>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+function ConsentRow({ checked, onChange, label, detail, required, testid }) {
+  return (
+    <label className="flex items-start gap-2.5 py-2 cursor-pointer" data-testid={testid}>
+      <Checkbox checked={checked} onCheckedChange={onChange} className="mt-0.5" />
+      <div className="flex-1 text-xs">
+        <div className="font-semibold text-slate-800 dark:text-slate-100">
+          {label}
+          {required && <span className="text-rose-500 ml-1">*</span>}
+        </div>
+        <div className="text-[11px] text-slate-500 mt-0.5">{detail}</div>
+      </div>
+    </label>
   );
 }
 

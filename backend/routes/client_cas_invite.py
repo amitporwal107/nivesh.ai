@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 mfd_router = APIRouter(prefix="/api/mfd", tags=["cas-invite-mfd"])
 public_router = APIRouter(prefix="/api/public/cas-invite", tags=["cas-invite-public"])
 
-INVITE_TTL_DAYS = 7
+INVITE_TTL_HOURS = 24  # 24h expiry per PRD — short urgency window, MFD regenerates on demand
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -59,8 +59,8 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _expiry_iso(days: int = INVITE_TTL_DAYS) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+def _expiry_iso(hours: int = INVITE_TTL_HOURS) -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
 
 
 async def _is_expired(invite: dict) -> bool:
@@ -80,14 +80,26 @@ async def _get_invite_or_404(token: str) -> dict:
     inv = await db.client_cas_invites.find_one({"invite_token": token}, {"_id": 0})
     if not inv:
         raise HTTPException(404, "Invite not found or has been revoked")
-    if inv.get("status") == "REVOKED":
-        raise HTTPException(410, "Invite has been revoked by the advisor")
+    if inv.get("status") == "REVOKED" or inv.get("is_active") is False:
+        raise HTTPException(410, {
+            "detail": "Invite has been revoked by the advisor",
+            "advisor_name": inv.get("advisor_name"),
+            "advisor_mobile": inv.get("advisor_mobile"),
+            "advisor_firm": inv.get("advisor_firm"),
+            "reason": "revoked",
+        })
     if await _is_expired(inv):
         if inv.get("status") != "EXPIRED":
             await db.client_cas_invites.update_one(
-                {"invite_token": token}, {"$set": {"status": "EXPIRED"}},
+                {"invite_token": token}, {"$set": {"status": "EXPIRED", "is_active": False}},
             )
-        raise HTTPException(410, "Invite has expired — please request a new one from your advisor")
+        raise HTTPException(410, {
+            "detail": "Invite has expired — please request a new one from your advisor",
+            "advisor_name": inv.get("advisor_name"),
+            "advisor_mobile": inv.get("advisor_mobile"),
+            "advisor_firm": inv.get("advisor_firm"),
+            "reason": "expired",
+        })
     return inv
 
 
@@ -104,13 +116,18 @@ def _resolve_redirect_uri(request: Request) -> str:
 
 # ── MFD-authenticated routes ───────────────────────────────────────────
 class InviteCreateRequest(BaseModel):
-    ttl_days: Optional[int] = Field(default=INVITE_TTL_DAYS, ge=1, le=30)
+    ttl_hours: Optional[int] = Field(default=INVITE_TTL_HOURS, ge=1, le=168)
+    client_name: Optional[str] = Field(default=None, max_length=120)
+    client_mobile: Optional[str] = Field(default=None, max_length=20)
+    client_email: Optional[str] = Field(default=None, max_length=255)
+    regenerate: bool = Field(default=False, description="If True, deactivate any existing active invite for this profile before issuing a new one.")
 
 
 @mfd_router.post("/profiles/{profile_id}/cas-invite")
 async def create_invite(profile_id: str, payload: InviteCreateRequest, request: Request):
     """Generate a new client CAS invite link. Returns the full URL the
-    MFD can copy + share."""
+    MFD can copy + share. If `regenerate=True`, any prior active invite
+    on this profile is deactivated atomically."""
     user = await get_current_user(request)
     uid = user.get("_session_user_id") or user["user_id"]
     prof = await db.profiles.find_one({"profile_id": profile_id}, {"_id": 0})
@@ -123,10 +140,19 @@ async def create_invite(profile_id: str, payload: InviteCreateRequest, request: 
     if not ws:
         raise HTTPException(403, "You don't own this profile's workspace")
 
+    # ── Regenerate semantics: deactivate ANY currently-active invite on
+    # this profile before issuing a new one. Matches the PRD rule:
+    # "Old invite → inactive, New invite → fresh 24h expiry".
+    if payload.regenerate:
+        await db.client_cas_invites.update_many(
+            {"profile_id": profile_id, "is_active": True},
+            {"$set": {"is_active": False, "status": "REVOKED", "oauth_tokens": None}},
+        )
+
     token = uuid.uuid4().hex
-    ttl = payload.ttl_days or INVITE_TTL_DAYS
+    ttl = payload.ttl_hours or INVITE_TTL_HOURS
     # Fetch the MFD's own user record (not the impersonated client's)
-    advisor = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1, "email": 1, "full_name": 1})
+    advisor = await db.users.find_one({"user_id": uid}, {"_id": 0, "name": 1, "email": 1, "full_name": 1, "mobile": 1, "phone": 1})
     advisor_name = (
         (advisor or {}).get("full_name")
         or (advisor or {}).get("name")
@@ -134,18 +160,26 @@ async def create_invite(profile_id: str, payload: InviteCreateRequest, request: 
         or "Your advisor"
     )
     advisor_email = (advisor or {}).get("email")
+    advisor_mobile = (advisor or {}).get("mobile") or (advisor or {}).get("phone")
     doc = {
         "invite_token": token,
         "workspace_id": prof["workspace_id"],
         "profile_id": profile_id,
-        "profile_name": prof.get("name"),
+        "profile_name": payload.client_name or prof.get("name"),
         "advisor_name": advisor_name,
         "advisor_email": advisor_email,
+        "advisor_mobile": advisor_mobile,
         "advisor_firm": ws.get("firm_name"),
         "created_by_user_id": uid,
         "created_at": _now_iso(),
         "expires_at": _expiry_iso(ttl),
+        "is_active": True,
         "status": "PENDING",
+        # Pre-filled client contact info (optional). Client can edit on the
+        # public page; these are hints the MFD captured at invite time.
+        "client_name_prefill": payload.client_name,
+        "client_mobile_prefill": payload.client_mobile,
+        "client_email_prefill": payload.client_email,
         "processed_files": [],
     }
     await db.client_cas_invites.insert_one(doc)
@@ -216,26 +250,104 @@ async def revoke_invite(profile_id: str, token: str, request: Request):
         raise HTTPException(404)
     await db.client_cas_invites.update_one(
         {"invite_token": token},
-        {"$set": {"status": "REVOKED", "oauth_tokens": None}},
+        {"$set": {"status": "REVOKED", "is_active": False, "oauth_tokens": None}},
     )
     return {"status": "REVOKED"}
+
+
+@mfd_router.post("/profiles/{profile_id}/cas-invite/regenerate")
+async def regenerate_invite(profile_id: str, payload: InviteCreateRequest, request: Request):
+    """Convenience wrapper — deactivates any existing active invite
+    and issues a fresh one. Equivalent to POST .../cas-invite with
+    `regenerate=True`."""
+    payload.regenerate = True
+    return await create_invite(profile_id, payload, request)
 
 
 # ── Public client-facing routes (NO auth) ──────────────────────────────
 @public_router.get("/{token}")
 async def get_invite_details(token: str):
     """Returns the details the public page needs to render — advisor
-    name, client profile name, expiry, status. Never leaks OAuth
-    tokens or other sensitive fields."""
+    name, client profile name, expiry, status, pre-fill hints. Never
+    leaks OAuth tokens or PAN."""
     inv = await _get_invite_or_404(token)
     return {
         "status": inv["status"],
         "advisor_name": inv.get("advisor_name"),
         "advisor_firm": inv.get("advisor_firm"),
+        "advisor_mobile": inv.get("advisor_mobile"),
+        "advisor_email": inv.get("advisor_email"),
         "profile_name": inv.get("profile_name"),
         "expires_at": inv.get("expires_at"),
         "client_email": inv.get("client_email"),
+        "has_client_details": bool(inv.get("client_pan")),
+        "prefill": {
+            "name":   inv.get("client_name_prefill"),
+            "mobile": inv.get("client_mobile_prefill"),
+            "email":  inv.get("client_email_prefill"),
+        },
+        "consents": inv.get("consents") or {},
         "processed_count": len([f for f in inv.get("processed_files", []) if f.get("status") == "completed"]),
+    }
+
+
+class ClientDetailsRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    mobile: str = Field(..., min_length=7, max_length=20)
+    email: str = Field(..., min_length=5, max_length=255)
+    pan: str = Field(..., min_length=10, max_length=10)
+    consent_cas_access: bool = Field(..., description="Client consents to sharing CAS holdings")
+    consent_gmail_access: bool = Field(default=False, description="Client consents to read-only Gmail scan for CAS emails")
+    consent_advisor_access: bool = Field(..., description="Client consents to advisor viewing + managing their data")
+
+
+@public_router.post("/{token}/client-details")
+async def submit_client_details(token: str, payload: ClientDetailsRequest):
+    """Step 1.5 of the public wizard — client submits their name,
+    mobile, email, PAN, and 3 explicit consents before Gmail connect /
+    CAS upload. PAN is stored (encrypted in future; plaintext MVP) so
+    the scan step can auto-use it as the CAS PDF password without the
+    client retyping it.
+    """
+    inv = await _get_invite_or_404(token)
+
+    # Basic validation — PAN is 5 letters + 4 digits + 1 letter, uppercase
+    pan = payload.pan.strip().upper()
+    if not (
+        len(pan) == 10 and pan[:5].isalpha() and pan[5:9].isdigit() and pan[9].isalpha()
+    ):
+        raise HTTPException(400, "PAN format invalid (expected ABCDE1234F)")
+    mobile = "".join(ch for ch in payload.mobile if ch.isdigit())
+    if len(mobile) < 10:
+        raise HTTPException(400, "Mobile number must be at least 10 digits")
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(400, "Email format invalid")
+
+    if not payload.consent_cas_access or not payload.consent_advisor_access:
+        raise HTTPException(400, "CAS access and Advisor access consents are required")
+
+    consents = {
+        "cas_access":      {"approved": payload.consent_cas_access, "at": _now_iso()},
+        "gmail_access":    {"approved": payload.consent_gmail_access, "at": _now_iso()},
+        "advisor_access":  {"approved": payload.consent_advisor_access, "at": _now_iso()},
+    }
+
+    await db.client_cas_invites.update_one(
+        {"invite_token": token},
+        {"$set": {
+            "client_name":   payload.name.strip(),
+            "client_mobile": mobile,
+            "client_email":  email,
+            "client_pan":    pan,
+            "consents":      consents,
+            "details_submitted_at": _now_iso(),
+            "status": inv.get("status") if inv.get("status") in ("AUTHORIZED", "COMPLETED") else "DETAILS_CAPTURED",
+        }},
+    )
+    return {
+        "status": "DETAILS_CAPTURED",
+        "next": "gmail_connect" if payload.consent_gmail_access else "cas_upload",
     }
 
 
@@ -299,7 +411,8 @@ async def _handle_invite_oauth_callback(request: Request, code: str, state: str,
         logger.error(f"client-invite token exchange failed: {e}")
         return RedirectResponse(url=f"/cas-connect/{token}?error=token_exchange")
 
-    # Capture the client's email
+    # Capture the client's email (fallback only — client-details step
+    # already captured the preferred email, so don't overwrite it)
     client_email = None
     try:
         creds = get_gmail_credentials(tokens)
@@ -309,14 +422,22 @@ async def _handle_invite_oauth_callback(request: Request, code: str, state: str,
     except Exception:  # noqa: BLE001
         pass
 
+    update_set = {
+        "status": "AUTHORIZED",
+        "authorized_at": _now_iso(),
+        "oauth_tokens": tokens,
+    }
+    # Only set client_email if the details page didn't already capture one
+    existing_email = inv.get("client_email")
+    if client_email and not existing_email:
+        update_set["client_email"] = client_email
+    # Always stash the Google account email separately for audit
+    if client_email:
+        update_set["gmail_account_email"] = client_email
+
     await db.client_cas_invites.update_one(
         {"invite_token": token},
-        {"$set": {
-            "status": "AUTHORIZED",
-            "authorized_at": _now_iso(),
-            "client_email": client_email,
-            "oauth_tokens": tokens,
-        }},
+        {"$set": update_set},
     )
     return RedirectResponse(url=f"/cas-connect/{token}?authorized=1")
 
@@ -357,22 +478,29 @@ async def client_scan_emails(token: str):
 
 class ImportRequest(BaseModel):
     selections: List[dict] = Field(..., description="list of {message_id, attachment_id, filename}")
-    password: str = Field(default="", max_length=40)
+    password: Optional[str] = Field(default=None, max_length=40, description="Optional override — defaults to the PAN captured in client-details")
 
 
 @public_router.post("/{token}/import")
 async def client_import_selected(
     token: str, payload: ImportRequest, request: Request, background_tasks: BackgroundTasks,
 ):
-    """Client picks which CAS emails to import + provides PAN+DOB
-    password. We download, parse (background), and attach holdings
-    to the profile's shadow_user_id."""
+    """Client picks which CAS emails to import. We download + parse
+    (background) + attach holdings to the profile's shadow_user_id.
+    Password defaults to the PAN captured in the client-details step,
+    so the client doesn't have to retype it."""
     inv = await _get_invite_or_404(token)
     if not payload.selections:
         raise HTTPException(400, "No emails selected")
     tokens = inv.get("oauth_tokens")
     if not tokens:
         raise HTTPException(400, "Gmail not connected")
+
+    # Use stored PAN as default password; caller can override if CAS
+    # uses a non-standard password scheme (rare in MVP).
+    password = (payload.password or inv.get("client_pan") or "").strip()
+    if not password:
+        raise HTTPException(400, "CAS password required — submit client details first or provide an override")
 
     # Resolve the profile → shadow_user_id (that's where holdings land)
     prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
@@ -409,7 +537,7 @@ async def client_import_selected(
             }}},
         )
         background_tasks.add_task(
-            _process_client_cas, token, shadow_uid, content, fname, payload.password, mid,
+            _process_client_cas, token, shadow_uid, content, fname, password, mid,
         )
         queued.append({"message_id": mid, "filename": fname})
 

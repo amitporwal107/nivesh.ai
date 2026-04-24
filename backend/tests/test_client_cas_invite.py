@@ -49,10 +49,11 @@ class TestMfdCreateInvite:
             assert key in created_invite, f"missing key {key}"
         assert created_invite["status"] == "PENDING"
         assert "/cas-connect/" in created_invite["invite_url"]
-        # Expires ~7 days out
+        # Expires ~24 hours out (PRD v2)
         exp = datetime.fromisoformat(created_invite["expires_at"])
         delta = exp - datetime.now(timezone.utc)
-        assert 6 <= delta.days <= 7, f"expiry out of range: {delta.days}"
+        total_hours = delta.total_seconds() / 3600
+        assert 23 <= total_hours <= 24.5, f"expiry out of range: {total_hours}h"
 
     def test_unauthenticated_create_returns_401(self, anon_client):
         r = anon_client.post(f"{BASE_URL}/api/mfd/profiles/{PROFILE_ID}/cas-invite", json={})
@@ -187,3 +188,200 @@ class TestExpiredInvite:
             assert r.status_code == 410, f"expected 410 for expired, got {r.status_code}"
         except ImportError:
             pytest.skip("pymongo not available — cannot simulate expiry")
+
+
+# ── V2: 24h expiry + prefill ───────────────────────────────────────────
+class TestV2CreateWithPrefill:
+    def test_create_with_prefill_fields(self, mfd_client):
+        r = mfd_client.post(
+            f"{BASE_URL}/api/mfd/profiles/{PROFILE_ID}/cas-invite",
+            json={
+                "client_name": "Ramesh Iyer",
+                "client_mobile": "9876543210",
+                "client_email": "ramesh@example.com",
+                "regenerate": True,
+            },
+        )
+        assert r.status_code == 200, r.text[:300]
+        data = r.json()
+        tok = data["invite_token"]
+        # Public details should surface prefill and advisor_mobile/email
+        p = requests.get(f"{BASE_URL}/api/public/cas-invite/{tok}")
+        assert p.status_code == 200
+        pd = p.json()
+        assert pd["prefill"]["name"] == "Ramesh Iyer"
+        assert pd["prefill"]["mobile"] == "9876543210"
+        assert pd["prefill"]["email"] == "ramesh@example.com"
+        assert pd["profile_name"] == "Ramesh Iyer"
+        assert pd["has_client_details"] is False
+        assert "advisor_mobile" in pd
+        assert "advisor_email" in pd
+
+
+# ── V2: Regenerate deactivates prior active ────────────────────────────
+class TestV2Regenerate:
+    def test_regenerate_deactivates_prior_and_issues_new(self, mfd_client):
+        # Create invite #1
+        a = mfd_client.post(f"{BASE_URL}/api/mfd/profiles/{PROFILE_ID}/cas-invite", json={"regenerate": True})
+        assert a.status_code == 200
+        tok_old = a.json()["invite_token"]
+        # Confirm it's active
+        p1 = requests.get(f"{BASE_URL}/api/public/cas-invite/{tok_old}")
+        assert p1.status_code == 200
+
+        # Regenerate via dedicated endpoint
+        b = mfd_client.post(f"{BASE_URL}/api/mfd/profiles/{PROFILE_ID}/cas-invite/regenerate", json={})
+        assert b.status_code == 200
+        tok_new = b.json()["invite_token"]
+        assert tok_new != tok_old
+
+        # Old invite → 410 with reason=revoked
+        p_old = requests.get(f"{BASE_URL}/api/public/cas-invite/{tok_old}")
+        assert p_old.status_code == 410
+        body = p_old.json().get("detail", {})
+        assert isinstance(body, dict), f"expected dict detail, got {body!r}"
+        assert body.get("reason") == "revoked"
+        assert "advisor_name" in body
+
+        # New invite active
+        p_new = requests.get(f"{BASE_URL}/api/public/cas-invite/{tok_new}")
+        assert p_new.status_code == 200
+
+
+# ── V2: Client details submission + consents ───────────────────────────
+@pytest.fixture
+def fresh_invite(mfd_client):
+    r = mfd_client.post(
+        f"{BASE_URL}/api/mfd/profiles/{PROFILE_ID}/cas-invite",
+        json={"regenerate": True},
+    )
+    assert r.status_code == 200
+    return r.json()["invite_token"]
+
+
+def _valid_details():
+    return {
+        "name": "Test Client",
+        "mobile": "9876543210",
+        "email": "tc@example.com",
+        "pan": "ABCDE1234F",
+        "consent_cas_access": True,
+        "consent_gmail_access": True,
+        "consent_advisor_access": True,
+    }
+
+
+class TestV2ClientDetails:
+    def test_valid_details_captures_and_returns_next(self, anon_client, fresh_invite):
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details",
+            json=_valid_details(),
+        )
+        assert r.status_code == 200, r.text[:300]
+        data = r.json()
+        assert data["status"] == "DETAILS_CAPTURED"
+        assert data["next"] == "gmail_connect"
+        # Follow-up GET reflects state
+        g = anon_client.get(f"{BASE_URL}/api/public/cas-invite/{fresh_invite}")
+        assert g.status_code == 200
+        gd = g.json()
+        assert gd["status"] == "DETAILS_CAPTURED"
+        assert gd["has_client_details"] is True
+        assert gd["consents"]["cas_access"]["approved"] is True
+
+    def test_gmail_consent_false_returns_cas_upload_next(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["consent_gmail_access"] = False
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 200
+        assert r.json()["next"] == "cas_upload"
+
+    def test_invalid_pan_short_rejected_422(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["pan"] = "BAD"
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        # pydantic min_length=10 → 422
+        assert r.status_code == 422
+
+    def test_invalid_pan_format_rejected_400(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["pan"] = "1234567890"  # passes length but fails format
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 400
+        assert "PAN" in r.text
+
+    def test_short_mobile_rejected(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["mobile"] = "12345"  # < 7 chars fails pydantic (422); 7-9 digits fails custom 400
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code in (400, 422)
+
+    def test_mobile_less_than_10_digits_400(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["mobile"] = "1234567"  # 7 chars, passes pydantic, fails custom
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 400
+        assert "mobile" in r.text.lower() or "digits" in r.text.lower()
+
+    def test_invalid_email_rejected(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["email"] = "notanemail"
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 400
+
+    def test_missing_cas_consent_rejected(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["consent_cas_access"] = False
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 400
+        assert "consent" in r.text.lower()
+
+    def test_missing_advisor_consent_rejected(self, anon_client, fresh_invite):
+        p = _valid_details()
+        p["consent_advisor_access"] = False
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details", json=p
+        )
+        assert r.status_code == 400
+        assert "consent" in r.text.lower()
+
+
+# ── V2: Import uses stored PAN ─────────────────────────────────────────
+class TestV2ImportPasswordFallback:
+    def test_import_no_pan_stored_returns_400(self, anon_client, fresh_invite):
+        # No client-details submitted yet → no PAN stored.
+        # We also need oauth_tokens — but the endpoint checks tokens first.
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/import",
+            json={"selections": [{"message_id": "m1", "attachment_id": "a1", "filename": "c.pdf"}]},
+        )
+        # Expect 400 because Gmail not connected (no oauth_tokens).
+        # This is the pre-oauth guard, which is enough to prove the endpoint is wired.
+        assert r.status_code == 400
+
+    def test_import_empty_selections_400(self, anon_client, fresh_invite):
+        # Submit details first so PAN is stored
+        anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/client-details",
+            json=_valid_details(),
+        )
+        r = anon_client.post(
+            f"{BASE_URL}/api/public/cas-invite/{fresh_invite}/import",
+            json={"selections": []},
+        )
+        assert r.status_code == 400
+
