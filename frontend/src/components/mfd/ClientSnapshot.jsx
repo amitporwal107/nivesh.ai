@@ -10,8 +10,9 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, Target, AlertTriangle, CheckCircle2,
   Calendar, Sparkles, ArrowRight, Activity, Scale, RefreshCw, Plus, Eye,
   ShieldCheck, Receipt, Share2, Mail, MessageSquare, StickyNote, Save, Copy,
-  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart,
+  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Bot,
 } from "lucide-react";
+import NiveshCopilot from "./NiveshCopilot";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -455,6 +456,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [notesDirty, setNotesDirty] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   const profileId = activeProfile?.profile_id;
 
@@ -803,6 +805,14 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               </button>
             </div>
           )}
+          <Button
+            variant="default" size="sm"
+            onClick={() => setCopilotOpen(true)}
+            data-testid="snapshot-open-copilot"
+            className="h-8 text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white border-0"
+          >
+            <Bot className="w-3.5 h-3.5 mr-1" /> Copilot
+          </Button>
           <Button
             variant="outline" size="sm"
             onClick={() => setActiveTab("portfolio")}
@@ -1539,6 +1549,13 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           </Button>
         </div>
       )}
+
+      {/* ── Nivesh Copilot drawer ──────────────────────────────────── */}
+      <NiveshCopilot
+        open={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        clientName={client.name}
+      />
     </div>
   );
 }

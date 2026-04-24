@@ -259,7 +259,7 @@ async def explain(payload: ExplainRequest, request: Request):
     system = (
         "You are a senior investment advisor (CIO) writing for a mutual-fund "
         "distributor (MFD) in India. Style: crisp, specific, professional, "
-        "≤ 80 words, no filler, no disclaimers. Use concrete numbers from "
+        "≤ 60 words, no filler, no disclaimers. Use concrete numbers from "
         "the portfolio context. Never fabricate data. End with ONE decisive "
         "line on what to prioritise."
     )
@@ -362,3 +362,58 @@ async def ask(payload: AskRequest, request: Request):
     )
     resp = await _llm_call(payload.model, system, user_prompt, session_id=f"ask-{uid}")
     return {"response": resp, "model": payload.model}
+
+
+# ── Bundled brief: single LLM call → 4 section narratives ──────────────
+class BriefRequest(BaseModel):
+    model: str = Field(default=DEFAULT_MODEL_KEY)
+
+
+@router.post("/brief")
+async def brief(payload: BriefRequest, request: Request):
+    """One-shot CIO brief — returns {summary, risk, tax, performance, priority}
+    in a single LLM call. Cached 24h. Use this for the Client 360 panel
+    instead of calling /explain four times."""
+    user = await get_current_user(request)
+    uid = user["user_id"] if isinstance(user, dict) else user.user_id
+    ctx = await _build_context(uid)
+    key = _cache_key(payload.model, "brief:v1", ctx)
+    hit = await _cache_get(key)
+    if hit:
+        try:
+            return {"brief": json.loads(hit), "cached": True, "model": payload.model}
+        except Exception:  # noqa: BLE001
+            pass  # fall through to regenerate
+
+    system = (
+        "You are a senior CIO writing a structured client brief for a mutual-fund "
+        "distributor (MFD) in India. Output STRICT JSON with 5 keys: "
+        "summary (≤ 40 words, plain prose on overall shape), "
+        "risk (≤ 30 words, top concentration/drawdown risk), "
+        "tax (≤ 30 words, STCG/LTCG efficiency or cost leak), "
+        "performance (≤ 30 words, return quality), "
+        "priority (≤ 20 words, ONE decisive next action). "
+        "Use concrete numbers from context. Never fabricate. No filler. "
+        "Return ONLY the JSON object, no markdown fences."
+    )
+    user_prompt = (
+        f"PORTFOLIO CONTEXT:\n{_portfolio_context_block(ctx)}\n\n"
+        "TASK: Produce the JSON brief now."
+    )
+    raw = await _llm_call(payload.model, system, user_prompt, session_id=f"brief-{uid}")
+
+    # Strip ```json fences if the model adds them
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+    try:
+        parsed = json.loads(cleaned)
+    except Exception:  # noqa: BLE001
+        # Fallback: wrap raw text as summary so UI still renders something
+        parsed = {"summary": raw, "risk": "", "tax": "", "performance": "", "priority": ""}
+
+    await _cache_put(key, json.dumps(parsed), ttl_hours=24)
+    return {"brief": parsed, "cached": False, "model": payload.model}

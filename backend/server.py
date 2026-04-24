@@ -36,6 +36,7 @@ from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
 from routes.copilot_prompts import router as copilot_prompts_router
+from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
 from routes.gmail import router as gmail_router
 from routes.portfolio import router as portfolio_router
 from routes.upload import router as upload_router
@@ -67,6 +68,7 @@ app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
 app.include_router(copilot_prompts_router)
+app.include_router(copilot_router)
 app.include_router(gmail_router)
 app.include_router(portfolio_router)
 app.include_router(upload_router)
