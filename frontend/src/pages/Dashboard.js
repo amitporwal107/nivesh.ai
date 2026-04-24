@@ -20,6 +20,7 @@ import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import MfdDashboard from "@/components/mfd/MfdDashboard";
 import ClientCasUpload from "@/components/mfd/ClientCasUpload";
 import MfdOnboardingWizard from "@/components/mfd/MfdOnboardingWizard";
+import ClientSnapshot from "@/components/mfd/ClientSnapshot";
 import { toast } from "sonner";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
@@ -117,7 +118,7 @@ const Dashboard = () => {
   const enterProfile = useCallback(async (profile, opts) => {
     setActiveProfile(profile);
     await fetchData();
-    setActiveTab(opts?.tab || "overview");
+    setActiveTab(opts?.tab || "snapshot");
   }, [setActiveTab, fetchData]);
 
   // Exit impersonation — returns the MFD to the client list.
@@ -196,6 +197,15 @@ const Dashboard = () => {
     );
 
     switch (activeTab) {
+      case "snapshot":
+        if (!activeProfile) return <MfdDashboard onEnterProfile={enterProfile} />;
+        return withUploadCta(
+          <ClientSnapshot
+            activeProfile={activeProfile}
+            setActiveTab={setActiveTab}
+            onRefresh={fetchData}
+          />,
+        );
       case "overview":
         return withUploadCta(<DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />);
       case "plan_board":
@@ -238,7 +248,7 @@ const Dashboard = () => {
             if (profile) {
               setActiveProfile(profile);
               await fetchData();
-              setActiveTab("overview");
+              setActiveTab("snapshot");
             } else {
               setActiveTab("advisor");
             }

@@ -98,7 +98,22 @@ const deriveTopIssue = (p) => {
   return { key: "healthy", label: "Healthy", tone: "emerald" };
 };
 
+const VERB_VIEW = {
+  exit:         { label: "Exit",         tone: "rose",   Icon: RefreshCw },
+  switch:       { label: "Switch",       tone: "rose",   Icon: RefreshCw },
+  reduce:       { label: "Reduce",       tone: "rose",   Icon: RefreshCw },
+  rebalance:    { label: "Rebalance",    tone: "amber",  Icon: Scale },
+  increase_sip: { label: "Increase SIP", tone: "indigo", Icon: TrendingUp },
+  add_more:     { label: "Add more",     tone: "indigo", Icon: Plus },
+  add:          { label: "Add more",     tone: "indigo", Icon: Plus },
+};
+
 const deriveAction = (p) => {
+  // Prefer the backend-computed dominant verb when the client has any
+  // active recommendation — keeps engine + UI in lockstep.
+  const v = p.priority?.dominant_action;
+  if (v && VERB_VIEW[v]) return VERB_VIEW[v];
+
   const f = p.priority?.factors || {};
   const unreviewed = !p.last_reviewed_at;
   if (f.recommendation_severity >= 0.7) return { label: "Switch",       tone: "rose",    Icon: RefreshCw };
@@ -257,12 +272,15 @@ export default function MfdDashboard({ onEnterProfile }) {
     }
   };
 
-  // Route the Rebalance / Switch action verbs to the Plan Board (where
-  // action cards live) and everything else to the standard Overview.
+  // Route the action verbs to the right screen:
+  //   Exit / Switch / Reduce / Rebalance → Plan Board (action cards live there)
+  //   Increase SIP / Add more            → Goals (SIP plan lives there)
+  //   Review / First review / All good   → Overview snapshot
   const openAction = (p) => {
     const actionLabel = p._action?.label || "";
-    const tab = (actionLabel === "Rebalance" || actionLabel === "Switch")
-      ? "plan_board" : "overview";
+    let tab = "snapshot";
+    if (["Exit", "Switch", "Reduce", "Rebalance"].includes(actionLabel)) tab = "plan_board";
+    else if (["Increase SIP", "Add more"].includes(actionLabel)) tab = "goals";
     activateProfile(p, { tab });
   };
 

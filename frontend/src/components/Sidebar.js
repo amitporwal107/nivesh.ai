@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Users, Menu, X } from "lucide-react";
+import { LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Users, Sparkles, Menu, X } from "lucide-react";
 
 /**
  * Slim sidebar — primary navigation only.
@@ -17,14 +17,19 @@ const BASE_NAV = [
   { id: "goals", label: "Goals", icon: Target, badge: "NEW" },
 ];
 const MFD_NAV = { id: "advisor", label: "Advisor", icon: Users, badge: "MFD" };
+const SNAPSHOT_NAV = { id: "snapshot", label: "Client 360", icon: Sparkles, badge: "NEW" };
 
 const Sidebar = ({ activeTab, setActiveTab, workspaceType, activeProfileName }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Show Advisor tab whenever the user has an ADVISORY workspace.
+  // The Client 360 snapshot tab only appears while impersonating a client
+  // (i.e. `activeProfileName` is set) — it's the decision-focused landing
+  // page for that client.
+  const base = activeProfileName ? [SNAPSHOT_NAV, ...BASE_NAV] : BASE_NAV;
   const navItems = workspaceType === "ADVISORY"
-    ? [MFD_NAV, ...BASE_NAV]
-    : BASE_NAV;
+    ? [MFD_NAV, ...base]
+    : base;
 
   const handleNav = (id) => {
     setActiveTab(id);

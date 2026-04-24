@@ -65,14 +65,26 @@ def _days_since(iso_ts: Optional[str]) -> Optional[int]:
 
 # Map the engine's existing recommendation verbs → severity 0-1.
 _RECOMMENDATION_SEVERITY = {
-    "exit":        1.0,
-    "reduce":      0.8,
-    "switch":      0.7,
-    "rebalance":   0.5,
-    "add":         0.3,
-    "hold":        0.1,
-    "":            0.1,
+    "exit":          1.0,
+    "reduce":        0.8,
+    "switch":        0.7,
+    "rebalance":     0.5,
+    "increase_sip":  0.5,
+    "sip_increase":  0.5,
+    "top_up":        0.4,
+    "add_more":      0.35,
+    "add":           0.3,
+    "hold":          0.1,
+    "":              0.1,
 }
+
+# Verb preference order used to pick a *single* dominant action when the
+# client has multiple open recommendations — we want the most urgent one
+# to win the CTA on the dashboard row.
+_VERB_PRIORITY = [
+    "exit", "reduce", "switch", "increase_sip", "sip_increase",
+    "rebalance", "top_up", "add_more", "add", "hold",
+]
 
 
 def _recommendation_severity(recommendations: List[Dict[str, Any]]) -> float:
@@ -90,12 +102,36 @@ def _recommendation_severity(recommendations: List[Dict[str, Any]]) -> float:
     return best or _RECOMMENDATION_SEVERITY[""]
 
 
+def _dominant_verb(recommendations: List[Dict[str, Any]]) -> Optional[str]:
+    """Pick the single most-urgent verb across active recommendations.
+    Returns canonical form ("exit" / "switch" / "rebalance" /
+    "increase_sip" / "add" / etc) or None if nothing is open."""
+    if not recommendations:
+        return None
+    seen = set()
+    for r in recommendations:
+        verb = str(r.get("action") or r.get("type") or r.get("kind") or "").lower()
+        for key in _RECOMMENDATION_SEVERITY:
+            if key and key in verb:
+                seen.add(key)
+    for key in _VERB_PRIORITY:
+        if key in seen:
+            # Collapse synonyms for the UI.
+            if key == "sip_increase":
+                return "increase_sip"
+            if key == "top_up":
+                return "add_more"
+            return key
+    return None
+
+
 @dataclass
 class PriorityResult:
     score: float                     # 0..1
     bucket: str                      # "high" | "medium" | "low"
     factors: Dict[str, float]        # normalised 0..1 per input
     reasons: List[str]               # human-readable bullets
+    dominant_action: Optional[str] = None  # canonical verb (exit/switch/rebalance/increase_sip/add_more/add)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -103,6 +139,7 @@ class PriorityResult:
             "bucket": self.bucket,
             "factors": {k: round(v, 3) for k, v in self.factors.items()},
             "reasons": self.reasons,
+            "dominant_action": self.dominant_action,
         }
 
 
@@ -139,6 +176,7 @@ def compute_priority(
         recency = min(1.0, max(0.0, days / 30.0))
 
     rec_sev = _recommendation_severity(recommendations or [])
+    dominant = _dominant_verb(recommendations or [])
 
     score = (
         W_WEAKNESS * weakness
@@ -190,6 +228,7 @@ def compute_priority(
             "recommendation_severity": rec_sev,
         },
         reasons=reasons,
+        dominant_action=dominant,
     )
 
 
