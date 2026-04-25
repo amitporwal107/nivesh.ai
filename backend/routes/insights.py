@@ -773,6 +773,7 @@ async def v3_portfolio_summary(request: Request):
                     db, instrument_id=lookup_iid, scheme_name=name
                 ) or {}
                 sub_cat = ctx.get("sub_category")
+                broad_cat = (ctx.get("category") or "").lower()
                 expense_reg = ctx.get("expense_current")
                 expense_dir = ctx.get("expense_direct")
 
@@ -798,6 +799,27 @@ async def v3_portfolio_summary(request: Request):
                         exclude_instrument_id=lookup_iid,
                     )
 
+                # PRD §9 portfolio context — populate so over-allocation
+                # and sector/thematic overrides can fire on live data.
+                weight_pct = (current_val / total_aum * 100.0) if total_aum > 0 else None
+                sub_lower = (sub_cat or "").lower()
+                is_thematic = any(
+                    kw in sub_lower
+                    for kw in ("sector", "thematic", "energy", "infra",
+                               "pharma", "fmcg", "tech", "banking",
+                               "psu", "consumption", "manufactur")
+                )
+                # Tax treatment differs for equity vs debt/hybrid.
+                # Equity-oriented funds (incl. hybrid-equity, ELSS, index)
+                # follow STCG-15% / LTCG-10% w/ ₹1L exemption. Debt funds
+                # follow slab rate.
+                is_equity_fund = not any(
+                    kw in broad_cat
+                    for kw in ("debt", "liquid", "money market", "ultra short",
+                               "low duration", "gilt", "credit", "corporate bond",
+                               "banking and psu")
+                )
+
                 inp = sde.DecisionInputs(
                     quality=v3.get("quality_score") if v3 else None,
                     health=v3.get("health_score") if v3 else None,
@@ -806,7 +828,7 @@ async def v3_portfolio_summary(request: Request):
                     invested_amount=invested,
                     current_value=current_val,
                     holding_period_days=holding_age_days,
-                    is_equity=True,
+                    is_equity=is_equity_fund,
                     exit_load_pct=exit_load_pct,
                     expense_current=expense_reg,
                     expense_direct=expense_dir,
@@ -816,6 +838,8 @@ async def v3_portfolio_summary(request: Request):
                     current_category=sub_cat,
                     current_fund_name=name,
                     direct_plan_available=direct_available,
+                    portfolio_weight_pct=weight_pct,
+                    is_sector_or_thematic=is_thematic,
                     candidate_funds=peers,
                 )
                 switch_decision_dict = sde.result_to_dict(

@@ -2,6 +2,42 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — V3 Switch Decision Engine: 5-bucket Taxonomy + Peer-Fund Hydrator (iter 53)
+User PRD for the decision engine: classify every MF holding into one of **ADD / SWITCH / EXIT / REVIEW / WATCH** with `action_strength` (HIGH/MEDIUM/LOW), and select the best peer alternative when a switch is required.
+
+**Engine extensions** (`services/switch_decision_engine.py`):
+- 2 new internal actions `ACTION_EXIT` and `ACTION_ADD` joined the existing 11 (STRONG_SWITCH_DIRECT, PHASED_SWITCH_DIRECT, STRONG_SWITCH, PARTIAL_SWITCH, WATCHLIST, SIP_REDIRECT, HOLD, HOLD_TAX, HOLD_EXIT_LOAD, HOLD_DEFER, HOLD_NO_OPTION).
+- `RECOMMENDATION_BY_ACTION` map collapses the 13 internal actions into the user-facing 5-bucket taxonomy (PRD §13). Strong direct/peer switches → SWITCH-HIGH; phased/partial/SIP redirect → SWITCH-MEDIUM/LOW; tax/exit/defer holds → REVIEW-LOW; no-option/HOLD → WATCH-LOW.
+- **EXIT branch** (PRD §7.3): `E < 35 AND (Q < 40 OR H < 50) AND alt exists AND net_benefit > 0` → 100% exit, redirects proceeds to best peer. Tax-blocked variant routes to REVIEW (WATCHLIST).
+- **ADD branch** (PRD §7.1): `A ≥ 65 AND Q ≥ 60 AND H ≥ 60 AND E ≥ 50 AND weight_pct < 15%` → 25% allocation increase. Runs early in the decide() flow so strong-fund holders without a peer universe still receive a positive recommendation.
+- **Sector/Thematic override** (PRD §9): `is_sector_or_thematic=True AND switch_score ≥ 2` → EXIT (concentration risk).
+- **Over-allocation override** (PRD §9): `portfolio_weight_pct > 25%` → PARTIAL_SWITCH 30% trim.
+- New `DecisionInputs` fields: `portfolio_weight_pct`, `is_sector_or_thematic`.
+- `result_to_dict()` rewritten to emit the PRD §12 output: `{recommendation, action_strength, allocation_change, from_fund, to_fund, scores{}, reason[], impact{cost_saving, alpha_gain, tax_cost, exit_cost, net_benefit}}` plus backwards-compat fields (action, label, switch_score, signals, breakdown, alt_score) for existing UI consumers.
+
+**Candidate-Fund Hydrator** (`services/candidate_fund_hydrator.py` — NEW, ~250 LOC):
+- `fetch_candidates_for_category(db, sub_category, prefer_direct=True, exclude_instrument_id=...)` — queries `pg_mirror_mutual_fund_metadata` joined with `pg_mirror_mutual_fund_performance_ratios` (and `pg_mirror_instrument_master` for human-readable names). Returns `List[CandidateFund]` filtered by AUM ≥ ₹500Cr + track-record ≥ 3y + same `sub_category`.
+- `fetch_current_fund_context(db, instrument_id, scheme_name)` — looks up the holding's own metadata for `expense_current`, `expense_direct`, `current_return_5y`, `current_drawdown`, `current_consistency`, `sub_category`, `fund_age_years`. Falls back to fuzzy-name match on `instrument_master` when iid is missing (CAS-only holdings).
+- All scale conversions (% → decimal, 0-10 consistency → 0-100, drawdown sign-strip) happen in the hydrator so the engine stays in a single unit system.
+- 5-minute in-process cache keyed by `(sub_category, plan_preference)` avoids re-hitting Mongo per-holding when a portfolio iterates over many funds in the same category.
+- Graceful None handling: missing returns/expense → fund dropped from peer set; missing drawdown/consistency → defaults to 0.0.
+
+**Wiring** (`routes/insights.py:746-840`):
+- Replaced the legacy `cost_leak / current_value` hack with real pg_mirror lookups.
+- `lookup_iid = v3.instrument_id or iid` — uses v3 fuzzy-resolved iid so CAS-parsed holdings (no native instrument_id) still resolve.
+- `portfolio_weight_pct = (current_val / total_aum) × 100` — wires PRD §9 over-allocation override.
+- `is_sector_or_thematic` — keyword-detected from sub_category (sector/thematic/energy/infra/pharma/fmcg/tech/banking/psu/consumption/manufactur).
+- `is_equity_fund` — keyword-derived from `category`; debt/liquid/gilt/credit funds correctly use slab-rate tax instead of equity STCG/LTCG.
+- `_n_candidates` exposed on every decision for observability.
+
+**Live verified on `aporwal107` (146 holdings: 77 equity, 8 ETF, 59 MF, 2 gold)**:
+- 49/59 MF funds carry `switch_decision` (83% surface)
+- 45/49 with peer candidates hydrated (92% — exceeds 80% target), avg 9.5 peers per fund
+- Distribution: SWITCH=40 (HIGH), WATCH=8 (LOW), REVIEW=1 (LOW)
+- Real economic numbers: TATA Small Cap Regular → STRONG_SWITCH to **Nippon India Small Cap Direct** (alpha_gain=₹9, cost_saving=₹1, net=+₹10 — small because residual ~₹100 holding); HDFC Balanced Advantage Regular → REVIEW (cost_saving=₹64,850 < tax_cost=₹93,812 → defer); Direct Plan switches across UTI ELSS, Tata Digital, etc.
+
+**Testing**: iteration 53 — 53/53 backend tests pass (45 unit + 8 live API regression tests via aporwal107). 33 engine + 12 hydrator tests cover all 5 buckets, 4 strengths, AUM/track-record filters, scale conversions, cache, end-to-end flow, EXIT/ADD/Sector/Overweight overrides, LTCG harvest, hard blockers (tax-ineff, exit-load, no-option). 303/303 across full focused backend suite.
+
 ### Apr 2026 — Client CAS Invite v2 (24h + Consent + Regenerate)
 User PRD refinement of the Client CAS Invite flow per the "secure, advisor-led, WhatsApp-native investment onboarding" spec.
 
