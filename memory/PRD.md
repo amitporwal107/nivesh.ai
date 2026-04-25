@@ -2,6 +2,35 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Cost-of-Switch UI: SwitchCostPanel + Per-Holding Inline Compute (iter 56)
+User requested: surface `impact.switch_cost_pct` and `alpha_pct_annual` (just added to the engine in iter 55) in **both** the V3FundBreakdown row (Insights tab) and the ActionablePortfolioView expanded row (Portfolio tab).
+
+**New shared component** (`components/insights/SwitchCostPanel.jsx`, ~190 LOC):
+- Friction band header — emerald (< 1% Low friction · ⚡), amber (1–2% Moderate · ↗), rose (> 2% High friction · ⚠), indigo (Staggered/STP · 📅).
+- **Payback period** displayed in months on the right (`cost / alpha → months`).
+- **Two-bar comparison**: total switch cost vs annual alpha, scaled to the larger of the two so the visual ratio is honest.
+- **Breakdown chips**: Tax · Exit load · Slippage = Total. Each chip carries a `title` tooltip with the absolute ₹ value.
+- **Net benefit footer**: Cost saving · Alpha gain · Net (signed, coloured green/rose).
+- Full data-testid coverage: `*-panel`, `*-payback`, `*-bars`, `*-cost-pct`, `*-alpha-pct`, `*-breakdown`, `*-footer`.
+
+**Wired into V3FundBreakdown** (Insights tab) — reads from `fund.switch_decision.impact` (already populated by the engine in iter 55).
+
+**Backend extension for ActionablePortfolioView** — `services/portfolio_enrichment.py`:
+- Added inline `compute_switch_costs()` call per MF/ETF holding inside `build_enriched_portfolio()`. Cheap: just invested/current/holding-period — no peer lookup, no Mongo round-trip, no extra RPC.
+- For Regular-plan holdings, sets `alpha_pct_annual = 0.8%` (typical Reg-Direct expense gap) so payback math has a denominator. Direct-plan holdings get 0 alpha here (peer-fund alpha lives in `/v3-portfolio` only).
+- Net benefit estimated over a 5-year horizon for Regular plans: `alpha × val × 5 - total_cost`.
+- Exposed as `switch_cost` field on every enriched holding row.
+- Wired into ActionablePortfolioView's ExpandedRow with the same SwitchCostPanel component.
+
+**Live verified on aporwal107**:
+- 59/59 MFs carry `switch_cost`; 36 (61%) have `alpha_pct_annual > 0` (correctly the Regular-plan funds).
+- Cost bands: 55 < 1% (low-friction) · 4 > 2% (high-friction).
+- HDFC Hybrid Equity Regular renders rose-tone "High friction · SWITCH/MEDIUM", payback 36 months, cost 2.37% (Tax 2.2% + Exit 0.0% + Slippage 0.20%) vs alpha 0.80%/yr, net +₹17.7k. Visual exactly matches the user PRD design intent.
+
+**Testing**: 150/150 backend tests pass. Frontend lint clean (V3FundBreakdown · ActionablePortfolioView · SwitchCostPanel).
+
+---
+
 ### Apr 2026 — Cost-of-Switch Framework: Switch Cost % + 3 Threshold Rules (iter 55)
 User PRD for Cost of Switch: every recommendation must compute total round-trip friction (`Exit Load % + Tax % + Slippage %`) and gate decisions against alpha. Three explicit threshold rules added on top of the existing 5-bucket engine.
 

@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import SwitchCostPanel from "./insights/SwitchCostPanel";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmtINR = (n) => n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -284,6 +285,16 @@ const ExpandedRow = ({ h, onSwitch }) => {
             )}
           </div>
         </div>
+        {/* Cost-of-Switch panel — visualises the PRD framework */}
+        {h.switch_cost && (
+          <SwitchCostPanel
+            impact={h.switch_cost}
+            recommendation={h.action_badge?.action}
+            action_strength={h.action_badge?.action === "SWITCH" ? "MEDIUM" : null}
+            action={h.action_badge?.action}
+            testidPrefix={`switch-cost-${h.holding_id}`}
+          />
+        )}
       </td>
     </tr>
   );

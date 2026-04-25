@@ -12,6 +12,7 @@ import {
   TrendingDown,
   Scale,
 } from 'lucide-react';
+import SwitchCostPanel from './SwitchCostPanel';
 
 // ── Score colouring ──────────────────────────────────────────────────────
 const scoreTone = (v) => {
@@ -331,6 +332,16 @@ const FundRow = ({ fund }) => {
                data-testid={`v3-fund-explain-${fund.instrument_id || fund.scheme_name}`}>
             {renderExplanation(fund.explanation)}
           </div>
+          {/* Cost-of-Switch panel — surfaces the PRD framework */}
+          {fund.switch_decision && (
+            <SwitchCostPanel
+              impact={fund.switch_decision.impact}
+              recommendation={fund.switch_decision.recommendation}
+              action_strength={fund.switch_decision.action_strength}
+              action={fund.switch_decision.action}
+              testidPrefix={`switch-cost-${fund.instrument_id || fund.scheme_name}`}
+            />
+          )}
           {/* Primitives summary */}
           {fund.primitives && (
             <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">

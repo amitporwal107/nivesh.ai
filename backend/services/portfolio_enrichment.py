@@ -573,6 +573,63 @@ async def build_enriched_portfolio(
                 else ("cagr_1y" if ret_1y_ext is not None else "cagr_5y")
             )
 
+        # ── Cost-of-Switch breakdown (PRD framework) ──────────────────
+        # Cheap: only requires invested/current/holding-period — no peer
+        # lookup, no Mongo round-trip. Computed for every holding so the
+        # ActionablePortfolioView expanded row can show the same panel as
+        # the Insights tab.
+        switch_cost_block = None
+        if at in ("mutual_fund", "etf") and val > 0:
+            try:
+                from services import switch_decision_engine as sde
+                holding_age_days = None
+                if h.get("buy_date"):
+                    try:
+                        bd = h["buy_date"]
+                        if isinstance(bd, str):
+                            bd = datetime.fromisoformat(bd.replace("Z", "+00:00")).date()
+                        elif isinstance(bd, datetime):
+                            bd = bd.date()
+                        holding_age_days = (date.today() - bd).days
+                    except (TypeError, ValueError):
+                        pass
+                # Equity-fund tax treatment unless name suggests debt.
+                is_equity_fund = not any(
+                    k in name_l for k in ("liquid", "debt", "bond", "gilt",
+                                          "corporate", "short term", "ultra short",
+                                          "money market", "low duration")
+                )
+                cost_inp = sde.DecisionInputs(
+                    invested_amount=inv, current_value=val,
+                    holding_period_days=holding_age_days,
+                    is_equity=is_equity_fund,
+                    exit_load_pct=float(h.get("exit_load_pct") or 0),
+                )
+                c = sde.compute_switch_costs(cost_inp)
+                # Annual alpha proxy:
+                # • Regular plan → expense gap of ~0.8% (typical Reg-Direct gap)
+                # • Otherwise → 0 (peer-fund alpha lives in /v3-portfolio)
+                alpha_pct_annual = 0.8 if is_regular else 0.0
+                switch_cost_block = {
+                    # ₹ values
+                    "tax_cost": c["tax_cost"],
+                    "exit_cost": c["exit_cost"],
+                    "slippage_cost": c["slippage_cost"],
+                    "total_cost": c["total_cost"],
+                    # decimal % values for display (×100)
+                    "switch_cost_pct": round(c["switch_cost_pct"] * 100, 3),
+                    "tax_impact_pct": round(c["tax_impact_pct"] * 100, 3),
+                    "exit_load_pct": round(c["exit_load_pct"] * 100, 3),
+                    "slippage_pct": round(c["slippage_pct"] * 100, 3),
+                    "alpha_pct_annual": alpha_pct_annual,
+                    # Net benefit estimate over a 5-year horizon (rough proxy)
+                    "cost_saving": round(val * (alpha_pct_annual / 100.0) * 5, 0) if alpha_pct_annual > 0 else 0,
+                    "alpha_gain": 0,
+                    "net_benefit": round(val * (alpha_pct_annual / 100.0) * 5 - c["total_cost"], 0) if alpha_pct_annual > 0 else 0,
+                }
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"switch_cost compute failed for {h.get('name')}: {e}")
+
         enriched.append({
             "holding_id": h.get("holding_id"),
             "name": h.get("name"), "isin": h.get("ticker"),
@@ -599,6 +656,7 @@ async def build_enriched_portfolio(
             "recommendation_reason": rec_reason,
             "action_badge": badge,
             "expense_ratio": expense_ratio,
+            "switch_cost": switch_cost_block,
             "low_confidence": (
                 score_bundle is None
                 or (stock_scores_by_sym.get((h.get("nse_symbol") or "").upper()) or {}).get("low_confidence", False)
