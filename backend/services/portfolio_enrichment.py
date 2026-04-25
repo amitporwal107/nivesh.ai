@@ -143,7 +143,28 @@ def derive_action_badge(
             parts.append("High portfolio overlap")
         if rec == "SWITCH":
             parts.append("Engine flagged switch")
-        return {**SWITCH, "reason": " · ".join(parts) or "Switch candidate."}
+        # Differentiate the THREE switch flavours so the UI doesn't render
+        # them all as the same scary "SWITCH" pill:
+        #   • "To Direct" — Regular plan with healthy scores; pure cost
+        #     optimisation, fund itself is fine. Teal/positive tone.
+        #   • "Reduce" — diversification fix (high overlap); amber.
+        #   • "To Peer" — engine recommends a different fund; amber/red.
+        is_healthy = q >= 60 and h >= 60 and e < 60
+        if is_regular_plan and is_healthy and not high_overlap and rec != "SWITCH":
+            sub = "To Direct"
+        elif rec == "SWITCH" and not is_regular_plan:
+            sub = "To Peer"
+        elif high_overlap:
+            sub = "Reduce"
+        else:
+            # Regular + (overlap or unhealthy) — main concern is the fund itself
+            sub = "To Peer" if (rec == "SWITCH" or not is_healthy) else "To Direct"
+        return {
+            **SWITCH,
+            "reason": " · ".join(parts) or "Switch candidate.",
+            "sub_action": sub,
+            "sub_reason": " · ".join(parts) or "Switch candidate.",
+        }
     if a >= 70 and q >= 65:
         return {**ADD,
                 "reason": f"Add {a:.0f} · Quality {q:.0f} — fits portfolio gap."}

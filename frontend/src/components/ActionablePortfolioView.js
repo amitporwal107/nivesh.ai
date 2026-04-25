@@ -183,25 +183,35 @@ const resolveAlertCta = (alert, ctx) => {
 };
 
 const SUB_STYLE = {
-  Keep:      "bg-slate-100 text-slate-700 border-slate-200",
-  Watch:     "bg-sky-50 text-sky-700 border-sky-200",
-  Review:    "bg-amber-50 text-amber-700 border-amber-200",
-  Rebalance: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  Keep:        "bg-slate-100 text-slate-700 border-slate-200",
+  Watch:       "bg-sky-50 text-sky-700 border-sky-200",
+  Review:      "bg-amber-50 text-amber-700 border-amber-200",
+  Rebalance:   "bg-indigo-50 text-indigo-700 border-indigo-200",
+  // SWITCH sub-flavours — visually distinct so users don't confuse a
+  // pure cost optimisation with a fund-quality concern.
+  "To Direct": "bg-teal-50 text-teal-700 border-teal-200",     // good fund, cheaper plan
+  "To Peer":   "bg-amber-100 text-amber-800 border-amber-200", // switch to different fund
+  "Reduce":    "bg-orange-50 text-orange-700 border-orange-200", // diversification trim
 };
 
 const ActionBadge = ({ badge }) => {
   if (!badge) return null;
-  // HOLD → use sub_action ("Keep" / "Watch" / "Review" / "Rebalance") when present.
+  // HOLD or SWITCH → use sub_action label when present so the pill
+  // communicates the actual flavour (Keep/Watch/Review/Rebalance for
+  // HOLD; To Direct/To Peer/Reduce for SWITCH).
+  const hasSub = !!badge.sub_action;
   const isHold = badge.action === "HOLD";
-  const label = isHold && badge.sub_action ? badge.sub_action : badge.action;
-  const style = isHold && badge.sub_action
-    ? SUB_STYLE[badge.sub_action] || BADGE_STYLE.HOLD.bg
+  const isSwitch = badge.action === "SWITCH";
+  const showSub = hasSub && (isHold || isSwitch);
+  const label = showSub ? badge.sub_action : badge.action;
+  const style = showSub
+    ? (SUB_STYLE[badge.sub_action] || (BADGE_STYLE[badge.action] || BADGE_STYLE.REVIEW).bg)
     : (BADGE_STYLE[badge.action] || BADGE_STYLE.REVIEW).bg;
   return (
     <span
       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${style}`}
       title={badge.reason || ""}
-      data-testid={`action-badge-${badge.action}${isHold && badge.sub_action ? "-" + badge.sub_action : ""}`}
+      data-testid={`action-badge-${badge.action}${showSub ? "-" + badge.sub_action.replace(/\s+/g, "-") : ""}`}
     >
       <span>{badge.emoji}</span>{label}
     </span>
