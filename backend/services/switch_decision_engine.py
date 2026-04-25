@@ -33,6 +33,18 @@ MIN_TRACK_RECORD_YEARS = 3
 WEAK_CANDIDATE_RETURN_MIN = 0.01            # 1% return uplift floor
 WEAK_CANDIDATE_COST_MIN = 0.003             # 0.3% cost saving floor
 
+# ── Switch cost framework (PRD: Cost-of-Switch) ─────────────────────────
+# Total Switch Cost (%) = Exit Load % + Tax Impact % + Slippage %
+# Decision rules layered on top of normal scoring:
+#   * SWITCH_COST_AGGRESSIVE_PCT  — below this, switch freely
+#   * SWITCH_COST_BLOCK_PCT       — above this, switch only on strong signals
+#   * TAX_IMPACT_STAGGER_PCT      — above this, route to STP/staggered switch
+DEFAULT_SLIPPAGE_PCT = 0.002                # 0.2% — T+2/T+3 redemption gap
+SWITCH_COST_AGGRESSIVE_PCT = 0.01           # < 1% friction → free-flow
+SWITCH_COST_BLOCK_PCT = 0.02                # > 2% friction → require strong signal
+TAX_IMPACT_STAGGER_PCT = 0.02               # > 2% → escalate to staggered/STP
+STRONG_SIGNAL_THRESHOLD = 3                 # switch_score >= 3 = "strong underperformance"
+
 # ── Action constants ────────────────────────────────────────────────────
 ACTION_STRONG_SWITCH_DIRECT   = "STRONG_SWITCH_DIRECT"
 ACTION_PHASED_SWITCH_DIRECT   = "PHASED_SWITCH_DIRECT"
@@ -47,6 +59,7 @@ ACTION_HOLD_DEFER             = "HOLD_DEFER"
 ACTION_HOLD_NO_OPTION         = "HOLD_NO_OPTION"
 ACTION_EXIT                   = "EXIT"
 ACTION_ADD                    = "ADD"
+ACTION_STAGGERED_SWITCH       = "STAGGERED_SWITCH"         # STP-style, tax-spread
 
 UI_LABELS: Dict[str, Tuple[str, str]] = {
     ACTION_STRONG_SWITCH_DIRECT: ("Switch to Direct",         "✅"),
@@ -62,6 +75,7 @@ UI_LABELS: Dict[str, Tuple[str, str]] = {
     ACTION_HOLD_NO_OPTION:       ("Hold · no better option",  "—"),
     ACTION_EXIT:                 ("Exit fund",                "⛔"),
     ACTION_ADD:                  ("Increase allocation",      "✅"),
+    ACTION_STAGGERED_SWITCH:     ("Staggered switch (STP)",   "📅"),
 }
 
 # 5-bucket recommendation taxonomy per PRD §13. Maps each internal action
@@ -76,6 +90,7 @@ RECOMMENDATION_BY_ACTION: Dict[str, Tuple[str, str]] = {
     ACTION_SIP_REDIRECT:         ("SWITCH", "LOW"),
     ACTION_EXIT:                 ("EXIT",   "HIGH"),
     ACTION_ADD:                  ("ADD",    "HIGH"),
+    ACTION_STAGGERED_SWITCH:     ("SWITCH", "MEDIUM"),
     ACTION_WATCHLIST:            ("REVIEW", "MEDIUM"),
     ACTION_HOLD_TAX:             ("REVIEW", "LOW"),
     ACTION_HOLD_EXIT_LOAD:       ("REVIEW", "LOW"),
@@ -131,6 +146,9 @@ class DecisionInputs:
     candidate_funds: List[CandidateFund] = field(default_factory=list)
     # Taxation
     debt_slab_rate: float = DEFAULT_DEBT_SLAB_RATE
+    # Switch cost — slippage from T+2/T+3 redemption gap (PRD: 0.1-0.3%).
+    # Tunable per-case (e.g., higher in volatile markets).
+    slippage_pct: float = DEFAULT_SLIPPAGE_PCT
 
 
 @dataclass
@@ -158,6 +176,40 @@ def compute_tax_cost(inp: DecisionInputs) -> float:
         return gain * STCG_EQUITY_RATE
     taxable = max(0.0, gain - LTCG_EXEMPTION_RS)
     return taxable * LTCG_RATE
+
+
+# ── Switch Cost framework (PRD: Cost-of-Switch) ─────────────────────────
+def compute_switch_costs(inp: DecisionInputs) -> Dict[str, float]:
+    """Returns the structured Cost-of-Switch breakdown.
+
+    All `*_pct` values are decimal fractions (0.035 == 3.5%) so they
+    can be compared to alpha and the threshold constants directly.
+
+    Slippage is applied only when an actual switch is on the table —
+    same-fund Direct migration involves no redemption + reinvestment lag,
+    so callers passing direct_plan_only=True get slippage zeroed out.
+    """
+    cv = max(1.0, inp.current_value)   # avoid div-by-zero
+    tax = compute_tax_cost(inp)
+    exit_load = inp.current_value * max(0.0, inp.exit_load_pct)
+    slip = inp.current_value * max(0.0, inp.slippage_pct)
+
+    tax_pct = tax / cv
+    exit_pct = exit_load / cv
+    slip_pct = slip / cv
+    total_pct = tax_pct + exit_pct + slip_pct
+
+    return {
+        "tax_cost": round(tax, 2),
+        "exit_cost": round(exit_load, 2),
+        "slippage_cost": round(slip, 2),
+        "total_cost": round(tax + exit_load + slip, 2),
+        # Decimal fractions for math; multiply ×100 for display.
+        "tax_impact_pct": tax_pct,
+        "exit_load_pct": exit_pct,
+        "slippage_pct": slip_pct,
+        "switch_cost_pct": total_pct,
+    }
 
 
 # ── Step 2: signals ─────────────────────────────────────────────────────
@@ -236,6 +288,11 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
     gain = inp.current_value - inp.invested_amount
     tax_cost = compute_tax_cost(inp)
     exit_cost = inp.current_value * max(0.0, inp.exit_load_pct)
+    # Cost-of-Switch framework — total friction as % of current value.
+    cost_pct = compute_switch_costs(inp)
+    switch_cost_pct = cost_pct["switch_cost_pct"]
+    tax_impact_pct = cost_pct["tax_impact_pct"]
+    slippage_cost = cost_pct["slippage_cost"]
 
     # Step 2: score signals
     signals = compute_signals(inp)
@@ -270,12 +327,23 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
         "gain": round(gain, 2),
         "tax_cost": round(tax_cost, 2),
         "exit_cost": round(exit_cost, 2),
+        "slippage_cost": round(slippage_cost, 2),
         "cost_saving_alt": round(alt_cost_saving, 2),
         "alpha_gain": round(alpha_gain, 2),
         "direct_saving": round(direct_saving, 2),
         "expense_diff_direct_pct": round(expense_diff_direct * 100, 3),
         "net_benefit_alt": round(net_benefit_alt, 2),
         "net_benefit_direct": round(net_benefit_direct, 2),
+        # Cost-of-Switch framework (PRD): all in % terms for UX clarity
+        "switch_cost_pct": round(switch_cost_pct * 100, 3),
+        "tax_impact_pct": round(tax_impact_pct * 100, 3),
+        "exit_load_pct": round(cost_pct["exit_load_pct"] * 100, 3),
+        "slippage_pct": round(cost_pct["slippage_pct"] * 100, 3),
+        "alpha_pct_annual": round(
+            (max(0.0, best_alt.return_5y - (inp.current_return_5y or 0.0)) * 100)
+            if better_alternative_exists else 0.0,
+            3,
+        ),
     }
 
     from_name = inp.current_fund_name
@@ -418,10 +486,64 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
 
     # ── Step 7: FUND SWITCH DECISION ─────────────────────────────────
     if better_alternative_exists:
+        # SIP redirect first — it has ZERO switch cost (no redemption),
+        # so cost-of-switch overlay doesn't apply.
+        if switch_score >= 2 and net_benefit_alt <= 0:
+            return _res(ACTION_SIP_REDIRECT, 0, best_alt.name, [
+                f"Existing units stay put (tax drag ₹{tax_cost:,.0f}). Redirect NEW SIPs to {best_alt.name}.",
+                "Zero-tax migration over the investment horizon.",
+            ])
+
+        # PRD Cost-of-Switch overlay: compare friction% vs alpha%.
+        # alpha_pct_annual is the annual edge of the alt fund over current.
+        alpha_pct_annual = max(0.0, best_alt.return_5y - (inp.current_return_5y or 0.0))
+        # Total round-trip friction expected to be recovered within
+        # `years_to_goal`. We compare yearly friction (amortised) vs alpha.
+        amortised_cost_pct = switch_cost_pct / max(1.0, inp.years_to_goal)
+
+        # Rule 3 (PRD): Tax impact > 2% → escalate to staggered/STP switch.
+        # Even when signals + benefit say full switch is warranted, a 2%+
+        # tax hit is too lumpy to absorb at once.
+        if (
+            tax_impact_pct > TAX_IMPACT_STAGGER_PCT
+            and switch_score >= 2
+            and net_benefit_alt > 0
+        ):
+            return _res(ACTION_STAGGERED_SWITCH, 25, best_alt.name, [
+                f"Tax impact {tax_impact_pct * 100:.1f}% exceeds 2% threshold.",
+                f"Stagger 25%/quarter over a year (STP) to spread tax across slabs.",
+                f"Net benefit at full migration: ₹{net_benefit_alt:,.0f}.",
+            ])
+
+        # Rule 1 (PRD): Switch cost > 2% AND signals not "strong" → block.
+        # Allow it through only when switch_score >= 3 (strong underperf).
+        if (
+            switch_cost_pct > SWITCH_COST_BLOCK_PCT
+            and switch_score < STRONG_SIGNAL_THRESHOLD
+        ):
+            return _res(ACTION_WATCHLIST, 0, best_alt.name, [
+                f"Switch cost {switch_cost_pct * 100:.1f}% > 2% but signals not strong (score {switch_score}/5).",
+                f"Tax {tax_impact_pct * 100:.1f}% + exit {cost_pct['exit_load_pct'] * 100:.1f}% + slippage {cost_pct['slippage_pct'] * 100:.2f}%.",
+                "Watchlisted — review as LTCG threshold approaches.",
+            ])
+
+        # Friction sanity check: if amortised cost > alpha, switch erodes returns.
+        if (
+            switch_cost_pct > SWITCH_COST_BLOCK_PCT
+            and amortised_cost_pct > alpha_pct_annual
+        ):
+            return _res(ACTION_WATCHLIST, 0, best_alt.name, [
+                f"Switch cost {switch_cost_pct * 100:.1f}% (amortised {amortised_cost_pct * 100:.2f}%/yr)",
+                f"exceeds expected alpha {alpha_pct_annual * 100:.1f}%/yr.",
+                "Switch would erode returns — watchlisted.",
+            ])
+
         if switch_score >= 3 and net_benefit_alt > 0:
+            tag = " (low-friction)" if switch_cost_pct < SWITCH_COST_AGGRESSIVE_PCT else ""
             reasons = [
-                f"Switch score {switch_score}/5 with net benefit ₹{net_benefit_alt:,.0f}.",
+                f"Switch score {switch_score}/5 with net benefit ₹{net_benefit_alt:,.0f}{tag}.",
                 f"Better alternative found: {best_alt.name}.",
+                f"Total switch cost {switch_cost_pct * 100:.1f}% vs alpha {alpha_pct_annual * 100:.1f}%/yr.",
             ]
             _append_signal_reasons(reasons, signals)
             return _res(ACTION_STRONG_SWITCH, 100, best_alt.name, reasons)
@@ -429,6 +551,7 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
         if switch_score == 2 and net_benefit_alt > 0:
             reasons = [
                 f"Switch score 2/5 with modest benefit ₹{net_benefit_alt:,.0f}.",
+                f"Switch cost {switch_cost_pct * 100:.1f}% vs alpha {alpha_pct_annual * 100:.1f}%/yr.",
                 f"Migrate 25-50% to {best_alt.name}; keep core for LTCG staging.",
             ]
             return _res(ACTION_PARTIAL_SWITCH, 40, best_alt.name, reasons)
@@ -438,13 +561,6 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
             return _res(ACTION_WATCHLIST, 0, best_alt.name, [
                 f"Switch score {switch_score}/5 — signals are weak but tax drag kills the deal.",
                 "Watchlisted: review monthly as LTCG threshold approaches.",
-            ])
-
-        # Step 8: SIP redirect fallback (switch_score ≥ 2 but net ≤ 0)
-        if switch_score >= 2 and net_benefit_alt <= 0:
-            return _res(ACTION_SIP_REDIRECT, 0, best_alt.name, [
-                f"Existing units stay put (tax drag). Redirect NEW SIPs to {best_alt.name}.",
-                "Zero-tax migration over the investment horizon.",
             ])
 
     # ── Step 8: LTCG harvesting (default fall-through) ───────────────
@@ -506,14 +622,21 @@ def result_to_dict(res: DecisionResult) -> Dict[str, Any]:
         "label": res.label,
         "allocation": f"{res.allocation_pct}%",
         "allocation_pct": res.allocation_pct,
-        # Reasons + financial impact (PRD §12)
+        # Reasons + financial impact (PRD §12 + Cost-of-Switch overlay)
         "reason": res.reason,
         "impact": {
             "cost_saving": round(cost_saving, 0),
             "alpha_gain": round(alpha_gain, 0),
             "tax_cost": round(bk.get("tax_cost", 0), 0),
             "exit_cost": round(bk.get("exit_cost", 0), 0),
+            "slippage_cost": round(bk.get("slippage_cost", 0), 0),
             "net_benefit": round(net_benefit, 0),
+            # Cost-of-Switch percentages (PRD)
+            "switch_cost_pct": bk.get("switch_cost_pct", 0),
+            "tax_impact_pct": bk.get("tax_impact_pct", 0),
+            "exit_load_pct": bk.get("exit_load_pct", 0),
+            "slippage_pct": bk.get("slippage_pct", 0),
+            "alpha_pct_annual": bk.get("alpha_pct_annual", 0),
         },
         # Backwards-compat fields (existing consumers)
         "switch_score": res.switch_score,

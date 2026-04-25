@@ -2,6 +2,44 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Cost-of-Switch Framework: Switch Cost % + 3 Threshold Rules (iter 55)
+User PRD for Cost of Switch: every recommendation must compute total round-trip friction (`Exit Load % + Tax % + Slippage %`) and gate decisions against alpha. Three explicit threshold rules added on top of the existing 5-bucket engine.
+
+**Engine extensions** (`services/switch_decision_engine.py`):
+- New `compute_switch_costs()` returns the structured PRD breakdown:
+  ```
+  {tax_cost, exit_cost, slippage_cost, total_cost,
+   tax_impact_pct, exit_load_pct, slippage_pct, switch_cost_pct}
+  ```
+  All `_pct` values are decimal fractions for math; `_cost` values are absolute ₹.
+- `DecisionInputs.slippage_pct` (default 0.002 = **0.2%** per PRD).
+- New action `ACTION_STAGGERED_SWITCH` ("📅 Staggered switch (STP)") for tax-spread migrations. Maps to `recommendation=SWITCH, action_strength=MEDIUM` in the public taxonomy.
+
+**3 PRD threshold rules wired into `decide()`** (Step 7 fund-switch flow):
+1. **Switch Cost > 2% AND switch_score < 3 → WATCHLIST** ("avoid switch unless strong underperformance")
+2. **Tax Impact > 2% AND switch_score ≥ 2 AND net_benefit > 0 → STAGGERED_SWITCH** (25% per quarter STP migration to spread tax)
+3. **Switch Cost < 1% → STRONG_SWITCH labelled "(low-friction)"** (aggressive switch path)
+
+Plus a friction sanity-check: amortised `switch_cost_pct / years_to_goal > alpha_pct_annual` → WATCHLIST (switch erodes returns).
+
+**SIP_REDIRECT priority hoisted** above the cost-block rules — it has zero round-trip cost (no redemption) so high-tax + score=2 + negative-net cases correctly route to SIP redirect rather than being blocked.
+
+**Output extensions** — `impact` block in `result_to_dict()` now exposes:
+```
+{cost_saving, alpha_gain, tax_cost, exit_cost, slippage_cost, net_benefit,
+ switch_cost_pct, tax_impact_pct, exit_load_pct, slippage_pct, alpha_pct_annual}
+```
+
+**Live verified on aporwal107** (59 MFs):
+- Action distribution: 34 STRONG_SWITCH_DIRECT (Regular → Direct, low friction) · 4 EXIT · 2 STRONG_SWITCH · 7 HOLD · 2 misc.
+- TATA Small Cap Regular → SWITCH/HIGH to Axis Small Cap Direct, switch_cost **0.2%** vs alpha **2.6%/yr**, reason "(low-friction)".
+- UTI ELSS Regular → SWITCH/HIGH to Direct plan, switch_cost 0.2%, alpha 6.69%/yr from peer.
+- No STAGGERED_SWITCH triggered this run — most current portfolio holdings are LTCG-eligible with small gains; rule will fire as expected on STCG-heavy positions (verified by 9 unit tests).
+
+**Testing**: iteration 55 — 67/67 backend tests pass (10 new in `test_switch_cost_framework.py` — covering the user's PRD example "5L invested, 6L current, 1% exit, 8mo STCG → 3.7% total cost", 3-rule routing, low-friction tag, structured cost breakdown, slippage default, SIP_REDIRECT bypass).
+
+---
+
 ### Apr 2026 — Global Stale-Data Warning Banner + MS Ratings Mirror Fix (iter 54)
 User reported "Morningstar ratings not coming for any users" + asked for a "warning on top of all pages about stale data and what failed" whenever any scrape/refresh job fails.
 
