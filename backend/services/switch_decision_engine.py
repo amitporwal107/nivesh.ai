@@ -45,6 +45,8 @@ ACTION_HOLD_TAX               = "HOLD_TAX"
 ACTION_HOLD_EXIT_LOAD         = "HOLD_EXIT_LOAD"
 ACTION_HOLD_DEFER             = "HOLD_DEFER"
 ACTION_HOLD_NO_OPTION         = "HOLD_NO_OPTION"
+ACTION_EXIT                   = "EXIT"
+ACTION_ADD                    = "ADD"
 
 UI_LABELS: Dict[str, Tuple[str, str]] = {
     ACTION_STRONG_SWITCH_DIRECT: ("Switch to Direct",         "✅"),
@@ -58,6 +60,28 @@ UI_LABELS: Dict[str, Tuple[str, str]] = {
     ACTION_HOLD_EXIT_LOAD:       ("Hold · exit load high",    "🛑"),
     ACTION_HOLD_DEFER:           ("Hold · defer switch",      "⏳"),
     ACTION_HOLD_NO_OPTION:       ("Hold · no better option",  "—"),
+    ACTION_EXIT:                 ("Exit fund",                "⛔"),
+    ACTION_ADD:                  ("Increase allocation",      "✅"),
+}
+
+# 5-bucket recommendation taxonomy per PRD §13. Maps each internal action
+# to (recommendation_label, action_strength). UI uses these for colour /
+# CTA mapping (ADD=green Invest More · SWITCH=orange Switch Now ·
+# EXIT=red Exit · REVIEW=yellow Review · WATCH=grey Monitor).
+RECOMMENDATION_BY_ACTION: Dict[str, Tuple[str, str]] = {
+    ACTION_STRONG_SWITCH_DIRECT: ("SWITCH", "HIGH"),
+    ACTION_PHASED_SWITCH_DIRECT: ("SWITCH", "MEDIUM"),
+    ACTION_STRONG_SWITCH:        ("SWITCH", "HIGH"),
+    ACTION_PARTIAL_SWITCH:       ("SWITCH", "MEDIUM"),
+    ACTION_SIP_REDIRECT:         ("SWITCH", "LOW"),
+    ACTION_EXIT:                 ("EXIT",   "HIGH"),
+    ACTION_ADD:                  ("ADD",    "HIGH"),
+    ACTION_WATCHLIST:            ("REVIEW", "MEDIUM"),
+    ACTION_HOLD_TAX:             ("REVIEW", "LOW"),
+    ACTION_HOLD_EXIT_LOAD:       ("REVIEW", "LOW"),
+    ACTION_HOLD_DEFER:           ("REVIEW", "LOW"),
+    ACTION_HOLD_NO_OPTION:       ("WATCH",  "LOW"),
+    ACTION_HOLD:                 ("WATCH",  "LOW"),
 }
 
 
@@ -100,6 +124,9 @@ class DecisionInputs:
     years_to_goal: float = DEFAULT_YEARS_TO_GOAL
     # Flags
     direct_plan_available: bool = False
+    # Portfolio context (PRD §9 — category override + over-allocation)
+    portfolio_weight_pct: Optional[float] = None     # e.g., 22.5 for 22.5%
+    is_sector_or_thematic: bool = False
     # Candidate universe (Step 3)
     candidate_funds: List[CandidateFund] = field(default_factory=list)
     # Taxation
@@ -289,7 +316,76 @@ def decide(inp: DecisionInputs, *, plan_type: str = "regular") -> DecisionResult
             "Wait for the exit-load window to expire.",
         ])
 
-    # 5c: No better option AT ALL
+    # 5c: No better option AT ALL — but only if the fund actually needs
+    # action. We defer this check until after EXIT/ADD/Sector overrides
+    # have a chance to run.
+
+    # ── ADD check (PRD §7.1) — positive action, no alt needed ────────
+    # Strong scores across the board → fund is a portfolio winner.
+    # Recommend increasing exposure (only when not over-allocated).
+    # Runs early so that strong-fund holders without a peer universe
+    # still get a positive recommendation instead of HOLD_NO_OPTION.
+    if (
+        inp.add is not None and inp.add >= 65
+        and inp.quality is not None and inp.quality >= 60
+        and inp.health is not None and inp.health >= 60
+        and inp.exit_s is not None and inp.exit_s >= 50
+        and (inp.portfolio_weight_pct is None or inp.portfolio_weight_pct < 15)
+    ):
+        return _res(ACTION_ADD, 25, inp.current_fund_name, [
+            f"Strong fund — Q={inp.quality:.0f}, H={inp.health:.0f}, A={inp.add:.0f}, E={inp.exit_s:.0f}.",
+            "Increase allocation by ~25% via SIP top-up or lump sum.",
+        ])
+
+    # ── EXIT check (PRD §7.3) — overrides Direct priority because you ─
+    # don't migrate a doomed fund to its Direct variant; you exit it.
+    # Trigger: E < 35 AND (Q < 40 OR H < 50) AND alternative exists, and
+    # net_benefit of leaving (with peer redirect) is positive after tax.
+    if (
+        inp.exit_s is not None and inp.exit_s < 35
+        and (
+            (inp.quality is not None and inp.quality < 40)
+            or (inp.health is not None and inp.health < 50)
+        )
+        and better_alternative_exists
+    ):
+        # Check tax / exit-load aren't crushing the move.
+        proceed_benefit = alt_cost_saving + alpha_gain
+        if proceed_benefit - tax_cost - exit_cost > 0:
+            return _res(ACTION_EXIT, 100, best_alt.name, [
+                f"Exit signal critical (E={inp.exit_s:.0f}<35, Q={inp.quality or 0:.0f}, H={inp.health or 0:.0f}).",
+                f"Redirect proceeds to {best_alt.name}.",
+                f"Net benefit ₹{proceed_benefit - tax_cost - exit_cost:,.0f} after tax+exit.",
+            ])
+        # Otherwise tax drag forces a REVIEW
+        return _res(ACTION_WATCHLIST, 0, best_alt.name, [
+            f"Exit signal critical but tax+exit ₹{tax_cost + exit_cost:,.0f} exceeds projected ₹{proceed_benefit:,.0f}.",
+            "Review monthly; redirect new SIPs to alternative.",
+        ])
+
+    # ── Sector / Thematic override (PRD §9) ──────────────────────────
+    # Concentrated thematic funds with even moderate switch_score should
+    # exit rather than hold (sector rotation risk).
+    if inp.is_sector_or_thematic and switch_score >= 2 and better_alternative_exists:
+        return _res(ACTION_EXIT, 100, best_alt.name, [
+            f"Sector/thematic fund with switch_score {switch_score}/5.",
+            "Concentration risk — rotate into a diversified peer.",
+        ])
+
+    # ── Over-allocation override (PRD §9) — partial trim ─────────────
+    OVERWEIGHT_PCT = 25.0
+    if (
+        inp.portfolio_weight_pct is not None
+        and inp.portfolio_weight_pct > OVERWEIGHT_PCT
+    ):
+        trim_target = best_alt.name if best_alt else "Other peer fund"
+        return _res(ACTION_PARTIAL_SWITCH, 30, trim_target, [
+            f"Position is {inp.portfolio_weight_pct:.1f}% of portfolio — above {OVERWEIGHT_PCT}% cap.",
+            "Trim 30% to restore diversification.",
+        ])
+
+    # ── Deferred 5c: No better option — fires only after positive-action
+    # branches (ADD/EXIT/Sector/Overweight) had a chance to run.
     if not better_alternative_exists and not inp.direct_plan_available:
         return _res(ACTION_HOLD_NO_OPTION, 0, None, [
             "No better fund alternative found and Direct plan unavailable.",
@@ -380,17 +476,49 @@ def _append_signal_reasons(reasons: List[str], signals: Dict[str, int]) -> None:
 
 # ── Output serialiser (Step 9) ──────────────────────────────────────────
 def result_to_dict(res: DecisionResult) -> Dict[str, Any]:
+    rec, strength = RECOMMENDATION_BY_ACTION.get(res.action, ("WATCH", "LOW"))
+    bk = res.breakdown
+    # Pick the larger benefit view as the canonical net_benefit so the UI
+    # always reports the path actually taken.
+    if res.action in (ACTION_STRONG_SWITCH_DIRECT, ACTION_PHASED_SWITCH_DIRECT, ACTION_HOLD_DEFER):
+        net_benefit = bk.get("net_benefit_direct", 0)
+        cost_saving = bk.get("direct_saving", 0)
+        alpha_gain = 0.0
+    else:
+        net_benefit = bk.get("net_benefit_alt", 0)
+        cost_saving = bk.get("cost_saving_alt", 0)
+        alpha_gain = bk.get("alpha_gain", 0)
+
     return {
+        # 5-bucket taxonomy (PRD §13)
+        "recommendation": rec,
+        "action_strength": strength,
+        "allocation_change": f"{res.allocation_pct}%",
+        "from_fund": res.from_fund,
+        "to_fund": res.to_fund,
+        # Score signals + scores (per output spec §12)
+        "scores": {
+            "switch_score": res.switch_score,
+            **res.signals,
+        },
+        # Detailed action (internal — useful for advisor context)
         "action": res.action,
         "label": res.label,
         "allocation": f"{res.allocation_pct}%",
         "allocation_pct": res.allocation_pct,
-        "from_fund": res.from_fund,
-        "to_fund": res.to_fund,
+        # Reasons + financial impact (PRD §12)
+        "reason": res.reason,
+        "impact": {
+            "cost_saving": round(cost_saving, 0),
+            "alpha_gain": round(alpha_gain, 0),
+            "tax_cost": round(bk.get("tax_cost", 0), 0),
+            "exit_cost": round(bk.get("exit_cost", 0), 0),
+            "net_benefit": round(net_benefit, 0),
+        },
+        # Backwards-compat fields (existing consumers)
         "switch_score": res.switch_score,
         "signals": res.signals,
-        "net_benefit": res.breakdown.get("net_benefit_alt") or res.breakdown.get("net_benefit_direct", 0),
-        "breakdown": res.breakdown,
-        "reason": res.reason,
+        "net_benefit": net_benefit,
+        "breakdown": bk,
         "alt_score": res.alt_score,
     }

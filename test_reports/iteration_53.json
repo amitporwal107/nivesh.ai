@@ -1,0 +1,62 @@
+{
+  "summary": "Backend-only review of v3 switch-decision-engine + candidate-fund hydrator wiring per PRD §12/§13. 45/45 unit tests pass (test_switch_decision_engine.py 32 + test_candidate_fund_hydrator.py 13). Added 8 live-API regression tests against /api/insights/v3-portfolio for aporwal107 — all 8 pass. Live verification: 49/59 funds carry switch_decision (83% surface), 45/49 have peer candidates hydrated (92% — meets 80% target), bucket distribution SWITCH=40 (HIGH), WATCH=8 (LOW), REVIEW=1 (LOW), strengths HIGH=40 / LOW=9. PRD §12 output shape (recommendation, action_strength, allocation_change, from_fund, to_fund, scores{}, reason[], impact{cost_saving, alpha_gain, tax_cost, exit_cost, net_benefit}) confirmed; backwards-compat fields (action, label, switch_score, signals, breakdown, alt_score) retained. Total 53/53 backend tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/insights/v3-portfolio",
+        "issue": "DecisionInputs.portfolio_weight_pct and is_sector_or_thematic are defined on the engine and have dedicated overrides (PRD §9 over-allocation + sector/thematic), but routes/insights.py:801-820 does NOT populate them — so on live data the EXIT-on-thematic and PARTIAL_SWITCH-on-overweight branches can never fire. Hydrator tests pass because unit fixtures use them directly; live wiring drops them."
+      },
+      {
+        "endpoint": "GET /api/insights/v3-portfolio",
+        "issue": "is_equity is hard-coded True at insights.py:809. Debt/liquid MFs will get equity STCG/LTCG tax treatment (15%/10% w/ ₹1L exemption) instead of debt slab (30%). Minor for a portfolio that's mostly equity but should be derived from sub_category/category."
+      },
+      {
+        "endpoint": "GET /api/insights/v3-portfolio",
+        "issue": "When pg_mirror lookup misses, fallback sets expense_dir=0.0 and computes expense_reg=cost_leak/current_val. This produces an overly-optimistic direct_saving for CAS-only holdings without instrument_id. Some SWITCH/HIGH samples show impact.cost_saving=0 because gain≈0 (likely fully-redeemed or near-zero residual) — visually confusing but mathematically correct."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_switch_decision_engine.py",
+    "/app/backend/tests/test_candidate_fund_hydrator.py",
+    "/app/backend/tests/test_insights_v3_switch_decision_live.py",
+    "/app/test_reports/pytest/iteration_53.xml",
+    "/app/test_reports/pytest/iteration_53_live.xml"
+  ],
+  "action_items": [
+    "Populate portfolio_weight_pct in DecisionInputs at routes/insights.py:801-820 — compute as (fund.value_rs / portfolio.total_value_rs) * 100. Otherwise the §9 over-allocation override is dead code on live API.",
+    "Populate is_sector_or_thematic at routes/insights.py:801-820 by checking sub_category or category against {Sectoral / Thematic, Pharma, Banking & Financial Services, Energy, Technology, Consumption, Infrastructure, ...}. Otherwise the sector EXIT override never triggers in production.",
+    "Derive is_equity from category/sub_category instead of hard-coding True (debt funds get wrong tax treatment).",
+    "OPTIONAL: Cap expense_dir=0.0 fallback (or use a category-median direct expense) so cost_leak-derived direct_saving doesn't overshoot when pg_mirror metadata is missing."
+  ],
+  "critical_code_review_comments": [
+    "switch_decision_engine.py is well-structured: pure function, no I/O, dataclass inputs, 8 deterministic action codes mapped to 5-bucket recommendation taxonomy. RECOMMENDATION_BY_ACTION dict is the single source of truth for UI labels — clean.",
+    "result_to_dict picks net_benefit_direct vs net_benefit_alt based on action — correctly avoids leaking the wrong path's impact figures to the UI.",
+    "candidate_fund_hydrator.py applies AUM ≥ 500Cr and track_record ≥ 3y filters inline; falls back through ret_5y → ret_3y → ret_1y; converts %→decimal and 0-10→0-100 consistency in one place; 5-min in-process cache keyed by (sub_category, plan_preference). Test hook _invalidate_cache exposed for unit tests — appropriate.",
+    "DecisionInputs has portfolio_weight_pct and is_sector_or_thematic fields with override branches in decide() but the production wire-up at routes/insights.py:801-820 does NOT populate them — this is the #1 review finding.",
+    "Engine excludes mongodb _id (uses {_id:0} projections); no ObjectId leakage risk.",
+    "ADD branch (engine line 328-338) requires A>=65 AND Q>=60 AND H>=60 AND E>=50 AND portfolio_weight<15% — the under-allocation gate is harmless when portfolio_weight_pct is None (None is treated as not-overweight). So ADD CAN fire even without route-side populate, but without portfolio_weight_pct we'd ADD even when over-allocated.",
+    "EXIT branch (line 344-364) requires E<35 AND (Q<40 OR H<50) AND alt_exists — and falls to REVIEW when tax+exit > benefit. Correctly verified by test_exit_when_E_low_and_Q_low_and_alt_exists + test_exit_blocked_by_tax_returns_review.",
+    "Live aporwal107 portfolio shows 0 ADD and 0 EXIT recommendations — plausible for a Regular-plan-heavy portfolio but might also reflect quality/health scores not crossing thresholds. Worth a sanity sweep on a more diverse user.",
+    "Try/except at routes/insights.py:826 swallows engine exceptions silently into a `logger.warning` — switch_decision_dict is None on failure. The 10/59 funds without switch_decision likely failed silently (current_val<=0 or exception path). Suggest emitting a structured error code so the UI can show a 'data missing' badge."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_insights_v3_switch_decision_live.py (new — 8 live-API integration tests)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "n/a — backend-only review per request"
+  },
+  "test_credentials": "aporwal107@gmail.com / user_id=user_6a8206568b50 / session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b. Auth wire: backend/deps.py reads session_token from cookie OR Authorization: Bearer header. Live tests use Bearer header.",
+  "seed_data_creation": "None — tests run against existing aporwal107 portfolio (146 holdings, 59 MF).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "53 backend tests cover the v3 switch decision engine: 32 engine unit tests + 13 hydrator unit tests + 8 live-API regression tests. Live tests use Authorization: Bearer <session_token> header (NOT X-Session-Token). The /api/insights/v3-portfolio response shape: top-level keys {engine_version, coverage_pct, portfolio, funds, flagged, health}; fund objects have NO instrument_type field — the funds array is already MF-only. The agent's PRD adds portfolio_weight_pct + is_sector_or_thematic to DecisionInputs but the route at routes/insights.py:801-820 does NOT populate them — over-allocation and sector overrides are effectively dead on the live API. Recommend testing those overrides via a future synthetic-portfolio fixture once main agent wires them up.",
+  "rca of the issue": "Not a bug per se — 53/53 tests green and live API conforms to PRD §12/§13. Two engine input fields (portfolio_weight_pct, is_sector_or_thematic) are correctly specced + unit-tested but never populated by the route adapter, leaving §9 overrides as dead code in production. Suggested fix: 1) compute portfolio_weight_pct = fund.value_rs / sum(funds.value_rs) * 100; 2) is_sector_or_thematic = ctx.sub_category in SECTOR_THEMATIC_SET (define a small constant)."
+}

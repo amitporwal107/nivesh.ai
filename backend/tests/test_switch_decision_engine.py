@@ -97,7 +97,7 @@ def test_hard_blocker_no_option():
 # ── Step 3 + 7: Fund switch with candidate universe ─────────────────────
 def test_fund_switch_strong_when_alt_exists_and_signals_high():
     r = sde.decide(_inp(
-        quality=30, health=30, exit_s=30, add=30,      # score = 4/5
+        quality=45, health=45, exit_s=38, add=45,      # E=38 (<40 exit_signal=2), score=5
         direct_plan_available=False,
         current_return_5y=0.10, current_drawdown=0.28, current_consistency=60,
         candidate_funds=[_strong_alt()],
@@ -206,7 +206,7 @@ def test_candidate_track_record_filter():
 # ── Step 8: LTCG harvest for long-held funds ────────────────────────────
 def test_ltcg_harvest_default_when_gain_exceeds_1L():
     r = sde.decide(_inp(
-        quality=85, health=85, exit_s=80, add=80,      # strong fund → no signals
+        quality=60, health=60, exit_s=80, add=55,      # A<65 → ADD doesn't fire
         direct_plan_available=False,                    # skip Direct path
         expense_current=0.0074,                         # already direct
         expense_direct=None,
@@ -214,10 +214,7 @@ def test_ltcg_harvest_default_when_gain_exceeds_1L():
         holding_period_days=900,                        # LTCG eligible
         invested_amount=1_100_000, current_value=1_470_000,  # ₹3.7L gain
     ), plan_type="direct")
-    # gain > ₹1L + no other case → PARTIAL_SWITCH harvest
-    # Note: Step 5c triggers HOLD_NO_OPTION first; harvest is below that
-    # So this specific scenario yields HOLD_NO_OPTION, as the PRD's
-    # hard blockers fire early. Verify behaviour explicitly.
+    # No alt + no direct + no ADD → Step 5c HOLD_NO_OPTION fires before harvest
     assert r.action == sde.ACTION_HOLD_NO_OPTION
 
 
@@ -225,7 +222,7 @@ def test_ltcg_harvest_runs_when_candidate_rejected_but_still_has_option():
     # Direct plan available but expense_diff too small → step 6 doesn't fire;
     # no candidate; long hold with big gain → LTCG harvest PARTIAL.
     r = sde.decide(_inp(
-        quality=85, health=85, exit_s=80, add=80,
+        quality=60, health=60, exit_s=80, add=55,      # A<65 → ADD doesn't fire
         direct_plan_available=True,
         expense_current=0.0076, expense_direct=0.0074,   # diff only 0.02%
         candidate_funds=[],
@@ -284,3 +281,149 @@ def test_output_has_all_required_fields():
     assert isinstance(d["reason"], list)
     assert isinstance(d["signals"], dict)
     assert isinstance(d["breakdown"], dict)
+
+
+
+# ── 5-bucket taxonomy (PRD §13) ─────────────────────────────────────────
+def test_recommendation_taxonomy_in_output():
+    d = sde.result_to_dict(sde.decide(_inp(), plan_type="regular"))
+    assert d["recommendation"] in {"ADD", "SWITCH", "EXIT", "REVIEW", "WATCH"}
+    assert d["action_strength"] in {"HIGH", "MEDIUM", "LOW"}
+    assert isinstance(d["impact"], dict)
+    for k in ("cost_saving", "alpha_gain", "tax_cost", "exit_cost", "net_benefit"):
+        assert k in d["impact"]
+
+
+def test_direct_priority_maps_to_switch_high():
+    d = sde.result_to_dict(sde.decide(_inp(), plan_type="regular"))
+    assert d["recommendation"] == "SWITCH"
+    assert d["action_strength"] == "HIGH"
+
+
+# ── EXIT branch (PRD §7.3) ──────────────────────────────────────────────
+def test_exit_when_E_low_and_Q_low_and_alt_exists():
+    """E<35 AND Q<40 AND alt exists → EXIT."""
+    r = sde.decide(_inp(
+        quality=35, health=60, exit_s=30, add=40,
+        direct_plan_available=False,                   # remove Direct path
+        current_return_5y=0.10, current_drawdown=0.28, current_consistency=50,
+        candidate_funds=[_strong_alt()],
+        invested_amount=200_000, current_value=240_000,
+        holding_period_days=400,                       # LTCG eligible
+    ), plan_type="direct")
+    assert r.action == sde.ACTION_EXIT
+    d = sde.result_to_dict(r)
+    assert d["recommendation"] == "EXIT"
+    assert d["action_strength"] == "HIGH"
+    assert d["allocation_change"] == "100%"
+    assert d["to_fund"] == "Parag Parikh Flexi Cap Direct"
+
+
+def test_exit_blocked_by_tax_returns_review():
+    """Exit conditions met but tax cost > benefit → REVIEW."""
+    r = sde.decide(_inp(
+        quality=35, health=60, exit_s=30, add=40,
+        direct_plan_available=False,
+        current_return_5y=0.10, current_drawdown=0.28, current_consistency=50,
+        candidate_funds=[_strong_alt()],
+        invested_amount=100_000, current_value=10_000_000,    # huge gain
+        holding_period_days=200,                              # STCG (15%)
+        years_to_goal=1,                                      # benefit horizon = 1yr
+    ), plan_type="direct")
+    # STCG ~14.85L on the 99L gain dwarfs 1yr alpha+cost saving
+    d = sde.result_to_dict(r)
+    assert d["recommendation"] == "REVIEW"
+
+
+def test_exit_requires_health_AND_quality_threshold():
+    """E<35 alone (good Q+H) does NOT trigger EXIT."""
+    r = sde.decide(_inp(
+        quality=70, health=70, exit_s=30, add=70,
+        direct_plan_available=False,
+        candidate_funds=[_strong_alt()],
+        current_return_5y=0.14, current_drawdown=0.22, current_consistency=70,
+    ), plan_type="direct")
+    assert r.action != sde.ACTION_EXIT
+
+
+# ── ADD branch (PRD §7.1) ───────────────────────────────────────────────
+def test_add_when_all_scores_strong():
+    r = sde.decide(_inp(
+        quality=72, health=70, exit_s=65, add=80,
+        direct_plan_available=False,                   # already on Direct
+        candidate_funds=[],
+        invested_amount=100_000, current_value=110_000,
+        holding_period_days=200,                       # short, no LTCG harvest
+        current_return_5y=0.16, current_drawdown=0.18, current_consistency=80,
+        portfolio_weight_pct=8.0,                      # not over-allocated
+    ), plan_type="direct")
+    assert r.action == sde.ACTION_ADD
+    d = sde.result_to_dict(r)
+    assert d["recommendation"] == "ADD"
+    assert d["action_strength"] == "HIGH"
+    assert d["allocation_change"] == "25%"
+
+
+def test_add_blocked_when_overallocated():
+    """Strong fund but already 18% of portfolio → no ADD."""
+    r = sde.decide(_inp(
+        quality=72, health=70, exit_s=65, add=80,
+        direct_plan_available=False,
+        candidate_funds=[],
+        invested_amount=100_000, current_value=110_000,
+        holding_period_days=200,
+        current_return_5y=0.16, current_drawdown=0.18, current_consistency=80,
+        portfolio_weight_pct=18.0,
+    ), plan_type="direct")
+    assert r.action != sde.ACTION_ADD
+
+
+# ── Sector/Thematic override (PRD §9) ───────────────────────────────────
+def test_sector_override_with_score_2_triggers_exit():
+    r = sde.decide(_inp(
+        quality=55, health=55, exit_s=45, add=55,    # exit_signal=1, others=0; score=1
+        direct_plan_available=False,
+        is_sector_or_thematic=True,
+        current_return_5y=0.10, current_drawdown=0.28, current_consistency=55,
+        candidate_funds=[_strong_alt()],
+    ), plan_type="direct")
+    # score=1 < 2 → should NOT trigger sector override
+    assert r.action != sde.ACTION_EXIT
+
+    r2 = sde.decide(_inp(
+        quality=45, health=55, exit_s=45, add=55,    # quality_signal=1 + exit=1; score=2
+        direct_plan_available=False,
+        is_sector_or_thematic=True,
+        current_return_5y=0.10, current_drawdown=0.28, current_consistency=55,
+        candidate_funds=[_strong_alt()],
+    ), plan_type="direct")
+    assert r2.action == sde.ACTION_EXIT
+
+
+# ── Over-allocation override (PRD §9) ───────────────────────────────────
+def test_overweight_position_gets_partial_trim():
+    r = sde.decide(_inp(
+        quality=70, health=70, exit_s=70, add=70,
+        direct_plan_available=False,
+        candidate_funds=[_strong_alt()],
+        portfolio_weight_pct=30.0,
+        current_return_5y=0.14, current_drawdown=0.22, current_consistency=70,
+        invested_amount=100_000, current_value=110_000,
+        holding_period_days=200,
+    ), plan_type="direct")
+    assert r.action == sde.ACTION_PARTIAL_SWITCH
+    assert r.allocation_pct == 30
+
+
+# ── Watch (default) ─────────────────────────────────────────────────────
+def test_watch_for_decent_fund_no_signals():
+    r = sde.decide(_inp(
+        quality=60, health=60, exit_s=60, add=60,
+        direct_plan_available=False,
+        candidate_funds=[],
+        invested_amount=100_000, current_value=110_000,
+        holding_period_days=200,
+        current_return_5y=0.12, current_drawdown=0.20, current_consistency=60,
+    ), plan_type="direct")
+    d = sde.result_to_dict(r)
+    assert d["recommendation"] in {"WATCH", "REVIEW"}

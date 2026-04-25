@@ -766,8 +766,11 @@ async def v3_portfolio_summary(request: Request):
 
                 # Real current-fund context (expense, returns, drawdown,
                 # consistency, sub_category) from pg_mirror, not a hack.
+                # CAS holdings often have no `instrument_id` directly — use
+                # the v3 fuzzy-resolved id instead.
+                lookup_iid = (v3 or {}).get("instrument_id") or iid
                 ctx = await cfh.fetch_current_fund_context(
-                    db, instrument_id=iid, scheme_name=name
+                    db, instrument_id=lookup_iid, scheme_name=name
                 ) or {}
                 sub_cat = ctx.get("sub_category")
                 expense_reg = ctx.get("expense_current")
@@ -792,7 +795,7 @@ async def v3_portfolio_summary(request: Request):
                     peers = await cfh.fetch_candidates_for_category(
                         db, sub_cat,
                         prefer_direct=True,
-                        exclude_instrument_id=iid,
+                        exclude_instrument_id=lookup_iid,
                     )
 
                 inp = sde.DecisionInputs(
