@@ -2,6 +2,35 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Global Stale-Data Warning Banner + MS Ratings Mirror Fix (iter 54)
+User reported "Morningstar ratings not coming for any users" + asked for a "warning on top of all pages about stale data and what failed" whenever any scrape/refresh job fails.
+
+**Root cause**: Mongo `pg_mirror_mutual_fund_metadata` collection was last synced on 2026-04-23 — well before any recent MS rating refreshes ran. PG had 15/224 funds rated, but Mongo mirror had 0/224, so the entire UI showed no stars.
+
+**Fixes applied**:
+- Re-ran `scripts/mirror_pg_to_mongo.py` to surface the existing 15 ratings (immediate visibility).
+- Triggered `POST /api/portfolio/refresh-mf-ratings` for the active user (54s · 24 funds successfully scraped & rated).
+- Re-ran the mirror again → 31/224 in Mongo.
+- For the user's portfolio specifically: **0 → 33/59 MFs (56%)** now show MS ratings.
+
+**Backend** (`routes/data_health.py` — NEW, ~165 LOC):
+- `GET /api/data-health/summary` — auth-gated, low-risk endpoint returning `{status, issues[], ms_coverage, mirror_age_hours, scrape_queue, checked_at}`.
+- Reuses `nav_analytics_sweep.pipeline_status()` (no extra DB hits) and adds three derived signals: pg_mirror staleness > 7d, MS coverage < 30%, scrape_queue.failed > 0.
+- Severity rules: ERROR when any critical job (`nav_cron`, `analytics_sweep`) failed or > 36h stale; WARN for non-critical staleness, low MS coverage, or failed scrape items; OK otherwise.
+- 7 pytest unit tests in `tests/test_data_health.py` (classification logic, ISO/TZ-aware time math, edge cases).
+
+**Frontend** (`components/DataHealthBanner.jsx` — NEW, ~165 LOC):
+- Mounted globally in `pages/Dashboard.js` directly below the sticky top bar — visible on every authenticated page.
+- Auto-hidden when `status=ok`. Polls `/summary` every 5 minutes.
+- Tone-aware styling: rose for ERROR, amber for WARN. Headline summarises "1 failure, 2 warnings"; collapsed view shows up to 2 issue pills.
+- Expand toggle reveals full issue list with friendly labels ("AMFI NAV refresh", "Analytics sweep (drawdown / consistency)", "Morningstar ratings", "MF holdings scrape") + actionable hints ("Refresh on Portfolio page", "Admin → Data Pipeline to retry").
+- Refresh button to re-poll on demand; Dismiss button (×) snoozes the banner for 1 hour via `localStorage`.
+- Full data-testid coverage: `data-health-banner`, `-headline`, `-toggle`, `-refresh`, `-dismiss`, `-issue-{job}`.
+
+**Live verified**: For aporwal107 with current pipeline state (analytics_sweep 45h stale + 14% MS coverage + 1 scrape_queue failure), banner correctly renders rose error-tone with all 3 issues; switching to ok state hides the banner instantly.
+
+---
+
 ### Apr 2026 — V3 Switch Decision Engine: 5-bucket Taxonomy + Peer-Fund Hydrator (iter 53)
 User PRD for the decision engine: classify every MF holding into one of **ADD / SWITCH / EXIT / REVIEW / WATCH** with `action_strength` (HIGH/MEDIUM/LOW), and select the best peer alternative when a switch is required.
 

@@ -53,6 +53,7 @@ from routes.compliance import router as compliance_router  # DPDP Act 2023 compl
 from routes.mfd import router as mfd_router  # MFD multi-client layer
 from routes.portfolio_snapshots import router as portfolio_snapshots_router  # Time-Machine
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
+from routes.data_health import router as data_health_router  # Global stale-data banner
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -88,6 +89,7 @@ app.include_router(mfd_router)  # MFD multi-client layer (User → Workspace →
 app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
 app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
+app.include_router(data_health_router)           # Global stale-data banner
 
 
 # Root endpoint
