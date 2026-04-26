@@ -50,6 +50,32 @@ export default function CasConnect() {
   const [importing, setImporting] = useState(false);
   const [processStatus, setProcessStatus] = useState(null);
 
+  // Direct PDF upload (Gmail-less fallback)
+  const [uploading, setUploading] = useState(false);
+
+  const uploadPdfDirect = async (file) => {
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error("File too large — max 25 MB");
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await axios.post(`${API}/public/cas-invite/${token}/upload-pdf`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success("PDF uploaded — your advisor will see it shortly");
+      setStep(4);
+      pollStatus();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // ── Load invite details ──
   const loadDetails = useCallback(async () => {
     try {
@@ -109,10 +135,11 @@ export default function CasConnect() {
       if (consents.gmail) {
         setStep(2);
       } else {
-        // CAS upload fallback path — out of scope for this round, prompt
-        toast.message("Please contact your advisor to upload CAS manually", {
-          description: "Gmail consent is needed for auto-import in this version.",
+        // No Gmail consent → still allow direct PDF upload from step 2
+        toast.message("No Gmail? Upload your CAS PDF directly", {
+          description: "Use the 'Upload CAS PDF directly' option on the next screen.",
         });
+        setStep(2);
       }
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not save details");
@@ -384,6 +411,36 @@ export default function CasConnect() {
             >
               <GoogleIcon /> Continue with Google
             </Button>
+
+            <div className="my-4 flex items-center gap-2 text-[10px] uppercase tracking-wider text-slate-400">
+              <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+              <span>or</span>
+              <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+            </div>
+
+            <label
+              htmlFor="cas-direct-upload"
+              data-testid="cas-direct-upload-label"
+              className={`block w-full h-10 text-sm rounded-md border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center justify-center cursor-pointer transition ${uploading ? "opacity-60 cursor-wait" : ""}`}
+            >
+              {uploading ? (
+                <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Uploading…</>
+              ) : (
+                <><FileText className="w-4 h-4 mr-1.5 text-indigo-600" /> Upload CAS PDF directly</>
+              )}
+            </label>
+            <input
+              id="cas-direct-upload"
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              data-testid="cas-direct-upload-input"
+              disabled={uploading}
+              onChange={(e) => { uploadPdfDirect(e.target.files?.[0]); e.target.value = ""; }}
+            />
+            <p className="text-[10px] text-slate-400 mt-2">
+              No Gmail? Upload your latest CAMS/KFintech CAS PDF (max 25 MB). We'll auto-unlock it with your PAN.
+            </p>
           </Card>
         )}
 
@@ -481,7 +538,7 @@ export default function CasConnect() {
             {processStatus?.processed_files?.length > 0 && (
               <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 space-y-1.5 text-left" data-testid="cas-process-status">
                 {processStatus.processed_files.map((f) => (
-                  <div key={f.message_id} className="flex items-center justify-between text-[11px]">
+                  <div key={f.file_id || f.message_id} className="flex items-center justify-between text-[11px]">
                     <span className="truncate flex-1 text-slate-600 dark:text-slate-300">{f.filename}</span>
                     {f.status === "completed" ? (
                       <span className="text-emerald-600 font-semibold">✓ {f.holdings_count || 0} holdings</span>

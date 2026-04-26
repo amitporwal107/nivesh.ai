@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import {
   X, Link2, Copy, MessageSquare, Mail, Loader2, CheckCircle2,
   Clock, AlertCircle, ShieldCheck, Send, RefreshCw, User, Phone,
-  RotateCw,
+  RotateCw, FolderOpen,
 } from "lucide-react";
+import SharedCasFiles from "./SharedCasFiles";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -124,7 +125,7 @@ export default function ClientCasInviteModal({ profileId, profileName, open, onC
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm" onClick={onClose} data-testid="invite-backdrop" />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg max-h-[92vh] overflow-y-auto bg-white dark:bg-slate-950 rounded-xl shadow-2xl z-50 border border-slate-200 dark:border-slate-800" data-testid="invite-modal">
+      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[92vh] overflow-y-auto bg-white dark:bg-slate-950 rounded-xl shadow-2xl z-50 border border-slate-200 dark:border-slate-800" data-testid="invite-modal">
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-t-xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -255,6 +256,16 @@ export default function ClientCasInviteModal({ profileId, profileName, open, onC
               </div>
             </div>
           )}
+
+          {/* Shared CAS files (raw PDFs) — MFD audit + selective re-parse */}
+          <div className="pt-3 border-t border-slate-200 dark:border-slate-800" data-testid="shared-cas-files-section">
+            <div className="flex items-center gap-2 mb-2">
+              <FolderOpen className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Shared CAS files</span>
+              <span className="text-[10px] text-slate-400">PDFs the client has uploaded for this profile</span>
+            </div>
+            <SharedCasFiles profileId={profileId} compact />
+          </div>
         </div>
       </div>
     </>

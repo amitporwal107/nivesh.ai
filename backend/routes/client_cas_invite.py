@@ -29,12 +29,15 @@ DB collection: `client_cas_invites`
 }
 """
 from __future__ import annotations
+import hashlib
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, UploadFile, File, Form
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI
@@ -52,6 +55,50 @@ mfd_router = APIRouter(prefix="/api/mfd", tags=["cas-invite-mfd"])
 public_router = APIRouter(prefix="/api/public/cas-invite", tags=["cas-invite-public"])
 
 INVITE_TTL_HOURS = 24  # 24h expiry per PRD — short urgency window, MFD regenerates on demand
+
+# ── Raw CAS PDF storage ────────────────────────────────────────────────
+# Persist client-uploaded CAS PDFs so the MFD can: (a) audit what the
+# client shared, (b) re-parse a file with a custom password if the
+# automated parse failed (NSDL password mismatches are common).
+CAS_UPLOAD_ROOT = Path(os.environ.get("CAS_UPLOAD_DIR", "/app/data/cas_uploads"))
+CAS_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+MAX_CAS_PDF_BYTES = 25 * 1024 * 1024  # 25 MB hard cap
+
+
+def _cas_storage_path(invite_token: str, file_id: str) -> Path:
+    folder = CAS_UPLOAD_ROOT / invite_token
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{file_id}.pdf"
+
+
+def _save_cas_bytes(invite_token: str, content: bytes) -> dict:
+    """Persist raw CAS PDF bytes to disk. Returns metadata dict to
+    embed in `processed_files`. Computes sha256 hash so dedupe is
+    trivial in future."""
+    file_id = uuid.uuid4().hex
+    sha = hashlib.sha256(content).hexdigest()
+    path = _cas_storage_path(invite_token, file_id)
+    path.write_bytes(content)
+    return {
+        "file_id":    file_id,
+        "file_path":  str(path),
+        "file_size":  len(content),
+        "file_sha256": sha,
+        "stored_at":  _now_iso(),
+    }
+
+
+def _delete_cas_file(file_path: Optional[str]) -> bool:
+    if not file_path:
+        return False
+    try:
+        p = Path(file_path)
+        if p.exists() and CAS_UPLOAD_ROOT in p.parents:
+            p.unlink()
+            return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"cas file delete failed: {e}")
+    return False
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -547,28 +594,44 @@ async def client_import_selected(
             logger.error(f"client-invite download failed: {e}")
             continue
 
-        # Record as pending
+        # Persist the raw PDF before kicking off the parse so the MFD
+        # can recover from parse failures (e.g. NSDL password mismatch)
+        # by re-parsing with a custom password from the dashboard.
+        meta = _save_cas_bytes(token, content)
+        file_id = meta["file_id"]
+
+        # Record as pending — keyed by file_id (unique per upload)
         await db.client_cas_invites.update_one(
             {"invite_token": token},
             {"$push": {"processed_files": {
-                "message_id": mid, "filename": fname, "status": "processing",
-                "started_at": _now_iso(),
+                "file_id":     file_id,
+                "file_path":   meta["file_path"],
+                "file_size":   meta["file_size"],
+                "file_sha256": meta["file_sha256"],
+                "source":      "gmail",
+                "message_id":  mid,
+                "filename":    fname,
+                "status":      "processing",
+                "started_at":  _now_iso(),
+                "stored_at":   meta["stored_at"],
             }}},
         )
         background_tasks.add_task(
-            _process_client_cas, token, shadow_uid, content, fname, password, mid,
+            _process_client_cas, token, shadow_uid, content, fname, password, file_id,
         )
-        queued.append({"message_id": mid, "filename": fname})
+        queued.append({"message_id": mid, "filename": fname, "file_id": file_id})
 
     return {"queued": queued, "count": len(queued)}
 
 
 async def _process_client_cas(
-    token: str, shadow_uid: str, content: bytes, filename: str, password: str, message_id: str,
+    token: str, shadow_uid: str, content: bytes, filename: str, password: str, file_id: str,
 ):
     """Background: parse CAS PDF → save holdings under the profile's
     shadow_user_id → mark invite row as completed. Runs outside the
-    request/response cycle so the client page can poll status."""
+    request/response cycle so the client page can poll status. Keyed
+    by `file_id` so both Gmail-import and direct-upload paths share
+    this worker."""
     count = 0
     status = "completed"
     err = None
@@ -580,19 +643,23 @@ async def _process_client_cas(
                 h["confidence"] = 0.95
             saved = await save_holdings(shadow_uid, parsed, "Client Gmail CAS")
             count = len(saved or [])
+        else:
+            status = "error"
+            err = "Parser returned no holdings"
     except Exception as e:  # noqa: BLE001
         logger.error(f"client-invite parse failed: {e}")
         status = "error"
         err = str(e)[:200]
 
-    # Update this file's row in processed_files
+    # Update this file's row in processed_files (keyed by file_id)
     await db.client_cas_invites.update_one(
-        {"invite_token": token, "processed_files.message_id": message_id},
+        {"invite_token": token, "processed_files.file_id": file_id},
         {"$set": {
-            "processed_files.$.status": status,
-            "processed_files.$.holdings_count": count,
-            "processed_files.$.completed_at": _now_iso(),
-            "processed_files.$.error": err,
+            "processed_files.$.status":          status,
+            "processed_files.$.holdings_count":  count,
+            "processed_files.$.completed_at":    _now_iso(),
+            "processed_files.$.error":           err,
+            "processed_files.$.last_password_hint": (password[:2] + "***" + password[-1:]) if password else None,
         }},
     )
     # If all processed_files are done + at least one succeeded → COMPLETED
@@ -618,8 +685,280 @@ async def client_invite_status(token: str):
     """Lightweight poll endpoint — returns processed_files + overall
     status so the public page can show progress."""
     inv = await _get_invite_or_404(token)
+    # Strip large/internal fields before returning to the public page
+    files = []
+    for f in inv.get("processed_files", []):
+        files.append({k: v for k, v in f.items() if k not in ("file_path", "file_sha256")})
     return {
         "status": inv["status"],
-        "processed_files": inv.get("processed_files", []),
+        "processed_files": files,
         "completed_at": inv.get("completed_at"),
     }
+
+
+# ── Public: direct PDF upload (Gmail-less fallback) ────────────────────
+@public_router.post("/{token}/upload-pdf")
+async def client_upload_pdf(
+    token: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    password: Optional[str] = Form(default=None),
+):
+    """Client uploads a CAS PDF directly (used when they decline Gmail
+    consent or their broker emailed the CAS to a different address).
+    The raw bytes are persisted, and a parse is queued in the background.
+    Password defaults to the PAN captured in client-details so the client
+    doesn't have to retype it.
+    """
+    inv = await _get_invite_or_404(token)
+    if not inv.get("client_pan") and not password:
+        raise HTTPException(400, "Submit your details (PAN) first — required to unlock the CAS PDF")
+
+    # Read & validate the upload (single-shot for MVP — CAS PDFs <25MB)
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "Empty file")
+    if len(content) > MAX_CAS_PDF_BYTES:
+        raise HTTPException(413, f"File too large — limit is {MAX_CAS_PDF_BYTES // (1024*1024)} MB")
+    if not content[:4].startswith(b"%PDF"):
+        raise HTTPException(400, "Only PDF files are supported")
+
+    # Resolve profile → shadow_user_id
+    prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
+    if not prof:
+        raise HTTPException(410, "Client profile no longer exists")
+    shadow_uid = prof.get("shadow_user_id")
+    if not shadow_uid:
+        raise HTTPException(500, "Profile has no shadow user — contact your advisor")
+
+    pwd = (password or inv.get("client_pan") or "").strip()
+    fname = file.filename or "cas.pdf"
+    meta = _save_cas_bytes(token, content)
+    file_id = meta["file_id"]
+
+    await db.client_cas_invites.update_one(
+        {"invite_token": token},
+        {"$push": {"processed_files": {
+            "file_id":     file_id,
+            "file_path":   meta["file_path"],
+            "file_size":   meta["file_size"],
+            "file_sha256": meta["file_sha256"],
+            "source":      "upload",
+            "filename":    fname,
+            "status":      "processing",
+            "started_at":  _now_iso(),
+            "stored_at":   meta["stored_at"],
+        }},
+         "$set": {
+            "status": "DETAILS_CAPTURED" if inv.get("status") == "PENDING" else inv.get("status", "PENDING"),
+        }},
+    )
+    background_tasks.add_task(
+        _process_client_cas, token, shadow_uid, content, fname, pwd, file_id,
+    )
+    return {"queued": True, "file_id": file_id, "filename": fname}
+
+
+# ── MFD-side: stored CAS files visibility & selective re-parse ─────────
+async def _assert_mfd_owns_invite_or_profile(uid: str, invite: Optional[dict] = None,
+                                             profile_id: Optional[str] = None) -> dict:
+    """Returns the profile dict (with workspace_id) after verifying the
+    MFD owns the workspace this invite/profile belongs to."""
+    pid = profile_id or (invite or {}).get("profile_id")
+    if not pid:
+        raise HTTPException(404, "Profile not found")
+    prof = await db.profiles.find_one({"profile_id": pid}, {"_id": 0})
+    if not prof:
+        raise HTTPException(404, "Profile not found")
+    ws = await db.workspaces.find_one(
+        {"workspace_id": prof["workspace_id"], "owner_user_id": uid}, {"_id": 0},
+    )
+    if not ws:
+        raise HTTPException(403, "You don't own this profile's workspace")
+    return prof
+
+
+def _public_file_view(invite: dict, f: dict) -> dict:
+    """Trim the processed_files row for the MFD list response —
+    excludes raw file_path (server-side only) but keeps everything
+    needed to render the row + trigger reparse."""
+    return {
+        "file_id":         f.get("file_id"),
+        "filename":        f.get("filename"),
+        "file_size":       f.get("file_size"),
+        "file_sha256":     f.get("file_sha256"),
+        "source":          f.get("source") or ("gmail" if f.get("message_id") else "upload"),
+        "status":          f.get("status"),
+        "holdings_count":  f.get("holdings_count") or 0,
+        "error":           f.get("error"),
+        "stored_at":       f.get("stored_at"),
+        "started_at":      f.get("started_at"),
+        "completed_at":    f.get("completed_at"),
+        "last_password_hint": f.get("last_password_hint"),
+        "reparse_count":   f.get("reparse_count") or 0,
+        "reparsed_by_mfd": bool(f.get("reparsed_by_mfd")),
+        "invite_token":    invite.get("invite_token"),
+        "profile_id":      invite.get("profile_id"),
+        "client_name":     invite.get("client_name") or invite.get("profile_name"),
+        "client_email":    invite.get("client_email"),
+        "client_pan":      invite.get("client_pan"),  # advisor needs it for re-parse
+        "is_downloadable": bool(f.get("file_path")),
+    }
+
+
+@mfd_router.get("/profiles/{profile_id}/cas-uploads")
+async def list_cas_uploads_for_profile(profile_id: str, request: Request):
+    """Return every raw CAS PDF the client uploaded for this profile
+    (across all invites). MFD uses this to audit shares + selectively
+    re-parse failures."""
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    await _assert_mfd_owns_invite_or_profile(uid, profile_id=profile_id)
+
+    invites = await db.client_cas_invites.find(
+        {"profile_id": profile_id},
+        {"_id": 0, "oauth_tokens": 0},
+    ).sort("created_at", -1).to_list(50)
+
+    files: List[dict] = []
+    for inv in invites:
+        for f in inv.get("processed_files", []) or []:
+            if not f.get("file_id"):
+                continue  # legacy rows with no persisted file
+            files.append(_public_file_view(inv, f))
+    files.sort(key=lambda x: x.get("stored_at") or "", reverse=True)
+    return {"files": files, "count": len(files)}
+
+
+@mfd_router.get("/cas-uploads")
+async def list_all_cas_uploads(request: Request, limit: int = 200):
+    """Workspace-wide audit list — every CAS PDF a client has ever
+    shared with this MFD across all profiles. Useful for the global
+    'Shared CAS Files' view."""
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    workspaces = await db.workspaces.find(
+        {"owner_user_id": uid}, {"_id": 0, "workspace_id": 1},
+    ).to_list(20)
+    ws_ids = [w["workspace_id"] for w in workspaces if w.get("workspace_id")]
+    if not ws_ids:
+        return {"files": [], "count": 0}
+
+    invites = await db.client_cas_invites.find(
+        {"workspace_id": {"$in": ws_ids}},
+        {"_id": 0, "oauth_tokens": 0},
+    ).sort("created_at", -1).to_list(500)
+
+    files: List[dict] = []
+    for inv in invites:
+        for f in inv.get("processed_files", []) or []:
+            if not f.get("file_id"):
+                continue
+            files.append(_public_file_view(inv, f))
+    files.sort(key=lambda x: x.get("stored_at") or "", reverse=True)
+    return {"files": files[:limit], "count": len(files)}
+
+
+async def _find_file_by_id(uid: str, file_id: str) -> tuple[dict, dict]:
+    """Look up the invite + processed_file by file_id, asserting that
+    the calling MFD owns the corresponding workspace."""
+    workspaces = await db.workspaces.find(
+        {"owner_user_id": uid}, {"_id": 0, "workspace_id": 1},
+    ).to_list(20)
+    ws_ids = [w["workspace_id"] for w in workspaces if w.get("workspace_id")]
+    if not ws_ids:
+        raise HTTPException(404, "File not found")
+    inv = await db.client_cas_invites.find_one(
+        {"workspace_id": {"$in": ws_ids}, "processed_files.file_id": file_id},
+        {"_id": 0, "oauth_tokens": 0},
+    )
+    if not inv:
+        raise HTTPException(404, "File not found")
+    file_row = next((f for f in inv.get("processed_files", []) if f.get("file_id") == file_id), None)
+    if not file_row:
+        raise HTTPException(404, "File not found")
+    return inv, file_row
+
+
+@mfd_router.get("/cas-uploads/{file_id}/download")
+async def download_cas_upload(file_id: str, request: Request):
+    """Serve the original PDF inline so the MFD can review what the
+    client actually shared. Workspace-scoped — only the owning MFD
+    can download."""
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    inv, f = await _find_file_by_id(uid, file_id)
+    fp = f.get("file_path")
+    if not fp or not Path(fp).exists():
+        raise HTTPException(410, "File no longer on disk")
+    return FileResponse(
+        path=fp,
+        media_type="application/pdf",
+        filename=f.get("filename") or "cas.pdf",
+    )
+
+
+class ReparseRequest(BaseModel):
+    password: Optional[str] = Field(default=None, max_length=40)
+
+
+@mfd_router.post("/cas-uploads/{file_id}/reparse")
+async def reparse_cas_upload(file_id: str, payload: ReparseRequest, request: Request,
+                             background_tasks: BackgroundTasks):
+    """Selectively re-parse a stored CAS PDF with an optional custom
+    password (e.g., when the auto-parse failed because the client's CAS
+    used a non-PAN password). Re-uses the original `_process_client_cas`
+    worker so the same status updates flow through."""
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    inv, f = await _find_file_by_id(uid, file_id)
+    fp = f.get("file_path")
+    if not fp or not Path(fp).exists():
+        raise HTTPException(410, "File no longer on disk — please ask the client to re-upload")
+
+    prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
+    if not prof:
+        raise HTTPException(410, "Client profile no longer exists")
+    shadow_uid = prof.get("shadow_user_id")
+    if not shadow_uid:
+        raise HTTPException(500, "Profile has no shadow user")
+
+    pwd = (payload.password or inv.get("client_pan") or "").strip()
+    if not pwd:
+        raise HTTPException(400, "Provide a password — auto-fallback (PAN) is unavailable")
+
+    content = Path(fp).read_bytes()
+    # Mark this row as re-processing so the UI flips back to "processing"
+    await db.client_cas_invites.update_one(
+        {"invite_token": inv["invite_token"], "processed_files.file_id": file_id},
+        {"$set": {
+            "processed_files.$.status":     "processing",
+            "processed_files.$.started_at": _now_iso(),
+            "processed_files.$.error":      None,
+            "processed_files.$.reparse_count": (f.get("reparse_count") or 0) + 1,
+            "processed_files.$.reparsed_by_mfd": True,
+        }},
+    )
+    background_tasks.add_task(
+        _process_client_cas, inv["invite_token"], shadow_uid, content,
+        f.get("filename") or "cas.pdf", pwd, file_id,
+    )
+    return {"status": "queued", "file_id": file_id}
+
+
+@mfd_router.delete("/cas-uploads/{file_id}")
+async def delete_cas_upload(file_id: str, request: Request):
+    """Remove the stored PDF + the processed_files row. Does NOT
+    touch any holdings already imported from this file (those live
+    on the profile's shadow_user_id and survive deletion of the
+    source PDF)."""
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    inv, f = await _find_file_by_id(uid, file_id)
+    _delete_cas_file(f.get("file_path"))
+    await db.client_cas_invites.update_one(
+        {"invite_token": inv["invite_token"]},
+        {"$pull": {"processed_files": {"file_id": file_id}}},
+    )
+    return {"status": "deleted", "file_id": file_id}

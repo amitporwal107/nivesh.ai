@@ -13,7 +13,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://portfolio-pro-985.preview.emergentagent.com").rstrip("/")
-PROFILE_ID = "4aed5824-6b0b-4a4a-9cf4-6bfb3cb6e321"  # AMIT PORWAL
+PROFILE_ID = "1755a697-d386-4cf4-98ea-327961d823d3"  # AMIT PORWAL
 SESSION_TOKEN = "370eff71-fda1-46d8-b506-b81b894d634f"  # priyankamantri@gmail.com
 
 
