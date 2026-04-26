@@ -2,6 +2,46 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — CAS Transactions + SIP Pattern Detection + NSDL Share Bug + Pipeline Moved to Admin (iter 59)
+
+User asks bundled into one ship:
+1. **NSDL "no PDF attachments" bug** — fixed
+2. **Move pipeline runner from global banner → Admin → Infra & Data**
+3. **Parse transactions from CAS** + detect SIP patterns + persist
+
+#### 1. NSDL CAS share bug ✅
+**Root cause**: backend `scan_for_cas_emails` returned `attachments: [{...}]` array, but `CasConnect.jsx` filtered on top-level `e.attachment_id` / `e.filename` → all selections silently dropped → "Selected emails have no PDF attachments" error.
+
+**Fix**: backend now flattens the first attachment to top-level (most CAS emails have exactly one PDF) while keeping the full array for any future multi-PDF consumer. Frontend also falls back to `e.attachments[0]` defensively. 5 pytest cases in `test_gmail_cas_flatten.py` covering nested parts, inline PDFs without `attachmentId`, non-PDF mime types, multiple PDFs per email, and the flattened end-to-end shape.
+
+#### 2. Pipeline runner moved to Admin → Infra & Data ✅
+- New `<PipelineRunner>` component at `components/admin/PipelineRunner.jsx` (~225 LOC) — consolidates the run-now button, paused state, last-run summary (per-step duration + error), and active issues into a single admin panel.
+- Mounted in `AdminView` Infra-and-Data tab next to the existing `DataPipelineMonitor`.
+- **Removed** `<DataHealthBanner>` mount + import from `pages/Dashboard.js` — no more page-level prompts. Endpoints (`/api/data-health/{summary,run-all,run-status,resume,pause-status}`) untouched; admin polls them from the Infra panel only.
+
+#### 3. CAS transactions + SIP pattern detection ✅
+**New service** `services/cas_transactions.py` (~250 LOC):
+- `extract_transactions(parsed_data)` — walks the casparser.in `/v4/smart/parse` response, normalises every `mutual_funds[].schemes[].transactions[]` row to `{date, scheme_name, isin, folio, amc, type, amount, units, nav, balance, raw_description}`. Handles dd-mm-yyyy date variants and zero/garbage rows gracefully.
+- `_classify_txn` taxonomy: PURCHASE · SIP_PURCHASE · REDEMPTION · SWITCH_IN · SWITCH_OUT · DIVIDEND · CHARGE · OTHER. Heuristics on description keywords + sign of units/amount.
+- `detect_sip_patterns(txns)` — groups purchases by (folio, isin/scheme), validates ≥3 instalments + cadence band (25-36d MONTHLY · 85-100d QUARTERLY) + amount stability (±5% median tolerance). Status = ACTIVE if last instalment ≤ 2× cadence ago, else PAUSED.
+- `persist_transactions_and_sips(db, user_id, parsed_data)` — idempotent upserts to `cas_transactions` (keyed by user+folio+isin+date+amount+units) and `detected_sips` (keyed by user+folio+isin).
+
+**Wired into**: `routes/upload.py:cas_connect_import` (the active client-onboarding flow). Background CAS-PDF path will be wired separately when raw `parsed_data` is exposed from `parse_cas_pdf`.
+
+**New read APIs** in `routes/cas_transactions.py`:
+- `GET /api/portfolio/transactions?isin=&folio=&limit=` — paginated list with running totals (invested / redeemed).
+- `GET /api/portfolio/sips` — all detected SIPs sorted ACTIVE-first, with `monthly_sip_outflow` aggregate (quarterly SIPs amortised /3).
+
+**New collections**:
+- `cas_transactions`: `{user_id, folio, isin, scheme_name, amc, date, type, amount, units, nav, balance, raw_description, source, last_seen_at, created_at}`
+- `detected_sips`: `{user_id, folio, isin, scheme_name, amc, cadence, amount, instalment_count, first_date, last_date, total_invested, status, days_since_last, gap_days_avg, detected_at}`
+
+**Tests**: 27/27 pass in `test_cas_transactions.py` covering classification taxonomy (12 keyword patterns + sign fallback), date normalisation (ISO + dd-mm-yyyy + invalid), extraction (zero amounts, invalid dates, empty payload), SIP detection (12-month MONTHLY, ACTIVE-recent, QUARTERLY, < 3 instalments rejection, amount drift > 5% rejection, irregular cadence rejection, redemptions excluded, multi-fund independence).
+
+**Live**: Both new APIs return clean empty responses for users who haven't yet imported via CAS Connect. The first import will populate transactions + auto-detect SIPs and surface them to the UI.
+
+---
+
 ### Apr 2026 — Pipeline Made Actually Seamless: 6 Steps in 163s + Real Coverage Fixes (iter 58)
 User feedback: "I do not think pipeline is successful" — 3 banner issues persisted (AMFI 69h stale · MS 13% coverage · 4 scrape failures) even after the iter-57 button.
 

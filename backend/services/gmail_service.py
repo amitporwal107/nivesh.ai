@@ -183,12 +183,19 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
             # Score confidence
             confidence = _score_cas_confidence(sender, subject)
 
+            # Flatten first attachment to top-level for client convenience
+            # (most CAS emails have exactly one PDF). Keep the full array
+            # for any consumer that wants multi-PDF support.
+            first = attachments[0] if attachments else {}
             cas_emails.append({
                 "message_id": msg_meta["id"],
                 "sender": sender,
                 "subject": subject,
                 "date": date,
                 "attachments": attachments,
+                "attachment_id": first.get("attachment_id"),
+                "filename": first.get("filename"),
+                "size": first.get("size", 0),
                 "confidence": confidence,
             })
         except Exception as e:

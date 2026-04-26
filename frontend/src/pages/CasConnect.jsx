@@ -165,11 +165,17 @@ export default function CasConnect() {
     try {
       const selections = emails
         .filter((e) => selectedIds.has(e.message_id))
-        .map((e) => ({
-          message_id: e.message_id,
-          attachment_id: e.attachment_id,
-          filename: e.filename || `CAS-${e.date || "statement"}.pdf`,
-        }))
+        .map((e) => {
+          // Backend now flattens first attachment to top-level. Older
+          // responses may have only `attachments[]` — fall back to the
+          // first entry there.
+          const first = e.attachments?.[0] || {};
+          return {
+            message_id: e.message_id,
+            attachment_id: e.attachment_id || first.attachment_id,
+            filename: e.filename || first.filename || `CAS-${e.date || "statement"}.pdf`,
+          };
+        })
         .filter((s) => s.attachment_id);
       if (selections.length === 0) {
         toast.error("Selected emails have no PDF attachments");

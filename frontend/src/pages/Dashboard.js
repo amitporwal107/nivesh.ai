@@ -21,7 +21,6 @@ import MfdDashboard from "@/components/mfd/MfdDashboard";
 import ClientCasUpload from "@/components/mfd/ClientCasUpload";
 import MfdOnboardingWizard from "@/components/mfd/MfdOnboardingWizard";
 import ClientSnapshot from "@/components/mfd/ClientSnapshot";
-import DataHealthBanner from "@/components/DataHealthBanner";
 import { toast } from "sonner";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import axios from "axios";
@@ -299,8 +298,6 @@ const Dashboard = () => {
           ) : <div />}
           <UserProfileDropdown user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
-        {/* Global stale-data banner — auto-hidden when status=ok */}
-        <DataHealthBanner />
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           {renderContent()}
         </div>

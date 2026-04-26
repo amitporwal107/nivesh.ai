@@ -1,6 +1,7 @@
 """File upload routes: CAS PDF, CSV, Excel, CAS Connect SDK."""
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from datetime import datetime, timezone
+from typing import Dict
 import uuid
 import asyncio
 import logging
@@ -201,11 +202,23 @@ async def portfolio_import_from_connect(request: Request):
         logger.info(f"Masterdata enrichment skipped: {e}")
 
     saved = await save_holdings(user["user_id"], holdings, "CAS Connect")
+
+    # Extract transactions + detect SIP patterns
+    sip_summary: Dict[str, int] = {}
+    try:
+        from services import cas_transactions as _ct
+        sip_summary = await _ct.persist_transactions_and_sips(
+            db, user["user_id"], parsed_data, source="CAS Connect"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Transaction extraction skipped: {e}")
+
     cas_type = (parsed_data.get("meta") or {}).get("cas_type", "")
     investor_name = (parsed_data.get("investor") or {}).get("name", "")
     logger.info(
         f"CAS Connect: saved {len(saved)} holdings for user={user['user_id']} "
-        f"cas_type={cas_type} investor={investor_name}"
+        f"cas_type={cas_type} investor={investor_name} "
+        f"txns={sip_summary.get('transactions', 0)} sips={sip_summary.get('sips', 0)}"
     )
     return {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
@@ -213,6 +226,8 @@ async def portfolio_import_from_connect(request: Request):
         "holdings": saved,
         "cas_type": cas_type,
         "investor": investor_name,
+        "transactions": sip_summary.get("transactions", 0),
+        "sips_detected": sip_summary.get("sips", 0),
     }
 
 
