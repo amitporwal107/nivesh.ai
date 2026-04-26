@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/data-health", tags=["data-health"])
 # ── Staleness thresholds (hours) ─────────────────────────────────────────
 _STALE_HOURS_CRITICAL = 36   # daily jobs — alert beyond this
 _STALE_HOURS_MIRROR = 24 * 7  # weekly mirror — 7 days
-_MS_COVERAGE_WARN_PCT = 30.0
+_MS_COVERAGE_WARN_PCT = 15.0  # Morningstar covers ~25% of Indian MFs total
 
 
 def _hours_since(iso_or_dt) -> Optional[float]:
@@ -100,7 +100,11 @@ def _classify_job(name: str, summary: Optional[Dict[str, Any]]) -> List[Dict[str
 
 
 async def _ms_rating_coverage() -> Dict[str, Any]:
-    """Compute Morningstar rating coverage from the pg_mirror collection."""
+    """Compute Morningstar rating coverage across the pg_mirror universe.
+
+    Threshold tuned to 15% — Morningstar only rates ~25% of Indian MFs at
+    any given time (small/new funds aren't covered), so a much higher
+    threshold would always fire as warn even on a healthy pipeline."""
     try:
         total = await db.pg_mirror_mutual_fund_metadata.count_documents({})
         rated = await db.pg_mirror_mutual_fund_metadata.count_documents(
@@ -301,10 +305,81 @@ async def _run_pipeline_in_background():
         from scripts.mirror_pg_to_mongo import run as _run_mirror
         return await _run_mirror(dry_run=False)
 
+    async def _ms_ratings():
+        """Scrape Morningstar ratings + Moneycontrol metadata for every
+        unique mutual-fund / ETF name across all users' holdings.
+
+        Iterates with a small concurrency cap to be polite to MC's servers.
+        Persists via `pg_writer.persist_moneycontrol_scrape`."""
+        from services import moneycontrol_client as _mc
+        from services import pg_writer as _pgw
+
+        # Distinct MF / ETF holdings — de-dupe across users.
+        cursor = db.holdings.find(
+            {"asset_type": {"$in": ["mutual_fund", "etf"]}, "name": {"$ne": None}},
+            {"_id": 0, "name": 1, "ticker": 1},
+        )
+        seen, uniq = set(), []
+        async for h in cursor:
+            nl = (h.get("name") or "").lower().strip()
+            if nl and nl not in seen:
+                seen.add(nl)
+                uniq.append(h)
+        ok = rated = failed = 0
+        for h in uniq:
+            try:
+                hit = await _mc.search_fund(h["name"])
+                if not hit:
+                    failed += 1
+                    continue
+                payload = await _mc.fetch_by_url(hit["url"])
+                if not payload:
+                    failed += 1
+                    continue
+                if h.get("ticker") and not payload.get("isin"):
+                    payload["isin"] = h["ticker"]
+                mf_id = await _pgw.persist_moneycontrol_scrape(payload)
+                if mf_id:
+                    ok += 1
+                    if payload.get("morningstar_rating") is not None:
+                        rated += 1
+            except Exception:  # noqa: BLE001
+                failed += 1
+        return {"unique_funds": len(uniq), "ok": ok, "with_rating": rated, "failed": failed}
+
+    async def _cleanup_scrape_queue():
+        """Purge irrecoverable scrape-queue failures (mangled CAS names that
+        will never match) and reset stale 'in_progress' entries so the next
+        drain run picks them up."""
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        purged = await db.scrape_queue.delete_many({
+            "status": "failed",
+            "$or": [
+                {"failed_at": {"$lt": cutoff.isoformat()}},
+                # Names with comma-laden CAS punctuation — never match Groww slugs
+                {"scheme_name": {"$regex": r",\s*(Fund|Plan|Direct|Regular|Growth)"}},
+            ],
+        })
+        # Reset zombies (in_progress > 6h)
+        zombies = await db.scrape_queue.update_many(
+            {
+                "status": "in_progress",
+                "started_at": {"$lt": (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()},
+            },
+            {"$set": {"status": "queued"}},
+        )
+        return {
+            "purged_failed": purged.deleted_count,
+            "reset_zombies": zombies.modified_count,
+        }
+
     plan = [
         ("amfi_navs", _amfi),
         ("analytics_sweep", _sweep),
         ("v3_rescore", _rescore),
+        ("morningstar_ratings", _ms_ratings),
+        ("scrape_queue_cleanup", _cleanup_scrape_queue),
         ("pg_mirror", _mirror),
     ]
     accumulated_steps: List[Dict[str, Any]] = []

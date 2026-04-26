@@ -55,7 +55,8 @@ def test_pipeline_sets_paused_on_full_success():
         state = await data_health._read_run_state()
         assert state["running"] is False
         assert state["ok"] is True
-        assert len(state["steps"]) == 4
+        # 6 steps: amfi, sweep, rescore, ms_ratings, scrape_cleanup, mirror
+        assert len(state["steps"]) == 6
         assert all(s["ok"] for s in state["steps"])
 
     async def _cleanup():
@@ -66,7 +67,8 @@ def test_pipeline_sets_paused_on_full_success():
     with patch("scripts.fetch_amfi_navs.run", new=AsyncMock(return_value={"upserted": 100})), \
          patch("services.nav_analytics_sweep.run_analytics_sweep", new=AsyncMock(return_value={"ok": True})), \
          patch("services.nav_analytics_sweep.run_v3_rescore", new=AsyncMock(return_value={"scored": 50})), \
-         patch("scripts.mirror_pg_to_mongo.run", new=AsyncMock(return_value={"rows": 1000})):
+         patch("scripts.mirror_pg_to_mongo.run", new=AsyncMock(return_value={"rows": 1000})), \
+         patch("services.moneycontrol_client.search_fund", new=AsyncMock(return_value=None)):
         _run(data_health._run_pipeline_in_background())
     _run(_verify())
     _run(_cleanup())
@@ -100,7 +102,8 @@ def test_pipeline_does_not_pause_on_failure():
     with patch("scripts.fetch_amfi_navs.run", new=AsyncMock(side_effect=_ok)), \
          patch("services.nav_analytics_sweep.run_analytics_sweep", new=AsyncMock(side_effect=_fail)), \
          patch("services.nav_analytics_sweep.run_v3_rescore", new=AsyncMock(side_effect=_ok)), \
-         patch("scripts.mirror_pg_to_mongo.run", new=AsyncMock(side_effect=_ok)):
+         patch("scripts.mirror_pg_to_mongo.run", new=AsyncMock(side_effect=_ok)), \
+         patch("services.moneycontrol_client.search_fund", new=AsyncMock(return_value=None)):
         _run(data_health._run_pipeline_in_background())
     _run(_verify())
     _run(_cleanup())

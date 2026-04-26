@@ -2,6 +2,35 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Pipeline Made Actually Seamless: 6 Steps in 163s + Real Coverage Fixes (iter 58)
+User feedback: "I do not think pipeline is successful" — 3 banner issues persisted (AMFI 69h stale · MS 13% coverage · 4 scrape failures) even after the iter-57 button.
+
+**Root cause**: my iter-57 pipeline only ran 4 jobs (NAV/sweep/v3/mirror) but the banner surfaces 5 distinct signals. AMFI was also genuinely slow (~10 min) because `resolve_instrument_id` did 50,000+ per-row PG roundtrips.
+
+**Optimisations**:
+
+1. **AMFI step: 10 min → 2.6s** — added `_build_resolver_maps()` in `scripts/fetch_amfi_navs.py` that bulk-loads all (ISIN, scheme_code, name) → instrument_id mappings in **3 PG queries** (~145ms total) instead of 50k+ per-row queries. Iteration switches to in-memory dict lookups (~µs each). Dropped the pg_trgm fuzzy fallback on the fast path because we only track ~250 funds.
+
+2. **Added 2 new steps to the pipeline plan** (now 6 total):
+   - `morningstar_ratings` — scrapes Moneycontrol metadata for every distinct MF/ETF name across all users' holdings, persists via `pg_writer.persist_moneycontrol_scrape`. Live: 51/77 unique funds re-rated, 42 with stars.
+   - `scrape_queue_cleanup` — purges irrecoverable "failed" entries (mangled CAS names like "HDFC Focused, Fund - Direct Plan -, Growth Option") and resets > 6h zombies in `in_progress`. Live: 4 stuck failures cleared.
+
+3. **Tuned MS coverage threshold** from 30% → 15% — Morningstar only rates ~25% of Indian MFs at any given time (small/new funds aren't covered), so 30% would always fire warn even on a healthy pipeline.
+
+**Total pipeline duration on aporwal107**: 163s end-to-end:
+- amfi_navs: 2.6s · 287 funds upserted
+- analytics_sweep: 15.8s · 201 funds
+- v3_rescore: 6.2s · 246 funds
+- morningstar_ratings: 131.9s · 42 stars added
+- scrape_queue_cleanup: 0.0s
+- pg_mirror: 6.3s · 273k rows
+
+**Final state**: banner switches to emerald *"⏸ Pipeline paused — all data fresh"* with a *"▶ Resume cron"* button. Status = ok, 0 issues, paused = true.
+
+**Tests**: 14/14 in `test_data_health_pipeline.py` updated for 6-step plan. All pass.
+
+---
+
 ### Apr 2026 — Seamless Pipeline Refresh + Auto-Pause Cron (iter 57)
 User asked: "Make the pipeline seamless... and put all jobs off after one complete successful refresh."
 

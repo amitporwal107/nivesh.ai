@@ -76,7 +76,7 @@ export default function DataHealthBanner() {
         if (st?.running) {
           const cs = st.current_step || "starting";
           const done = (st.steps || []).length;
-          toast.loading(`Pipeline running — step ${done + 1}/4 (${cs})...`, { id: "pipeline-run" });
+          toast.loading(`Pipeline running — step ${done + 1} (${cs})...`, { id: "pipeline-run" });
         } else if (st?.finished_at) {
           // Done
           const failed = (st.steps || []).filter((s) => !s.ok);
