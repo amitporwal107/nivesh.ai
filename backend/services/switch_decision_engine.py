@@ -166,7 +166,15 @@ class DecisionResult:
 
 
 # ── Step 1: tax & exit ──────────────────────────────────────────────────
-def compute_tax_cost(inp: DecisionInputs) -> float:
+def compute_tax_cost(inp: DecisionInputs, *, apply_ltcg_exemption: bool = True) -> float:
+    """Compute tax on a hypothetical full redemption.
+
+    Args:
+        apply_ltcg_exemption: if True (default), applies the ₹1L LTCG
+            exemption. For per-holding switch panels, callers should pass
+            False — the exemption is annual + portfolio-wide, so dividing
+            it across many holdings makes each one understate true tax.
+    """
     gain = inp.current_value - inp.invested_amount
     if gain <= 0:
         return 0.0
@@ -174,12 +182,12 @@ def compute_tax_cost(inp: DecisionInputs) -> float:
         return gain * inp.debt_slab_rate
     if inp.holding_period_days is not None and inp.holding_period_days < 365:
         return gain * STCG_EQUITY_RATE
-    taxable = max(0.0, gain - LTCG_EXEMPTION_RS)
+    taxable = max(0.0, gain - LTCG_EXEMPTION_RS) if apply_ltcg_exemption else gain
     return taxable * LTCG_RATE
 
 
 # ── Switch Cost framework (PRD: Cost-of-Switch) ─────────────────────────
-def compute_switch_costs(inp: DecisionInputs) -> Dict[str, float]:
+def compute_switch_costs(inp: DecisionInputs, *, apply_ltcg_exemption: bool = True) -> Dict[str, float]:
     """Returns the structured Cost-of-Switch breakdown.
 
     All `*_pct` values are decimal fractions (0.035 == 3.5%) so they
@@ -190,7 +198,7 @@ def compute_switch_costs(inp: DecisionInputs) -> Dict[str, float]:
     so callers passing direct_plan_only=True get slippage zeroed out.
     """
     cv = max(1.0, inp.current_value)   # avoid div-by-zero
-    tax = compute_tax_cost(inp)
+    tax = compute_tax_cost(inp, apply_ltcg_exemption=apply_ltcg_exemption)
     exit_load = inp.current_value * max(0.0, inp.exit_load_pct)
     slip = inp.current_value * max(0.0, inp.slippage_pct)
 
