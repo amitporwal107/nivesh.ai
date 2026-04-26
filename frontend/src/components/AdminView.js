@@ -15,6 +15,7 @@ import MFDataSection from "@/components/admin/MFDataSection";
 import DatastoreSection from "@/components/admin/DatastoreSection";
 import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
+import PipelineRunner from "@/components/admin/PipelineRunner";
 import PromptsSection from "@/components/admin/PromptsSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
 import V3WeightsSection from "@/components/admin/V3WeightsSection";
@@ -279,6 +280,7 @@ const AdminView = () => {
             allowAddCustom={false}
           />
           <DatastoreSection />
+          <PipelineRunner />
           <DataPipelineMonitor />
           <MFDataSection />
         </div>
