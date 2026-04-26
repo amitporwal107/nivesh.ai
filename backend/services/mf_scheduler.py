@@ -96,8 +96,23 @@ async def _stale_refresh_job():
                                         error_msg=str(e), processed=queued, failed=0)
 
 
+async def _is_pipeline_paused() -> bool:
+    """Pause flag — set to True after a successful seamless refresh.
+    Cron jobs check this before doing any work so the pipeline can be
+    silenced until a human re-enables it."""
+    try:
+        from deps import db
+        cfg = await db.system_config.find_one({"key": "data_pipeline"}) or {}
+        return bool(cfg.get("paused", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def _amfi_navs_job():
     """Daily AMFI EOD NAV ingestion — runs 22:00 IST (after AMFI publishes)."""
+    if await _is_pipeline_paused():
+        logger.info("amfi_navs skipped — data_pipeline.paused=true")
+        return
     try:
         from scripts.fetch_amfi_navs import run as _run_amfi
         res = await _run_amfi(dry_run=False)
@@ -111,6 +126,9 @@ async def _amfi_navs_job():
 
 async def _analytics_sweep_job():
     """Parallel NAV-analytics refresh — runs 22:30 IST (30 min after NAV cron)."""
+    if await _is_pipeline_paused():
+        logger.info("analytics_sweep skipped — data_pipeline.paused=true")
+        return
     try:
         from services.nav_analytics_sweep import run_analytics_sweep
         res = await run_analytics_sweep()
@@ -121,6 +139,9 @@ async def _analytics_sweep_job():
 
 async def _v3_rescore_job():
     """Parallel V3 composite rescore — runs 22:45 IST (after analytics sweep)."""
+    if await _is_pipeline_paused():
+        logger.info("v3_rescore skipped — data_pipeline.paused=true")
+        return
     try:
         from services.nav_analytics_sweep import run_v3_rescore
         res = await run_v3_rescore()
@@ -133,6 +154,9 @@ async def _stock_nifty100_refresh_job():
     """Daily Groww Nifty 100 scrape + score — runs 23:00 IST.
     Populates stock_master / stock_primitives / stock_scores for all 100
     Nifty constituents."""
+    if await _is_pipeline_paused():
+        logger.info("nifty100_refresh skipped — data_pipeline.paused=true")
+        return
     try:
         from services.groww_stock_scraper import refresh_nifty_100
         res = await refresh_nifty_100()

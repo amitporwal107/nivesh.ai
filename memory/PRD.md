@@ -2,6 +2,37 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — Seamless Pipeline Refresh + Auto-Pause Cron (iter 57)
+User asked: "Make the pipeline seamless... and put all jobs off after one complete successful refresh."
+
+**One-click full-pipeline orchestration**:
+- New `POST /api/data-health/run-all` (admin-only) — kicks off the full pipeline as a fire-and-forget background task and returns in **0.28s**. Survives backend hot-reload because state is persisted in `system_config.data_pipeline_run` (not in-memory).
+- Sequential plan: AMFI EOD NAV ingestion → analytics sweep (drawdown / consistency) → V3 composite rescore → PG → Mongo mirror.
+- New `GET /api/data-health/run-status` — per-step polling (running flag, current_step, completed steps with duration/error).
+
+**Auto-pause on success**:
+- On full pipeline success, `system_config.data_pipeline.paused` is automatically flipped to `True`.
+- All cron jobs (`_amfi_navs_job`, `_analytics_sweep_job`, `_v3_rescore_job`, `_stock_nifty100_refresh_job`) now check this flag at the top and skip silently when paused. Logs `"<job> skipped — data_pipeline.paused=true"` for observability.
+- New `POST /api/data-health/resume` — admin endpoint to clear the pause flag and re-enable scheduled refreshes.
+- New `GET /api/data-health/pause-status` — read-only flag for the banner UI.
+
+**Banner UI** (`DataHealthBanner.jsx` extensions):
+- New **"Run pipeline now"** button — primary action when issues are detected. Shows `<Loader2>` spinner + `"Running... step N/4 (current_step)"` toast updates while the pipeline runs.
+- New **"Resume cron"** button — appears only in the paused emerald-tone variant.
+- **Paused-success state**: when `paused=true` AND `status=ok`, the banner switches to an emerald `<PauseCircle>` strip showing *"Pipeline paused — all data fresh. Auto-refresh disabled."*
+- On mount, detects in-flight pipeline (`run-status.running`) and reattaches the polling loop — no orphan UX after a page reload.
+- Toast notifications via sonner: success (8s), failure with step names (10s), running progress.
+
+**Testing**: 14/14 new tests in `tests/test_data_health_pipeline.py` covering:
+- `_run_step` success / exception / timeout
+- `_set_paused` / `_is_paused` round-trip via Mongo
+- `_write_run_state` / `_read_run_state` round-trip
+- End-to-end `_run_pipeline_in_background` with mocked steps — verifies pause flag flips on full success and stays clear on any-step failure.
+
+**Live verified**: Pipeline kicks off in 0.28s, banner shows "Running..." spinner, polling fetches per-step status. AMFI ingestion is genuinely slow (~10-15 min for 50k+ funds — bottlenecked at `resolve_instrument_id` per-row PG roundtrip in the existing script), so the seamless wrapper makes a real difference: users no longer have to wait at a loading spinner.
+
+---
+
 ### Apr 2026 — Cost-of-Switch UI: SwitchCostPanel + Per-Holding Inline Compute (iter 56)
 User requested: surface `impact.switch_cost_pct` and `alpha_pct_annual` (just added to the engine in iter 55) in **both** the V3FundBreakdown row (Insights tab) and the ActionablePortfolioView expanded row (Portfolio tab).
 

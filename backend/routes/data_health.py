@@ -10,16 +10,20 @@ Banner severity rules:
              scrape_queue.failed > 0
   - OK     : everything fresh and healthy
 
-Endpoint:
-  GET /api/data-health/summary
+Endpoints:
+  GET  /api/data-health/summary   — banner state
+  POST /api/data-health/run-all   — admin-only seamless full-pipeline refresh.
+                                     On success, flips system_config.data_pipeline_paused=true
+                                     so cron jobs go silent until manually re-enabled.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from deps import db, get_current_user
 from services import nav_analytics_sweep
@@ -199,4 +203,188 @@ async def data_health_summary(request: Request) -> Dict[str, Any]:
         "mirror_age_hours": round(mirror_age, 1) if mirror_age is not None else None,
         "scrape_queue": sq,
         "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+# ── Seamless full-pipeline refresh ──────────────────────────────────────
+# Run-state is persisted in `system_config["data_pipeline_run"]` so it
+# survives backend hot-reload / restart. Single global slot — only one
+# full pipeline can run at a time.
+
+_RUN_STATE_KEY = "data_pipeline_run"
+
+
+async def _read_run_state() -> Dict[str, Any]:
+    doc = await db.system_config.find_one({"key": _RUN_STATE_KEY}) or {}
+    return {
+        "running": bool(doc.get("running", False)),
+        "started_at": doc.get("started_at"),
+        "finished_at": doc.get("finished_at"),
+        "ok": doc.get("ok"),
+        "current_step": doc.get("current_step"),
+        "steps": doc.get("steps", []),
+        "message": doc.get("message"),
+    }
+
+
+async def _write_run_state(patch: Dict[str, Any]) -> None:
+    patch = dict(patch)
+    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.system_config.update_one(
+        {"key": _RUN_STATE_KEY},
+        {"$set": patch},
+        upsert=True,
+    )
+
+
+async def _is_paused() -> bool:
+    """Read the global pause flag. Cron jobs check this before running."""
+    cfg = await db.system_config.find_one({"key": "data_pipeline"}) or {}
+    return bool(cfg.get("paused", False))
+
+
+async def _set_paused(paused: bool) -> None:
+    """Toggle the pause flag. After a successful seamless refresh we
+    flip it ON so cron jobs go silent until manually re-enabled."""
+    await db.system_config.update_one(
+        {"key": "data_pipeline"},
+        {"$set": {"paused": paused, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+
+
+_RUN_ALL_TIMEOUT_S = 600   # 10 min hard ceiling per step
+
+
+async def _run_step(name: str, coro_fn) -> Dict[str, Any]:
+    """Run a single pipeline step with structured success/failure capture."""
+    start = datetime.now(timezone.utc)
+    await _write_run_state({"current_step": name})
+    try:
+        res = await asyncio.wait_for(coro_fn(), timeout=_RUN_ALL_TIMEOUT_S)
+        return {
+            "step": name, "ok": True,
+            "duration_s": (datetime.now(timezone.utc) - start).total_seconds(),
+            "result": res if isinstance(res, dict) else {"value": str(res)[:200]},
+        }
+    except asyncio.TimeoutError:
+        return {"step": name, "ok": False, "error": "timeout",
+                "duration_s": _RUN_ALL_TIMEOUT_S}
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"data-health run-all step {name} failed")
+        return {"step": name, "ok": False, "error": str(e)[:300],
+                "duration_s": (datetime.now(timezone.utc) - start).total_seconds()}
+
+
+async def _run_pipeline_in_background():
+    """The actual sequential pipeline runner. Persists state to Mongo
+    so restarts/hot-reloads don't orphan the run."""
+    started_at = datetime.now(timezone.utc).isoformat()
+    await _write_run_state({
+        "running": True, "started_at": started_at,
+        "finished_at": None, "ok": None,
+        "current_step": None, "steps": [], "message": None,
+    })
+
+    async def _amfi():
+        from scripts.fetch_amfi_navs import run as _run_amfi
+        return await _run_amfi(dry_run=False)
+
+    async def _sweep():
+        return await nav_analytics_sweep.run_analytics_sweep()
+
+    async def _rescore():
+        return await nav_analytics_sweep.run_v3_rescore()
+
+    async def _mirror():
+        from scripts.mirror_pg_to_mongo import run as _run_mirror
+        return await _run_mirror(dry_run=False)
+
+    plan = [
+        ("amfi_navs", _amfi),
+        ("analytics_sweep", _sweep),
+        ("v3_rescore", _rescore),
+        ("pg_mirror", _mirror),
+    ]
+    accumulated_steps: List[Dict[str, Any]] = []
+    for name, fn in plan:
+        result = await _run_step(name, fn)
+        accumulated_steps.append(result)
+        # Persist after each step for live polling visibility
+        await _write_run_state({"steps": accumulated_steps})
+
+    all_ok = all(s["ok"] for s in accumulated_steps)
+    if all_ok:
+        await _set_paused(True)
+
+    await _write_run_state({
+        "running": False, "current_step": None,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "ok": all_ok, "steps": accumulated_steps,
+        "message": (
+            "All pipeline jobs completed successfully. Cron schedule is now PAUSED."
+            if all_ok else
+            f"{sum(1 for s in accumulated_steps if not s['ok'])} step(s) failed."
+        ),
+    })
+
+
+@router.post("/run-all")
+async def run_all_jobs(request: Request) -> Dict[str, Any]:
+    """Kick off a seamless full-pipeline refresh in the background.
+
+    Returns immediately with `{ok: True, started: true}`; the actual run
+    happens in a fire-and-forget asyncio task whose state is persisted
+    in Mongo (`system_config.data_pipeline_run`). Poll `/run-status` for
+    progress + per-step results. On full success the cron pause flag is
+    flipped automatically.
+
+    Admin-only.
+    """
+    user = await get_current_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+
+    state = await _read_run_state()
+    if state["running"]:
+        return {
+            "ok": True, "started": False, "already_running": True,
+            "current_step": state.get("current_step"),
+            "started_at": state.get("started_at"),
+        }
+
+    asyncio.create_task(_run_pipeline_in_background())
+    return {
+        "ok": True, "started": True,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "message": "Pipeline kicked off in background. Poll /run-status for progress.",
+    }
+
+
+@router.get("/run-status")
+async def run_status(request: Request) -> Dict[str, Any]:
+    """Poll the in-flight or last-completed pipeline run state."""
+    await get_current_user(request)
+    return await _read_run_state()
+
+
+@router.post("/resume")
+async def resume_jobs(request: Request) -> Dict[str, Any]:
+    """Re-enable the cron schedule (clears the pause flag)."""
+    user = await get_current_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    await _set_paused(False)
+    return {"ok": True, "paused": False, "message": "Cron schedule resumed."}
+
+
+@router.get("/pause-status")
+async def pause_status(request: Request) -> Dict[str, Any]:
+    """Read-only paused flag — used by the banner to show 'Paused' state."""
+    await get_current_user(request)
+    cfg = await db.system_config.find_one({"key": "data_pipeline"}) or {}
+    return {
+        "paused": bool(cfg.get("paused", False)),
+        "updated_at": cfg.get("updated_at"),
     }
