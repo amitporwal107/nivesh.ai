@@ -11,29 +11,45 @@ Endpoints (all under /api/portfolio/):
   GET  /cas-sip-breakdown?month=YYYY-MM    per-fund SIP drill-down for one month
   GET  /cas-top-transactions?from=&to=&n=  top-N transactions by amount
   POST /cas-snapshot/{snapshot_date}/activate  load an older snapshot into live holdings view
+
+All endpoints accept an optional `profile_id` query param so MFD dashboards
+can query a client's data directly (without session impersonation).
 """
 from __future__ import annotations
 
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 
-from deps import get_current_user
+from deps import get_current_user, db
 from services import cas_snapshot_engine as _eng
 
 router = APIRouter(prefix="/api/portfolio", tags=["cas-snapshots"])
 
 
-def _uid(user: dict) -> str:
-    return user.get("_session_user_id") or user["user_id"]
+async def _resolve_uid(user: dict, profile_id: Optional[str]) -> str:
+    """Return the effective user_id to query.
+
+    Priority:
+    1. `profile_id` query param (MFD calling on behalf of a client)
+    2. session impersonation (active_profile_id in session)
+    3. the authenticated user themselves
+    """
+    if profile_id:
+        doc = await db.profiles.find_one({"profile_id": profile_id}, {"_id": 0, "shadow_user_id": 1})
+        if doc and doc.get("shadow_user_id"):
+            return doc["shadow_user_id"]
+    # Fall back to effective user from session (may be impersonated)
+    return user["user_id"]
 
 
 @router.get("/cas-snapshots")
-async def list_cas_snapshots(request: Request, limit: int = 60):
+async def list_cas_snapshots(request: Request, limit: int = 60, profile_id: Optional[str] = None):
     """Lightweight list of all CAS snapshots — no holdings payload.
     Returns newest-first so the timeline UI can render tiles immediately."""
     user = await get_current_user(request)
-    snaps = await _eng.list_snapshots(_uid(user), limit=limit)
-    state = await _eng.get_view_state(_uid(user))
+    uid = await _resolve_uid(user, profile_id)
+    snaps = await _eng.list_snapshots(uid, limit=limit)
+    state = await _eng.get_view_state(uid)
     return {
         "count": len(snaps),
         "snapshots": snaps,
@@ -43,12 +59,12 @@ async def list_cas_snapshots(request: Request, limit: int = 60):
 
 
 @router.get("/cas-snapshot")
-async def get_cas_snapshot(request: Request, date: Optional[str] = None):
+async def get_cas_snapshot(request: Request, date: Optional[str] = None, profile_id: Optional[str] = None):
     """Return full snapshot (including holdings). When `date` is omitted,
     returns the latest snapshot. Passing `include_holdings=false` as a
     query param skips the heavy holdings array."""
     user = await get_current_user(request)
-    uid = _uid(user)
+    uid = await _resolve_uid(user, profile_id)
     include_holdings_param = request.query_params.get("include_holdings", "true").lower()
     include_holdings = include_holdings_param != "false"
 
@@ -71,15 +87,10 @@ async def cas_performance(
     request: Request,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    profile_id: Optional[str] = None,
 ):
-    """Return chronological series of {snapshot_date, total_value,
-    total_invested, return_pct, health_score, allocation} for the
-    given date range. Used to render the portfolio-value line chart.
-
-    Query params: `from` and `to` (YYYY-MM-DD). Both optional."""
     user = await get_current_user(request)
-    uid = _uid(user)
-    # FastAPI doesn't like Python keyword `from` as a query param name
+    uid = await _resolve_uid(user, profile_id)
     raw_from = request.query_params.get("from") or from_date
     raw_to = request.query_params.get("to") or to_date
     series = await _eng.performance_series(uid, from_date=raw_from, to_date=raw_to)
@@ -91,12 +102,10 @@ async def cas_sip_summary(
     request: Request,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    profile_id: Optional[str] = None,
 ):
-    """Monthly SIP / purchase aggregates for the bar chart.
-
-    Returns: {months: [{month: YYYY-MM, total: ₹, count: n}], total_invested}"""
     user = await get_current_user(request)
-    uid = _uid(user)
+    uid = await _resolve_uid(user, profile_id)
     raw_from = request.query_params.get("from") or from_date
     raw_to = request.query_params.get("to") or to_date
     result = await _eng.sip_monthly_summary(uid, from_date=raw_from, to_date=raw_to)
@@ -104,11 +113,9 @@ async def cas_sip_summary(
 
 
 @router.get("/cas-sip-breakdown")
-async def cas_sip_breakdown(request: Request, month: str):
-    """Per-fund and per-AMC SIP drill-down for a single YYYY-MM month.
-    Used when the user clicks a bar in the SIP bar chart."""
+async def cas_sip_breakdown(request: Request, month: str, profile_id: Optional[str] = None):
     user = await get_current_user(request)
-    uid = _uid(user)
+    uid = await _resolve_uid(user, profile_id)
     if not month or len(month) != 7 or month[4] != "-":
         raise HTTPException(400, "month must be YYYY-MM (e.g. 2026-01)")
     result = await _eng.sip_breakdown_for_month(uid, month)
@@ -121,11 +128,10 @@ async def cas_top_transactions(
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
     n: int = 10,
+    profile_id: Optional[str] = None,
 ):
-    """Top N transactions by absolute ₹ amount within the date range.
-    Returns: [{date, scheme_name, amc, type, amount, units, nav, folio}]"""
     user = await get_current_user(request)
-    uid = _uid(user)
+    uid = await _resolve_uid(user, profile_id)
     raw_from = request.query_params.get("from") or from_date
     raw_to = request.query_params.get("to") or to_date
     limit = min(max(n, 1), 50)
@@ -134,14 +140,9 @@ async def cas_top_transactions(
 
 
 @router.post("/cas-snapshot/{snapshot_date}/activate")
-async def activate_cas_snapshot(snapshot_date: str, request: Request):
-    """MFD clicks an older snapshot tile → load that snapshot's holdings
-    into the live holdings table so Client 360 reflects that month.
-
-    The live holdings are replaced atomically; all historical snapshots
-    remain intact in `portfolio_snapshots`."""
+async def activate_cas_snapshot(snapshot_date: str, request: Request, profile_id: Optional[str] = None):
     user = await get_current_user(request)
-    uid = _uid(user)
+    uid = await _resolve_uid(user, profile_id)
     try:
         snap = await _eng.load_snapshot_into_holdings(uid, snapshot_date)
     except ValueError as e:

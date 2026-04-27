@@ -853,6 +853,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           </span>
         </div>
         <CasTimeMachine
+          profileId={profileId}
           onSnapshotActivated={() => {
             // Re-load this page's data when MFD activates a historical snapshot
             window.location.reload();

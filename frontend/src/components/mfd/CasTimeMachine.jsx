@@ -64,6 +64,10 @@ const snapshotMonths = (snaps) =>
 /**
  * CasTimeMachine — Historical CAS snapshot explorer for Client 360.
  *
+ * Props:
+ *   profileId         – MFD profile ID (used to scope queries to the right client)
+ *   onSnapshotActivated – callback when MFD loads an older snapshot
+ *
  * Sections:
  *   1. Snapshot tiles row — click any month to "activate" it in Client 360
  *   2. Date range picker — month dropdowns to scope the charts
@@ -71,7 +75,7 @@ const snapshotMonths = (snaps) =>
  *   4. Monthly SIP bar chart
  *   5. Top 10 transactions table
  */
-export default function CasTimeMachine({ onSnapshotActivated }) {
+export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
   const [snaps, setSnaps] = useState([]);
   const [currentDate, setCurrentDate] = useState(null);
   const [fromMonth, setFromMonth] = useState("");
@@ -88,7 +92,8 @@ export default function CasTimeMachine({ onSnapshotActivated }) {
   const loadSnapshots = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/portfolio/cas-snapshots`, { withCredentials: true });
+      const params = profileId ? { profile_id: profileId } : {};
+      const r = await axios.get(`${API}/portfolio/cas-snapshots`, { params, withCredentials: true });
       const data = r.data;
       setSnaps(data.snapshots || []);
       setCurrentDate(data.current_snapshot_date || null);
@@ -114,17 +119,18 @@ export default function CasTimeMachine({ onSnapshotActivated }) {
     // Convert YYYY-MM to YYYY-MM-01 and YYYY-MM-31 for API
     const fromDate = `${from}-01`;
     const toDate = `${to}-31`;
+    const pid = profileId ? { profile_id: profileId } : {};
     setChartsLoading(true);
     try {
       const [perfR, sipR, txnR] = await Promise.all([
         axios.get(`${API}/portfolio/cas-performance`, {
-          params: { from: fromDate, to: toDate }, withCredentials: true,
+          params: { from: fromDate, to: toDate, ...pid }, withCredentials: true,
         }).catch(() => ({ data: { series: [] } })),
         axios.get(`${API}/portfolio/cas-sip-summary`, {
-          params: { from: fromDate, to: toDate }, withCredentials: true,
+          params: { from: fromDate, to: toDate, ...pid }, withCredentials: true,
         }).catch(() => ({ data: { months: [], total_invested: 0 } })),
         axios.get(`${API}/portfolio/cas-top-transactions`, {
-          params: { from: fromDate, to: toDate, n: 10 }, withCredentials: true,
+          params: { from: fromDate, to: toDate, n: 10, ...pid }, withCredentials: true,
         }).catch(() => ({ data: { transactions: [] } })),
       ]);
       setPerf(perfR.data?.series || []);
@@ -142,9 +148,10 @@ export default function CasTimeMachine({ onSnapshotActivated }) {
   // Activate a snapshot (load its holdings into live view)
   const activate = useCallback(async (snapDate) => {
     setActivating(snapDate);
+    const pid = profileId ? `?profile_id=${profileId}` : "";
     try {
       await axios.post(
-        `${API}/portfolio/cas-snapshot/${snapDate}/activate`,
+        `${API}/portfolio/cas-snapshot/${snapDate}/activate${pid}`,
         {}, { withCredentials: true }
       );
       setCurrentDate(snapDate);

@@ -150,3 +150,28 @@ def detect_period_from_text(text: str) -> Tuple[Optional[str], Optional[str]]:
             return start.isoformat(), end.isoformat()
 
     return None, None
+
+
+def detect_period_from_filename(filename: str) -> tuple:
+    """Extract statement period from NSDL/CAMS-style filenames.
+
+    Handles patterns like:
+      NSDLe-CAS_106904998_DEC_2025.PDF  →  2025-12-01 / 2025-12-31
+      CAMS_CAS_JAN_2026.pdf             →  2026-01-01 / 2026-01-31
+      cas_feb_2026.pdf                  →  2026-02-01 / 2026-02-29
+    Returns (start_iso, end_iso) or (None, None) if not detectable.
+    """
+    name = (filename or "").upper()
+    # Pattern 1: MON_YYYY  e.g. DEC_2025
+    m = re.search(r'_(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[_\s\-](\d{4})', name)
+    if not m:
+        # Pattern 2: MON YYYY or MON-YYYY without leading underscore
+        m = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[_\s\-](\d{4})', name)
+    if m:
+        mon = MONTH_MAP.get(m.group(1))
+        y = int(m.group(2))
+        if mon and 2000 <= y <= 2100:
+            start = date(y, mon, 1)
+            end = date(y, mon, _last_day(y, mon))
+            return start.isoformat(), end.isoformat()
+    return None, None

@@ -48,7 +48,7 @@ from services.gmail_service import (
     scan_for_cas_emails, download_attachment,
 )
 from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
-from services.cas_period_detector import detect_statement_period
+from services.cas_period_detector import detect_statement_period, detect_period_from_filename
 from services.cas_snapshot_engine import create_cas_snapshot
 from services import cas_transactions as _cas_txns
 
@@ -651,7 +651,11 @@ async def _process_client_cas(
                 h["confidence"] = 0.95
 
             # Detect the CAS statement period (e.g. 2026-01-01 → 2026-01-31)
+            # 1st: try reading from PDF text headers
             period_start, period_end = detect_statement_period(content)
+            # 2nd: fall back to filename (e.g. NSDLe-CAS_106904998_DEC_2025.PDF)
+            if not period_end:
+                period_start, period_end = detect_period_from_filename(filename)
             logger.info(
                 f"CAS period detected: {period_start} → {period_end} "
                 f"for file {filename} (token {token[:8]})"
