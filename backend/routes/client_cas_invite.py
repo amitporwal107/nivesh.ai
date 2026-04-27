@@ -30,6 +30,7 @@ DB collection: `client_cas_invites`
 """
 from __future__ import annotations
 import hashlib
+import asyncio
 import logging
 import os
 import uuid
@@ -627,6 +628,46 @@ async def client_import_selected(
     return {"queued": queued, "count": len(queued)}
 
 
+async def _cascade_reparse_failed_files(
+    token: str, shadow_uid: str, password: str, exclude_file_id: str,
+):
+    """Auto-retry all error-status CAS PDFs in the same invite using the
+    password that just worked. Runs sequentially (one PDF at a time) to
+    avoid a CPU/memory spike from concurrent OCR jobs. Files that still
+    fail are simply left with status='error' — no infinite loop.
+
+    Guard: only retries files with reparse_count < 3 to prevent thrashing.
+    """
+    inv = await db.client_cas_invites.find_one({"invite_token": token}, {"_id": 0})
+    if not inv:
+        return
+    for f in inv.get("processed_files") or []:
+        fid = f.get("file_id")
+        if fid == exclude_file_id:
+            continue
+        if f.get("status") not in ("error", "failed"):
+            continue
+        if (f.get("reparse_count") or 0) >= 3:
+            continue
+        fp = f.get("file_path")
+        if not fp or not Path(fp).exists():
+            continue
+
+        fname = f.get("filename") or "cas.pdf"
+        logger.info(f"Cascade re-parse: queuing {fname} ({fid[:8]}) with same password")
+        await db.client_cas_invites.update_one(
+            {"invite_token": token, "processed_files.file_id": fid},
+            {"$set": {
+                "processed_files.$.status":       "processing",
+                "processed_files.$.started_at":   _now_iso(),
+                "processed_files.$.error":        None,
+                "processed_files.$.reparse_count": (f.get("reparse_count") or 0) + 1,
+            }},
+        )
+        content = Path(fp).read_bytes()
+        await _process_client_cas(token, shadow_uid, content, fname, password, fid)
+
+
 async def _process_client_cas(
     token: str, shadow_uid: str, content: bytes, filename: str, password: str, file_id: str,
 ):
@@ -735,6 +776,17 @@ async def _process_client_cas(
                     "oauth_tokens": None,
                 }},
             )
+
+    # ── Cascade re-parse ────────────────────────────────────────────────
+    # If this file parsed OK, auto-retry all other error-status files in
+    # the same invite using the same password. This means that once the MFD
+    # provides the correct password for one file, all other uploaded CAS
+    # PDFs (e.g., JAN, FEB, MAR) are automatically processed in the background.
+    if status == "completed" and password:
+        try:
+            await _cascade_reparse_failed_files(token, shadow_uid, password, exclude_file_id=file_id)
+        except Exception as ce:  # noqa: BLE001
+            logger.warning(f"Cascade re-parse error: {ce}")
 
 
 @public_router.get("/{token}/status")
