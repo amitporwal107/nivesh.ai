@@ -172,6 +172,52 @@ def convert_casparser_to_holdings(cas_data: dict) -> list:
     return holdings
 
 
+def _normalize_casparser_folios(cas_data: dict) -> dict:
+    """Convert casparser library folios→schemes to the `mutual_funds` format
+    expected by `cas_transactions.extract_transactions()`.
+
+    casparser lib:  {folios: [{folio, amc, schemes: [{scheme, isin, transactions}]}]}
+    target format:  {mutual_funds: [{amc, folio_number, schemes: [...]}]}
+    """
+    mutual_funds = []
+    for f in cas_data.get("folios") or []:
+        mutual_funds.append({
+            "amc": (f.get("amc") or "").strip(),
+            "folio_number": (f.get("folio") or f.get("folio_number") or "").strip(),
+            "schemes": f.get("schemes") or [],
+        })
+    return {"mutual_funds": mutual_funds}
+
+
+async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
+    """Like parse_cas_pdf() but also returns the normalized casparser dict when
+    the casparser *library* path is used (gives us structured transactions).
+
+    Returns: (holdings: list, raw_cas_data: dict | None)
+
+    `raw_cas_data` is in `{mutual_funds: [...]}` format suitable for
+    `cas_transactions.extract_transactions()`. It is None when the casparser
+    library path was NOT taken (API, OCR, or AI fallbacks have no structured
+    transaction data).
+    """
+    # 1st: casparser library — capture full raw data for transaction extraction
+    try:
+        import casparser
+        cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
+        holdings = convert_casparser_to_holdings(cas_data)
+        if holdings:
+            logger.info(f"casparser extracted {len(holdings)} holdings + raw transaction data")
+            return holdings, _normalize_casparser_folios(cas_data)
+        logger.info("casparser returned no holdings, falling back to other methods")
+    except Exception as e:
+        logger.info(f"casparser failed in parse_cas_pdf_with_data: {e}")
+
+    # 2nd+: delegate to the full fallback chain (API → OCR → AI)
+    # Returns holdings only — no structured transaction data from these paths.
+    holdings = await parse_cas_pdf(content, password)
+    return holdings, None
+
+
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     """Parse CAS PDF. Uses casparser API first, then library, then OCR, then AI."""
 

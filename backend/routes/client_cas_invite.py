@@ -47,7 +47,10 @@ from services.gmail_service import (
     get_gmail_credentials, build_gmail_service,
     scan_for_cas_emails, download_attachment,
 )
-from helpers.parsing import parse_cas_pdf, save_holdings
+from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
+from services.cas_period_detector import detect_statement_period
+from services.cas_snapshot_engine import create_cas_snapshot
+from services import cas_transactions as _cas_txns
 
 logger = logging.getLogger(__name__)
 
@@ -627,22 +630,71 @@ async def client_import_selected(
 async def _process_client_cas(
     token: str, shadow_uid: str, content: bytes, filename: str, password: str, file_id: str,
 ):
-    """Background: parse CAS PDF → save holdings under the profile's
-    shadow_user_id → mark invite row as completed. Runs outside the
-    request/response cycle so the client page can poll status. Keyed
-    by `file_id` so both Gmail-import and direct-upload paths share
-    this worker."""
+    """Background: parse CAS PDF → create a date-stamped portfolio snapshot
+    (instead of overwriting live holdings) → mark invite row as completed.
+
+    The snapshot engine automatically mirrors the holdings into the live
+    `holdings` table if this is the most recent snapshot, so Client 360
+    shows the freshest data by default. All historical snapshots are
+    preserved so the MFD can "time-travel" to any past month.
+    """
     count = 0
     status = "completed"
     err = None
+    snap_date = None
     try:
-        parsed = await parse_cas_pdf(content, password=password)
-        if parsed:
-            for h in parsed:
+        # Parse PDF + capture raw casparser dict for transaction extraction
+        holdings, raw_cas_data = await parse_cas_pdf_with_data(content, password=password)
+        if holdings:
+            for h in holdings:
                 h["source"] = "email"
                 h["confidence"] = 0.95
-            saved = await save_holdings(shadow_uid, parsed, "Client Gmail CAS")
-            count = len(saved or [])
+
+            # Detect the CAS statement period (e.g. 2026-01-01 → 2026-01-31)
+            period_start, period_end = detect_statement_period(content)
+            logger.info(
+                f"CAS period detected: {period_start} → {period_end} "
+                f"for file {filename} (token {token[:8]})"
+            )
+
+            # Extract transactions + SIPs if casparser raw data is available
+            transactions: list = []
+            sips_detected: list = []
+            if raw_cas_data:
+                try:
+                    transactions = _cas_txns.extract_transactions(raw_cas_data)
+                    sips_detected = _cas_txns.detect_sip_patterns(transactions)
+                    logger.info(
+                        f"Extracted {len(transactions)} transactions, "
+                        f"{len(sips_detected)} SIP patterns from {filename}"
+                    )
+                except Exception as txn_err:  # noqa: BLE001
+                    logger.warning(f"Transaction extraction failed: {txn_err}")
+
+            # Persist as a date-stamped snapshot (not a flat holdings overwrite)
+            snap = await create_cas_snapshot(
+                user_id=shadow_uid,
+                holdings=holdings,
+                transactions=transactions,
+                sips_detected=sips_detected,
+                period_start=period_start,
+                period_end=period_end,
+                cas_file_id=file_id,
+                cas_filename=filename,
+            )
+            count = snap.get("holdings_count", len(holdings))
+            snap_date = snap.get("snapshot_date")
+
+            # Also persist transactions + SIPs to their own collections so
+            # /api/portfolio/transactions and /api/portfolio/sips keep working.
+            if raw_cas_data and transactions:
+                try:
+                    txn_result = await _cas_txns.persist_transactions_and_sips(
+                        db, shadow_uid, raw_cas_data, source="CAS_PDF"
+                    )
+                    logger.info(f"Persisted transactions: {txn_result}")
+                except Exception as txn_err:  # noqa: BLE001
+                    logger.warning(f"Transaction persistence failed: {txn_err}")
         else:
             status = "error"
             err = "Parser returned no holdings"
@@ -659,6 +711,7 @@ async def _process_client_cas(
             "processed_files.$.holdings_count":  count,
             "processed_files.$.completed_at":    _now_iso(),
             "processed_files.$.error":           err,
+            "processed_files.$.snapshot_date":   snap_date,
             "processed_files.$.last_password_hint": (password[:2] + "***" + password[-1:]) if password else None,
         }},
     )

@@ -15,6 +15,7 @@ import {
 import NiveshCopilot from "./NiveshCopilot";
 import TimeMachineStrip from "./TimeMachineStrip";
 import ClientCasInviteModal from "./ClientCasInviteModal";
+import CasTimeMachine from "./CasTimeMachine";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -839,6 +840,25 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           Sits directly below the header so the MFD sees "what
           changed" as the first thing after the client's name.      */}
       <TimeMachineStrip />
+
+      {/* ── CAS History Time-Machine ────────────────────────────────
+          Month-by-month portfolio snapshots from each CAS upload.
+          Shows performance chart, SIP trend bars, and top transactions
+          for the selected date range. MFD can "activate" any month
+          to rewind Client 360 to that snapshot.                       */}
+      <div data-testid="cas-history-section">
+        <div className="flex items-center gap-2 mb-2 px-0.5">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            CAS Upload History &amp; Trends
+          </span>
+        </div>
+        <CasTimeMachine
+          onSnapshotActivated={() => {
+            // Re-load this page's data when MFD activates a historical snapshot
+            window.location.reload();
+          }}
+        />
+      </div>
 
       {/* ── Today's brief banner ───────────────────────────────────
           Bullet list of "what to do today" for this client. Renders only
