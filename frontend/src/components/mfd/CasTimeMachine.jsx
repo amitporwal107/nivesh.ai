@@ -454,11 +454,11 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
               <>
                 <div className="flex gap-4 mb-3">
                   <StatPill
-                    label="Total SIP invested"
+                    label={sip.months[0]?.source === "snapshot_total" ? "Total invested (latest)" : "Total SIP invested"}
                     value={fmtRs(sip.total_invested)}
                   />
                   <StatPill
-                    label="Active months"
+                    label="Snapshots"
                     value={sip.months.length}
                   />
                 </div>
@@ -476,13 +476,18 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
                       width={60}
                     />
                     <Tooltip
-                      formatter={(v) => [fmtRs(v), "SIP Amount"]}
+                      formatter={(v, name) => [fmtRs(v), sip.months[0]?.source === "snapshot_total" ? "Invested Amount" : "SIP Amount"]}
                       labelFormatter={(l) => fmtMonth(l)}
                       contentStyle={{ fontSize: 11, borderRadius: 8 }}
                     />
                     <Bar dataKey="total" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+                {sip.months[0]?.source === "snapshot_total" && (
+                  <p className="text-[10px] text-slate-400 text-center mt-1">
+                    Showing cumulative invested per CAS snapshot. Exact monthly SIP flows extracted from digital PDFs.
+                  </p>
+                )}
               </>
             )}
           </div>

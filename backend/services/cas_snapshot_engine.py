@@ -389,32 +389,43 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
         months.append({"month": m, "total": amt, "count": int(d.get("count") or 0)})
         total_all += amt
 
-    # ── Fallback: snapshot-delta investment series ───────────────────────
-    # When cas_transactions is empty (OCR-parsed CAS), derive monthly
-    # investment amounts from the change in total_invested between snapshots.
+    # ── Fallback: snapshot series for the full date range ───────────────
+    # When cas_transactions is empty (OCR-parsed CAS), show each snapshot
+    # as a monthly bar with its total_invested value (cumulative, not delta).
+    # This gives one bar per CAS upload, showing the investment curve across
+    # the selected period without requiring structured transaction data.
     if not months:
         snap_q: Dict[str, Any] = {"user_id": user_id}
-        if from_date or to_date:
-            d_q2: Dict[str, str] = {}
-            if from_date:
-                d_q2["$gte"] = from_date[:7]  # YYYY-MM
-            if to_date:
-                d_q2["$lte"] = to_date[:7]
-            snap_q["snapshot_date"] = {k: v[:10] for k, v in d_q2.items()} if from_date or to_date else {}
+        date_filter: Dict[str, str] = {}
+        if from_date:
+            # snapshot_date is stored as YYYY-MM-DD; from_date comes as YYYY-MM-DD
+            date_filter["$gte"] = from_date[:10]
+        if to_date:
+            date_filter["$lte"] = to_date[:10]
+        if date_filter:
+            snap_q["snapshot_date"] = date_filter
+
         snaps = await db.portfolio_snapshots.find(
             snap_q,
-            {"_id": 0, "snapshot_date": 1, "total_invested": 1},
+            {"_id": 0, "snapshot_date": 1, "total_invested": 1, "total_value": 1},
         ).sort("snapshot_date", 1).to_list(100)
 
-        prev_invested = None
+        latest_invested = 0.0
         for s in snaps:
             inv = float(s.get("total_invested") or 0)
+            val = float(s.get("total_value") or 0)
             m = (s.get("snapshot_date") or "")[:7]
-            if prev_invested is not None and inv > prev_invested:
-                delta = round(inv - prev_invested, 2)
-                months.append({"month": m, "total": delta, "count": 1, "source": "snapshot_delta"})
-                total_all += delta
-            prev_invested = inv
+            if inv > 0 or val > 0:
+                months.append({
+                    "month": m,
+                    "total": inv if inv > 0 else val,
+                    "count": 1,
+                    "source": "snapshot_total",
+                })
+                if inv > 0:
+                    latest_invested = inv
+
+        total_all = latest_invested  # latest snapshot's cumulative invested
 
     return {"months": months, "total_invested": round(total_all, 2)}
 
@@ -504,18 +515,24 @@ async def top_transactions(user_id: str, from_date: Optional[str] = None,
     ).sort("amount", -1).limit(limit)
     txns = [d async for d in cursor]
 
-    # ── Fallback: top holdings by value from most recent snapshot ─────
+    # ── Fallback: top holdings by value across all snapshots in range ─────
     if not txns:
         snap_q: Dict[str, Any] = {"user_id": user_id}
+        date_filter: Dict[str, str] = {}
+        if from_date:
+            date_filter["$gte"] = from_date[:10]
         if to_date:
-            snap_q["snapshot_date"] = {"$lte": to_date}
+            date_filter["$lte"] = to_date[:10]
+        if date_filter:
+            snap_q["snapshot_date"] = date_filter
+
+        # Fetch all snapshots in range, then pick the one with the most data
         snap = await db.portfolio_snapshots.find_one(
             snap_q,
-            {"_id": 0, "snapshot_date": 1, "holdings": {"$slice": -1}},  # just metadata
-            sort=[("snapshot_date", -1)],
+            {"_id": 0, "snapshot_date": 1},
+            sort=[("snapshot_date", -1)],  # most recent in range
         )
         if snap:
-            # Fetch full holdings for that snapshot
             full_snap = await db.portfolio_snapshots.find_one(
                 {"user_id": user_id, "snapshot_date": snap["snapshot_date"]},
                 {"_id": 0, "snapshot_date": 1, "holdings": 1},
