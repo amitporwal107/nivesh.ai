@@ -90,44 +90,51 @@ async def _owned_or_404(profile_id: str, session_user_id: str) -> Dict[str, Any]
 
 
 async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
-    """Pull the latest V3 snapshot + recommendations for a given user_id so
-    the priority engine has something to chew on. Tolerant of missing data.
+    """Pull the latest portfolio signals for a given user_id so the priority
+    engine has something to chew on.
 
-    Returns:
-      - portfolio_score: unified Portfolio Health (0-100) from the same
-        service the dashboard uses — so the MFD row matches what they'll
-        see after impersonating.
-      - risk_score: 0-100 from the Health.components["risk"] sub-score,
-        inverted (the component is "risk health" where higher = safer;
-        we flip so higher = riskier to stay consistent with the priority
-        engine's convention).
-      - portfolio_value_rs: live sum of (quantity × current_price) across
-        holdings — the "AUM as of today".
-      - ai_summary: one-line explain-why, built from the Health summary.
-      - recommendations: active action plan rows.
+    STALE-WHILE-REVALIDATE pattern:
+    - If ANY cache exists (even expired) → return immediately (< 5ms).
+    - If cache is older than TTL → schedule background refresh (no await).
+    - If no cache at all → compute fast lightweight signals synchronously
+      (AUM aggregation only, ~50ms), then schedule full AI refresh in background.
 
-    Results are cached in `mfd_profile_signal_cache` with a 15-minute TTL
-    so the Advisor list loads in <1s even for 10+ clients (the uncached
-    build_portfolio_health path is 10-15s per client).
+    This guarantees the Advisor Board always renders in < 500ms regardless of
+    how many clients are in the workspace.
     """
     from datetime import datetime, timezone, timedelta
-    cache_ttl = timedelta(minutes=15)
+    import asyncio as _asyncio
+
+    STALE_TTL = timedelta(hours=1)      # return fresh from cache if < 1h
     now = datetime.now(timezone.utc)
     cached = await db.mfd_profile_signal_cache.find_one({"user_id": user_id}, {"_id": 0})
+
     if cached:
+        result = {
+            "portfolio_score":     cached.get("portfolio_score"),
+            "risk_score":          cached.get("risk_score"),
+            "portfolio_value_rs":  cached.get("portfolio_value_rs") or 0.0,
+            "ai_summary":          cached.get("ai_summary"),
+            "recommendations":     cached.get("recommendations") or [],
+        }
+        # Background refresh only if stale — never blocks the response.
         try:
             cached_at = datetime.fromisoformat(cached["cached_at"])
-            if now - cached_at < cache_ttl:
-                return {
-                    "portfolio_score":     cached.get("portfolio_score"),
-                    "risk_score":          cached.get("risk_score"),
-                    "portfolio_value_rs":  cached.get("portfolio_value_rs") or 0.0,
-                    "ai_summary":          cached.get("ai_summary"),
-                    "recommendations":     cached.get("recommendations") or [],
-                }
+            if now - cached_at >= STALE_TTL:
+                _asyncio.ensure_future(_rebuild_signal_cache(user_id, now))
         except Exception:  # noqa: BLE001
             pass
+        return result  # ← always fast
 
+    # No cache at all: compute fast signals (no AI) and return immediately,
+    # then let the background task populate the full cache for next load.
+    out: Dict[str, Any] = await _fast_signals_no_ai(user_id)
+    _asyncio.ensure_future(_rebuild_signal_cache(user_id, now))
+    return out
+
+
+async def _fast_signals_no_ai(user_id: str) -> Dict[str, Any]:
+    """Lightweight signals computable in <100ms — no AI, no slow health engine."""
     out: Dict[str, Any] = {
         "portfolio_score": None,
         "risk_score": None,
@@ -135,22 +142,6 @@ async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
         "ai_summary": None,
         "recommendations": [],
     }
-
-    # 1. Unified Portfolio Health (same service used by /insights/analysis).
-    try:
-        from services import portfolio_health as _ph
-        hr = await _ph.build_portfolio_health(user_id)
-        if hr and hr.health_score is not None:
-            out["portfolio_score"] = float(hr.health_score)
-            risk_comp = (hr.components or {}).get("risk")
-            if risk_comp is not None:
-                out["risk_score"] = max(0.0, min(100.0, 100.0 - float(risk_comp.score)))
-            if hr.summary:
-                out["ai_summary"] = hr.summary
-    except Exception:  # noqa: BLE001
-        logger.debug("build_portfolio_health failed for %s", user_id, exc_info=True)
-
-    # 2. Live AUM — sum(quantity × current_price) across all holdings.
     try:
         pipeline = [
             {"$match": {"user_id": user_id}},
@@ -160,28 +151,57 @@ async def _latest_portfolio_signals(user_id: str) -> Dict[str, Any]:
                     {"$ifNull": ["$quantity", 0]},
                     {"$ifNull": ["$current_price", 0]},
                 ]}},
+                "invested": {"$sum": {"$multiply": [
+                    {"$ifNull": ["$quantity", 0]},
+                    {"$ifNull": ["$buy_price", 0]},
+                ]}},
                 "count": {"$sum": 1},
             }},
         ]
         async for row in db.holdings.aggregate(pipeline):
-            out["portfolio_value_rs"] = float(row.get("value") or 0.0)
+            val = float(row.get("value") or 0.0)
+            inv = float(row.get("invested") or 0.0)
+            out["portfolio_value_rs"] = val
+            if inv > 0:
+                # Simple return-based proxy score: cap at 100
+                ret_pct = (val - inv) / inv * 100.0
+                out["portfolio_score"] = round(min(100.0, max(0.0, 50.0 + ret_pct)), 1)
     except Exception:  # noqa: BLE001
         pass
 
-    # 3. Active action_plan entries → recommendations for priority engine.
     async for ap in db.action_plans.find(
         {"user_id": user_id, "status": {"$ne": "archived"}},
         {"_id": 0, "action": 1, "type": 1},
     ).limit(10):
         out["recommendations"].append(ap)
-
-    # Persist to the cache collection — upsert so the TTL resets each call.
-    await db.mfd_profile_signal_cache.update_one(
-        {"user_id": user_id},
-        {"$set": {**out, "user_id": user_id, "cached_at": now.isoformat()}},
-        upsert=True,
-    )
     return out
+
+
+async def _rebuild_signal_cache(user_id: str, ts) -> None:
+    """Background task: full health build (with AI) → update cache."""
+    try:
+        out = await _fast_signals_no_ai(user_id)
+
+        try:
+            from services import portfolio_health as _ph
+            hr = await _ph.build_portfolio_health(user_id)
+            if hr and hr.health_score is not None:
+                out["portfolio_score"] = float(hr.health_score)
+                risk_comp = (hr.components or {}).get("risk")
+                if risk_comp is not None:
+                    out["risk_score"] = max(0.0, min(100.0, 100.0 - float(risk_comp.score)))
+                if hr.summary:
+                    out["ai_summary"] = hr.summary
+        except Exception:  # noqa: BLE001
+            logger.debug("build_portfolio_health failed for %s in bg", user_id, exc_info=True)
+
+        await db.mfd_profile_signal_cache.update_one(
+            {"user_id": user_id},
+            {"$set": {**out, "user_id": user_id, "cached_at": ts.isoformat()}},
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("_rebuild_signal_cache failed for %s", user_id, exc_info=True)
 
 
 async def _profile_with_priority(prof: Dict[str, Any]) -> Dict[str, Any]:
@@ -510,9 +530,10 @@ async def tax_summary(profile_id: str, request: Request):
 @router.get("/profiles/{profile_id}/portfolio-trend")
 async def portfolio_trend(profile_id: str, request: Request):
     """Invested ₹ vs Current ₹ (live prices) for a profile's shadow user.
-    No real daily snapshot history exists yet, so we return the single
-    cumulative delta. The frontend renders it as a summary strip with an
-    optional "sparkline coming soon" placeholder."""
+    Also returns recent purchases: first from holdings with buy_date, then
+    from CAS transaction history, then from snapshot-delta (new holdings
+    that appeared between the last two CAS snapshots).
+    """
     user = await get_current_user(request)
     prof = await _owned_or_404(profile_id, _session_user_id(user))
     shadow = prof["shadow_user_id"]
@@ -540,8 +561,54 @@ async def portfolio_trend(profile_id: str, request: Request):
                 "current_price": cp,
                 "value_rs": qty * cp,
                 "buy_date": bd,
+                "source": "holdings",
             })
     recent_buys.sort(key=lambda r: r["buy_date"] or "", reverse=True)
+
+    # ── Fallback 1: CAS transaction history (if buy_date was not in holdings)
+    if not recent_buys:
+        async for t in db.cas_transactions.find(
+            {"user_id": shadow, "type": {"$in": ["PURCHASE", "SIP_PURCHASE"]}},
+            {"_id": 0, "scheme_name": 1, "date": 1, "amount": 1, "units": 1, "amc": 1, "type": 1},
+        ).sort("date", -1).limit(10):
+            recent_buys.append({
+                "name": t.get("scheme_name") or t.get("name"),
+                "asset_type": "Mutual Fund",
+                "quantity": t.get("units"),
+                "buy_price": None,
+                "current_price": None,
+                "value_rs": t.get("amount"),
+                "buy_date": t.get("date"),
+                "source": "cas_transaction",
+            })
+
+    # ── Fallback 2: Snapshot delta — new ISINs in latest vs previous snapshot
+    if not recent_buys:
+        snaps = await db.portfolio_snapshots.find(
+            {"user_id": shadow},
+            {"_id": 0, "snapshot_date": 1, "holdings": 1},
+        ).sort("snapshot_date", -1).limit(2).to_list(2)
+        if len(snaps) == 2:
+            latest_isins = {h.get("isin") or h.get("ticker"): h for h in (snaps[0].get("holdings") or [])}
+            prev_isins = {h.get("isin") or h.get("ticker") for h in (snaps[1].get("holdings") or [])}
+            new_holdings = [
+                h for k, h in latest_isins.items()
+                if k and k not in prev_isins
+            ][:10]
+            for h in new_holdings:
+                qty = float(h.get("quantity") or 0)
+                cp = float(h.get("current_price") or h.get("buy_price") or 0)
+                recent_buys.append({
+                    "name": h.get("name"),
+                    "asset_type": h.get("asset_type") or "Mutual Fund",
+                    "quantity": qty,
+                    "buy_price": h.get("buy_price"),
+                    "current_price": cp,
+                    "value_rs": qty * cp,
+                    "buy_date": snaps[0]["snapshot_date"],
+                    "source": "snapshot_delta",
+                })
+
     delta = current - invested
     pct = (delta / invested * 100.0) if invested > 0 else None
     return {
@@ -549,5 +616,5 @@ async def portfolio_trend(profile_id: str, request: Request):
         "current_rs": round(current, 2),
         "absolute_change_rs": round(delta, 2),
         "percent_change": round(pct, 2) if pct is not None else None,
-        "recent_buys": recent_buys[:5],
+        "recent_buys": recent_buys[:10],
     }

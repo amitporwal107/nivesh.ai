@@ -353,9 +353,12 @@ async def performance_series(user_id: str, from_date: Optional[str] = None,
 
 async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
                                to_date: Optional[str] = None) -> Dict[str, Any]:
-    """Aggregate SIP-flagged purchases by YYYY-MM. Returns:
-        {months: [{month: 'YYYY-MM', total: <amount>, count: <n>}, ...],
-         total_invested: <sum across range>}
+    """Aggregate SIP-flagged purchases by YYYY-MM.
+
+    Primary source: `cas_transactions` collection (populated when casparser
+    library extracts structured transaction data from digital CAS PDFs).
+    Fallback: derive investment amounts from month-over-month snapshot
+    total_invested changes (works even for OCR-parsed CAS PDFs).
     """
     match: Dict[str, Any] = {
         "user_id": user_id,
@@ -385,6 +388,34 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
         amt = round(float(d.get("total") or 0), 2)
         months.append({"month": m, "total": amt, "count": int(d.get("count") or 0)})
         total_all += amt
+
+    # ── Fallback: snapshot-delta investment series ───────────────────────
+    # When cas_transactions is empty (OCR-parsed CAS), derive monthly
+    # investment amounts from the change in total_invested between snapshots.
+    if not months:
+        snap_q: Dict[str, Any] = {"user_id": user_id}
+        if from_date or to_date:
+            d_q2: Dict[str, str] = {}
+            if from_date:
+                d_q2["$gte"] = from_date[:7]  # YYYY-MM
+            if to_date:
+                d_q2["$lte"] = to_date[:7]
+            snap_q["snapshot_date"] = {k: v[:10] for k, v in d_q2.items()} if from_date or to_date else {}
+        snaps = await db.portfolio_snapshots.find(
+            snap_q,
+            {"_id": 0, "snapshot_date": 1, "total_invested": 1},
+        ).sort("snapshot_date", 1).to_list(100)
+
+        prev_invested = None
+        for s in snaps:
+            inv = float(s.get("total_invested") or 0)
+            m = (s.get("snapshot_date") or "")[:7]
+            if prev_invested is not None and inv > prev_invested:
+                delta = round(inv - prev_invested, 2)
+                months.append({"month": m, "total": delta, "count": 1, "source": "snapshot_delta"})
+                total_all += delta
+            prev_invested = inv
+
     return {"months": months, "total_invested": round(total_all, 2)}
 
 
@@ -452,7 +483,12 @@ async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
 
 async def top_transactions(user_id: str, from_date: Optional[str] = None,
                            to_date: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
-    """Top N transactions by absolute amount within a date range."""
+    """Top N transactions by absolute amount.
+
+    Primary source: `cas_transactions` (structured, digital CAS PDFs).
+    Fallback: top holdings by current value from the latest snapshot
+    (useful when only OCR-parsed data is available).
+    """
     match: Dict[str, Any] = {"user_id": user_id}
     if from_date or to_date:
         d_q: Dict[str, str] = {}
@@ -466,7 +502,46 @@ async def top_transactions(user_id: str, from_date: Optional[str] = None,
         {"_id": 0, "date": 1, "scheme_name": 1, "amc": 1, "type": 1,
          "amount": 1, "units": 1, "nav": 1, "folio": 1, "isin": 1},
     ).sort("amount", -1).limit(limit)
-    return [d async for d in cursor]
+    txns = [d async for d in cursor]
+
+    # ── Fallback: top holdings by value from most recent snapshot ─────
+    if not txns:
+        snap_q: Dict[str, Any] = {"user_id": user_id}
+        if to_date:
+            snap_q["snapshot_date"] = {"$lte": to_date}
+        snap = await db.portfolio_snapshots.find_one(
+            snap_q,
+            {"_id": 0, "snapshot_date": 1, "holdings": {"$slice": -1}},  # just metadata
+            sort=[("snapshot_date", -1)],
+        )
+        if snap:
+            # Fetch full holdings for that snapshot
+            full_snap = await db.portfolio_snapshots.find_one(
+                {"user_id": user_id, "snapshot_date": snap["snapshot_date"]},
+                {"_id": 0, "snapshot_date": 1, "holdings": 1},
+            )
+            holdings = (full_snap or {}).get("holdings") or []
+            holdings_sorted = sorted(
+                holdings,
+                key=lambda h: float(h.get("quantity") or 0) * float(h.get("current_price") or h.get("buy_price") or 0),
+                reverse=True,
+            )[:limit]
+            for h in holdings_sorted:
+                qty = float(h.get("quantity") or 0)
+                cp = float(h.get("current_price") or h.get("buy_price") or 0)
+                txns.append({
+                    "date": snap["snapshot_date"],
+                    "scheme_name": h.get("name") or h.get("scheme_name"),
+                    "amc": h.get("amc") or h.get("asset_type") or "—",
+                    "type": "HOLDING",
+                    "amount": round(qty * cp, 2),
+                    "units": qty,
+                    "nav": cp,
+                    "folio": h.get("folio") or "—",
+                    "isin": h.get("isin") or h.get("ticker") or "—",
+                    "source": "snapshot_holdings",
+                })
+    return txns
 
 
 async def ensure_indexes() -> None:
