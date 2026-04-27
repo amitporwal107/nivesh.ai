@@ -5,7 +5,7 @@ import json
 from typing import Dict, Any
 
 # Test configuration
-BASE_URL = "https://portfolio-pro-985.preview.emergentagent.com/api"
+BASE_URL = "https://advisor-timeline.preview.emergentagent.com/api"
 TEST_USER_SESSION = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"  # aporwal107@gmail.com with holdings
 ADMIN_SESSION = "370eff71-fda1-46d8-b506-b81b894d634f"  # priyankamantri@gmail.com
 

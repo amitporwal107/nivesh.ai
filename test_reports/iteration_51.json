@@ -30,7 +30,7 @@
     "backend": "100%",
     "frontend": "100%"
   },
-  "test_credentials": "priyankamantri@gmail.com (session_token=370eff71-fda1-46d8-b506-b81b894d634f). Profile AMIT PORWAL id=4aed5824-6b0b-4a4a-9cf4-6bfb3cb6e321.",
+  "test_credentials": "priyankamantri@gmail.com (session_token=advisor-timeline). Profile AMIT PORWAL id=advisor-timeline.",
   "seed_data_creation": "Several test invites created under profile AMIT PORWAL during pytest + UI flow. Left in DB for next iteration's context (history card shows them).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

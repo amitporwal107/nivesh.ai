@@ -53,7 +53,7 @@
     "backend": "100%",
     "frontend": "n/a — backend-only review per request"
   },
-  "test_credentials": "aporwal107@gmail.com / user_id=user_6a8206568b50 / session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b. Auth wire: backend/deps.py reads session_token from cookie OR Authorization: Bearer header. Live tests use Bearer header.",
+  "test_credentials": "aporwal107@gmail.com / user_id=user_6a8206568b50 / session_token=advisor-timeline. Auth wire: backend/deps.py reads session_token from cookie OR Authorization: Bearer header. Live tests use Bearer header.",
   "seed_data_creation": "None — tests run against existing aporwal107 portfolio (146 holdings, 59 MF).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

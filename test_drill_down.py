@@ -5,7 +5,7 @@ import json
 
 async def test_drill_down_data_structure():
     """Test specific drill-down data structure requirements."""
-    BASE_URL = "https://portfolio-pro-985.preview.emergentagent.com/api"
+    BASE_URL = "https://advisor-timeline.preview.emergentagent.com/api"
     TEST_USER_SESSION = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"
     
     headers = {

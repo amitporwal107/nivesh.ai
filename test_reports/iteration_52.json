@@ -33,7 +33,7 @@
     "backend": "100%",
     "frontend": "100%"
   },
-  "test_credentials": "priyankamantri@gmail.com session_token=370eff71-fda1-46d8-b506-b81b894d634f (MFD). Profile AMIT PORWAL id=4aed5824-6b0b-4a4a-9cf4-6bfb3cb6e321.",
+  "test_credentials": "priyankamantri@gmail.com session_token=advisor-timeline (MFD). Profile AMIT PORWAL id=advisor-timeline.",
   "seed_data_creation": "Multiple test invites created during the pytest run + 2 for UI (one active at token 46397c0452e242ab85fe53ff9536056f now DETAILS_CAPTURED, one forcibly expired at 1fb9ba93bd7544eea864dc868d7a53eb for the expired-flow check). Advisor mobile patched to 9988776655 on the expired one to force WhatsApp CTA.",
   "retest_needed": false,
   "main_agent_can_self_test": true,
