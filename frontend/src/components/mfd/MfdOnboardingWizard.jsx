@@ -349,6 +349,7 @@ export default function MfdOnboardingWizard({ onComplete }) {
           <UploadStep
             client={createdProfile}
             onCasSuccess={onCasConnected}
+            onSkip={exitToClients}
             error={uploadError}
           />
         )}
@@ -643,7 +644,7 @@ const AddClientStep = ({ client, setClient, addTag, creating, onBack, onNext }) 
 );
 
 // ── STEP 3 ─ Upload (via CAS Connect widget) ────────────────────────────
-const UploadStep = ({ client, onCasSuccess, error }) => (
+const UploadStep = ({ client, onCasSuccess, onSkip, error }) => (
   <div className="space-y-5" data-testid="step-upload">
     <div>
       <div className="text-[10px] uppercase tracking-wider text-indigo-600 font-bold mb-1 flex items-center gap-1.5">
@@ -702,6 +703,23 @@ const UploadStep = ({ client, onCasSuccess, error }) => (
         testId="wizard-cas-connect-btn"
       />
     </Card>
+
+    {/* Skip — let MFDs finish onboarding without importing a portfolio yet.
+        Useful when the client's CAS isn't ready, or when the MFD is just
+        exploring the product. They can import later from Client 360. */}
+    <div className="flex flex-col items-center gap-1.5 pt-1">
+      <Button
+        variant="ghost"
+        onClick={onSkip}
+        data-testid="skip-cas-import-btn"
+        className="text-xs text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 h-8"
+      >
+        Skip for now — I'll import later
+      </Button>
+      <span className="text-[10px] text-slate-400">
+        You can re-launch CAS Connect any time from this client's profile.
+      </span>
+    </div>
   </div>
 );
 
