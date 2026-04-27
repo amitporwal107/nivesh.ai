@@ -473,3 +473,80 @@ def parse_cas_via_api(content: bytes, password: str = "") -> List[Dict]:
     if not data:
         return []
     return map_api_response_to_holdings(data)
+
+
+def normalize_api_response_for_transactions(data: dict) -> dict:
+    """Convert the casparser.in API response into the
+    `{mutual_funds: [{amc, folio_number, schemes: [{scheme_name, isin,
+    transactions: [...]}]}]}` shape that
+    `services.cas_transactions.extract_transactions()` expects.
+
+    The API delivers transactions in TWO places:
+      (a) `data.mutual_funds[]`        — non-demat CAMS/KFintech folios
+      (b) `data.demat_accounts[].holdings.demat_mutual_funds[]` — demat MFs
+
+    Both expose per-scheme `transactions: [{date, type/description, amount,
+    units, nav, balance}]`. We merge them into a single mutual_funds list.
+    """
+    out_folios: List[Dict] = []
+
+    # (a) Non-demat folios — already in the right shape, just normalise keys
+    for folio in data.get("mutual_funds") or []:
+        schemes_in = folio.get("schemes") or folio.get("holdings") or []
+        schemes_out = []
+        for sch in schemes_in:
+            txns = sch.get("transactions") or []
+            if not txns:
+                continue
+            schemes_out.append({
+                "scheme_name": (sch.get("scheme_name") or sch.get("name") or sch.get("scheme") or "").strip(),
+                "isin": (sch.get("isin") or "").strip(),
+                "transactions": txns,
+            })
+        if schemes_out:
+            out_folios.append({
+                "amc": (folio.get("amc") or "").strip(),
+                "folio_number": (folio.get("folio_number") or folio.get("folio") or "").strip(),
+                "schemes": schemes_out,
+            })
+
+    # (b) Demat MF holdings — synthesize a folio per demat account
+    for account in data.get("demat_accounts") or []:
+        dp_id = (account.get("dp_id") or account.get("client_id") or account.get("dp_name") or "DEMAT").strip()
+        hold_section = account.get("holdings") or {}
+        schemes_out = []
+        for mf in hold_section.get("demat_mutual_funds") or []:
+            txns = mf.get("transactions") or []
+            if not txns:
+                continue
+            name = (mf.get("scheme_name") or mf.get("name") or "").strip()
+            schemes_out.append({
+                "scheme_name": name,
+                "isin": (mf.get("isin") or "").strip(),
+                "transactions": txns,
+            })
+        if schemes_out:
+            out_folios.append({
+                "amc": (account.get("dp_name") or "Demat").strip(),
+                "folio_number": dp_id,
+                "schemes": schemes_out,
+            })
+
+    return {"mutual_funds": out_folios}
+
+
+def parse_cas_via_api_with_data(content: bytes, password: str = "") -> tuple:
+    """Like `parse_cas_via_api` but ALSO returns:
+      • the raw API JSON (for archival / "view parsed statement" UI)
+      • a normalized `{mutual_funds: [...]}` dict suitable for
+        `cas_transactions.extract_transactions()`
+
+    Returns: (holdings: list, raw_api_data: dict | None,
+              normalized_for_txns: dict | None)
+    """
+    data = parse_cas_pdf(content, password)
+    if not data:
+        return [], None, None
+    holdings = map_api_response_to_holdings(data)
+    normalized = normalize_api_response_for_transactions(data)
+    return holdings, data, normalized

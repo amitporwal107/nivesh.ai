@@ -190,32 +190,55 @@ def _normalize_casparser_folios(cas_data: dict) -> dict:
 
 
 async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
-    """Like parse_cas_pdf() but also returns the normalized casparser dict when
-    the casparser *library* path is used (gives us structured transactions).
+    """Like parse_cas_pdf() but also returns:
+      • normalized `{mutual_funds: [...]}` dict for transaction extraction
+      • the RAW parsed payload (API JSON or casparser library dict) so
+        the caller can persist it in DB and avoid re-parsing the PDF.
 
-    Returns: (holdings: list, raw_cas_data: dict | None)
+    Returns: (holdings: list,
+              normalized_for_txns: dict | None,
+              raw_payload: dict | None,
+              parser_source: str | None)
 
-    `raw_cas_data` is in `{mutual_funds: [...]}` format suitable for
-    `cas_transactions.extract_transactions()`. It is None when the casparser
-    library path was NOT taken (API, OCR, or AI fallbacks have no structured
-    transaction data).
+    `parser_source` is one of: "casparser_api", "casparser_lib",
+    "local_ocr", "ai", or None on total failure.
     """
-    # 1st: casparser library — capture full raw data for transaction extraction
+    # 1st: CAS Parser API — has the richest structured response (incl. txns)
+    try:
+        from services.cas_api_client import parse_cas_via_api_with_data, is_configured
+        if is_configured():
+            api_holdings, raw_api, normalized = parse_cas_via_api_with_data(content, password or "")
+            if api_holdings:
+                logger.info(
+                    f"CAS Parser API extracted {len(api_holdings)} holdings + "
+                    f"{sum(len(s.get('transactions') or []) for f in (normalized or {}).get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
+                )
+                try:
+                    from services.masterdata import validate_and_enrich_holdings
+                    api_holdings = validate_and_enrich_holdings(api_holdings)
+                except Exception as e:
+                    logger.info(f"Masterdata enrichment skipped: {e}")
+                return api_holdings, normalized, raw_api, "casparser_api"
+            logger.info("CAS Parser API returned no holdings, falling back")
+    except Exception as e:
+        logger.info(f"CAS Parser API failed: {e}, falling back to casparser library")
+
+    # 2nd: casparser library — also produces structured transactions
     try:
         import casparser
         cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
         holdings = convert_casparser_to_holdings(cas_data)
         if holdings:
-            logger.info(f"casparser extracted {len(holdings)} holdings + raw transaction data")
-            return holdings, _normalize_casparser_folios(cas_data)
-        logger.info("casparser returned no holdings, falling back to other methods")
+            logger.info(f"casparser library extracted {len(holdings)} holdings + raw transaction data")
+            return holdings, _normalize_casparser_folios(cas_data), cas_data, "casparser_lib"
+        logger.info("casparser returned no holdings, falling back to OCR/AI")
     except Exception as e:
-        logger.info(f"casparser failed in parse_cas_pdf_with_data: {e}")
+        logger.info(f"casparser library failed in parse_cas_pdf_with_data: {e}")
 
-    # 2nd+: delegate to the full fallback chain (API → OCR → AI)
-    # Returns holdings only — no structured transaction data from these paths.
+    # 3rd+: delegate to the full fallback chain (OCR, AI). These have no
+    # structured transaction data — return holdings only.
     holdings = await parse_cas_pdf(content, password)
-    return holdings, None
+    return holdings, None, None, ("local_ocr_or_ai" if holdings else None)
 
 
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:

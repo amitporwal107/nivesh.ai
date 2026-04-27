@@ -684,8 +684,11 @@ async def _process_client_cas(
     err = None
     snap_date = None
     try:
-        # Parse PDF + capture raw casparser dict for transaction extraction
-        holdings, raw_cas_data = await parse_cas_pdf_with_data(content, password=password)
+        # Parse PDF + capture raw casparser/API dict for transaction extraction
+        # AND the raw payload for persistence (so we never re-parse).
+        holdings, raw_cas_data, raw_payload, parser_source = await parse_cas_pdf_with_data(
+            content, password=password
+        )
         if holdings:
             for h in holdings:
                 h["source"] = "email"
@@ -702,7 +705,7 @@ async def _process_client_cas(
                 f"for file {filename} (token {token[:8]})"
             )
 
-            # Extract transactions + SIPs if casparser raw data is available
+            # Extract transactions + SIPs if structured data is available
             transactions: list = []
             sips_detected: list = []
             if raw_cas_data:
@@ -715,6 +718,36 @@ async def _process_client_cas(
                     )
                 except Exception as txn_err:  # noqa: BLE001
                     logger.warning(f"Transaction extraction failed: {txn_err}")
+
+            # Persist raw parsed payload so the MFD can view it later
+            # without re-parsing the PDF, AND so we have an audit trail.
+            if raw_payload is not None:
+                try:
+                    await db.cas_parsed_responses.update_one(
+                        {"file_id": file_id},
+                        {"$set": {
+                            "file_id":         file_id,
+                            "user_id":         shadow_uid,
+                            "invite_token":    token,
+                            "filename":        filename,
+                            "parser_source":   parser_source,
+                            "holdings_count":  len(holdings),
+                            "transactions_count": len(transactions),
+                            "sips_count":      len(sips_detected),
+                            "period_start":    period_start,
+                            "period_end":      period_end,
+                            "raw_payload":     raw_payload,
+                            "normalized_for_txns": raw_cas_data,
+                            "stored_at":       _now_iso(),
+                        }},
+                        upsert=True,
+                    )
+                    logger.info(
+                        f"Persisted parsed CAS response for file {file_id[:8]} "
+                        f"({parser_source}, {len(transactions)} txns)"
+                    )
+                except Exception as p_err:  # noqa: BLE001
+                    logger.warning(f"Failed to persist parsed CAS response: {p_err}")
 
             # Persist as a date-stamped snapshot (not a flat holdings overwrite)
             snap = await create_cas_snapshot(
@@ -1070,4 +1103,96 @@ async def delete_cas_upload(file_id: str, request: Request):
         {"invite_token": inv["invite_token"]},
         {"$pull": {"processed_files": {"file_id": file_id}}},
     )
+    # Also drop the cached parsed response — re-uploads will re-parse.
+    try:
+        await db.cas_parsed_responses.delete_one({"file_id": file_id})
+    except Exception:  # noqa: BLE001
+        pass
     return {"status": "deleted", "file_id": file_id}
+
+
+# ── Parsed CAS JSON viewer ──────────────────────────────────────────────
+@mfd_router.get("/cas-uploads/{file_id}/parsed-response")
+async def get_parsed_cas_response(file_id: str, request: Request):
+    """Return the cached parsed CAS JSON for a stored file. Used by the
+    MFD UI to show "View Parsed Statement" without re-running the
+    expensive parser. 404 when the parser path didn't yield structured
+    data (e.g. OCR/AI fallback) or when the file was uploaded before
+    persistence was enabled.
+    """
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+    # Ownership check piggy-backs on `_find_file_by_id` — only the MFD
+    # whose workspace owns this invite can see the parsed JSON.
+    inv, f = await _find_file_by_id(uid, file_id)
+    doc = await db.cas_parsed_responses.find_one({"file_id": file_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "No parsed response cached for this file. Re-parse the PDF to refresh.")
+    return {
+        "file_id":        doc.get("file_id"),
+        "filename":       doc.get("filename") or f.get("filename"),
+        "parser_source":  doc.get("parser_source"),
+        "stored_at":      doc.get("stored_at"),
+        "period_start":   doc.get("period_start"),
+        "period_end":     doc.get("period_end"),
+        "holdings_count": doc.get("holdings_count"),
+        "transactions_count": doc.get("transactions_count"),
+        "sips_count":     doc.get("sips_count"),
+        "raw_payload":    doc.get("raw_payload"),
+        "client_name":    inv.get("client_name") or inv.get("profile_name"),
+    }
+
+
+@mfd_router.get("/cas-snapshots/{snapshot_date}/parsed-response")
+async def get_parsed_response_for_snapshot(
+    snapshot_date: str, request: Request, profile_id: Optional[str] = None,
+):
+    """Convenience: fetch the parsed CAS JSON behind a particular
+    snapshot date. Looks up the snapshot's `cas_file_id` and delegates
+    to the file-scoped endpoint above. Used by the Time-Machine UI's
+    "View Parsed Statement" link.
+    """
+    user = await get_current_user(request)
+    uid = user.get("_session_user_id") or user["user_id"]
+
+    # Resolve the right shadow_user_id when the MFD targets a profile.
+    target_uid = uid
+    if profile_id:
+        prof = await db.profiles.find_one({"profile_id": profile_id}, {"_id": 0, "shadow_user_id": 1, "workspace_id": 1})
+        if not prof or not prof.get("shadow_user_id"):
+            raise HTTPException(404, "Profile not found")
+        # Verify MFD owns the workspace
+        ws = await db.workspaces.find_one(
+            {"workspace_id": prof["workspace_id"], "owner_user_id": uid}, {"_id": 0, "workspace_id": 1},
+        )
+        if not ws:
+            raise HTTPException(403, "You don't own this profile's workspace")
+        target_uid = prof["shadow_user_id"]
+
+    snap = await db.portfolio_snapshots.find_one(
+        {"user_id": target_uid, "snapshot_date": snapshot_date},
+        {"_id": 0, "cas_file_id": 1, "cas_filename": 1, "snapshot_date": 1},
+    )
+    if not snap or not snap.get("cas_file_id"):
+        raise HTTPException(404, "Snapshot has no associated parsed CAS response")
+    file_id = snap["cas_file_id"]
+    doc = await db.cas_parsed_responses.find_one({"file_id": file_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(
+            404,
+            "Parsed response not yet cached — this snapshot was created before "
+            "JSON persistence was enabled. Re-parse the original CAS PDF to refresh.",
+        )
+    return {
+        "file_id":        doc.get("file_id"),
+        "filename":       doc.get("filename") or snap.get("cas_filename"),
+        "snapshot_date":  snapshot_date,
+        "parser_source":  doc.get("parser_source"),
+        "stored_at":      doc.get("stored_at"),
+        "period_start":   doc.get("period_start"),
+        "period_end":     doc.get("period_end"),
+        "holdings_count": doc.get("holdings_count"),
+        "transactions_count": doc.get("transactions_count"),
+        "sips_count":     doc.get("sips_count"),
+        "raw_payload":    doc.get("raw_payload"),
+    }

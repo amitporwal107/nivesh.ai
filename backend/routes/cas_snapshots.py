@@ -153,3 +153,20 @@ async def activate_cas_snapshot(snapshot_date: str, request: Request, profile_id
         "total_value": snap.get("total_value"),
         "is_latest": snap.get("snapshot_date") == snapshot_date,
     }
+
+
+@router.post("/cas-transactions/backfill")
+async def backfill_cas_transactions(request: Request, profile_id: Optional[str] = None):
+    """Promote `transactions` arrays embedded in legacy
+    `portfolio_snapshots` into the canonical `cas_transactions`
+    collection so SIP/Top-Transactions aggregations reflect the actual
+    CAS data without re-parsing PDFs.
+
+    Idempotent — safe to call multiple times. Useful right after
+    deploying the "real-transactions" pivot (Feb 2026) for clients
+    whose snapshots were created before structured-txn persistence
+    was wired in."""
+    user = await get_current_user(request)
+    uid = await _resolve_uid(user, profile_id)
+    result = await _eng.backfill_transactions_from_snapshots(uid)
+    return result

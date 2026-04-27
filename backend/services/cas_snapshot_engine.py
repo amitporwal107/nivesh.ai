@@ -421,12 +421,14 @@ async def _snapshot_holding_delta(user_id: str, snap_before: str, snap_after: st
 
 async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
                                to_date: Optional[str] = None) -> Dict[str, Any]:
-    """Aggregate SIP-flagged purchases by YYYY-MM.
+    """Aggregate SIP-flagged purchases by YYYY-MM directly from the
+    `cas_transactions` collection.
 
-    Primary source: `cas_transactions` collection (populated when casparser
-    library extracts structured transaction data from digital CAS PDFs).
-    Fallback: derive investment amounts from month-over-month snapshot
-    total_invested changes (works even for OCR-parsed CAS PDFs).
+    No more unit-delta estimation: we only count REAL transactions
+    extracted from the structured CAS payload. If a CAS PDF was parsed
+    via OCR/AI (no structured txns), the months array will be empty —
+    the UI is responsible for showing an "upload a digital CAS PDF"
+    nudge.
     """
     match: Dict[str, Any] = {
         "user_id": user_id,
@@ -454,84 +456,37 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
     async for d in db.cas_transactions.aggregate(pipeline):
         m = d["_id"]
         amt = round(float(d.get("total") or 0), 2)
-        months.append({"month": m, "total": amt, "count": int(d.get("count") or 0)})
+        months.append({
+            "month": m,
+            "total": amt,
+            "count": int(d.get("count") or 0),
+            "source": "cas_transactions",
+        })
         total_all += amt
-
-    # ── Fallback: holding unit-delta SIP inflow ─────────────────────────
-    # For OCR-parsed CAS PDFs, estimate monthly SIP inflows from the change
-    # in holdings units between consecutive snapshots.
-    # Holdings that GAINED units → new SIP / top-up → estimate cost = units_gained × NAV.
-    # First snapshot in the range has no "previous" → shown as 0 (baseline).
-    if not months:
-        # Fetch ALL snapshots in range (and the one just before, for first delta)
-        snap_q: Dict[str, Any] = {"user_id": user_id}
-        date_filter: Dict[str, str] = {}
-        if from_date:
-            date_filter["$gte"] = from_date[:10]
-        if to_date:
-            date_filter["$lte"] = to_date[:10]
-        if date_filter:
-            snap_q["snapshot_date"] = date_filter
-
-        snaps = await db.portfolio_snapshots.find(
-            snap_q,
-            {"_id": 0, "snapshot_date": 1, "total_invested": 1},
-        ).sort("snapshot_date", 1).to_list(100)
-
-        # Also fetch the snapshot immediately before the range for the first delta
-        if snaps and from_date:
-            prev_snap = await db.portfolio_snapshots.find_one(
-                {"user_id": user_id, "snapshot_date": {"$lt": from_date[:10]}},
-                {"_id": 0, "snapshot_date": 1},
-                sort=[("snapshot_date", -1)],
-            )
-            if prev_snap:
-                snaps = [prev_snap] + snaps
-
-        total_sip = 0.0
-        for i in range(1, len(snaps)):
-            delta = await _snapshot_holding_delta(
-                user_id, snaps[i - 1]["snapshot_date"], snaps[i]["snapshot_date"]
-            )
-            gross = delta["gross_sip"]
-            m = snaps[i]["snapshot_date"][:7]
-            months.append({
-                "month": m,
-                "total": gross,
-                "count": len(delta["sip_inflow"]) + len(delta["new_entries"]),
-                "source": "unit_delta",
-                # Store snapshot pair so breakdown can reuse the comparison
-                "snap_before": snaps[i - 1]["snapshot_date"],
-                "snap_after": snaps[i]["snapshot_date"],
-            })
-            total_sip += gross
-
-        total_all = total_sip
 
     return {"months": months, "total_invested": round(total_all, 2)}
 
 
 async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
     """For a given YYYY-MM, return per-fund and per-AMC breakdown of
-    SIP/Purchase amounts. Drill-down view for the bar chart.
-
-    Primary: `cas_transactions` (structured CAS PDFs).
-    Fallback: snapshot holding-delta comparison for the two snapshots
-    bracketing the requested month.
+    SIP/Purchase amounts from `cas_transactions`. Drill-down view for
+    the bar chart. Also returns redemptions in the same window so the
+    UI can show inflow + outflow side-by-side.
     """
     if not (len(month) == 7 and month[4] == "-"):
         raise ValueError(f"month must be YYYY-MM, got {month!r}")
 
     start = f"{month}-01"
     end   = f"{month}-31"
-    match = {
+    base_match = {
         "user_id": user_id,
-        "type": {"$in": ["SIP_PURCHASE", "PURCHASE"]},
         "date": {"$gte": start, "$lte": end},
     }
+    purchase_match = {**base_match, "type": {"$in": ["SIP_PURCHASE", "PURCHASE"]}}
+    redemption_match = {**base_match, "type": {"$in": ["REDEMPTION", "SWITCH_OUT"]}}
 
     by_fund_pipe = [
-        {"$match": match},
+        {"$match": purchase_match},
         {"$group": {
             "_id": {"scheme": "$scheme_name", "amc": "$amc", "isin": "$isin"},
             "total": {"$sum": "$amount"},
@@ -552,7 +507,7 @@ async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
         })
 
     by_amc_pipe = [
-        {"$match": match},
+        {"$match": purchase_match},
         {"$group": {
             "_id": "$amc",
             "total": {"$sum": "$amount"},
@@ -568,80 +523,41 @@ async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
             "count": int(d.get("count") or 0),
         })
 
+    # Redemptions in the same window
+    redemptions = []
+    async for d in db.cas_transactions.find(
+        redemption_match,
+        {"_id": 0, "date": 1, "scheme_name": 1, "amc": 1, "amount": 1, "units": 1, "type": 1, "isin": 1, "folio": 1},
+    ).sort("amount", -1):
+        redemptions.append({
+            "name":  d.get("scheme_name"),
+            "amc":   d.get("amc") or "—",
+            "isin":  d.get("isin"),
+            "estimated_amount": round(abs(float(d.get("amount") or 0)), 2),
+            "units": round(abs(float(d.get("units") or 0)), 4),
+            "date":  d.get("date"),
+        })
+
     total = sum(f["total"] for f in funds)
-
-    # ── Fallback: snapshot holding-delta breakdown ─────────────────────
-    if not funds:
-        # Find the snapshot for this month and the one just before it
-        snap_after = await db.portfolio_snapshots.find_one(
-            {"user_id": user_id, "snapshot_date": {"$gte": start, "$lte": end}},
-            {"_id": 0, "snapshot_date": 1},
-        )
-        if not snap_after:
-            # Try the closest snapshot on or after the month
-            snap_after = await db.portfolio_snapshots.find_one(
-                {"user_id": user_id, "snapshot_date": {"$gte": start}},
-                {"_id": 0, "snapshot_date": 1},
-                sort=[("snapshot_date", 1)],
-            )
-        if snap_after:
-            snap_before = await db.portfolio_snapshots.find_one(
-                {"user_id": user_id, "snapshot_date": {"$lt": snap_after["snapshot_date"]}},
-                {"_id": 0, "snapshot_date": 1},
-                sort=[("snapshot_date", -1)],
-            )
-            if snap_before:
-                delta = await _snapshot_holding_delta(
-                    user_id, snap_before["snapshot_date"], snap_after["snapshot_date"]
-                )
-                # SIP inflow = holdings with increased units + new entries
-                for item in delta["sip_inflow"] + delta["new_entries"]:
-                    funds.append({
-                        "scheme_name": item["name"],
-                        "amc": item.get("amc") or "—",
-                        "isin": item.get("isin") or "—",
-                        "total": item["estimated_amount"],
-                        "count": 1,
-                        "units": item.get("units_added") or item.get("units") or 0,
-                        "source": "unit_delta",
-                    })
-                # Build per-AMC rollup
-                amc_map: Dict[str, float] = {}
-                for f in funds:
-                    a = f["amc"] or "Unknown"
-                    amc_map[a] = amc_map.get(a, 0.0) + f["total"]
-                amcs = [{"amc": a, "total": round(v, 2), "count": 1}
-                        for a, v in sorted(amc_map.items(), key=lambda x: -x[1])]
-                total = delta["gross_sip"]
-
-                # Also expose redemptions so UI can show full picture
-                return {
-                    "month": month,
-                    "total": round(total, 2),
-                    "funds": funds,
-                    "amcs": amcs,
-                    "redemptions": delta["redemptions"],
-                    "exits": delta["exits"],
-                    "snap_before": snap_before["snapshot_date"],
-                    "snap_after": snap_after["snapshot_date"],
-                    "source": "unit_delta",
-                }
 
     return {
         "month": month,
         "total": round(total, 2),
         "funds": funds,
         "amcs": amcs,
+        "redemptions": redemptions,
+        "exits": [],
+        "source": "cas_transactions",
     }
 
 
 async def top_transactions(user_id: str, from_date: Optional[str] = None,
                            to_date: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
-    """Top N transactions by absolute amount.
+    """Top N actual CAS transactions by absolute amount in the date range.
 
-    Primary source: `cas_transactions` (structured, digital CAS PDFs).
-    Fallback: top holdings by current value from the latest snapshot
-    (useful when only OCR-parsed data is available).
+    Reads ONLY from the structured `cas_transactions` collection — no
+    holdings fallback. Empty list when no CAS PDF in the range was
+    parsed via the structured path (API or casparser library).
     """
     match: Dict[str, Any] = {"user_id": user_id}
     if from_date or to_date:
@@ -656,52 +572,7 @@ async def top_transactions(user_id: str, from_date: Optional[str] = None,
         {"_id": 0, "date": 1, "scheme_name": 1, "amc": 1, "type": 1,
          "amount": 1, "units": 1, "nav": 1, "folio": 1, "isin": 1},
     ).sort("amount", -1).limit(limit)
-    txns = [d async for d in cursor]
-
-    # ── Fallback: top holdings by value across all snapshots in range ─────
-    if not txns:
-        snap_q: Dict[str, Any] = {"user_id": user_id}
-        date_filter: Dict[str, str] = {}
-        if from_date:
-            date_filter["$gte"] = from_date[:10]
-        if to_date:
-            date_filter["$lte"] = to_date[:10]
-        if date_filter:
-            snap_q["snapshot_date"] = date_filter
-
-        # Fetch all snapshots in range, then pick the one with the most data
-        snap = await db.portfolio_snapshots.find_one(
-            snap_q,
-            {"_id": 0, "snapshot_date": 1},
-            sort=[("snapshot_date", -1)],  # most recent in range
-        )
-        if snap:
-            full_snap = await db.portfolio_snapshots.find_one(
-                {"user_id": user_id, "snapshot_date": snap["snapshot_date"]},
-                {"_id": 0, "snapshot_date": 1, "holdings": 1},
-            )
-            holdings = (full_snap or {}).get("holdings") or []
-            holdings_sorted = sorted(
-                holdings,
-                key=lambda h: float(h.get("quantity") or 0) * float(h.get("current_price") or h.get("buy_price") or 0),
-                reverse=True,
-            )[:limit]
-            for h in holdings_sorted:
-                qty = float(h.get("quantity") or 0)
-                cp = float(h.get("current_price") or h.get("buy_price") or 0)
-                txns.append({
-                    "date": snap["snapshot_date"],
-                    "scheme_name": h.get("name") or h.get("scheme_name"),
-                    "amc": h.get("amc") or h.get("asset_type") or "—",
-                    "type": "HOLDING",
-                    "amount": round(qty * cp, 2),
-                    "units": qty,
-                    "nav": cp,
-                    "folio": h.get("folio") or "—",
-                    "isin": h.get("isin") or h.get("ticker") or "—",
-                    "source": "snapshot_holdings",
-                })
-    return txns
+    return [d async for d in cursor]
 
 
 async def ensure_indexes() -> None:
@@ -712,3 +583,55 @@ async def ensure_indexes() -> None:
     await db.cas_transactions.create_index(
         [("user_id", 1), ("type", 1), ("date", 1)], name="user_type_date",
     )
+    # Parsed CAS JSON cache — one row per file_id
+    await db.cas_parsed_responses.create_index("file_id", unique=True)
+
+
+async def backfill_transactions_from_snapshots(user_id: str) -> Dict[str, Any]:
+    """Extract `transactions` arrays embedded in existing
+    `portfolio_snapshots` and insert them into `cas_transactions` so
+    aggregations work without re-parsing the original PDFs.
+
+    Idempotent — same key as `persist_transactions_and_sips` so re-runs
+    don't create dupes.
+    """
+    snaps = await db.portfolio_snapshots.find(
+        {"user_id": user_id, "transactions_count": {"$gt": 0}},
+        {"_id": 0, "snapshot_date": 1, "transactions": 1, "cas_file_id": 1},
+    ).to_list(500)
+
+    now_iso = _now_iso()
+    inserted = updated = 0
+    for snap in snaps:
+        for t in snap.get("transactions") or []:
+            if not isinstance(t, dict) or not t.get("date"):
+                continue
+            key = {
+                "user_id": user_id,
+                "folio":   t.get("folio", ""),
+                "isin":    t.get("isin", ""),
+                "date":    t.get("date"),
+                "amount":  t.get("amount", 0),
+                "units":   t.get("units", 0),
+            }
+            update = {
+                "$set": {
+                    **t,
+                    "user_id": user_id,
+                    "source": "BACKFILL_SNAPSHOT",
+                    "last_seen_at": now_iso,
+                    "snapshot_date": snap.get("snapshot_date"),
+                    "cas_file_id": snap.get("cas_file_id"),
+                },
+                "$setOnInsert": {"created_at": now_iso},
+            }
+            r = await db.cas_transactions.update_one(key, update, upsert=True)
+            if r.upserted_id is not None:
+                inserted += 1
+            elif r.modified_count:
+                updated += 1
+    return {
+        "snapshots_scanned": len(snaps),
+        "transactions_inserted": inserted,
+        "transactions_updated": updated,
+    }

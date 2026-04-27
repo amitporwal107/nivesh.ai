@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   History, TrendingUp, TrendingDown, ChevronDown, RefreshCw,
   IndianRupee, Activity, ArrowRight, CheckCircle2, Clock,
-  BarChart2, List, Loader2,
+  BarChart2, List, Loader2, FileJson, X, Download,
 } from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -91,6 +91,10 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
   const [drillMonth, setDrillMonth] = useState(null);   // YYYY-MM
   const [drillData, setDrillData] = useState(null);
   const [drillLoading, setDrillLoading] = useState(false);
+  // Parsed-statement viewer state
+  const [parsedView, setParsedView] = useState(null);   // {snapshot_date, data, loading, error}
+  // Backfill state
+  const [backfilling, setBackfilling] = useState(false);
 
   // Load snapshot list on mount
   const loadSnapshots = useCallback(async () => {
@@ -189,6 +193,49 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
   const closeDrill = () => { setDrillMonth(null); setDrillData(null); };
   const availableMonths = useMemo(() => snapshotMonths(snaps), [snaps]);
 
+  // Open the "View Parsed Statement" modal for a snapshot
+  const viewParsedStatement = useCallback(async (snapshotDate) => {
+    setParsedView({ snapshot_date: snapshotDate, loading: true, data: null, error: null });
+    const pid = profileId ? { profile_id: profileId } : {};
+    try {
+      const r = await axios.get(
+        `${API}/mfd/cas-snapshots/${snapshotDate}/parsed-response`,
+        { params: pid, withCredentials: true }
+      );
+      setParsedView({ snapshot_date: snapshotDate, loading: false, data: r.data, error: null });
+    } catch (e) {
+      setParsedView({
+        snapshot_date: snapshotDate,
+        loading: false,
+        data: null,
+        error: e?.response?.data?.detail || "Could not load parsed statement",
+      });
+    }
+  }, [profileId]);
+
+  const closeParsedView = () => setParsedView(null);
+
+  // One-click backfill: promote embedded snapshot.transactions into cas_transactions
+  const backfillTxns = useCallback(async () => {
+    setBackfilling(true);
+    try {
+      const pid = profileId ? { profile_id: profileId } : {};
+      const r = await axios.post(
+        `${API}/portfolio/cas-transactions/backfill`,
+        {},
+        { params: pid, withCredentials: true }
+      );
+      const inserted = r.data?.transactions_inserted || 0;
+      toast.success(`Imported ${inserted} transactions from snapshots`);
+      // Reload charts so the new data flows through
+      if (fromMonth && toMonth) loadCharts(fromMonth, toMonth);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Backfill failed");
+    } finally {
+      setBackfilling(false);
+    }
+  }, [profileId, fromMonth, toMonth, loadCharts]);
+
   if (loading) {
     return (
       <Card className="p-6 flex items-center justify-center gap-2 text-slate-500" data-testid="cas-time-machine-loading">
@@ -284,6 +331,16 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
                     data-testid={`cas-activate-${s.snapshot_date}`}
                   >
                     {isActivating ? <Loader2 className="w-3 h-3 animate-spin" /> : "Load this month"}
+                  </Button>
+                )}
+                {s.cas_file_id && (
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={(e) => { e.stopPropagation(); viewParsedStatement(s.snapshot_date); }}
+                    className="w-full h-6 mt-1 text-[10px] text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 p-0 gap-1"
+                    data-testid={`cas-view-parsed-${s.snapshot_date}`}
+                  >
+                    <FileJson className="w-3 h-3" /> View parsed
                   </Button>
                 )}
               </div>
@@ -471,12 +528,29 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
         {tab === "sip" && (
           <div data-testid="cas-sip-chart">
             {sip.months.length === 0 ? (
-              <EmptyChart label="No SIP / purchase data for this range" />
+              <div className="h-40 flex flex-col items-center justify-center gap-2 text-slate-400 text-center">
+                <BarChart2 className="w-8 h-8 opacity-30" />
+                <span className="text-xs">No SIP / purchase transactions for this range</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={backfillTxns}
+                  disabled={backfilling}
+                  data-testid="cas-backfill-txns-btn"
+                  className="text-xs h-7 mt-1"
+                >
+                  {backfilling ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                  Import from snapshots
+                </Button>
+                <span className="text-[10px] text-slate-400 max-w-xs">
+                  Imports actual CAS transactions embedded in stored snapshots. If still empty, the original PDFs were OCR-only — re-upload a digital CAS PDF to extract real transactions.
+                </span>
+              </div>
             ) : (
               <>
                 <div className="flex gap-4 mb-3">
                   <StatPill
-                    label="Total SIP (estimated)"
+                    label="Total invested"
                     value={fmtRs(sip.total_invested)}
                   />
                   <StatPill label="Months" value={sip.months.length} />
@@ -497,7 +571,7 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(m) => m?.slice(2)} />
                     <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v) => fmtRs(v)} width={60} />
                     <Tooltip
-                      formatter={(v) => [fmtRs(v), "Est. SIP"]}
+                      formatter={(v) => [fmtRs(v), "Invested"]}
                       labelFormatter={(l) => `${fmtMonth(l)} — click to drill down`}
                       contentStyle={{ fontSize: 11, borderRadius: 8 }}
                     />
@@ -509,11 +583,9 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
                     />
                   </BarChart>
                 </ResponsiveContainer>
-                {sip.months[0]?.source === "unit_delta" && (
-                  <p className="text-[10px] text-slate-400 text-center mt-1">
-                    Estimated from unit changes between CAS snapshots. Exact SIP flows available from digital PDFs.
-                  </p>
-                )}
+                <p className="text-[10px] text-slate-400 text-center mt-1">
+                  Real CAS transactions parsed from your client's statements.
+                </p>
 
                 {/* ── Drill-down panel ─────────────────────────────── */}
                 {drillMonth && (
@@ -593,7 +665,21 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
         {tab === "txns" && (
           <div data-testid="cas-txns-table">
             {txns.length === 0 ? (
-              <EmptyChart label="No transactions found for this range" />
+              <div className="h-40 flex flex-col items-center justify-center gap-2 text-slate-400 text-center">
+                <List className="w-8 h-8 opacity-30" />
+                <span className="text-xs">No CAS transactions for this range</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={backfillTxns}
+                  disabled={backfilling}
+                  data-testid="cas-backfill-txns-btn-2"
+                  className="text-xs h-7 mt-1"
+                >
+                  {backfilling ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                  Import from snapshots
+                </Button>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 {txns.map((t, i) => (
@@ -634,11 +720,125 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
           </div>
         )}
       </Card>
+
+      {/* ── Parsed-Statement modal ───────────────────────────────────── */}
+      {parsedView && (
+        <ParsedStatementModal
+          state={parsedView}
+          onClose={closeParsedView}
+        />
+      )}
     </div>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────
+
+function ParsedStatementModal({ state, onClose }) {
+  const { snapshot_date, loading, data, error } = state;
+  const json = useMemo(() => {
+    if (!data?.raw_payload) return "";
+    try { return JSON.stringify(data.raw_payload, null, 2); }
+    catch { return ""; }
+  }, [data]);
+
+  const downloadJson = () => {
+    if (!json) return;
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cas-${data.filename || snapshot_date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+      data-testid="parsed-statement-modal"
+    >
+      <div
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <FileJson className="w-4 h-4 text-indigo-500" />
+            <div>
+              <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                Parsed CAS Statement
+              </div>
+              <div className="text-xs text-slate-500">
+                {data?.filename || `Snapshot ${snapshot_date}`}
+                {data?.parser_source && (
+                  <Badge variant="outline" className="ml-2 text-[10px]">
+                    {data.parser_source}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {json && (
+              <Button
+                size="sm" variant="ghost"
+                onClick={downloadJson}
+                data-testid="download-parsed-json-btn"
+                className="h-7 text-xs"
+              >
+                <Download className="w-3 h-3 mr-1" /> Download JSON
+              </Button>
+            )}
+            <Button
+              size="sm" variant="ghost"
+              onClick={onClose}
+              data-testid="close-parsed-modal-btn"
+              className="h-7 w-7 p-0"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto p-4">
+          {loading && (
+            <div className="flex items-center justify-center gap-2 py-12 text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading parsed statement...</span>
+            </div>
+          )}
+          {error && (
+            <div className="text-sm text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg p-3" data-testid="parsed-error">
+              {error}
+            </div>
+          )}
+          {data && (
+            <>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <StatPill label="Holdings" value={data.holdings_count ?? "—"} />
+                <StatPill label="Transactions" value={data.transactions_count ?? 0} />
+                <StatPill label="SIPs detected" value={data.sips_count ?? 0} />
+              </div>
+              {data.period_start && data.period_end && (
+                <p className="text-xs text-slate-500 mb-3">
+                  Statement period: <span className="font-mono">{data.period_start}</span> → <span className="font-mono">{data.period_end}</span>
+                </p>
+              )}
+              <pre
+                className="text-[11px] font-mono bg-slate-50 dark:bg-slate-800 rounded-lg p-3 overflow-auto max-h-[50vh] text-slate-700 dark:text-slate-200"
+                data-testid="parsed-json-pre"
+              >
+                {json || "No payload available"}
+              </pre>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function EmptyChart({ label }) {
   return (
