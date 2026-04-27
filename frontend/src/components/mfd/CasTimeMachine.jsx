@@ -87,6 +87,10 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
   const [chartsLoading, setChartsLoading] = useState(false);
   const [activating, setActivating] = useState(null);
   const [tab, setTab] = useState("perf"); // perf | sip | txns
+  // Drill-down state
+  const [drillMonth, setDrillMonth] = useState(null);   // YYYY-MM
+  const [drillData, setDrillData] = useState(null);
+  const [drillLoading, setDrillLoading] = useState(false);
 
   // Load snapshot list on mount
   const loadSnapshots = useCallback(async () => {
@@ -164,7 +168,25 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
     }
   }, [onSnapshotActivated]);
 
-  // Available month options for the range pickers
+  // Load drill-down for a specific month
+  const loadDrillDown = useCallback(async (month) => {
+    setDrillMonth(month);
+    setDrillData(null);
+    setDrillLoading(true);
+    const pid = profileId ? { profile_id: profileId } : {};
+    try {
+      const r = await axios.get(`${API}/portfolio/cas-sip-breakdown`, {
+        params: { month, ...pid }, withCredentials: true,
+      });
+      setDrillData(r.data);
+    } catch {
+      setDrillData({ funds: [], amcs: [], total: 0 });
+    } finally {
+      setDrillLoading(false);
+    }
+  }, [profileId]);
+
+  const closeDrill = () => { setDrillMonth(null); setDrillData(null); };
   const availableMonths = useMemo(() => snapshotMonths(snaps), [snaps]);
 
   if (loading) {
@@ -454,39 +476,113 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
               <>
                 <div className="flex gap-4 mb-3">
                   <StatPill
-                    label={sip.months[0]?.source === "snapshot_total" ? "Total invested (latest)" : "Total SIP invested"}
+                    label="Total SIP (estimated)"
                     value={fmtRs(sip.total_invested)}
                   />
-                  <StatPill
-                    label="Snapshots"
-                    value={sip.months.length}
-                  />
+                  <StatPill label="Months" value={sip.months.length} />
+                  <span className="text-[10px] text-slate-400 self-center ml-auto">Click a bar for fund breakdown</span>
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={sip.months} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <BarChart
+                    data={sip.months}
+                    margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
+                    onClick={(e) => {
+                      if (e?.activePayload?.[0]?.payload?.month) {
+                        loadDrillDown(e.activePayload[0].payload.month);
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis
-                      dataKey="month"
-                      tick={{ fontSize: 10, fill: "#94a3b8" }}
-                      tickFormatter={(m) => m?.slice(2)}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: "#94a3b8" }}
-                      tickFormatter={(v) => fmtRs(v)}
-                      width={60}
-                    />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(m) => m?.slice(2)} />
+                    <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v) => fmtRs(v)} width={60} />
                     <Tooltip
-                      formatter={(v, name) => [fmtRs(v), sip.months[0]?.source === "snapshot_total" ? "Invested Amount" : "SIP Amount"]}
-                      labelFormatter={(l) => fmtMonth(l)}
+                      formatter={(v) => [fmtRs(v), "Est. SIP"]}
+                      labelFormatter={(l) => `${fmtMonth(l)} — click to drill down`}
                       contentStyle={{ fontSize: 11, borderRadius: 8 }}
                     />
-                    <Bar dataKey="total" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar
+                      dataKey="total"
+                      radius={[4, 4, 0, 0]}
+                      fill="#6366f1"
+                      activeBar={{ fill: "#4f46e5", stroke: "#4338ca", strokeWidth: 2 }}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
-                {sip.months[0]?.source === "snapshot_total" && (
+                {sip.months[0]?.source === "unit_delta" && (
                   <p className="text-[10px] text-slate-400 text-center mt-1">
-                    Showing cumulative invested per CAS snapshot. Exact monthly SIP flows extracted from digital PDFs.
+                    Estimated from unit changes between CAS snapshots. Exact SIP flows available from digital PDFs.
                   </p>
+                )}
+
+                {/* ── Drill-down panel ─────────────────────────────── */}
+                {drillMonth && (
+                  <div className="mt-4 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/20 p-3" data-testid="sip-drill-panel">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <BarChart2 className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                          {fmtMonth(drillMonth)} — Fund Allocation
+                        </span>
+                        {drillData && (
+                          <Badge variant="outline" className="text-xs">{fmtRs(drillData.total)} total</Badge>
+                        )}
+                      </div>
+                      <button onClick={closeDrill} className="text-slate-400 hover:text-slate-600 text-xs px-1">✕</button>
+                    </div>
+
+                    {drillLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-slate-500 py-3">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Loading breakdown...
+                      </div>
+                    ) : drillData?.funds?.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {/* SIP inflows */}
+                        {drillData.funds.map((f, i) => {
+                          const pct = drillData.total > 0 ? (f.total / drillData.total * 100) : 0;
+                          return (
+                            <div key={i} data-testid={`drill-fund-${i}`} className="flex items-center gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between mb-0.5">
+                                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                    {f.scheme_name || f.name || "—"}
+                                  </span>
+                                  <span className="text-[11px] font-bold text-emerald-600 tabular-nums ml-2 flex-shrink-0">
+                                    {fmtRs(f.total)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 tabular-nums w-8 text-right">{pct.toFixed(0)}%</span>
+                                  <span className="text-[10px] text-slate-400">{f.amc || "—"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Redemptions section */}
+                        {drillData.redemptions?.length > 0 && (
+                          <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                            <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-1.5">Redemptions / Exits</div>
+                            {drillData.redemptions.slice(0, 5).map((r, i) => (
+                              <div key={i} className="flex justify-between items-center py-0.5">
+                                <span className="text-[11px] text-slate-500 truncate flex-1">{r.name || "—"}</span>
+                                <span className="text-[11px] font-semibold text-rose-500 tabular-nums ml-2">-{fmtRs(r.estimated_amount)}</span>
+                              </div>
+                            ))}
+                            {drillData.exits?.length > 0 && (
+                              <div className="text-[10px] text-slate-400 mt-1">{drillData.exits.length} holding(s) fully exited</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 py-2">No fund-level data for {fmtMonth(drillMonth)}</p>
+                    )}
+                  </div>
                 )}
               </>
             )}

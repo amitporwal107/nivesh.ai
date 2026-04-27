@@ -351,6 +351,74 @@ async def performance_series(user_id: str, from_date: Optional[str] = None,
     return [d async for d in cursor]
 
 
+def _holding_key(h: Dict[str, Any]) -> str:
+    """Stable unique key for matching a holding across two snapshots."""
+    return h.get("isin") or h.get("ticker") or (h.get("name") or "").strip()
+
+
+async def _snapshot_holding_delta(user_id: str, snap_before: str, snap_after: str) -> Dict[str, Any]:
+    """Compare holdings between two snapshot dates.
+    Returns:
+      sip_inflow   – holdings whose units increased (new SIPs / top-ups)
+      redemptions  – holdings whose units decreased (switches / redemptions)
+      new_entries  – holdings present in after but not in before
+      exits        – holdings present in before but not in after
+      gross_sip    – sum of estimated SIP amounts (unit_gain × nav)
+    """
+    docs = await db.portfolio_snapshots.find(
+        {"user_id": user_id, "snapshot_date": {"$in": [snap_before, snap_after]}},
+        {"_id": 0, "snapshot_date": 1, "holdings": 1},
+    ).to_list(2)
+    by_date = {d["snapshot_date"]: {_holding_key(h): h for h in (d.get("holdings") or [])} for d in docs}
+
+    before = by_date.get(snap_before, {})
+    after  = by_date.get(snap_after, {})
+
+    sip_inflow, redemptions, new_entries, exits = [], [], [], []
+
+    for key, h_b in after.items():
+        qty_b = float(h_b.get("quantity") or 0)
+        nav_b = float(h_b.get("current_price") or h_b.get("buy_price") or 0)
+        name  = h_b.get("name") or h_b.get("scheme_name") or key
+        amc   = h_b.get("amc") or h_b.get("asset_type") or "—"
+        if key not in before:
+            est = round(qty_b * nav_b, 2)
+            new_entries.append({"name": name, "amc": amc, "isin": key, "units": qty_b, "estimated_amount": est})
+        else:
+            qty_a = float(before[key].get("quantity") or 0)
+            delta = qty_b - qty_a
+            if delta > 0.0001:
+                est = round(delta * nav_b, 2)
+                sip_inflow.append({"name": name, "amc": amc, "isin": key, "units_added": round(delta, 4), "estimated_amount": est})
+            elif delta < -0.0001:
+                est = round(abs(delta) * nav_b, 2)
+                redemptions.append({"name": name, "amc": amc, "isin": key, "units_removed": round(abs(delta), 4), "estimated_amount": est})
+
+    for key, h_a in before.items():
+        if key not in after:
+            qty_a = float(h_a.get("quantity") or 0)
+            nav_a = float(h_a.get("current_price") or h_a.get("buy_price") or 0)
+            name  = h_a.get("name") or h_a.get("scheme_name") or key
+            amc   = h_a.get("amc") or h_a.get("asset_type") or "—"
+            est   = round(qty_a * nav_a, 2)
+            exits.append({"name": name, "amc": amc, "isin": key, "units": qty_a, "estimated_amount": est})
+
+    gross_sip = sum(x["estimated_amount"] for x in sip_inflow) + \
+                sum(x["estimated_amount"] for x in new_entries)
+
+    sip_inflow.sort(key=lambda x: x["estimated_amount"], reverse=True)
+    redemptions.sort(key=lambda x: x["estimated_amount"], reverse=True)
+    new_entries.sort(key=lambda x: x["estimated_amount"], reverse=True)
+
+    return {
+        "sip_inflow": sip_inflow,
+        "new_entries": new_entries,
+        "redemptions": redemptions,
+        "exits": exits,
+        "gross_sip": round(gross_sip, 2),
+    }
+
+
 async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
                                to_date: Optional[str] = None) -> Dict[str, Any]:
     """Aggregate SIP-flagged purchases by YYYY-MM.
@@ -389,16 +457,16 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
         months.append({"month": m, "total": amt, "count": int(d.get("count") or 0)})
         total_all += amt
 
-    # ── Fallback: snapshot series for the full date range ───────────────
-    # When cas_transactions is empty (OCR-parsed CAS), show each snapshot
-    # as a monthly bar with its total_invested value (cumulative, not delta).
-    # This gives one bar per CAS upload, showing the investment curve across
-    # the selected period without requiring structured transaction data.
+    # ── Fallback: holding unit-delta SIP inflow ─────────────────────────
+    # For OCR-parsed CAS PDFs, estimate monthly SIP inflows from the change
+    # in holdings units between consecutive snapshots.
+    # Holdings that GAINED units → new SIP / top-up → estimate cost = units_gained × NAV.
+    # First snapshot in the range has no "previous" → shown as 0 (baseline).
     if not months:
+        # Fetch ALL snapshots in range (and the one just before, for first delta)
         snap_q: Dict[str, Any] = {"user_id": user_id}
         date_filter: Dict[str, str] = {}
         if from_date:
-            # snapshot_date is stored as YYYY-MM-DD; from_date comes as YYYY-MM-DD
             date_filter["$gte"] = from_date[:10]
         if to_date:
             date_filter["$lte"] = to_date[:10]
@@ -407,38 +475,55 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
 
         snaps = await db.portfolio_snapshots.find(
             snap_q,
-            {"_id": 0, "snapshot_date": 1, "total_invested": 1, "total_value": 1},
+            {"_id": 0, "snapshot_date": 1, "total_invested": 1},
         ).sort("snapshot_date", 1).to_list(100)
 
-        latest_invested = 0.0
-        for s in snaps:
-            inv = float(s.get("total_invested") or 0)
-            val = float(s.get("total_value") or 0)
-            m = (s.get("snapshot_date") or "")[:7]
-            if inv > 0 or val > 0:
-                months.append({
-                    "month": m,
-                    "total": inv if inv > 0 else val,
-                    "count": 1,
-                    "source": "snapshot_total",
-                })
-                if inv > 0:
-                    latest_invested = inv
+        # Also fetch the snapshot immediately before the range for the first delta
+        if snaps and from_date:
+            prev_snap = await db.portfolio_snapshots.find_one(
+                {"user_id": user_id, "snapshot_date": {"$lt": from_date[:10]}},
+                {"_id": 0, "snapshot_date": 1},
+                sort=[("snapshot_date", -1)],
+            )
+            if prev_snap:
+                snaps = [prev_snap] + snaps
 
-        total_all = latest_invested  # latest snapshot's cumulative invested
+        total_sip = 0.0
+        for i in range(1, len(snaps)):
+            delta = await _snapshot_holding_delta(
+                user_id, snaps[i - 1]["snapshot_date"], snaps[i]["snapshot_date"]
+            )
+            gross = delta["gross_sip"]
+            m = snaps[i]["snapshot_date"][:7]
+            months.append({
+                "month": m,
+                "total": gross,
+                "count": len(delta["sip_inflow"]) + len(delta["new_entries"]),
+                "source": "unit_delta",
+                # Store snapshot pair so breakdown can reuse the comparison
+                "snap_before": snaps[i - 1]["snapshot_date"],
+                "snap_after": snaps[i]["snapshot_date"],
+            })
+            total_sip += gross
+
+        total_all = total_sip
 
     return {"months": months, "total_invested": round(total_all, 2)}
 
 
 async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
-    """For a given YYYY-MM, return per-fund and per-AMC breakdowns of
-    SIP/Purchase amounts. Drill-down view for the bar chart."""
+    """For a given YYYY-MM, return per-fund and per-AMC breakdown of
+    SIP/Purchase amounts. Drill-down view for the bar chart.
+
+    Primary: `cas_transactions` (structured CAS PDFs).
+    Fallback: snapshot holding-delta comparison for the two snapshots
+    bracketing the requested month.
+    """
     if not (len(month) == 7 and month[4] == "-"):
         raise ValueError(f"month must be YYYY-MM, got {month!r}")
 
-    # Date range is [YYYY-MM-01, YYYY-MM-31]
     start = f"{month}-01"
-    end = f"{month}-31"
+    end   = f"{month}-31"
     match = {
         "user_id": user_id,
         "type": {"$in": ["SIP_PURCHASE", "PURCHASE"]},
@@ -484,6 +569,64 @@ async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:
         })
 
     total = sum(f["total"] for f in funds)
+
+    # ── Fallback: snapshot holding-delta breakdown ─────────────────────
+    if not funds:
+        # Find the snapshot for this month and the one just before it
+        snap_after = await db.portfolio_snapshots.find_one(
+            {"user_id": user_id, "snapshot_date": {"$gte": start, "$lte": end}},
+            {"_id": 0, "snapshot_date": 1},
+        )
+        if not snap_after:
+            # Try the closest snapshot on or after the month
+            snap_after = await db.portfolio_snapshots.find_one(
+                {"user_id": user_id, "snapshot_date": {"$gte": start}},
+                {"_id": 0, "snapshot_date": 1},
+                sort=[("snapshot_date", 1)],
+            )
+        if snap_after:
+            snap_before = await db.portfolio_snapshots.find_one(
+                {"user_id": user_id, "snapshot_date": {"$lt": snap_after["snapshot_date"]}},
+                {"_id": 0, "snapshot_date": 1},
+                sort=[("snapshot_date", -1)],
+            )
+            if snap_before:
+                delta = await _snapshot_holding_delta(
+                    user_id, snap_before["snapshot_date"], snap_after["snapshot_date"]
+                )
+                # SIP inflow = holdings with increased units + new entries
+                for item in delta["sip_inflow"] + delta["new_entries"]:
+                    funds.append({
+                        "scheme_name": item["name"],
+                        "amc": item.get("amc") or "—",
+                        "isin": item.get("isin") or "—",
+                        "total": item["estimated_amount"],
+                        "count": 1,
+                        "units": item.get("units_added") or item.get("units") or 0,
+                        "source": "unit_delta",
+                    })
+                # Build per-AMC rollup
+                amc_map: Dict[str, float] = {}
+                for f in funds:
+                    a = f["amc"] or "Unknown"
+                    amc_map[a] = amc_map.get(a, 0.0) + f["total"]
+                amcs = [{"amc": a, "total": round(v, 2), "count": 1}
+                        for a, v in sorted(amc_map.items(), key=lambda x: -x[1])]
+                total = delta["gross_sip"]
+
+                # Also expose redemptions so UI can show full picture
+                return {
+                    "month": month,
+                    "total": round(total, 2),
+                    "funds": funds,
+                    "amcs": amcs,
+                    "redemptions": delta["redemptions"],
+                    "exits": delta["exits"],
+                    "snap_before": snap_before["snapshot_date"],
+                    "snap_after": snap_after["snapshot_date"],
+                    "source": "unit_delta",
+                }
+
     return {
         "month": month,
         "total": round(total, 2),
