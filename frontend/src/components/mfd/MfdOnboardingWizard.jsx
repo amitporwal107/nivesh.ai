@@ -82,9 +82,9 @@ export default function MfdOnboardingWizard({ onComplete }) {
   // right widget (CasConnectButton vs ClaudeCasUploadButton).
   const [casProvider, setCasProvider] = useState("casparser_api");
   useEffect(() => {
-    axios.get(`${API}/admin/cas-parser-provider`, { withCredentials: true })
+    axios.get(`${API}/cas-parser-provider/active`, { withCredentials: true })
       .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
-      .catch(() => { /* non-admin → leave default */ });
+      .catch(() => { /* keep default */ });
   }, []);
 
   // ── STEP 1 · Firm setup ------------------------------------------------

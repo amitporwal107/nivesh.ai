@@ -329,6 +329,18 @@ async def get_cas_parser_provider(request: Request):
     }
 
 
+@router.get("/cas-parser-provider/active")
+async def get_active_cas_parser_provider(request: Request):
+    """Public: any authenticated user can read JUST which CAS parser is
+    active so the upload UI shows the correct widget. No config / key
+    status is exposed (those stay admin-only via the /admin/ variant).
+    """
+    from deps import get_current_user
+    await get_current_user(request)
+    doc = await db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0}) or {}
+    return {"provider": doc.get("provider", "casparser_api")}
+
+
 @router.put("/admin/cas-parser-provider")
 async def set_cas_parser_provider(request: Request):
     """Switch the CAS parsing provider. Body: {provider: 'claude_vision' | 'casparser_api'}."""

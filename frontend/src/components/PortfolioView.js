@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import CasConnectButton from "@/components/CasConnectButton";
+import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -132,6 +133,18 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
   const [clearing, setClearing] = useState(false);
   const autoRef = useRef(null);
   const autoTimeout = useRef(null);
+
+  // CAS parser provider — read once on mount so the page can switch between
+  // CasConnectButton (casparser.in) and ClaudeCasUploadButton (Claude Vision)
+  // based on the admin toggle. Uses the read-only `/cas-parser-provider/active`
+  // endpoint which any authenticated user can query (the admin-scoped GET
+  // exposes config metadata that non-admins shouldn't see).
+  const [casProvider, setCasProvider] = useState("casparser_api");
+  useEffect(() => {
+    axios.get(`${API}/cas-parser-provider/active`, { withCredentials: true })
+      .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
+      .catch(() => { /* keep default */ });
+  }, []);
 
   const clearPortfolio = async () => {
     if (!window.confirm("Clear all holdings? This cannot be undone.")) return;
@@ -320,13 +333,23 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{holdings.length} total holdings</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <CasConnectButton
-            variant="outline"
-            className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-            label="CAS Connect"
-            testId="header-cas-connect-btn"
-            onSuccess={onRefresh}
-          />
+          {casProvider === "claude_vision" ? (
+            <ClaudeCasUploadButton
+              variant="outline"
+              className="rounded-xl border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+              label="Upload via Claude Vision"
+              testId="header-claude-cas-btn"
+              onSuccess={onRefresh}
+            />
+          ) : (
+            <CasConnectButton
+              variant="outline"
+              className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+              label="CAS Connect"
+              testId="header-cas-connect-btn"
+              onSuccess={onRefresh}
+            />
+          )}
           <Button data-testid="add-holding-button" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
             <Plus className="w-4 h-4 mr-2" />Add Holding
           </Button>
@@ -420,12 +443,21 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             </p>
             {!searchQuery && activeAssetTab === "all" && (
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <CasConnectButton
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
-                  label="Import via CAS Connect"
-                  testId="empty-cas-connect-btn"
-                  onSuccess={onRefresh}
-                />
+                {casProvider === "claude_vision" ? (
+                  <ClaudeCasUploadButton
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl"
+                    label="Upload CAS via Claude Vision"
+                    testId="empty-claude-cas-btn"
+                    onSuccess={onRefresh}
+                  />
+                ) : (
+                  <CasConnectButton
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+                    label="Import via CAS Connect"
+                    testId="empty-cas-connect-btn"
+                    onSuccess={onRefresh}
+                  />
+                )}
                 <Button variant="outline" onClick={() => setShowAddDialog(true)} className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-add-btn">
                   <Plus className="w-4 h-4 mr-2" /> Add Manually
                 </Button>
