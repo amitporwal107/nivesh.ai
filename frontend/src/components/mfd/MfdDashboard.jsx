@@ -298,16 +298,24 @@ export default function MfdDashboard({ onEnterProfile }) {
   };
 
   // ── Decorate ────────────────────────────────────────────────────────
-  const decorated = useMemo(() => profiles.map((p) => ({
-    ...p,
-    // Prefer live portfolio value (holdings × price). Fall back to the
-    // manually-entered AUM — used only for newly-onboarded clients before
-    // CAS upload completes.
-    _aum: (p.portfolio_value_rs && p.portfolio_value_rs > 0) ? p.portfolio_value_rs : p.aum_rs,
-    _issue: deriveTopIssue(p),
-    _action: deriveAction(p),
-    _health: deriveHealth(p),
-  })), [profiles]);
+  // In ADVISORY mode the advisor's OWN portfolio (the SELF profile)
+  // should not be treated as a client — it polluted health counters,
+  // priority queues, and the action feed (e.g., "Priyanka Mantri ·
+  // Underperforming · 39") even though there's nothing to advise on
+  // your own book. We filter it out at the source so every downstream
+  // memo (counts, filtered, todaysFeed, totalAum) is clean.
+  const decorated = useMemo(() => profiles
+    .filter((p) => p.type !== "SELF")
+    .map((p) => ({
+      ...p,
+      // Prefer live portfolio value (holdings × price). Fall back to the
+      // manually-entered AUM — used only for newly-onboarded clients before
+      // CAS upload completes.
+      _aum: (p.portfolio_value_rs && p.portfolio_value_rs > 0) ? p.portfolio_value_rs : p.aum_rs,
+      _issue: deriveTopIssue(p),
+      _action: deriveAction(p),
+      _health: deriveHealth(p),
+    })), [profiles]);
 
   const counts = useMemo(() => {
     const c = {

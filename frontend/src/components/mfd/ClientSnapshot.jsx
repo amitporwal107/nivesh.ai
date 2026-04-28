@@ -575,7 +575,17 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       await fetchAll();
       toast.success("Action plan ready", { id: "gen-plan" });
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Could not generate plan", { id: "gen-plan" });
+      const detail = e.response?.data?.detail || e.message || "Could not generate plan";
+      // Common case: SELF profile or new client with no portfolio yet —
+      // give the MFD a precise next step instead of a generic toast.
+      if (/no holdings/i.test(detail)) {
+        toast.error(
+          "No portfolio yet for this profile. Import a CAS PDF first via the client's profile page.",
+          { id: "gen-plan", duration: 5000 },
+        );
+      } else {
+        toast.error(detail, { id: "gen-plan" });
+      }
     }
   };
 
@@ -632,7 +642,24 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   // Derive a concise summary — prefer backend-written one if present.
   const client = activeProfile || {};
   const aumLive = trend?.current_rs || client.portfolio_value_rs || client.aum_rs;
-  const hs = health?.health_score;
+  // Health score with a friendly fallback: when the V3 health endpoint
+  // hasn't returned yet (or failed), but the AI summary on the profile
+  // already carries the score (e.g., "Fair portfolio — overall Health
+  // 64/100 (Grade B)"), parse it so the score ring stops saying
+  // "Scoring…" forever. Avoids the dead-state we kept seeing on the
+  // advisor's snapshot view.
+  const _aiSummary = health?.summary || client.ai_summary || "";
+  const _scoreFromSummary = (() => {
+    const m = _aiSummary.match(/(\d{1,3})\s*\/\s*100/);
+    if (!m) return null;
+    const v = parseInt(m[1], 10);
+    return v >= 0 && v <= 100 ? v : null;
+  })();
+  const _gradeFromSummary = (() => {
+    const m = _aiSummary.match(/Grade\s+([A-F][+-]?)/i);
+    return m ? m[1].toUpperCase() : null;
+  })();
+  const hs = health?.health_score ?? _scoreFromSummary;
   const hsTone = healthTone(hs);
   const hsT = TONE[hsTone];
 
@@ -966,8 +993,8 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                   Portfolio Health
                 </div>
                 <div className={`text-lg font-semibold mt-1 ${hsT.text}`} data-testid="snapshot-grade-label">
-                  {hs != null && health?.grade
-                    ? `Grade ${health.grade} · ${Math.round(hs)}/100`
+                  {hs != null && (health?.grade || _gradeFromSummary)
+                    ? `Grade ${health?.grade || _gradeFromSummary} · ${Math.round(hs)}/100`
                     : hs != null
                       ? `${Math.round(hs)}/100`
                       : "Scoring…"}
