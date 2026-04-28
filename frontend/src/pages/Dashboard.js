@@ -29,7 +29,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Dashboard = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, checkAuth } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -127,6 +127,9 @@ const Dashboard = () => {
   // profile on the server (impersonation) and then navigate to Overview so
   // every existing view (portfolio / insights / goals) re-renders against
   // the client's data. A one-line toast tells the user what happened.
+  // We also refresh the AuthContext user (`checkAuth`) so the top-bar
+  // greeting + avatar reflect the impersonated identity — the backend's
+  // `/auth/me` returns the shadow user when active_profile_id is set.
   const enterProfile = useCallback(async (profile, opts) => {
     // Set the destination tab FIRST so the right component mounts before
     // we kick off the retail data fetch. Otherwise MfdDashboard stays
@@ -134,21 +137,23 @@ const Dashboard = () => {
     const destination = opts?.tab || "snapshot";
     setActiveTab(destination);
     setActiveProfile(profile);
-    await fetchData();
-  }, [setActiveTab, fetchData]);
+    await Promise.all([fetchData(), checkAuth()]);
+  }, [setActiveTab, fetchData, checkAuth]);
 
   // Exit impersonation — returns the MFD to the client list.
+  // Also refresh the cached user (`checkAuth`) so the top-bar greeting,
+  // avatar and any "Hello, X" copy snap back to the real MFD account.
   const exitProfile = useCallback(async () => {
     try {
       await axios.post(`${API}/mfd/profiles/deactivate`, {}, { withCredentials: true });
       setActiveTab("advisor");
       setActiveProfile(null);
-      await fetchData();
+      await Promise.all([fetchData(), checkAuth()]);
       toast.success("Back to advisor view");
     } catch {
       toast.error("Could not exit client view");
     }
-  }, [setActiveTab, fetchData]);
+  }, [setActiveTab, fetchData, checkAuth]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -165,6 +170,10 @@ const Dashboard = () => {
     fetchProfile();
     fetchWorkspace();
     fetchData();
+    // Refresh the cached AuthContext user so the top-bar greeting/avatar
+    // snap back to the real MFD identity — onboarding may have created or
+    // deactivated an impersonated SELF profile, leaving stale identity.
+    checkAuth();
     setActiveTab(opts?.destination || "overview");
   };
 
@@ -261,6 +270,9 @@ const Dashboard = () => {
         <MfdOnboardingWizard
           onComplete={async (profile) => {
             await fetchWorkspace();
+            // Refresh cached identity — wizard may have impersonated a
+            // freshly-created profile during the "wow moment" step.
+            await checkAuth();
             if (profile) {
               setActiveProfile(profile);
               await fetchData();
