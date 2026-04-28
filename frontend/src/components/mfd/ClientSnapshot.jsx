@@ -17,6 +17,7 @@ import TimeMachineStrip from "./TimeMachineStrip";
 import ClientCasInviteModal from "./ClientCasInviteModal";
 import CasTimeMachine from "./CasTimeMachine";
 import HealthScoreInfo from "./HealthScoreInfo";
+import TaxSnapshotInfo from "./TaxSnapshotInfo";
 import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -1347,8 +1348,9 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                   <IndianRupee className="w-4 h-4 text-violet-600" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-sm font-bold text-slate-800 dark:text-slate-100 inline-flex items-center">
                     Tax snapshot
+                    <TaxSnapshotInfo testId="snapshot-tax-info-btn" />
                   </div>
                   <div className="text-[11px] text-slate-500">
                     Unrealized gain / loss split — helps time the rebalance
