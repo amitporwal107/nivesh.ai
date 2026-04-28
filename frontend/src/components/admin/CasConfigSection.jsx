@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { KeyRound, RefreshCw, Eye, EyeOff, FlaskConical, CheckCircle2, XCircle, Save } from "lucide-react";
+import { KeyRound, RefreshCw, Eye, EyeOff, FlaskConical, CheckCircle2, XCircle, Save, Sparkles, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,12 +18,20 @@ const CasConfigSection = () => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  // CAS parser provider switch (Claude Vision vs casparser.in API)
+  const [provider, setProvider] = useState(null);
+  const [providerSaving, setProviderSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/admin/cas-config`, { withCredentials: true });
-      setConfig(res.data);
+      const [cfgRes, provRes] = await Promise.all([
+        axios.get(`${API}/admin/cas-config`, { withCredentials: true }),
+        axios.get(`${API}/admin/cas-parser-provider`, { withCredentials: true })
+          .catch(() => ({ data: { provider: "casparser_api" } })),
+      ]);
+      setConfig(cfgRes.data);
+      setProvider(provRes.data);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to load CAS config");
     } finally {
@@ -93,6 +101,32 @@ const CasConfigSection = () => {
     }
   };
 
+  // Switch the active CAS parser provider (Claude Vision vs casparser.in API)
+  const setProviderSwitch = async (newProvider) => {
+    setProviderSaving(true);
+    try {
+      const res = await axios.put(
+        `${API}/admin/cas-parser-provider`,
+        { provider: newProvider },
+        { withCredentials: true }
+      );
+      if (res.data?.ok) {
+        toast.success(
+          newProvider === "claude_vision"
+            ? "Switched to Claude Vision parser"
+            : "Switched to casparser.in API"
+        );
+        load();
+      } else {
+        toast.error(res.data?.error || "Switch failed");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Switch failed");
+    } finally {
+      setProviderSaving(false);
+    }
+  };
+
   return (
     <Card
       data-testid="admin-cas-config"
@@ -156,6 +190,79 @@ const CasConfigSection = () => {
                 </div>
               </div>
             </div>
+
+            {/* Parser provider switch (Claude Vision vs casparser.in) */}
+            {provider && (
+              <div className="rounded-xl border-2 border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50/60 via-white to-white dark:from-indigo-900/20 dark:via-slate-900 dark:to-slate-900 p-4" data-testid="cas-provider-toggle">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100">CAS Parser Provider</span>
+                  <span className="ml-auto text-[10px] uppercase tracking-wider text-indigo-600 font-bold">
+                    Active: {provider.provider === "claude_vision" ? "Claude Vision" : "casparser.in"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                  Switch between Anthropic Claude Vision (image-based parsing via Sonnet 4.5) and the
+                  casparser.in API. Claude Vision is great when casparser credits are exhausted or when
+                  you want richer extraction (transactions, accounts, investor info).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProviderSwitch("casparser_api")}
+                    disabled={providerSaving || provider.provider === "casparser_api"}
+                    data-testid="cas-provider-casparser"
+                    className={`text-left p-3 rounded-xl border-2 transition-colors ${
+                      provider.provider === "casparser_api"
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
+                        : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 bg-white dark:bg-slate-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Server className="w-4 h-4 text-slate-500" />
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100">casparser.in API</span>
+                      {provider.casparser_api_configured ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 text-rose-500 ml-auto" />
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Hosted endpoint · structured JSON · paid credits
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProviderSwitch("claude_vision")}
+                    disabled={providerSaving || provider.provider === "claude_vision"}
+                    data-testid="cas-provider-claude"
+                    className={`text-left p-3 rounded-xl border-2 transition-colors ${
+                      provider.provider === "claude_vision"
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
+                        : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 bg-white dark:bg-slate-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="w-4 h-4 text-indigo-500" />
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100">Claude Vision</span>
+                      {provider.claude_vision_configured ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 text-rose-500 ml-auto" />
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Image OCR via {provider.claude_model || "claude-sonnet-4-5"} · Emergent LLM key
+                    </div>
+                  </button>
+                </div>
+                {providerSaving && (
+                  <div className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> Switching…
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Sandbox toggle */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700">

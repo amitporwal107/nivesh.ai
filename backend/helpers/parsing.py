@@ -200,10 +200,55 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
               raw_payload: dict | None,
               parser_source: str | None)
 
-    `parser_source` is one of: "casparser_api", "casparser_lib",
-    "local_ocr", "ai", or None on total failure.
+    `parser_source` is one of: "claude_vision", "casparser_api",
+    "casparser_lib", "local_ocr", "ai", or None on total failure.
+
+    Provider routing:
+      The active provider is stored in `db.system_config` under
+      `{key: "cas_parser_provider"}`. When `claude_vision`, we route
+      DIRECTLY to the Claude path and skip casparser.in/casparser-lib.
+      When `casparser_api` (default), we follow the original chain.
     """
-    # 1st: CAS Parser API — has the richest structured response (incl. txns)
+    # Resolve the active provider (admin-controlled). Default = casparser_api
+    # so existing deployments keep working without DB writes.
+    active_provider = "casparser_api"
+    try:
+        from deps import db as _db
+        cfg = await _db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0})
+        if cfg and cfg.get("provider"):
+            active_provider = cfg["provider"]
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Could not load cas_parser_provider, defaulting to casparser_api: {e}")
+
+    logger.info(f"parse_cas_pdf_with_data: active_provider={active_provider}")
+
+    # ── PROVIDER: Claude Vision ───────────────────────────────────────
+    if active_provider == "claude_vision":
+        try:
+            from services.claude_cas_parser import parse_with_claude_vision, is_configured as _cv_ok
+            from services.claude_cas_mapper import map_to_internal as _cv_map
+            if _cv_ok():
+                raw_claude = await parse_with_claude_vision(content, password=password)
+                if raw_claude:
+                    holdings, normalized = _cv_map(raw_claude)
+                    if holdings:
+                        try:
+                            from services.masterdata import validate_and_enrich_holdings
+                            holdings = validate_and_enrich_holdings(holdings)
+                        except Exception as e:
+                            logger.info(f"Masterdata enrichment skipped: {e}")
+                        logger.info(
+                            f"Claude Vision extracted {len(holdings)} holdings + "
+                            f"{sum(len(s.get('transactions') or []) for f in normalized.get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
+                        )
+                        return holdings, normalized, raw_claude, "claude_vision"
+                    logger.info("Claude Vision returned no holdings, falling back")
+        except Exception as e:
+            logger.warning(f"Claude Vision failed: {e}, falling back to casparser_api")
+        # If Claude failed or returned nothing, fall through to casparser_api
+        # so the user still gets data.
+
+    # ── PROVIDER: casparser.in API (default) ──────────────────────────
     try:
         from services.cas_api_client import parse_cas_via_api_with_data, is_configured
         if is_configured():
@@ -243,6 +288,36 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
 
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     """Parse CAS PDF. Uses casparser API first, then library, then OCR, then AI."""
+
+    # ── Provider check: when admin selected Claude Vision, route to it
+    # FIRST so the simpler `parse_cas_pdf` callers (upload-raw, etc.)
+    # also benefit from the new parser.
+    try:
+        from deps import db as _db
+        cfg = await _db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0})
+        active_provider = (cfg or {}).get("provider") or "casparser_api"
+    except Exception:  # noqa: BLE001
+        active_provider = "casparser_api"
+
+    if active_provider == "claude_vision":
+        try:
+            from services.claude_cas_parser import parse_with_claude_vision, is_configured as _cv_ok
+            from services.claude_cas_mapper import map_to_holdings as _cv_map_h
+            if _cv_ok():
+                raw_claude = await parse_with_claude_vision(content, password=password or "")
+                if raw_claude:
+                    holdings = _cv_map_h(raw_claude)
+                    if holdings:
+                        logger.info(f"Claude Vision extracted {len(holdings)} holdings (parse_cas_pdf path)")
+                        try:
+                            from services.masterdata import validate_and_enrich_holdings
+                            holdings = validate_and_enrich_holdings(holdings)
+                        except Exception as e:
+                            logger.info(f"Masterdata enrichment skipped: {e}")
+                        return holdings
+                    logger.info("Claude Vision returned no holdings, falling back")
+        except Exception as e:
+            logger.info(f"Claude Vision failed: {e}, falling back to API/library/OCR")
 
     # 1st: CAS Parser API
     try:

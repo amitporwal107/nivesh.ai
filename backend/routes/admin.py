@@ -305,6 +305,52 @@ async def test_cas_connection(request: Request):
     }
 
 
+# ─── CAS Parser Provider toggle (Claude Vision vs casparser.in API) ────
+# Stored as a system_config doc keyed `cas_parser_provider`. The
+# `parse_cas_pdf_with_data` helper reads this to choose between the
+# casparser.in API and the new Claude-Vision-based parser.
+VALID_PROVIDERS = {"casparser_api", "claude_vision"}
+
+
+@router.get("/admin/cas-parser-provider")
+async def get_cas_parser_provider(request: Request):
+    """Return the active CAS parsing provider. Admin only."""
+    await require_admin(request)
+    doc = await db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0}) or {}
+    from services import claude_cas_parser as _cv
+    from services import cas_api_client as _api
+    return {
+        "provider": doc.get("provider", "casparser_api"),
+        "updated_at": doc.get("updated_at"),
+        "updated_by": doc.get("updated_by"),
+        "casparser_api_configured": _api.is_configured(),
+        "claude_vision_configured": _cv.is_configured(),
+        "claude_model": _cv._model(),
+    }
+
+
+@router.put("/admin/cas-parser-provider")
+async def set_cas_parser_provider(request: Request):
+    """Switch the CAS parsing provider. Body: {provider: 'claude_vision' | 'casparser_api'}."""
+    user = await require_admin(request)
+    body = await request.json()
+    provider = (body.get("provider") or "").strip()
+    if provider not in VALID_PROVIDERS:
+        return {"ok": False, "error": f"provider must be one of {sorted(VALID_PROVIDERS)}"}
+    from datetime import datetime, timezone
+    await db.system_config.update_one(
+        {"key": "cas_parser_provider"},
+        {"$set": {
+            "provider": provider,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": user.get("email", ""),
+        },
+         "$setOnInsert": {"key": "cas_parser_provider"}},
+        upsert=True,
+    )
+    return {"ok": True, "provider": provider}
+
+
 # ═══ Secrets Management (generic CRUD, environment-scoped) ══════════════
 @router.get("/admin/secrets")
 async def list_secrets(request: Request, env: str = ""):

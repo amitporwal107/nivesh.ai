@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import PriorityChip from "./PriorityChip";
 import CasConnectButton from "@/components/CasConnectButton";
+import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -76,6 +77,15 @@ export default function MfdOnboardingWizard({ onComplete }) {
 
   // Step 5: the wow moment
   const [analysis, setAnalysis] = useState(null);
+
+  // Active CAS parser provider — read once on mount so Step 3 shows the
+  // right widget (CasConnectButton vs ClaudeCasUploadButton).
+  const [casProvider, setCasProvider] = useState("casparser_api");
+  useEffect(() => {
+    axios.get(`${API}/admin/cas-parser-provider`, { withCredentials: true })
+      .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
+      .catch(() => { /* non-admin → leave default */ });
+  }, []);
 
   // ── STEP 1 · Firm setup ------------------------------------------------
   const saveFirm = async (skip = false) => {
@@ -351,6 +361,7 @@ export default function MfdOnboardingWizard({ onComplete }) {
             onCasSuccess={onCasConnected}
             onSkip={exitToClients}
             error={uploadError}
+            provider={casProvider}
           />
         )}
 
@@ -643,8 +654,8 @@ const AddClientStep = ({ client, setClient, addTag, creating, onBack, onNext }) 
   </div>
 );
 
-// ── STEP 3 ─ Upload (via CAS Connect widget) ────────────────────────────
-const UploadStep = ({ client, onCasSuccess, onSkip, error }) => (
+// ── STEP 3 ─ Upload (via CAS Connect widget OR Claude Vision) ──────────
+const UploadStep = ({ client, onCasSuccess, onSkip, error, provider }) => (
   <div className="space-y-5" data-testid="step-upload">
     <div>
       <div className="text-[10px] uppercase tracking-wider text-indigo-600 font-bold mb-1 flex items-center gap-1.5">
@@ -654,9 +665,11 @@ const UploadStep = ({ client, onCasSuccess, onSkip, error }) => (
         Import {client?.name}'s portfolio
       </h1>
       <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-        Launch <strong>CAS Connect</strong> to import {client?.name}'s
-        portfolio — the widget handles PDF upload, Gmail auto-fetch, and
-        CDSL OTP in one place.
+        {provider === "claude_vision" ? (
+          <>Upload {client?.name}'s CAS PDF — <strong>Claude Vision</strong> will parse holdings, transactions, and SIPs.</>
+        ) : (
+          <>Launch <strong>CAS Connect</strong> to import {client?.name}'s portfolio — the widget handles PDF upload, Gmail auto-fetch, and CDSL OTP in one place.</>
+        )}
       </p>
     </div>
 
@@ -689,19 +702,39 @@ const UploadStep = ({ client, onCasSuccess, onSkip, error }) => (
       <div className="w-12 h-12 mx-auto rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center mb-3">
         <Sparkles className="w-6 h-6 text-indigo-600" strokeWidth={1.5} />
       </div>
-      <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
-        One widget · three import paths
-      </div>
-      <div className="text-xs text-slate-500 mt-1 mb-5">
-        PDF upload · Gmail inbox fetch · CDSL OTP — no password field needed,
-        the widget asks for it inline when required.
-      </div>
-      <CasConnectButton
-        onSuccess={onCasSuccess}
-        className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-11 px-6"
-        label={`Launch CAS Connect for ${client?.name || "client"}`}
-        testId="wizard-cas-connect-btn"
-      />
+      {provider === "claude_vision" ? (
+        <>
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Claude Vision · AI-powered CAS parser
+          </div>
+          <div className="text-xs text-slate-500 mt-1 mb-5">
+            Drop a PDF · enter the password · Anthropic Claude Sonnet 4.5
+            extracts holdings, transactions and folios in ~60 seconds.
+          </div>
+          <ClaudeCasUploadButton
+            onSuccess={onCasSuccess}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-11 px-6"
+            label={`Upload ${client?.name || "client"}'s CAS PDF`}
+            testId="wizard-claude-cas-btn"
+          />
+        </>
+      ) : (
+        <>
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            One widget · three import paths
+          </div>
+          <div className="text-xs text-slate-500 mt-1 mb-5">
+            PDF upload · Gmail inbox fetch · CDSL OTP — no password field needed,
+            the widget asks for it inline when required.
+          </div>
+          <CasConnectButton
+            onSuccess={onCasSuccess}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-11 px-6"
+            label={`Launch CAS Connect for ${client?.name || "client"}`}
+            testId="wizard-cas-connect-btn"
+          />
+        </>
+      )}
     </Card>
 
     {/* Skip — let MFDs finish onboarding without importing a portfolio yet.
