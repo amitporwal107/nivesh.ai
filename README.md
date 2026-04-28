@@ -433,6 +433,230 @@ Engine version constant: `v3.0-phase1`.
 
 ---
 
+## 7A. Scoring Reference — full project map
+
+This section is the **single source of truth** for every numeric score, grade,
+and bucket users see in the UI. Each subsection links the visible label to the
+source file and the exact formula. All scores are 0–100 unless noted.
+
+### 7A.1 Portfolio Health (`services/portfolio_health.py`)
+
+The number behind the **score ring** on Client 360 ("60/100", "Grade B").
+
+```
+Health = 0.30·D + 0.25·R + 0.20·C + 0.25·P
+```
+
+| Sub-score | Computation | Weight |
+|---|---|---|
+| **D — Diversification** | `0.5·D_concentration + 0.3·D_allocation + 0.2·D_overlap` | 30% |
+| **R — Risk** | `100 − (0.6·VolScore + 0.4·DrawdownScore)` | 25% |
+| **C — Cost** | `0.7·ExpenseScore + 0.3·TaxEfficiencyScore` | 20% |
+| **P — Performance** | `0.5·SharpeScore + 0.3·AlphaScore + 0.2·ConsistencyScore` | 25% |
+
+Letter grade thresholds:
+
+| Score range | Grade |
+|---|---|
+| ≥ 90 | A+ |
+| 80 – 89 | A |
+| 70 – 79 | B+ |
+| 60 – 69 | B |
+| 50 – 59 | C |
+| 40 – 49 | D |
+| < 40 | F |
+
+Calibration constants (`portfolio_health.py` top of file):
+
+```
+RISK_BANDS  vol_low=8% / vol_high=30% / dd_low=5% / dd_high=50%
+IDEAL_ALLOCATIONS  conservative 30/60/10 · moderate 60/30/10 · aggressive 80/10/10
+SHORT_HORIZON_CAP_EQUITY  40%   (overrides above when horizon < 5y)
+IDEAL_EFFECTIVE_N  40            (effective-N target for stock diversification)
+EXPENSE_SCORE_BANDS  good ≤0.5% → 100; poor ≥2.0% → 0
+TAX_DRAG_BANDS       good ≤0.5% → 100; poor ≥4.0% → 0
+STOCK_COST_PROXY_PCT  0.2%       (annual brokerage/slippage assumption)
+```
+
+Each sub-score is exposed via `HealthResult.to_dict().components.<name>` so the
+UI can render per-component gauges + risk-driver chips ("Volatility is high
+(28%) → vol_score 12/100").
+
+### 7A.2 V3 Stock & Fund Composite Scoring (`services/v3_scoring.py`)
+
+5 composites, each on the 0–100 scale. Weights are admin-editable via
+`db.system_config.v3_stock_weights` / `v3_mf_weights`.
+
+```
+Quality   = Performance 25 + Risk-Adj 20 + Consistency 20 + Drawdown 15 + Cost 10 + AUM/Age 10
+Health    = Manager 25 + AUM-Stab 20 + Turnover 15 + Concentration 15 + Downside 15 + Expense-Trend 10
+Exit      = Overlap 25 + Tax 25 + Quality-inverse 25 + Cost 15 + Portfolio-Fit 10
+Add       = Gap-Fit 30 + Low-Overlap 25 + Quality 20 + Need 15 + Cost 10
+Portfolio = Diversification 25 + Overlap 25 + AMC 20 + Cost 15 + Asset-Alloc 15
+
+Switch formula (NOT weighted; "raw bps"):
+  Switch = (Q_new − Q_old) + Overlap_reduction + Cost_saving/₹10K − Tax_cost/₹10K
+  Recommended when Switch ≥ 2.0
+```
+
+**Weight redistribution rule** — when any primitive is missing (e.g. no 5-year
+returns for a young fund), the missing weight is **proportionally redistributed
+across the remaining components** so the final score is always on a 100% base.
+`missing_primitives[]` is returned so the UI shows a "heuristic" / "low-confidence"
+badge. Same redistribution applies to Quality, Health, Exit, Add, Portfolio.
+
+Per-component normalisers live in `v3_scoring.py` (`_norm_returns`,
+`_norm_consistency`, `_norm_aum_trend`, `_norm_credit_quality`,
+`_norm_duration_risk_flex`, `_norm_liquidity`, `_norm_allocation_stability`,
+…). Each takes a primitive (e.g. 1Y/3Y/5Y returns or consistency_score) and
+returns a 0–10 value, then `_weighted_composite` scales to 0–100.
+
+### 7A.3 V3 Guardrails (`services/v3_scoring.py`, `_apply_guardrails`)
+
+Block or down-rank an action even if its score is high. Applied after Exit/Add/Switch.
+
+| # | Guardrail | Trigger | Effect |
+|---|---|---|---|
+| 1 | **High-Quality Protection** | `Quality ≥ 75 AND Health ≥ 70` | Block EXIT (override if `overlap > 80%`) |
+| 2 | **Tax-Exceeds-Benefit** | `tax_liability > annual_benefit` | Block EXIT |
+| 3 | **Recent-Investment** | `holding_age_months < 6` | Block EXIT |
+| 4 | **Low-Confidence** | `confidence_score < 50` | Flag-only, do not block |
+
+### 7A.4 Stock Direct-Equity Scoring (`services/stock_scoring.py`)
+
+Refined V3 framework (Feb 2026 user-approved). Same 0–100 scale, separate
+weight set from MFs, also admin-editable.
+
+```
+Quality:  ROE 25 + ROCE 20 + Earnings Growth 20 + Debt/Equity 15 + Margin 10 + Promoter 10
+Health:   Momentum 30 + Volatility-Inverse 25 + Earnings Surprise 20 + Sentiment 15 + Volume 10
+Exit:     Quality-inverse 30 + Health-inverse 25 + Overlap 20 + Tax 15 + Cost 10
+Add:      Gap-Fit 30 + Quality 25 + Health 20 + Low-Overlap 15 + Need 10
+```
+
+Design-level decisions baked in:
+- **PE band OUT of Quality** (valuation ≠ quality).
+- **Beta OUT of Health** (poor retail signal).
+- Dividend de-emphasised (growth investors don't care).
+- Add is portfolio-driven, not stock-driven.
+
+### 7A.5 Priority Engine (`services/priority_engine.py`) — MFD Advisor only
+
+The **priority chip** ("High · 87", "Medium · 49") next to each client in the
+advisor dashboard. Drives sort order in Today's Actions feed.
+
+```
+priority_score = 0.30·portfolio_weakness
+               + 0.25·risk_factor
+               + 0.20·aum_factor             (log-scaled ⟶ big clients don't dominate)
+               + 0.15·recency_factor
+               + 0.10·recommendation_severity
+```
+
+Each factor is normalised to 0–1 before weighting. Priority bucket assignment:
+
+| Score | Bucket | UI |
+|---|---|---|
+| ≥ 0.70 | **HIGH** | 🔴 |
+| 0.40 – 0.69 | **MEDIUM** | 🟡 |
+| < 0.40 | **LOW** | 🟢 |
+
+Recommendation severity table (`SEVERITY_BY_VERB` in `priority_engine.py`):
+
+| Verb | Severity |
+|---|---|
+| `reduce` | 0.80 |
+| `switch` | 0.70 |
+| `rebalance`, `increase_sip`, `sip_increase` | 0.50 |
+| `top_up` | 0.40 |
+| `add_more` | 0.35 |
+| `add` | 0.30 |
+| `hold`, `(none)` | 0.10 |
+
+`AUM_REFERENCE_RS = ₹10 Cr` — a client with ₹10 Cr AUM gives `aum_factor ≈ 1.0`
+(log-scaled so a ₹100 Cr client only scores ~1.5× a ₹10 Cr client, not 10×).
+
+### 7A.6 MFD Top-Issue Buckets (`MfdDashboard.jsx → deriveTopIssue`)
+
+The **4 summary cards** on the advisor dashboard (Risk Issues / Underperformance
+/ Rebalance Needed / Healthy). Each client gets exactly one `_issue.key` — first
+threshold that hits wins, so the cards are **mutually exclusive**.
+
+```js
+deriveTopIssue(client) {
+  const f = client.priority.factors;
+  if (f.risk >= 0.6)                   → "over-risk"        // RISK ISSUES card
+  if (f.portfolio_weakness >= 0.4)     → "underperforming"  // UNDERPERFORMANCE card
+  if (f.recommendation_severity ≥ 0.7) → "exit-switch"      // REBALANCE NEEDED card
+  if (f.recommendation_severity ≥ 0.4) → "rebalance"        // REBALANCE NEEDED card
+  if (!last_reviewed_at)               → "unreviewed"       // (no card; review-stale chip)
+  if (f.recency >= 1.0)                → "stale"            // (no card; review-stale chip)
+  if (recommendation_count > 0)        → "review"           // (no card)
+  else                                 → "healthy"          // HEALTHY card
+}
+```
+
+**Why a counter shows 0:** the cards always sum to total clients. A client
+showing as "Underperformance" cannot also count under "Risk Issues" — flip
+that decision by editing the priority order in `deriveTopIssue` if desired.
+
+The "Today's Actions" feed uses `deriveAction()` (same file) to pick the
+recommended verb (Switch / Rebalance / Increase SIP / etc.) and prefers the
+backend-computed `priority.dominant_action` when available.
+
+### 7A.7 MFD Unified Health (`MfdDashboard.jsx → deriveHealth`)
+
+The **75/100, Q 60 · R 5** number shown in the client list row. Distinct from
+section 7A.1's portfolio_health — this is a quick blend the dashboard uses for
+sorting:
+
+```js
+deriveHealth(p) {
+  const q = p.portfolio_score;   // 0-100, V3 portfolio health (§7A.1)
+  const r = p.risk_score;        // 0-100, higher = more risky
+  if (q == null && r == null) return null;     // → "Calculating…"
+  if (q == null) return Math.round(100 - r);
+  if (r == null) return Math.round(q);
+  return Math.round(0.6*q + 0.4*(100 - r));    // 60% quality + 40% risk-inverse
+}
+```
+
+Tone bands:
+- ≥ 70 → emerald (healthy)
+- 50 – 69 → amber (review)
+- < 50 → rose (action needed)
+
+### 7A.8 Switch Decision Engine (`services/switch_decision_engine.py`)
+
+Combines V3 Switch score + portfolio-context multipliers (overlap reduction,
+tax cost) into a final switch verdict. Recommendation surfaces only when the
+end-to-end score clears the +2.0 bps threshold (see §7A.2).
+
+### 7A.9 Risk Drivers ("why this score?")
+
+Each `Health_subscore` exposes `risk_drivers[]` with the worst-deviation
+inputs. Format per driver:
+
+```
+Impact_i = Weight_i × Deviation_i
+```
+
+where `Deviation_i = max(0, ideal_value − actual_value) / ideal_range`. The
+top-3 drivers per sub-score render as chips on the Insights tab:
+
+> *"Volatility is 28% (band 8–30%) → vol_score 12/100, weight 60%, impact −18 pts"*
+
+### 7A.10 Engine versions & cache keys
+
+| Service | Version constant | Cache | Invalidation |
+|---|---|---|---|
+| V3 composite (MF) | `v3.0-phase1` (`v3_scoring.py`) | Redis (per-fund hash) | when AMFI NAV changes or admin re-weights |
+| V3 stock | `stock-v3.0` (`stock_scoring.py`) | Redis | hourly cron |
+| Portfolio Health | (in-process) | None | recomputed on every `/api/insights/analysis` call |
+| Priority | (in-process) | per-MFD profile cache (`mfd_profile_signal_cache`, 60s stale-while-revalidate) | on holdings change or new recommendation |
+
+---
+
 ## 8. Schedulers (APScheduler `Asia/Kolkata`)
 
 All managed by `services/mf_scheduler.py`. Idempotent `start()` — called on server boot when `POSTGRES_URL` secret is available (and on first secret write).
