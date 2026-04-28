@@ -225,7 +225,10 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
     # ── PROVIDER: Claude Vision ───────────────────────────────────────
     if active_provider == "claude_vision":
         try:
-            from services.claude_cas_parser import parse_with_claude_vision, is_configured as _cv_ok
+            from services.claude_cas_parser import (
+                parse_with_claude_vision, is_configured as _cv_ok,
+                BudgetExceededError,
+            )
             from services.claude_cas_mapper import map_to_internal as _cv_map
             if _cv_ok():
                 raw_claude = await parse_with_claude_vision(content, password=password)
@@ -243,6 +246,12 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
                         )
                         return holdings, normalized, raw_claude, "claude_vision"
                     logger.info("Claude Vision returned no holdings, falling back")
+        except BudgetExceededError as e:
+            # Bubble up — don't fall back, the admin needs to top up the
+            # Emergent LLM key first. A specific exception lets the
+            # caller render a clear "top-up needed" error in the UI.
+            logger.error(f"Claude Vision: {e}")
+            raise
         except Exception as e:
             logger.warning(f"Claude Vision failed: {e}, falling back to casparser_api")
         # If Claude failed or returned nothing, fall through to casparser_api

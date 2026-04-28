@@ -779,7 +779,12 @@ async def _process_client_cas(
     except Exception as e:  # noqa: BLE001
         logger.error(f"client-invite parse failed: {e}")
         status = "error"
-        err = str(e)[:200]
+        # Friendlier error for the common "budget exhausted" case.
+        emsg = str(e)
+        if "budget" in emsg.lower() or "Budget has been exceeded" in emsg:
+            err = "AI budget exhausted — admin needs to top up the Emergent LLM key (Profile → Universal Key → Add Balance) to keep using Claude Vision."
+        else:
+            err = emsg[:200]
 
     # Update this file's row in processed_files (keyed by file_id)
     await db.client_cas_invites.update_one(
