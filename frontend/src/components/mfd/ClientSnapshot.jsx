@@ -16,6 +16,7 @@ import NiveshCopilot from "./NiveshCopilot";
 import TimeMachineStrip from "./TimeMachineStrip";
 import ClientCasInviteModal from "./ClientCasInviteModal";
 import CasTimeMachine from "./CasTimeMachine";
+import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -797,6 +798,14 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           </p>
         </div>
         <div className="flex items-center gap-2 relative">
+          <ExportHoldingsButton
+            profileId={profileId}
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs rounded-lg"
+            label="Export"
+            testId="snapshot-export-btn"
+          />
           <Button
             variant="outline" size="sm"
             onClick={() => setShareOpen(!shareOpen)}

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import CasConnectButton from "@/components/CasConnectButton";
 import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
+import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -333,6 +334,12 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{holdings.length} total holdings</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <ExportHoldingsButton
+            variant="outline"
+            className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+            label="Export"
+            testId="portfolio-export-btn"
+          />
           {casProvider === "claude_vision" ? (
             <ClaudeCasUploadButton
               variant="outline"

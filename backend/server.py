@@ -52,6 +52,7 @@ from routes.goals import router as goals_router  # Goal-Based Investment Plannin
 from routes.compliance import router as compliance_router  # DPDP Act 2023 compliance
 from routes.mfd import router as mfd_router  # MFD multi-client layer
 from routes.portfolio_snapshots import router as portfolio_snapshots_router  # Time-Machine
+from routes.portfolio_export import router as portfolio_export_router  # CSV/XLSX export
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
@@ -76,6 +77,7 @@ app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
 app.include_router(gmail_router)
 app.include_router(portfolio_router)
+app.include_router(portfolio_export_router)
 app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(chat_router)
