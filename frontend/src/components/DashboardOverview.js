@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
+import axios from "axios";
 import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown, ChevronUp, Zap, Activity } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import DrilldownModal from "@/components/DrilldownModal";
+import CasConnectButton from "@/components/CasConnectButton";
+import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // ── Collapsible Section Wrapper ──
 const CollapsibleSection = ({ title, subtitle, icon: Icon, defaultOpen = true, badge, children, testId }) => {
@@ -126,6 +131,15 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
   const [drilldown, setDrilldown] = useState(null);
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
+  // Active CAS parser provider (admin-toggled). Drives which upload widget
+  // appears in the empty-state CTA below.
+  const [casProvider, setCasProvider] = useState("casparser_api");
+  useEffect(() => {
+    axios.get(`${API}/cas-parser-provider/active`, { withCredentials: true })
+      .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
+      .catch(() => { /* keep default */ });
+  }, []);
+
   // Sector bar chart data
   const sectorBarData = useMemo(() => {
     if (!analytics?.sector_exposure) return [];
@@ -165,7 +179,40 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
             <Wallet className="w-8 h-8 text-emerald-600" strokeWidth={1.5} />
           </div>
           <h2 className="text-xl font-medium text-slate-900 dark:text-white mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>No holdings yet</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Add your stocks, mutual funds, and other investments to get started.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+            Import your portfolio in seconds with your CAS PDF — the system parses every holding, transaction, and SIP automatically.
+          </p>
+          {/* Provider-aware upload CTA. Switches between casparser.in and
+              Claude Vision based on the admin toggle. */}
+          <div className="flex flex-wrap items-center justify-center gap-3" data-testid="empty-dashboard-cta">
+            {casProvider === "claude_vision" ? (
+              <ClaudeCasUploadButton
+                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-10 px-5"
+                label="Import CAS via Claude Vision"
+                testId="dashboard-empty-claude-btn"
+                onSuccess={onRefresh}
+              />
+            ) : (
+              <CasConnectButton
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-10 px-5"
+                label="Import via CAS Connect"
+                testId="dashboard-empty-cas-btn"
+                onSuccess={onRefresh}
+              />
+            )}
+            <Button
+              variant="outline"
+              onClick={onRefresh}
+              data-testid="dashboard-refresh-after-upload"
+              className="rounded-xl border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 h-10"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              I've added holdings — refresh
+            </Button>
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-4">
+            Or open the <strong>Portfolio</strong> tab to add holdings manually.
+          </p>
         </div>
       </div>
     );
