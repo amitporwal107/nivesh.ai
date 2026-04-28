@@ -17,6 +17,7 @@ import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PipelineRunner from "@/components/admin/PipelineRunner";
 import PromptsSection from "@/components/admin/PromptsSection";
+import CasConfigSection from "@/components/admin/CasConfigSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
 import V3WeightsSection from "@/components/admin/V3WeightsSection";
 import V3StockWeightsSection from "@/components/admin/V3StockWeightsSection";
@@ -279,6 +280,7 @@ const AdminView = () => {
             subtitle="Postgres (Neon), Redis (Upstash), and CAS Parser credentials. Changes take effect immediately — no restart needed."
             allowAddCustom={false}
           />
+          <CasConfigSection />
           <DatastoreSection />
           <PipelineRunner />
           <DataPipelineMonitor />
