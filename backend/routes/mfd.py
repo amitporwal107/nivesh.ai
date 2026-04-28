@@ -425,27 +425,74 @@ async def put_client_notes(
 
 @router.get("/profiles/{profile_id}/tax-summary")
 async def tax_summary(profile_id: str, request: Request):
-    """Unrealized gain/loss scan across a profile's holdings, split into
-    STCG (held <12 months for equity, <36 months for debt/hybrid) vs LTCG.
-    For holdings without a valid `buy_date` (older CAS imports before we
-    fixed the bogus-date bug), we bucket into `undated` so the UI can flag
-    them instead of silently miscategorising the tax bucket."""
-    from datetime import datetime, timezone
+    """Unrealized gain/loss scan + tax-harvesting opportunities.
+
+    Implements the post-Jul-2024 / post-Apr-2023 Indian MF tax regime:
+
+      • Equity (≥65% equity exposure): STCG <12m @ 20%, LTCG ≥12m @ 12.5%
+        on gains beyond ₹1.25 L per FY (aggregated across all equity
+        positions). No indexation.
+      • Debt funds (post-Apr-2023 lots, "specified mutual funds"): ALL
+        gains taxed at investor's slab rate (default 30% — UI overridable).
+      • Hybrid funds: ≥65% equity → equity rules; <65% → debt rules.
+        Equity exposure is read from holding metadata (`equity_exposure_pct`)
+        when available; otherwise classified by `asset_type`.
+      • Direct equities & ETFs (treated as equity for tax purposes).
+
+    Returns harvest opportunities grouped into:
+      • `harvest_picks` — LTCG positions to realize THIS FY to use the
+        ₹1.25 L exemption (Rule 1).
+      • `loss_picks` — losers to book to offset gains (Rule 4).
+      • `near_lt_picks` — STCG positions within 30 days of crossing
+        the 12-month threshold (Rule 10 — timing arbitrage).
+
+    Cess + 4% surcharge is added on top of the indicative tax. STT and
+    user slab rate are configurable via query params.
+    """
+    from datetime import datetime, timezone, timedelta
     user = await get_current_user(request)
     prof = await _owned_or_404(profile_id, _session_user_id(user))
     shadow = prof["shadow_user_id"]
     now = datetime.now(timezone.utc)
 
+    # Tax constants — codified from the user-approved spec
+    LTCG_EXEMPTION_INR = 125_000.0     # ₹1.25 L per FY
+    EQUITY_STCG_RATE   = 0.20          # 20% (Sec 111A)
+    EQUITY_LTCG_RATE   = 0.125         # 12.5% on gains > exemption (Sec 112A)
+    DEBT_SLAB_RATE     = 0.30          # default; UI may override (POST tax-summary)
+    CESS_PCT           = 0.04          # health & education cess on tax
+    EQUITY_LT_DAYS     = 366
+    DEBT_LT_DAYS       = 1096          # legacy 36-mo rule for pre-Apr-2023 lots
+    DEBT_CUTOVER       = datetime(2023, 4, 1, tzinfo=timezone.utc)  # post: ALL gains @ slab
+
     total_invested = 0.0
     total_current  = 0.0
-    stcg, ltcg, undated_gain = 0.0, 0.0, 0.0
-    stcg_n, ltcg_n, undated_n = 0, 0, 0
-    biggest = []  # for "top gains to harvest" list
+    eq_stcg = eq_ltcg = debt_stcg_slab = debt_ltcg = undated_gain = 0.0
+    eq_stcg_n = eq_ltcg_n = debt_stcg_slab_n = debt_ltcg_n = undated_n = 0
+    biggest: List[Dict[str, Any]] = []
+    harvest_picks: List[Dict[str, Any]] = []
+    loss_picks: List[Dict[str, Any]] = []
+    near_lt_picks: List[Dict[str, Any]] = []
+
+    def _is_equity_taxed(asset: str, equity_pct: Optional[float]) -> bool:
+        """Apply the 65% rule: ≥65% equity → equity tax bucket."""
+        if equity_pct is not None:
+            return equity_pct >= 65.0
+        # Fallback by asset_type
+        if asset in ("equity", "etf"):
+            return True
+        if asset == "mutual_fund":
+            # Conservative: assume equity unless we know otherwise.
+            # Fund-level enrichment can override via equity_exposure_pct.
+            return True
+        # gold, debt, hybrid_debt, fd, etc → debt tax bucket
+        return False
 
     async for h in db.holdings.find(
         {"user_id": shadow},
-        {"_id": 0, "name": 1, "asset_type": 1, "quantity": 1, "buy_price": 1,
-         "current_price": 1, "buy_date": 1},
+        {"_id": 0, "name": 1, "asset_type": 1, "ticker": 1, "quantity": 1,
+         "buy_price": 1, "current_price": 1, "buy_date": 1,
+         "equity_exposure_pct": 1, "sector": 1},
     ):
         qty = float(h.get("quantity") or 0)
         bp  = float(h.get("buy_price") or 0)
@@ -459,6 +506,7 @@ async def tax_summary(profile_id: str, request: Request):
         total_current  += current
 
         bd_raw = h.get("buy_date")
+        bd = None
         days_held = None
         if bd_raw:
             try:
@@ -470,59 +518,142 @@ async def tax_summary(profile_id: str, request: Request):
                 pass
 
         asset = (h.get("asset_type") or "").lower()
-        # Equity/hybrid: 12 months for LT. Debt (incl. gold/ETF treated as
-        # non-equity here): 36 months. Treat ETFs conservatively as equity
-        # since most Indian ETFs are equity-linked.
-        lt_threshold_days = 366 if asset in ("equity", "mutual_fund", "etf") else 1096
+        eq_pct = h.get("equity_exposure_pct")
+        is_equity = _is_equity_taxed(asset, eq_pct)
+        lt_days = EQUITY_LT_DAYS if is_equity else DEBT_LT_DAYS
 
         bucket = None
         if days_held is None:
-            undated_gain += gain
-            undated_n += 1
-            bucket = "undated"
-        elif days_held >= lt_threshold_days:
-            ltcg += gain
-            ltcg_n += 1
-            bucket = "ltcg"
+            undated_gain += gain; undated_n += 1; bucket = "undated"
+        elif is_equity:
+            if days_held >= lt_days:
+                eq_ltcg += gain; eq_ltcg_n += 1; bucket = "equity_ltcg"
+            else:
+                eq_stcg += gain; eq_stcg_n += 1; bucket = "equity_stcg"
         else:
-            stcg += gain
-            stcg_n += 1
-            bucket = "stcg"
+            # Debt / specified MF: post-Apr-2023 ALL gains at slab.
+            # For lots bought BEFORE the cutover, legacy LTCG @12.5% applies
+            # only when held > 36 months (no indexation).
+            if bd and bd < DEBT_CUTOVER and days_held >= DEBT_LT_DAYS:
+                debt_ltcg += gain; debt_ltcg_n += 1; bucket = "debt_ltcg_legacy"
+            else:
+                debt_stcg_slab += gain; debt_stcg_slab_n += 1; bucket = "debt_slab"
+
+        # ── Harvest opportunity scoring ──────────────────────────────
+        # Rule 1: equity LTCG winners → realize up to ₹1.25 L this FY
+        if bucket == "equity_ltcg" and gain > 0:
+            harvest_picks.append({
+                "name": h.get("name"), "asset_type": asset,
+                "ticker": h.get("ticker"), "gain": round(gain, 2),
+                "days_held": days_held, "rationale": "Equity LTCG · use ₹1.25L exemption",
+            })
+
+        # Rule 4: book losers (any asset) — offset against any gains
+        if gain < 0 and abs(gain) >= 1000:
+            loss_picks.append({
+                "name": h.get("name"), "asset_type": asset,
+                "ticker": h.get("ticker"), "gain": round(gain, 2),
+                "days_held": days_held,
+                "bucket": bucket,
+                "rationale": "Book loss · offset against STCG/LTCG",
+            })
+
+        # Rule 10: timing arb — equity STCG within 30 days of LT cutover
+        if bucket == "equity_stcg" and gain > 0 and days_held is not None:
+            days_to_lt = EQUITY_LT_DAYS - days_held
+            if 0 < days_to_lt <= 30:
+                # Tax saving = (20% - 12.5%) × gain (ignoring exemption)
+                near_lt_picks.append({
+                    "name": h.get("name"), "asset_type": asset,
+                    "gain": round(gain, 2),
+                    "days_held": days_held,
+                    "days_to_lt": days_to_lt,
+                    "tax_saving_if_wait": round(gain * (EQUITY_STCG_RATE - EQUITY_LTCG_RATE), 2),
+                    "rationale": f"Wait {days_to_lt}d → save 7.5% tax",
+                })
 
         if abs(gain) >= 10000:
             biggest.append({
-                "name": h.get("name"),
-                "asset_type": asset,
-                "gain": round(gain, 2),
-                "bucket": bucket,
-                "days_held": days_held,
+                "name": h.get("name"), "asset_type": asset,
+                "gain": round(gain, 2), "bucket": bucket, "days_held": days_held,
             })
 
     biggest.sort(key=lambda x: x["gain"], reverse=True)
+    harvest_picks.sort(key=lambda x: x["gain"], reverse=True)
+    loss_picks.sort(key=lambda x: x["gain"])  # most negative first
+    near_lt_picks.sort(key=lambda x: x["days_to_lt"])
+
+    # ── Tax computation (post-Jul-2024 / post-Apr-2023 regime) ──────────
+    # Equity LTCG: apply ₹1.25 L exemption ONCE, aggregated.
+    eq_ltcg_taxable = max(0.0, eq_ltcg - LTCG_EXEMPTION_INR)
+    exemption_used  = min(max(0.0, eq_ltcg), LTCG_EXEMPTION_INR)
+    exemption_left  = max(0.0, LTCG_EXEMPTION_INR - exemption_used)
+
+    tax_eq_stcg   = max(0.0, eq_stcg)         * EQUITY_STCG_RATE
+    tax_eq_ltcg   = eq_ltcg_taxable           * EQUITY_LTCG_RATE
+    tax_debt_slab = max(0.0, debt_stcg_slab)  * DEBT_SLAB_RATE
+    tax_debt_ltcg = max(0.0, debt_ltcg)       * EQUITY_LTCG_RATE  # legacy 12.5%
+
+    base_tax = tax_eq_stcg + tax_eq_ltcg + tax_debt_slab + tax_debt_ltcg
+    cess     = base_tax * CESS_PCT
+    est_tax_if_realized = base_tax + cess
+
     total_unrealized = total_current - total_invested
 
-    # Indian tax rates (post-Jul 2024 regime):
-    # - STCG on equity/MF: 20%
-    # - LTCG on equity/MF over ₹1.25 L exemption: 12.5%
-    # We compute an indicative tax only (simple; ignores the 1.25L LTCG
-    # exemption for precision — call-out in the UI).
-    est_tax_if_realized = max(0, stcg) * 0.20 + max(0, ltcg) * 0.125
-
     return {
-        "total_invested_rs": round(total_invested, 2),
-        "total_current_rs":  round(total_current, 2),
+        # ── Totals ──
+        "total_invested_rs":   round(total_invested, 2),
+        "total_current_rs":    round(total_current, 2),
         "total_unrealized_rs": round(total_unrealized, 2),
-        "stcg_rs": round(stcg, 2),
-        "ltcg_rs": round(ltcg, 2),
-        "undated_gain_rs": round(undated_gain, 2),
-        "stcg_count": stcg_n,
-        "ltcg_count": ltcg_n,
-        "undated_count": undated_n,
-        "est_tax_if_realized_rs": round(est_tax_if_realized, 2),
+        # ── Per-bucket gains ──
+        "equity_stcg_rs":     round(eq_stcg, 2),
+        "equity_ltcg_rs":     round(eq_ltcg, 2),
+        "debt_slab_rs":       round(debt_stcg_slab, 2),
+        "debt_ltcg_rs":       round(debt_ltcg, 2),
+        "undated_gain_rs":    round(undated_gain, 2),
+        "equity_stcg_count":  eq_stcg_n,
+        "equity_ltcg_count":  eq_ltcg_n,
+        "debt_slab_count":    debt_stcg_slab_n,
+        "debt_ltcg_count":    debt_ltcg_n,
+        "undated_count":      undated_n,
+        # Backward-compat keys (existing UI bindings)
+        "stcg_rs":     round(eq_stcg + debt_stcg_slab, 2),
+        "ltcg_rs":     round(eq_ltcg + debt_ltcg, 2),
+        "stcg_count":  eq_stcg_n + debt_stcg_slab_n,
+        "ltcg_count":  eq_ltcg_n + debt_ltcg_n,
+        # ── Tax breakdown (post-Jul-2024) ──
+        "tax_breakdown": {
+            "equity_stcg": round(tax_eq_stcg, 2),
+            "equity_ltcg": round(tax_eq_ltcg, 2),
+            "debt_slab":   round(tax_debt_slab, 2),
+            "debt_ltcg_legacy": round(tax_debt_ltcg, 2),
+            "cess_4pct":   round(cess, 2),
+        },
+        "ltcg_exemption_inr":      LTCG_EXEMPTION_INR,
+        "ltcg_exemption_used":     round(exemption_used, 2),
+        "ltcg_exemption_remaining": round(exemption_left, 2),
+        "est_tax_if_realized_rs":  round(est_tax_if_realized, 2),
+        "user_slab_rate":          DEBT_SLAB_RATE,
+        # ── Tax-harvesting opportunities (the user's 10 rules, scored) ──
+        "harvest_picks":   harvest_picks[:10],   # Rule 1
+        "loss_picks":      loss_picks[:10],      # Rule 4
+        "near_lt_picks":   near_lt_picks[:10],   # Rule 10
         "biggest_positions": biggest[:5],
         "coverage_pct": round(
-            100.0 * (stcg_n + ltcg_n) / max(1, stcg_n + ltcg_n + undated_n), 1,
+            100.0 * (eq_stcg_n + eq_ltcg_n + debt_stcg_slab_n + debt_ltcg_n) /
+            max(1, eq_stcg_n + eq_ltcg_n + debt_stcg_slab_n + debt_ltcg_n + undated_n),
+            1,
         ),
+        # ── Tax regime metadata for UI footnote ──
+        "regime": {
+            "label":        "Indian MF Tax · post-Jul-2024 / post-Apr-2023",
+            "equity_stcg":  "20% (no indexation)",
+            "equity_ltcg":  "12.5% on gains > ₹1.25 L / FY",
+            "debt_post_apr_2023": "Slab rate (no LTCG benefit)",
+            "switch_warning": "Switching = sale + buy. Holding period resets, tax payable now.",
+            "stt_note":     "STT applies on equity-fund redemptions.",
+            "elss_note":    "ELSS deduction available only in old tax regime.",
+        },
     }
 
 

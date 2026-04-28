@@ -1416,11 +1416,12 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                         className="flex items-center gap-2 text-xs"
                       >
                         <span className={`flex-shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                          p.bucket === "ltcg" ? "bg-emerald-100 text-emerald-700" :
-                          p.bucket === "stcg" ? "bg-amber-100 text-amber-700" :
+                          p.bucket === "ltcg" || p.bucket === "equity_ltcg" ? "bg-emerald-100 text-emerald-700" :
+                          p.bucket === "stcg" || p.bucket === "equity_stcg" ? "bg-amber-100 text-amber-700" :
+                          p.bucket === "debt_slab" ? "bg-rose-100 text-rose-700" :
                           "bg-slate-100 text-slate-500"
                         }`}>
-                          {p.bucket}
+                          {p.bucket?.replace("equity_", "").replace("_legacy", "")}
                         </span>
                         <span className="flex-1 text-slate-700 dark:text-slate-200 truncate">
                           {p.name}
@@ -1431,6 +1432,135 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* ── LTCG exemption tracker (Rule 1: ₹1.25L tax-free / FY) ─ */}
+              {tax.ltcg_exemption_inr && (
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" data-testid="tax-ltcg-exemption">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                      LTCG exemption · ₹1.25L this FY
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                      {fmtRs(tax.ltcg_exemption_used)} / {fmtRs(tax.ltcg_exemption_inr)}
+                    </div>
+                  </div>
+                  <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600"
+                      style={{ width: `${Math.min(100, 100 * (tax.ltcg_exemption_used || 0) / (tax.ltcg_exemption_inr || 1))}%` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    {tax.ltcg_exemption_remaining > 0
+                      ? <>₹{Math.round(tax.ltcg_exemption_remaining).toLocaleString("en-IN")} remaining — realize equity LTCG up to this to pay <strong>zero tax</strong>.</>
+                      : "Exemption fully used — further LTCG taxed @ 12.5%."}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tax-harvest picks (Rule 1) ───────────────────────────── */}
+              {tax.harvest_picks?.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" data-testid="tax-harvest-picks">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 mb-2 flex items-center gap-1.5">
+                    Harvest opportunities · realize tax-free
+                  </div>
+                  <ul className="space-y-1.5">
+                    {tax.harvest_picks.slice(0, 5).map((p, i) => (
+                      <li key={i} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 text-slate-700 dark:text-slate-200 truncate">{p.name}</span>
+                        <span className="text-[10px] text-slate-500 flex-shrink-0">{p.days_held}d</span>
+                        <span className="font-bold tabular-nums text-emerald-600 flex-shrink-0">
+                          +{fmtRs(p.gain)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* ── Loss-harvest picks (Rule 4) ──────────────────────────── */}
+              {tax.loss_picks?.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" data-testid="tax-loss-picks">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-rose-700 mb-2 flex items-center gap-1.5">
+                    Loss-harvest candidates · offset against gains
+                  </div>
+                  <ul className="space-y-1.5">
+                    {tax.loss_picks.slice(0, 5).map((p, i) => (
+                      <li key={i} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 text-slate-700 dark:text-slate-200 truncate">{p.name}</span>
+                        <span className="text-[10px] text-slate-500 flex-shrink-0">{p.bucket?.replace("_", " ")}</span>
+                        <span className="font-bold tabular-nums text-rose-600 flex-shrink-0">
+                          {fmtRs(p.gain)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* ── Timing arbitrage (Rule 10: hold ≥12mo to save 7.5%) ─── */}
+              {tax.near_lt_picks?.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" data-testid="tax-near-lt">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 mb-2">
+                    Wait it out · approaching LT cutover
+                  </div>
+                  <ul className="space-y-1.5">
+                    {tax.near_lt_picks.slice(0, 5).map((p, i) => (
+                      <li key={i} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 text-slate-700 dark:text-slate-200 truncate">{p.name}</span>
+                        <span className="text-[10px] text-indigo-700 font-semibold flex-shrink-0">+{p.days_to_lt}d</span>
+                        <span className="font-bold tabular-nums text-emerald-600 flex-shrink-0">
+                          save {fmtRs(p.tax_saving_if_wait)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* ── Tax breakdown footnote ───────────────────────────────── */}
+              {tax.tax_breakdown && (
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" data-testid="tax-breakdown">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">
+                    Indicative tax breakdown
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+                    {[
+                      ["Equity STCG", tax.tax_breakdown.equity_stcg, "amber"],
+                      ["Equity LTCG", tax.tax_breakdown.equity_ltcg, "emerald"],
+                      ["Debt slab",   tax.tax_breakdown.debt_slab,   "rose"],
+                      ["Debt LTCG legacy", tax.tax_breakdown.debt_ltcg_legacy, "violet"],
+                      ["Cess (4%)",   tax.tax_breakdown.cess_4pct,   "slate"],
+                    ].map(([label, val, tone]) => (
+                      <div key={label} className="rounded-md bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5">
+                        <div className="text-[9px] uppercase font-semibold text-slate-500">{label}</div>
+                        <div className={`tabular-nums font-bold text-${tone}-700 dark:text-${tone}-400`}>
+                          {fmtRs(val || 0)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Regime metadata · Switch warning · Footnotes ─────────── */}
+              {tax.regime && (
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5" data-testid="tax-regime">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                    Regime · {tax.regime.label}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-slate-600 dark:text-slate-400">
+                    <div>• Equity STCG: <strong>{tax.regime.equity_stcg}</strong></div>
+                    <div>• Equity LTCG: <strong>{tax.regime.equity_ltcg}</strong></div>
+                    <div>• Debt (post-Apr-23): <strong>{tax.regime.debt_post_apr_2023}</strong></div>
+                    <div>• {tax.regime.stt_note}</div>
+                    <div className="md:col-span-2 text-amber-700 dark:text-amber-400">
+                      ⚠️ <strong>Switch warning:</strong> {tax.regime.switch_warning}
+                    </div>
+                    <div className="md:col-span-2 italic">{tax.regime.elss_note}</div>
+                  </div>
                 </div>
               )}
             </Card>
