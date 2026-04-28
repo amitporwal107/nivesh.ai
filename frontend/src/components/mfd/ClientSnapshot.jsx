@@ -16,6 +16,7 @@ import NiveshCopilot from "./NiveshCopilot";
 import TimeMachineStrip from "./TimeMachineStrip";
 import ClientCasInviteModal from "./ClientCasInviteModal";
 import CasTimeMachine from "./CasTimeMachine";
+import HealthScoreInfo from "./HealthScoreInfo";
 import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -998,8 +999,9 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
             <div className="flex items-start gap-6 flex-wrap">
               <ScoreRing value={hs} tone={hsTone} testId="snapshot-health-ring" />
               <div className="flex-1 min-w-[220px]">
-                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
+                <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 inline-flex items-center">
                   Portfolio Health
+                  <HealthScoreInfo testId="snapshot-health-info-btn" />
                 </div>
                 <div className={`text-lg font-semibold mt-1 ${hsT.text}`} data-testid="snapshot-grade-label">
                   {hs != null && (health?.grade || _gradeFromSummary)
