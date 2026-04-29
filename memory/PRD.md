@@ -2,6 +2,26 @@
 
 ## Implemented Features (Latest)
 
+### Apr 2026 — NIVESH_CAS_PARSER (Google Document AI as 3rd parser provider)
+
+User uploaded `CASWRAPPER` (their own production-grade CAS parser using GCP Document AI + casparser fast-path) and asked us to wire it into nivesh.ai as a 3rd `cas_parser_provider` selectable from the Admin UI.
+
+**Delivered**:
+- `services/nivesh_cas_parser.py` — orchestrator: PyPDF2 decrypt → split into ≤12-page chunks → 3-worker parallel Document AI → merge → normalize. GCP service-account JSON loaded from `db.system_config` secrets (env-scoped); never written to disk.
+- `services/nivesh_cas_normalizer.py` — heuristic table-classifier that turns Document AI's raw `{text, tables}` into the same Claude/CAS-Connect schema. Handles: equities (incl. multi-line cells with pledge counts), preference shares, SGBs, mutual funds in demat (incl. multi-ISIN merged cells), MF folios (incl. 10-vs-11-cell layout drift, total↔avg cost auto-swap, multi-folio dedupe). Text-stream fallback recovers ISINs that Document AI misses as table cells.
+- `helpers/parsing.py` — added `nivesh_cas_parser` branch to BOTH `parse_cas_pdf` and `parse_cas_pdf_with_data`. Same fall-through-to-casparser-on-failure pattern as Claude Vision.
+- `helpers/secrets.py` — 4 new known secrets under category=parsing: `GOOGLE_DOCAI_CREDENTIALS_JSON`, `GOOGLE_DOCAI_PROJECT`, `GOOGLE_DOCAI_PROCESSOR`, `GOOGLE_DOCAI_LOCATION`.
+- `routes/admin.py` — `VALID_PROVIDERS` now includes `nivesh_cas_parser`. `GET /admin/cas-parser-provider` returns `nivesh_cas_parser_configured` boolean.
+- `frontend/components/admin/CasConfigSection.jsx` — third "Nivesh Parser" card with `data-testid="cas-provider-nivesh"`, configured-flag indicator, and tailored toast on switch.
+- `requirements.txt` — `google-cloud-documentai==3.14.0`, `PyPDF2==3.0.1`.
+
+**Validation** (real 18-page encrypted NSDL CAS, Document AI live call):
+- 100% match on equities (42 holdings, ₹17,52,419), preference shares (₹240), SGBs (₹15,84,000), MF in demat (16 holdings, ₹10,39,455)
+- 95.3% match on MF folios (50 folios, ₹75,75,964 / ₹79,52,577)
+- **97.1% overall portfolio value match** (₹1.20Cr / ₹1.23Cr)
+- 110 holdings produced through `claude_cas_mapper.map_to_internal()` — fully compatible with downstream pipeline.
+- **11/11 backend tests passed** (testing agent iteration_54).
+
 ### Apr 2026 — CAS Transactions + SIP Pattern Detection + NSDL Share Bug + Pipeline Moved to Admin (iter 59)
 
 User asks bundled into one ship:

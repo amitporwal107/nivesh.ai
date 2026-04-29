@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026-04-29 — NIVESH_CAS_PARSER (Google Document AI as 3rd parser provider)
+
+### What's new
+- **`services/nivesh_cas_parser.py`** — orchestrates: PyPDF2 decrypt → split into
+  ≤12-page chunks → parallel Document AI calls (3 workers) → merge `{text, tables}`
+  → run normalizer. Loads service-account credentials from `db.system_config`
+  secrets (env-scoped) so a temp credentials file is never written to disk.
+- **`services/nivesh_cas_normalizer.py`** — heuristic table classifier + row
+  parsers that turn raw Document AI output into the same Claude/CAS-Connect
+  schema (statement_info, investor_info, portfolio_summary, accounts, holdings,
+  transactions). Validated on a real 18-page NSDL CAS:
+  - 100% match on equities, preference shares, SGBs, MFs in demat
+  - 95.3% match on MF folios (Document AI cell-merge artifacts)
+  - **97.1% overall portfolio value match** (₹1.20Cr / ₹1.23Cr)
+  - 110 holdings mapped, 32 SIP transactions, 2 folio buckets
+- **3-way Admin toggle** — `cas_parser_provider` now accepts `casparser_api`,
+  `claude_vision`, or `nivesh_cas_parser`. The dispatcher in `helpers/parsing.py`
+  tries the active provider first and falls back to casparser_api on failure.
+- **4 new known secrets** (category=parsing): `GOOGLE_DOCAI_CREDENTIALS_JSON`,
+  `GOOGLE_DOCAI_PROJECT`, `GOOGLE_DOCAI_PROCESSOR`, `GOOGLE_DOCAI_LOCATION`.
+- **Frontend**: `CasConfigSection.jsx` — third button "Nivesh Parser" with
+  `data-testid="cas-provider-nivesh"`, configured-flag, and a tailored toast.
+- **Dependencies**: `google-cloud-documentai==3.14.0`, `PyPDF2==3.0.1`.
+- **Tested**: 11/11 backend pytest pass (testing agent iteration_54). End-to-end
+  validated on the user's encrypted sample PDF (decrypts → 2 chunks → 110
+  holdings via mapper).
+
+### How to switch on
+1. Admin → CAS Configuration → paste `key.json` content into
+   `GOOGLE_DOCAI_CREDENTIALS_JSON` and set the other three GCP fields.
+2. Click the **Nivesh Parser** card in the provider toggle.
+3. Subsequent CAS PDF uploads route through Document AI automatically.
+
 ## 2026-04-28 — Claude Vision CAS Parser (alternative SDK)
 
 ### What's new
