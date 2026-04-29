@@ -182,14 +182,20 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
             Import your portfolio in seconds with your CAS PDF — the system parses every holding, transaction, and SIP automatically.
           </p>
-          {/* Provider-aware upload CTA. Switches between casparser.in and
-              Claude Vision based on the admin toggle. */}
+          {/* Provider-aware upload CTA. casparser.in uses its hosted SDK
+              widget; Claude Vision and Nivesh Parser both use our
+              raw-upload endpoint which dispatches via the active
+              provider. */}
           <div className="flex flex-wrap items-center justify-center gap-3" data-testid="empty-dashboard-cta">
-            {casProvider === "claude_vision" ? (
+            {casProvider !== "casparser_api" ? (
               <ClaudeCasUploadButton
                 className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-10 px-5"
-                label="Import CAS via Claude Vision"
-                testId="dashboard-empty-claude-btn"
+                label={casProvider === "nivesh_cas_parser"
+                  ? "Import CAS via Nivesh Parser"
+                  : "Import CAS via Claude Vision"}
+                testId={casProvider === "nivesh_cas_parser"
+                  ? "dashboard-empty-nivesh-btn"
+                  : "dashboard-empty-claude-btn"}
                 onSuccess={onRefresh}
               />
             ) : (

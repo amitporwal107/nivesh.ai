@@ -667,6 +667,8 @@ const UploadStep = ({ client, onCasSuccess, onSkip, error, provider }) => (
       <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
         {provider === "claude_vision" ? (
           <>Upload {client?.name}'s CAS PDF — <strong>Claude Vision</strong> will parse holdings, transactions, and SIPs.</>
+        ) : provider === "nivesh_cas_parser" ? (
+          <>Upload {client?.name}'s CAS PDF — <strong>Nivesh Parser</strong> (Google Document AI) extracts holdings, transactions, and SIPs.</>
         ) : (
           <>Launch <strong>CAS Connect</strong> to import {client?.name}'s portfolio — the widget handles PDF upload, Gmail auto-fetch, and CDSL OTP in one place.</>
         )}
@@ -716,6 +718,23 @@ const UploadStep = ({ client, onCasSuccess, onSkip, error, provider }) => (
             className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-11 px-6"
             label={`Upload ${client?.name || "client"}'s CAS PDF`}
             testId="wizard-claude-cas-btn"
+          />
+        </>
+      ) : provider === "nivesh_cas_parser" ? (
+        <>
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            Nivesh Parser · Google Document AI
+          </div>
+          <div className="text-xs text-slate-500 mt-1 mb-5">
+            Drop a PDF · enter the password · Google Document AI extracts
+            holdings, transactions and folios in ~15 seconds — works on
+            scanned PDFs too.
+          </div>
+          <ClaudeCasUploadButton
+            onSuccess={onCasSuccess}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-11 px-6"
+            label={`Upload ${client?.name || "client"}'s CAS PDF`}
+            testId="wizard-nivesh-cas-btn"
           />
         </>
       ) : (

@@ -340,12 +340,18 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             label="Export"
             testId="portfolio-export-btn"
           />
-          {casProvider === "claude_vision" ? (
+          {casProvider !== "casparser_api" ? (
             <ClaudeCasUploadButton
               variant="outline"
-              className="rounded-xl border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
-              label="Upload via Claude Vision"
-              testId="header-claude-cas-btn"
+              className={casProvider === "nivesh_cas_parser"
+                ? "rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                : "rounded-xl border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"}
+              label={casProvider === "nivesh_cas_parser"
+                ? "Upload via Nivesh Parser"
+                : "Upload via Claude Vision"}
+              testId={casProvider === "nivesh_cas_parser"
+                ? "header-nivesh-cas-btn"
+                : "header-claude-cas-btn"}
               onSuccess={onRefresh}
             />
           ) : (
@@ -450,11 +456,17 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             </p>
             {!searchQuery && activeAssetTab === "all" && (
               <div className="flex flex-wrap items-center justify-center gap-3">
-                {casProvider === "claude_vision" ? (
+                {casProvider !== "casparser_api" ? (
                   <ClaudeCasUploadButton
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl"
-                    label="Upload CAS via Claude Vision"
-                    testId="empty-claude-cas-btn"
+                    className={casProvider === "nivesh_cas_parser"
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+                      : "bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl"}
+                    label={casProvider === "nivesh_cas_parser"
+                      ? "Upload CAS via Nivesh Parser"
+                      : "Upload CAS via Claude Vision"}
+                    testId={casProvider === "nivesh_cas_parser"
+                      ? "empty-nivesh-cas-btn"
+                      : "empty-claude-cas-btn"}
                     onSuccess={onRefresh}
                   />
                 ) : (
