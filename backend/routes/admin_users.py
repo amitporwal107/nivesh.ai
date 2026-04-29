@@ -53,14 +53,27 @@ async def list_users(request: Request, q: Optional[str] = None) -> Dict[str, Any
             "plans_count": plans_cnt,
             "active_plan": active_plan,
             "last_login_at": last_session.get("created_at") if last_session else None,
-            "session_active": bool(
-                last_session and last_session.get("expires_at")
-                and (last_session["expires_at"] if isinstance(last_session["expires_at"], datetime)
-                     else datetime.fromisoformat(str(last_session["expires_at"]).replace("Z", "+00:00")))
-                > datetime.now(timezone.utc)
-            ),
+            "session_active": _session_alive(last_session),
         })
     return {"users": out, "total": len(out)}
+
+
+def _session_alive(sess) -> bool:
+    """True if the session's expires_at is in the future. Tolerates both
+    timezone-aware and naive datetimes (older docs may be naive UTC)."""
+    if not sess or not sess.get("expires_at"):
+        return False
+    raw = sess["expires_at"]
+    try:
+        if isinstance(raw, datetime):
+            exp = raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+        else:
+            exp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return False
+    return exp > datetime.now(timezone.utc)
 
 
 @router.get("/users/{user_id}")
