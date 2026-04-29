@@ -81,6 +81,15 @@ def is_configured() -> bool:
     return bool(_active_key())
 
 
+def is_sandbox_active() -> bool:
+    """True when the upload flow would currently hit casparser.in's
+    sandbox endpoint (which returns canned mock holdings regardless of
+    PDF contents). The auto-fallback chain skips casparser.in entirely
+    in this state to prevent silent false successes.
+    """
+    return bool(_override_sandbox if _override_sandbox is not None else USE_SANDBOX)
+
+
 def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
     """
     Mint a short-lived `at_` token from the production API key. Returned to the

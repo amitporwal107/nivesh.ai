@@ -287,7 +287,23 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
         "casparser_api": _try_casparser_api,
     }
 
+    # If sandbox mode is on for casparser.in, drop it from the chain —
+    # sandbox returns canned mock data regardless of the uploaded PDF
+    # which would silently mask real parser failures (e.g., a wrong PDF
+    # password) with a false 152-holding success.
+    try:
+        from services.cas_api_client import is_sandbox_active
+        if is_sandbox_active() and "casparser_api" in chain:
+            chain.remove("casparser_api")
+            logger.info(
+                "parse_cas_pdf_with_data: casparser.in is in sandbox mode — "
+                "removed from auto-fallback chain to avoid false-success mock data"
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
     budget_error = None
+    password_error = None
     for provider in chain:
         fn = handlers.get(provider)
         if not fn:
@@ -303,12 +319,29 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
                 break
             logger.info(f"parse_cas_pdf_with_data: {provider} returned nothing, trying next")
         except Exception as e:
-            # Capture BudgetExceededError separately so we can re-raise
-            # if NO downstream provider works.
+            err_str = str(e).lower()
+            # PDF password / decryption errors are USER errors. Don't try
+            # other providers — they'll all fail the same way OR (worse)
+            # casparser.in sandbox will return mock data and falsely succeed.
+            if any(tok in err_str for tok in [
+                "password rejected", "incorrect password", "wrong password",
+                "password is required", "password protected",
+            ]):
+                password_error = HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Wrong CAS PDF password. Please re-enter your PAN "
+                        "(format: ABCDE1234F) and try again."
+                    ),
+                )
+                logger.warning(f"parse_cas_pdf_with_data: password error on {provider} — aborting chain")
+                break
             if e.__class__.__name__ == "BudgetExceededError":
                 budget_error = e
             logger.warning(f"parse_cas_pdf_with_data: {provider} failed ({e}), trying next")
 
+    if password_error is not None:
+        raise password_error
     if not holdings and budget_error:
         # All other providers also failed — surface the budget error so
         # admins can top up the LLM key.
@@ -398,6 +431,19 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
         "casparser_api": _try_casparser_api,
     }
 
+    # Drop casparser.in when sandbox mode is active — see equivalent
+    # comment in parse_cas_pdf_with_data above.
+    try:
+        from services.cas_api_client import is_sandbox_active
+        if is_sandbox_active() and "casparser_api" in chain:
+            chain.remove("casparser_api")
+            logger.info(
+                "parse_cas_pdf: casparser.in is in sandbox mode — removed "
+                "from auto-fallback chain to avoid false-success mock data"
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
     for provider in chain:
         fn = handlers.get(provider)
         if not fn:
@@ -414,6 +460,23 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 return h
             logger.info(f"parse_cas_pdf: {provider} returned nothing, trying next")
         except Exception as e:
+            err_str = str(e).lower()
+            # PDF password errors → abort entire chain (user error, not
+            # parser failure). Bubble up so the upload route surfaces a
+            # clear "wrong password" message instead of silently falling
+            # through to a sandbox-mock false success.
+            if any(tok in err_str for tok in [
+                "password rejected", "incorrect password", "wrong password",
+                "password is required", "password protected",
+            ]):
+                logger.warning(f"parse_cas_pdf: password error on {provider} — aborting chain")
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Wrong CAS PDF password. Please re-enter your PAN "
+                        "(format: ABCDE1234F) and try again."
+                    ),
+                )
             logger.warning(f"parse_cas_pdf: {provider} failed ({e}), trying next")
 
     # 2nd: casparser library
