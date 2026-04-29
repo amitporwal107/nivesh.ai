@@ -6,6 +6,7 @@ import uuid
 import logging
 import asyncio
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import HTTPException
 
 from deps import db, ai_engine
@@ -204,107 +205,124 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
     "casparser_lib", "local_ocr", "ai", or None on total failure.
 
     Provider routing:
-      The active provider is stored in `db.system_config` under
-      `{key: "cas_parser_provider"}`. When `claude_vision`, we route
-      DIRECTLY to the Claude path and skip casparser.in/casparser-lib.
-      When `casparser_api` (default), we follow the original chain.
+      The active provider is the *primary* try (default `nivesh_cas_parser`).
+      We then auto-fall-back through the remaining providers in order
+      (Nivesh → Claude Vision → casparser.in API → casparser library
+      → OCR / AI) until one returns holdings. The UI never branches on
+      provider — it's purely a server-side concern.
     """
-    # Resolve the active provider (admin-controlled). Default = casparser_api
-    # so existing deployments keep working without DB writes.
-    active_provider = "casparser_api"
+    # Resolve the primary provider (admin-controlled). Default = nivesh_cas_parser.
+    active_provider = "nivesh_cas_parser"
     try:
         from deps import db as _db
         cfg = await _db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0})
         if cfg and cfg.get("provider"):
             active_provider = cfg["provider"]
     except Exception as e:  # noqa: BLE001
-        logger.info(f"Could not load cas_parser_provider, defaulting to casparser_api: {e}")
+        logger.info(f"Could not load cas_parser_provider, defaulting to nivesh_cas_parser: {e}")
 
-    logger.info(f"parse_cas_pdf_with_data: active_provider={active_provider}")
+    # Build the try-order with the primary first, then the rest.
+    # casparser_api is always last because it consumes paid credits and
+    # may return sandbox stubs when admin enabled sandbox mode.
+    chain: list = []
+    seen: set = set()
+    for p in [active_provider, "nivesh_cas_parser", "claude_vision", "casparser_api"]:
+        if p not in seen:
+            chain.append(p); seen.add(p)
+    logger.info(f"parse_cas_pdf_with_data: active={active_provider} chain={chain}")
 
-    # ── PROVIDER: Nivesh CAS Parser (Google Document AI) ──────────────
-    if active_provider == "nivesh_cas_parser":
+    # Result accumulators — first non-empty wins.
+    holdings: list = []
+    normalized = None
+    raw_payload = None
+    parser_source: Optional[str] = None
+
+    # ── Helper: try Nivesh ────────────────────────────────────────────
+    async def _try_nivesh():
+        from services.nivesh_cas_parser import (
+            parse_with_nivesh, is_configured as _ok,
+        )
+        from services.claude_cas_mapper import map_to_internal as _mp
+        if not _ok():
+            return None
+        raw = parse_with_nivesh(content, password=password or "")
+        if not raw:
+            return None
+        h, n = _mp(raw)
+        return (h, n, raw, "nivesh_cas_parser") if h else None
+
+    # ── Helper: try Claude Vision ─────────────────────────────────────
+    async def _try_claude():
+        from services.claude_cas_parser import (
+            parse_with_claude_vision, is_configured as _ok,
+            BudgetExceededError,
+        )
+        from services.claude_cas_mapper import map_to_internal as _mp
+        if not _ok():
+            return None
         try:
-            from services.nivesh_cas_parser import (
-                parse_with_nivesh, is_configured as _ng_ok,
-            )
-            from services.claude_cas_mapper import map_to_internal as _ng_map
-            if _ng_ok():
-                raw_nivesh = parse_with_nivesh(content, password=password or "")
-                if raw_nivesh:
-                    holdings, normalized = _ng_map(raw_nivesh)
-                    if holdings:
-                        try:
-                            from services.masterdata import validate_and_enrich_holdings
-                            holdings = validate_and_enrich_holdings(holdings)
-                        except Exception as e:
-                            logger.info(f"Masterdata enrichment skipped: {e}")
-                        logger.info(
-                            f"Nivesh CAS Parser extracted {len(holdings)} holdings + "
-                            f"{sum(len(s.get('transactions') or []) for f in normalized.get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
-                        )
-                        return holdings, normalized, raw_nivesh, "nivesh_cas_parser"
-                    logger.info("Nivesh parser returned no holdings, falling back")
-            else:
-                logger.info("Nivesh parser not configured, falling back")
-        except Exception as e:
-            logger.warning(f"Nivesh parser failed: {e}, falling back to casparser_api")
-        # If Nivesh fails or is unconfigured, fall through to casparser_api.
-
-    # ── PROVIDER: Claude Vision ───────────────────────────────────────
-    if active_provider == "claude_vision":
-        try:
-            from services.claude_cas_parser import (
-                parse_with_claude_vision, is_configured as _cv_ok,
-                BudgetExceededError,
-            )
-            from services.claude_cas_mapper import map_to_internal as _cv_map
-            if _cv_ok():
-                raw_claude = await parse_with_claude_vision(content, password=password)
-                if raw_claude:
-                    holdings, normalized = _cv_map(raw_claude)
-                    if holdings:
-                        try:
-                            from services.masterdata import validate_and_enrich_holdings
-                            holdings = validate_and_enrich_holdings(holdings)
-                        except Exception as e:
-                            logger.info(f"Masterdata enrichment skipped: {e}")
-                        logger.info(
-                            f"Claude Vision extracted {len(holdings)} holdings + "
-                            f"{sum(len(s.get('transactions') or []) for f in normalized.get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
-                        )
-                        return holdings, normalized, raw_claude, "claude_vision"
-                    logger.info("Claude Vision returned no holdings, falling back")
-        except BudgetExceededError as e:
-            # Bubble up — don't fall back, the admin needs to top up the
-            # Emergent LLM key first. A specific exception lets the
-            # caller render a clear "top-up needed" error in the UI.
-            logger.error(f"Claude Vision: {e}")
+            raw = await parse_with_claude_vision(content, password=password)
+        except BudgetExceededError:
+            # Re-raise so the outer caller can render a clear "top-up
+            # needed" error — but only if no other parser has succeeded
+            # yet. We swallow it here only when subsequent providers
+            # might still work.
             raise
-        except Exception as e:
-            logger.warning(f"Claude Vision failed: {e}, falling back to casparser_api")
-        # If Claude failed or returned nothing, fall through to casparser_api
-        # so the user still gets data.
+        if not raw:
+            return None
+        h, n = _mp(raw)
+        return (h, n, raw, "claude_vision") if h else None
 
-    # ── PROVIDER: casparser.in API (default) ──────────────────────────
-    try:
-        from services.cas_api_client import parse_cas_via_api_with_data, is_configured
-        if is_configured():
-            api_holdings, raw_api, normalized = parse_cas_via_api_with_data(content, password or "")
-            if api_holdings:
+    # ── Helper: try casparser.in API ──────────────────────────────────
+    async def _try_casparser_api():
+        from services.cas_api_client import parse_cas_via_api_with_data, is_configured as _ok
+        if not _ok():
+            return None
+        h, raw, n = parse_cas_via_api_with_data(content, password or "")
+        return (h, n, raw, "casparser_api") if h else None
+
+    handlers = {
+        "nivesh_cas_parser": _try_nivesh,
+        "claude_vision": _try_claude,
+        "casparser_api": _try_casparser_api,
+    }
+
+    budget_error = None
+    for provider in chain:
+        fn = handlers.get(provider)
+        if not fn:
+            continue
+        try:
+            result = await fn()
+            if result:
+                holdings, normalized, raw_payload, parser_source = result
                 logger.info(
-                    f"CAS Parser API extracted {len(api_holdings)} holdings + "
-                    f"{sum(len(s.get('transactions') or []) for f in (normalized or {}).get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
+                    f"parse_cas_pdf_with_data: success via {parser_source} "
+                    f"({len(holdings)} holdings)"
                 )
-                try:
-                    from services.masterdata import validate_and_enrich_holdings
-                    api_holdings = validate_and_enrich_holdings(api_holdings)
-                except Exception as e:
-                    logger.info(f"Masterdata enrichment skipped: {e}")
-                return api_holdings, normalized, raw_api, "casparser_api"
-            logger.info("CAS Parser API returned no holdings, falling back")
-    except Exception as e:
-        logger.info(f"CAS Parser API failed: {e}, falling back to casparser library")
+                break
+            logger.info(f"parse_cas_pdf_with_data: {provider} returned nothing, trying next")
+        except Exception as e:
+            # Capture BudgetExceededError separately so we can re-raise
+            # if NO downstream provider works.
+            if e.__class__.__name__ == "BudgetExceededError":
+                budget_error = e
+            logger.warning(f"parse_cas_pdf_with_data: {provider} failed ({e}), trying next")
+
+    if not holdings and budget_error:
+        # All other providers also failed — surface the budget error so
+        # admins can top up the LLM key.
+        raise budget_error
+
+    if holdings:
+        try:
+            from services.masterdata import validate_and_enrich_holdings
+            holdings = validate_and_enrich_holdings(holdings)
+        except Exception as e:
+            logger.info(f"Masterdata enrichment skipped: {e}")
+        return holdings, normalized, raw_payload, parser_source
+
+    # ── Final fallback: casparser library + OCR + AI (no provider toggle) ──
 
     # 2nd: casparser library — also produces structured transactions
     try:
@@ -325,74 +343,78 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
 
 
 async def parse_cas_pdf(content: bytes, password: str = "") -> list:
-    """Parse CAS PDF. Uses casparser API first, then library, then OCR, then AI."""
-
-    # ── Provider check: when admin selected Claude Vision, route to it
-    # FIRST so the simpler `parse_cas_pdf` callers (upload-raw, etc.)
-    # also benefit from the new parser.
+    """Parse CAS PDF — auto-fallback chain (holdings-only path).
+    Tries the admin-selected primary provider first, then falls through
+    Nivesh → Claude Vision → casparser.in API → casparser library →
+    OCR / AI. Returns the first non-empty holdings list.
+    """
+    # Resolve primary provider; default = nivesh_cas_parser.
     try:
         from deps import db as _db
         cfg = await _db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0})
-        active_provider = (cfg or {}).get("provider") or "casparser_api"
+        active_provider = (cfg or {}).get("provider") or "nivesh_cas_parser"
     except Exception:  # noqa: BLE001
-        active_provider = "casparser_api"
+        active_provider = "nivesh_cas_parser"
 
-    if active_provider == "claude_vision":
+    chain: list = []
+    seen: set = set()
+    for p in [active_provider, "nivesh_cas_parser", "claude_vision", "casparser_api"]:
+        if p not in seen:
+            chain.append(p); seen.add(p)
+    logger.info(f"parse_cas_pdf: active={active_provider} chain={chain}")
+
+    async def _try_nivesh():
+        from services.nivesh_cas_parser import parse_with_nivesh, is_configured as _ok
+        from services.claude_cas_mapper import map_to_holdings as _mp
+        if not _ok():
+            return None
+        raw = parse_with_nivesh(content, password=password or "")
+        if not raw:
+            return None
+        h = _mp(raw)
+        return h or None
+
+    async def _try_claude():
+        from services.claude_cas_parser import parse_with_claude_vision, is_configured as _ok
+        from services.claude_cas_mapper import map_to_holdings as _mp
+        if not _ok():
+            return None
+        raw = await parse_with_claude_vision(content, password=password or "")
+        if not raw:
+            return None
+        h = _mp(raw)
+        return h or None
+
+    async def _try_casparser_api():
+        from services.cas_api_client import parse_cas_via_api, is_configured as _ok
+        if not _ok():
+            return None
+        h = parse_cas_via_api(content, password or "")
+        return h or None
+
+    handlers = {
+        "nivesh_cas_parser": _try_nivesh,
+        "claude_vision": _try_claude,
+        "casparser_api": _try_casparser_api,
+    }
+
+    for provider in chain:
+        fn = handlers.get(provider)
+        if not fn:
+            continue
         try:
-            from services.claude_cas_parser import parse_with_claude_vision, is_configured as _cv_ok
-            from services.claude_cas_mapper import map_to_holdings as _cv_map_h
-            if _cv_ok():
-                raw_claude = await parse_with_claude_vision(content, password=password or "")
-                if raw_claude:
-                    holdings = _cv_map_h(raw_claude)
-                    if holdings:
-                        logger.info(f"Claude Vision extracted {len(holdings)} holdings (parse_cas_pdf path)")
-                        try:
-                            from services.masterdata import validate_and_enrich_holdings
-                            holdings = validate_and_enrich_holdings(holdings)
-                        except Exception as e:
-                            logger.info(f"Masterdata enrichment skipped: {e}")
-                        return holdings
-                    logger.info("Claude Vision returned no holdings, falling back")
-        except Exception as e:
-            logger.info(f"Claude Vision failed: {e}, falling back to API/library/OCR")
-
-    if active_provider == "nivesh_cas_parser":
-        try:
-            from services.nivesh_cas_parser import parse_with_nivesh, is_configured as _ng_ok
-            from services.claude_cas_mapper import map_to_holdings as _ng_map_h
-            if _ng_ok():
-                raw_nivesh = parse_with_nivesh(content, password=password or "")
-                if raw_nivesh:
-                    holdings = _ng_map_h(raw_nivesh)
-                    if holdings:
-                        logger.info(f"Nivesh CAS Parser extracted {len(holdings)} holdings (parse_cas_pdf path)")
-                        try:
-                            from services.masterdata import validate_and_enrich_holdings
-                            holdings = validate_and_enrich_holdings(holdings)
-                        except Exception as e:
-                            logger.info(f"Masterdata enrichment skipped: {e}")
-                        return holdings
-                    logger.info("Nivesh parser returned no holdings, falling back")
-        except Exception as e:
-            logger.info(f"Nivesh parser failed: {e}, falling back to API/library/OCR")
-
-    # 1st: CAS Parser API
-    try:
-        from services.cas_api_client import parse_cas_via_api, is_configured
-        if is_configured():
-            api_holdings = parse_cas_via_api(content, password or "")
-            if api_holdings:
-                logger.info(f"CAS Parser API extracted {len(api_holdings)} holdings")
+            h = await fn()
+            if h:
+                logger.info(f"parse_cas_pdf: success via {provider} ({len(h)} holdings)")
                 try:
                     from services.masterdata import validate_and_enrich_holdings
-                    api_holdings = validate_and_enrich_holdings(api_holdings)
+                    h = validate_and_enrich_holdings(h)
                 except Exception as e:
                     logger.info(f"Masterdata enrichment skipped: {e}")
-                return api_holdings
-            logger.info("CAS Parser API returned no holdings, falling back")
-    except Exception as e:
-        logger.info(f"CAS Parser API failed: {e}, falling back to casparser library")
+                return h
+            logger.info(f"parse_cas_pdf: {provider} returned nothing, trying next")
+        except Exception as e:
+            logger.warning(f"parse_cas_pdf: {provider} failed ({e}), trying next")
 
     # 2nd: casparser library
     try:

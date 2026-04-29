@@ -14,8 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 import DrilldownModal from "@/components/DrilldownModal";
-import CasConnectButton from "@/components/CasConnectButton";
-import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
+import CasUploadButton from "@/components/CasUploadButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -131,12 +130,15 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
   const [drilldown, setDrilldown] = useState(null);
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
-  // Active CAS parser provider (admin-toggled). Drives which upload widget
-  // appears in the empty-state CTA below.
-  const [casProvider, setCasProvider] = useState("casparser_api");
+  // CAS parser provider was previously read here to branch the upload
+  // widget. The single `CasUploadButton` is now provider-agnostic and
+  // the backend dispatches transparently — this state is kept only as
+  // an extension point for future per-tenant overrides.
+  // eslint-disable-next-line no-unused-vars
+  const [casProvider, setCasProvider] = useState("nivesh_cas_parser");
   useEffect(() => {
     axios.get(`${API}/cas-parser-provider/active`, { withCredentials: true })
-      .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
+      .then((r) => setCasProvider(r.data?.provider || "nivesh_cas_parser"))
       .catch(() => { /* keep default */ });
   }, []);
 
@@ -182,30 +184,15 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
             Import your portfolio in seconds with your CAS PDF — the system parses every holding, transaction, and SIP automatically.
           </p>
-          {/* Provider-aware upload CTA. casparser.in uses its hosted SDK
-              widget; Claude Vision and Nivesh Parser both use our
-              raw-upload endpoint which dispatches via the active
-              provider. */}
+          {/* Single generic CAS uploader — backend auto-fallback chain
+              (Nivesh → Claude → casparser.in) is invisible to the user. */}
           <div className="flex flex-wrap items-center justify-center gap-3" data-testid="empty-dashboard-cta">
-            {casProvider !== "casparser_api" ? (
-              <ClaudeCasUploadButton
-                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-10 px-5"
-                label={casProvider === "nivesh_cas_parser"
-                  ? "Import CAS via Nivesh Parser"
-                  : "Import CAS via Claude Vision"}
-                testId={casProvider === "nivesh_cas_parser"
-                  ? "dashboard-empty-nivesh-btn"
-                  : "dashboard-empty-claude-btn"}
-                onSuccess={onRefresh}
-              />
-            ) : (
-              <CasConnectButton
-                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-10 px-5"
-                label="Import via CAS Connect"
-                testId="dashboard-empty-cas-btn"
-                onSuccess={onRefresh}
-              />
-            )}
+            <CasUploadButton
+              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-10 px-5"
+              label="Import CAS PDF"
+              testId="dashboard-empty-cas-btn"
+              onSuccess={onRefresh}
+            />
             <Button
               variant="outline"
               onClick={onRefresh}

@@ -321,7 +321,7 @@ async def get_cas_parser_provider(request: Request):
     from services import cas_api_client as _api
     from services import nivesh_cas_parser as _ng
     return {
-        "provider": doc.get("provider", "casparser_api"),
+        "provider": doc.get("provider", "nivesh_cas_parser"),
         "updated_at": doc.get("updated_at"),
         "updated_by": doc.get("updated_by"),
         "casparser_api_configured": _api.is_configured(),
@@ -340,7 +340,7 @@ async def get_active_cas_parser_provider(request: Request):
     from deps import get_current_user
     await get_current_user(request)
     doc = await db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0}) or {}
-    return {"provider": doc.get("provider", "casparser_api")}
+    return {"provider": doc.get("provider", "nivesh_cas_parser")}
 
 
 @router.put("/admin/cas-parser-provider")

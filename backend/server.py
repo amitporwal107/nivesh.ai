@@ -67,6 +67,7 @@ app = FastAPI(title="nivesh.ai API", version="2.0")
 # Include all routers
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(admin_users_router)
 app.include_router(admin_v3_master_router)
 app.include_router(admin_v3_weights_router)
 app.include_router(admin_v3_stock_router)

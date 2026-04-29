@@ -23,6 +23,7 @@ import V3WeightsSection from "@/components/admin/V3WeightsSection";
 import V3StockWeightsSection from "@/components/admin/V3StockWeightsSection";
 import V3MasterFundsSection from "@/components/admin/V3MasterFundsSection";
 import V3MasterStocksSection from "@/components/admin/V3MasterStocksSection";
+import UserManagementSection from "@/components/admin/UserManagementSection";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -311,6 +312,7 @@ const AdminView = () => {
           )}
 
           <FeatureFlagsSection />
+          <UserManagementSection />
           <SecretsSection
             categoryFilter={["auth", "ai"]}
             title="Auth & AI Secrets"

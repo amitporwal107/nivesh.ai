@@ -11,8 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import CasConnectButton from "@/components/CasConnectButton";
-import ClaudeCasUploadButton from "@/components/ClaudeCasUploadButton";
+import CasUploadButton from "@/components/CasUploadButton";
 import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -135,15 +134,13 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
   const autoRef = useRef(null);
   const autoTimeout = useRef(null);
 
-  // CAS parser provider — read once on mount so the page can switch between
-  // CasConnectButton (casparser.in) and ClaudeCasUploadButton (Claude Vision)
-  // based on the admin toggle. Uses the read-only `/cas-parser-provider/active`
-  // endpoint which any authenticated user can query (the admin-scoped GET
-  // exposes config metadata that non-admins shouldn't see).
-  const [casProvider, setCasProvider] = useState("casparser_api");
+  // CAS parser provider — read once for diagnostics; the upload UI is
+  // provider-agnostic now (backend dispatches across providers).
+  // eslint-disable-next-line no-unused-vars
+  const [casProvider, setCasProvider] = useState("nivesh_cas_parser");
   useEffect(() => {
     axios.get(`${API}/cas-parser-provider/active`, { withCredentials: true })
-      .then((r) => setCasProvider(r.data?.provider || "casparser_api"))
+      .then((r) => setCasProvider(r.data?.provider || "nivesh_cas_parser"))
       .catch(() => { /* keep default */ });
   }, []);
 
@@ -340,29 +337,13 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             label="Export"
             testId="portfolio-export-btn"
           />
-          {casProvider !== "casparser_api" ? (
-            <ClaudeCasUploadButton
-              variant="outline"
-              className={casProvider === "nivesh_cas_parser"
-                ? "rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-                : "rounded-xl border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"}
-              label={casProvider === "nivesh_cas_parser"
-                ? "Upload via Nivesh Parser"
-                : "Upload via Claude Vision"}
-              testId={casProvider === "nivesh_cas_parser"
-                ? "header-nivesh-cas-btn"
-                : "header-claude-cas-btn"}
-              onSuccess={onRefresh}
-            />
-          ) : (
-            <CasConnectButton
-              variant="outline"
-              className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-              label="CAS Connect"
-              testId="header-cas-connect-btn"
-              onSuccess={onRefresh}
-            />
-          )}
+          <CasUploadButton
+            variant="outline"
+            className="rounded-xl border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+            label="Import CAS"
+            testId="header-cas-upload-btn"
+            onSuccess={onRefresh}
+          />
           <Button data-testid="add-holding-button" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">
             <Plus className="w-4 h-4 mr-2" />Add Holding
           </Button>
@@ -456,27 +437,12 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
             </p>
             {!searchQuery && activeAssetTab === "all" && (
               <div className="flex flex-wrap items-center justify-center gap-3">
-                {casProvider !== "casparser_api" ? (
-                  <ClaudeCasUploadButton
-                    className={casProvider === "nivesh_cas_parser"
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
-                      : "bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl"}
-                    label={casProvider === "nivesh_cas_parser"
-                      ? "Upload CAS via Nivesh Parser"
-                      : "Upload CAS via Claude Vision"}
-                    testId={casProvider === "nivesh_cas_parser"
-                      ? "empty-nivesh-cas-btn"
-                      : "empty-claude-cas-btn"}
-                    onSuccess={onRefresh}
-                  />
-                ) : (
-                  <CasConnectButton
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
-                    label="Import via CAS Connect"
-                    testId="empty-cas-connect-btn"
-                    onSuccess={onRefresh}
-                  />
-                )}
+                <CasUploadButton
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+                  label="Import CAS PDF"
+                  testId="empty-cas-upload-btn"
+                  onSuccess={onRefresh}
+                />
                 <Button variant="outline" onClick={() => setShowAddDialog(true)} className="rounded-xl border-slate-200 dark:border-slate-700" data-testid="empty-add-btn">
                   <Plus className="w-4 h-4 mr-2" /> Add Manually
                 </Button>

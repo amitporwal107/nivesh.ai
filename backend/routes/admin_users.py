@@ -125,3 +125,145 @@ async def invalidate_user_sessions(user_id: str, request: Request) -> Dict[str, 
     result = await db.user_sessions.delete_many({"user_id": user_id})
     logger.info(f"admin[{admin.get('email')}] invalidated {result.deleted_count} sessions for user {user_id}")
     return {"ok": True, "deleted_sessions": result.deleted_count}
+
+
+# Collections wiped by reset_portfolio_data. Every entry must have a
+# `user_id` field for per-user filtering. Order is largest first so the
+# cumulative counters in the UI feel responsive.
+_RESET_COLLECTIONS: List[str] = [
+    "holdings",
+    "portfolios",
+    "portfolio_analysis",
+    "portfolio_analysis_deep",
+    "portfolio_snapshots",
+    "ai_insights",
+    "action_plans",
+    "pending_actions",
+    "cas_parsed_responses",
+    "cas_transactions",
+    "detected_sips",
+    "saved_scenarios",
+    "scenario_simulations",
+    "upload_tasks",
+    "chat_sessions",
+    "chat_messages",
+    "copilot_cache",
+    "allocation_analysis_cache",
+    "fund_performance_cache",
+    "mfd_profile_signal_cache",
+    "gmail_imports",
+]
+
+# Onboarding-flag fields cleared on `user_profiles` (mirrors the global
+# `scripts/reset_portfolio_data.py` so the user re-runs onboarding on
+# next login). `cas_view_state` is also cleared from the `users` doc so
+# the dashboard doesn't pin to a stale CAS snapshot.
+_RESET_PROFILE_FIELDS: Dict[str, Any] = {
+    "onboarding_completed": False,
+    "journey_type": None,
+    "risk_profile": None,
+    "playbook": None,
+    "goals": [],
+    "selected_sources": [],
+}
+
+
+@router.post("/users/{user_id}/reset-portfolio")
+async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]:
+    """Wipe a single user's portfolio + insights data and reset their
+    onboarding flags so they appear as a brand-new user. Used by
+    admins to retest onboarding flows on a real account.
+
+    Preserves: the `users` row itself, sessions, whitelist, gmail_tokens,
+    workspaces, profiles (family members), consent_records, audit_log.
+    """
+    admin = await require_admin(request)
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    deleted: Dict[str, int] = {}
+    for col in _RESET_COLLECTIONS:
+        try:
+            res = await db[col].delete_many({"user_id": user_id})
+            deleted[col] = res.deleted_count
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"reset_portfolio: skip {col} for {user_id}: {e}")
+            deleted[col] = 0
+
+    # Reset onboarding flags on user_profiles
+    now_iso = datetime.now(timezone.utc).isoformat()
+    profile_update = {"$set": {**_RESET_PROFILE_FIELDS, "updated_at": now_iso}}
+    profile_res = await db.user_profiles.update_one(
+        {"user_id": user_id}, profile_update
+    )
+
+    # Clear the cas_view_state pin on the users doc so the dashboard
+    # doesn't keep referencing a deleted snapshot.
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$unset": {"cas_view_state": ""}},
+    )
+
+    # Best-effort Redis cache invalidation (snapshot scoring, V3 caches).
+    redis_cleared = 0
+    try:
+        from services.redis_client import get_client as _get_redis
+        rc = await _get_redis()
+        if rc is not None:
+            patterns = [
+                f"snap:*:{user_id}",
+                f"score:user:{user_id}*",
+                f"v3:user:{user_id}*",
+                f"actionplan:{user_id}*",
+                f"copilot:{user_id}*",
+            ]
+            for pat in patterns:
+                try:
+                    cursor = 0
+                    while True:
+                        cursor, keys = await rc.scan(cursor=cursor, match=pat, count=200)
+                        if keys:
+                            await rc.delete(*keys)
+                            redis_cleared += len(keys)
+                        if cursor == 0:
+                            break
+                except Exception as e:  # noqa: BLE001
+                    logger.info(f"redis scan/delete skipped for pattern {pat}: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Redis client unavailable, skipping cache flush: {e}")
+
+    # Audit
+    total_deleted = sum(deleted.values())
+    audit_doc = {
+        "kind": "admin.reset_portfolio",
+        "actor_user_id": admin.get("user_id"),
+        "actor_email": admin.get("email"),
+        "target_user_id": user_id,
+        "target_email": user.get("email"),
+        "deleted_per_collection": deleted,
+        "total_deleted": total_deleted,
+        "profile_modified": profile_res.modified_count,
+        "redis_keys_cleared": redis_cleared,
+        "timestamp": now_iso,
+    }
+    try:
+        await db.audit_log.insert_one(audit_doc)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"audit log insert failed: {e}")
+
+    logger.info(
+        f"admin[{admin.get('email')}] reset portfolio for user {user_id} "
+        f"({user.get('email')}): {total_deleted} docs, {redis_cleared} redis keys"
+    )
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "user_email": user.get("email"),
+        "deleted_per_collection": deleted,
+        "total_deleted": total_deleted,
+        "profile_reset": bool(profile_res.modified_count),
+        "redis_keys_cleared": redis_cleared,
+    }

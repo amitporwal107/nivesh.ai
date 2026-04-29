@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## 2026-04-29 — Provider-agnostic CAS upload + per-user reset admin tool
+
+### What changed (UX)
+- **One button, one modal everywhere.** Replaced 5 different upload widgets
+  (`CasConnectButton`, `ClaudeCasUploadButton`, plus three provider-branched
+  renders) with a single generic `<CasUploadButton/>`. Label: "Import CAS PDF"
+  on dashboards, "Upload CAS PDF" on Client 360 / wizard. No mention of
+  "Nivesh", "Claude", "CAS Connect" anywhere in user-facing UI.
+- Default CAS parser provider is now **`nivesh_cas_parser`** (Google
+  Document AI). New deployments and missing-config reads default here.
+
+### What changed (server)
+- `helpers/parsing.parse_cas_pdf*` — true **auto-fallback chain**: tries the
+  admin-selected primary, then the others in order. The chain is
+  `[active_provider, nivesh, claude, casparser]` (deduped). First non-empty
+  result wins. Casparser.in still respects sandbox-mode admin toggle.
+- `BudgetExceededError` (Claude budget hit) is captured and only re-raised
+  if NO downstream provider succeeds — so a Claude budget cap no longer
+  blocks the full flow.
+
+### New: per-user admin reset
+- `POST /api/admin/users/{user_id}/reset-portfolio` — wipes 21
+  user-scoped collections (holdings, portfolios, snapshots, action_plans,
+  pending_actions, ai_insights, cas_parsed_responses, cas_transactions,
+  detected_sips, saved_scenarios, scenario_simulations, upload_tasks,
+  chat_sessions, chat_messages, copilot_cache, allocation_analysis_cache,
+  fund_performance_cache, mfd_profile_signal_cache, gmail_imports,
+  portfolio_analysis, portfolio_analysis_deep), clears Redis caches
+  (snap:*, score:user:*, v3:user:*, actionplan:*, copilot:*), resets
+  onboarding flags on `user_profiles`, and unsets `cas_view_state` on the
+  user. Audit-logged.
+- `UserManagementSection.jsx` — searchable user table with per-row reset,
+  toggle-admin, and force-logout actions. Reset is gated by an
+  email-confirmation modal that lists exactly what will be wiped.
+- Bugfix: `admin_users_router` was imported but never `include_router`'d
+  — now properly mounted.
+
+### Files
+- New: `services/nivesh_cas_parser.py`, `services/nivesh_cas_normalizer.py`,
+  `frontend/components/CasUploadButton.jsx`, `frontend/components/admin/UserManagementSection.jsx`.
+- Refactored: `helpers/parsing.py`, 5 upload-callsite components.
+- Retired (no longer imported anywhere): `CasConnectButton.js`,
+  `ClaudeCasUploadButton.jsx` (kept on disk for now to avoid breaking
+  any hot-reload state).
+
 ## 2026-04-29 — NIVESH_CAS_PARSER (Google Document AI as 3rd parser provider)
 
 ### What's new
