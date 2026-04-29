@@ -101,12 +101,23 @@ export default function CasUploadButton({
             return;
           }
           if (st === "failed" || st === "error") {
-            throw new Error(s.data?.message || "Parsing failed");
+            // Tag the error so the catch block below re-throws it (and
+            // the user-facing modal flips into the error state instead
+            // of spinning until the 4-minute timeout).
+            const e = new Error(s.data?.message || "Parsing failed");
+            e._fromStatus = true;
+            throw e;
           }
           if (s.data?.message) setProgressMsg(s.data.message);
         } catch (pollErr) {
-          if (pollErr.message?.includes("Parsing failed")) throw pollErr;
-          // Transient polling errors → keep going
+          // Surface backend-emitted error messages immediately. Also bail
+          // out on 404 (task was deleted/reset mid-poll) — otherwise we
+          // spin indefinitely.
+          if (pollErr._fromStatus) throw pollErr;
+          if (pollErr?.response?.status === 404) {
+            throw new Error("Upload session expired — please try again.");
+          }
+          // True transient errors (network blip) → keep polling.
         }
       }
       throw new Error("Parsing timed out after 4 minutes");
