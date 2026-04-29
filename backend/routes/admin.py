@@ -309,7 +309,7 @@ async def test_cas_connection(request: Request):
 # Stored as a system_config doc keyed `cas_parser_provider`. The
 # `parse_cas_pdf_with_data` helper reads this to choose between the
 # casparser.in API and the new Claude-Vision-based parser.
-VALID_PROVIDERS = {"casparser_api", "claude_vision"}
+VALID_PROVIDERS = {"casparser_api", "claude_vision", "nivesh_cas_parser"}
 
 
 @router.get("/admin/cas-parser-provider")
@@ -319,12 +319,14 @@ async def get_cas_parser_provider(request: Request):
     doc = await db.system_config.find_one({"key": "cas_parser_provider"}, {"_id": 0}) or {}
     from services import claude_cas_parser as _cv
     from services import cas_api_client as _api
+    from services import nivesh_cas_parser as _ng
     return {
         "provider": doc.get("provider", "casparser_api"),
         "updated_at": doc.get("updated_at"),
         "updated_by": doc.get("updated_by"),
         "casparser_api_configured": _api.is_configured(),
         "claude_vision_configured": _cv.is_configured(),
+        "nivesh_cas_parser_configured": _ng.is_configured(),
         "claude_model": _cv._model(),
     }
 

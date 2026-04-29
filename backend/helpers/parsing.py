@@ -222,6 +222,35 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
 
     logger.info(f"parse_cas_pdf_with_data: active_provider={active_provider}")
 
+    # ── PROVIDER: Nivesh CAS Parser (Google Document AI) ──────────────
+    if active_provider == "nivesh_cas_parser":
+        try:
+            from services.nivesh_cas_parser import (
+                parse_with_nivesh, is_configured as _ng_ok,
+            )
+            from services.claude_cas_mapper import map_to_internal as _ng_map
+            if _ng_ok():
+                raw_nivesh = parse_with_nivesh(content, password=password or "")
+                if raw_nivesh:
+                    holdings, normalized = _ng_map(raw_nivesh)
+                    if holdings:
+                        try:
+                            from services.masterdata import validate_and_enrich_holdings
+                            holdings = validate_and_enrich_holdings(holdings)
+                        except Exception as e:
+                            logger.info(f"Masterdata enrichment skipped: {e}")
+                        logger.info(
+                            f"Nivesh CAS Parser extracted {len(holdings)} holdings + "
+                            f"{sum(len(s.get('transactions') or []) for f in normalized.get('mutual_funds', []) for s in (f.get('schemes') or []))} transactions"
+                        )
+                        return holdings, normalized, raw_nivesh, "nivesh_cas_parser"
+                    logger.info("Nivesh parser returned no holdings, falling back")
+            else:
+                logger.info("Nivesh parser not configured, falling back")
+        except Exception as e:
+            logger.warning(f"Nivesh parser failed: {e}, falling back to casparser_api")
+        # If Nivesh fails or is unconfigured, fall through to casparser_api.
+
     # ── PROVIDER: Claude Vision ───────────────────────────────────────
     if active_provider == "claude_vision":
         try:
@@ -327,6 +356,26 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                     logger.info("Claude Vision returned no holdings, falling back")
         except Exception as e:
             logger.info(f"Claude Vision failed: {e}, falling back to API/library/OCR")
+
+    if active_provider == "nivesh_cas_parser":
+        try:
+            from services.nivesh_cas_parser import parse_with_nivesh, is_configured as _ng_ok
+            from services.claude_cas_mapper import map_to_holdings as _ng_map_h
+            if _ng_ok():
+                raw_nivesh = parse_with_nivesh(content, password=password or "")
+                if raw_nivesh:
+                    holdings = _ng_map_h(raw_nivesh)
+                    if holdings:
+                        logger.info(f"Nivesh CAS Parser extracted {len(holdings)} holdings (parse_cas_pdf path)")
+                        try:
+                            from services.masterdata import validate_and_enrich_holdings
+                            holdings = validate_and_enrich_holdings(holdings)
+                        except Exception as e:
+                            logger.info(f"Masterdata enrichment skipped: {e}")
+                        return holdings
+                    logger.info("Nivesh parser returned no holdings, falling back")
+        except Exception as e:
+            logger.info(f"Nivesh parser failed: {e}, falling back to API/library/OCR")
 
     # 1st: CAS Parser API
     try:

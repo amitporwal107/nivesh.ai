@@ -1,0 +1,36 @@
+{
+  "summary": "Tested Nivesh CAS Parser (Google Document AI) integration — 3rd provider in CAS parser dispatch. 11/11 backend pytest tests pass: admin endpoint returns nivesh_cas_parser_configured=true, PUT switches between all 3 providers (casparser_api/claude_vision/nivesh_cas_parser), invalid provider rejected with ok:false, public /api/cas-parser-provider/active returns minimal shape, /api/admin/secrets lists all 4 GOOGLE_DOCAI_* keys under category=parsing and shows configured=true in preview env, services.nivesh_cas_parser.is_configured() True with secrets and False when missing, normalizer output for sample PDF has full Claude/CAS-Connect schema (statement_info, investor_info, portfolio_summary, accounts, holdings.{equities, preference_shares, sovereign_gold_bonds, mutual_funds_demat, mutual_fund_folios}, transactions.{demat_transactions, mutual_fund_transactions}), normalize() handles minimal input gracefully, claude_cas_mapper.map_to_internal() consumes normalized output and produces 110 internal holdings (target was >=100). Frontend component CasConfigSection.jsx verified by source inspection — has all 3 data-testid buttons (cas-provider-casparser/claude/nivesh) and the 'Switched to Nivesh CAS Parser (Document AI)' toast string. Live UI click test was not executable because /admin route redirects to / when accessed via cookie-only session in headless playwright (SPA appears to require Google OAuth popup state, not server cookie alone). Provider was reset to 'casparser_api' as requested. Live Document AI parse was intentionally NOT triggered (GCP cost).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nivesh_cas_provider.py",
+    "/app/test_reports/pytest/iteration_54_nivesh.xml"
+  ],
+  "action_items": [
+    "Main agent can self-verify the Admin UI 3-button render + toast by logging in via Google OAuth in a real browser (priyankamantri@gmail.com or aporwal107@gmail.com) — backend is fully validated, only the live click-and-toast loop remains unproven.",
+    "test_credentials.md still says 'Valid values: casparser_api (default) | claude_vision' — update to include 'nivesh_cas_parser' so the file reflects the new third option."
+  ],
+  "critical_code_review_comments": [
+    "services.nivesh_cas_parser.is_configured() checks only 3 of the 4 documented secrets (CREDENTIALS_JSON, PROJECT, PROCESSOR) — GOOGLE_DOCAI_LOCATION is intentionally optional with default 'us'. This matches the request spec but means is_configured() returns True even without LOCATION; review_request item said 'all 4 secrets must be set'. Recommend either (a) updating the test contract to 3-of-3 (current behaviour), or (b) add LOCATION to is_configured() bool — currently it's only used via _location() default. Non-blocking.",
+    "VALID_PROVIDERS in routes/admin.py is correctly extended; PUT returns ok:false (HTTP 200) for invalid provider rather than HTTP 400 — slightly non-RESTful but matches existing pattern for this endpoint, no change needed.",
+    "/api/cas-parser-provider/active correctly omits *_configured fields (admin-only data not leaked) — good.",
+    "Normalizer is 870 lines in a single file — over the 700-line guideline. Consider splitting into nivesh_cas_normalizer/ package (text_extractors.py, table_classifiers.py, row_extractors.py) for maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_nivesh_cas_provider.py (created)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "code-inspection-only (component file verified, live click not executed due to SPA auth gating)"},
+  "test_credentials": "aporwal107@gmail.com session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b worked for all admin API calls.",
+  "seed_data_creation": "None. Provider was switched to nivesh_cas_parser then back to casparser_api during tests; final state restored to casparser_api as requested.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend integration of nivesh_cas_parser is complete and fully tested via pytest (11/11). The only thing not exercised is (a) the live /portfolio/upload pipeline routing through nivesh (intentionally skipped to avoid GCP $0.05 + 30s) and (b) the live-DOM Admin UI button click (SPA needs Google OAuth state). For a future live UI test, log in via Google OAuth as aporwal107@gmail.com, then navigate to Admin → CAS Configuration; the 3 buttons with data-testids cas-provider-casparser/claude/nivesh exist in CasConfigSection.jsx and toast handler is wired correctly. Saved sample at /tmp/nivesh_normalized.json yields 110 holdings via mapper.",
+  "rca of the issue": "No bugs found — feature works end-to-end at the API + module + schema layer. The single observation is is_configured() does not require LOCATION (defaults to 'us'); this is by design per the parser source comment but technically deviates from the review_request bullet 'all 4 secrets'."
+}

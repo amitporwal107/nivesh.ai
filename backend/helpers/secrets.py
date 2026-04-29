@@ -60,6 +60,30 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": "redis",
         "category": "data",
     },
+    "GOOGLE_DOCAI_CREDENTIALS_JSON": {
+        "display_name": "Google Document AI · Service Account JSON",
+        "description": "Full contents of the GCP service-account key.json (paste verbatim). Required when CAS Parser Provider = nivesh_cas_parser. Create one at Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.",
+        "test_fn": None,
+        "category": "parsing",
+    },
+    "GOOGLE_DOCAI_PROJECT": {
+        "display_name": "Google Document AI · Project ID",
+        "description": "GCP project that owns the Document AI processor (e.g., spatial-acumen-431713-j3).",
+        "test_fn": None,
+        "category": "parsing",
+    },
+    "GOOGLE_DOCAI_PROCESSOR": {
+        "display_name": "Google Document AI · Processor ID",
+        "description": "Document AI processor id (the long hex string shown on the processor's detail page).",
+        "test_fn": None,
+        "category": "parsing",
+    },
+    "GOOGLE_DOCAI_LOCATION": {
+        "display_name": "Google Document AI · Location",
+        "description": "Processor region — typically 'us' or 'eu' (default: 'us').",
+        "test_fn": None,
+        "category": "parsing",
+    },
 }
 
 # Module-level cache: DB overrides for the CURRENT running environment.

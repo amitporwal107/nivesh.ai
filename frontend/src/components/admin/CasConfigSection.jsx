@@ -114,7 +114,9 @@ const CasConfigSection = () => {
         toast.success(
           newProvider === "claude_vision"
             ? "Switched to Claude Vision parser"
-            : "Switched to casparser.in API"
+            : newProvider === "nivesh_cas_parser"
+              ? "Switched to Nivesh CAS Parser (Document AI)"
+              : "Switched to casparser.in API"
         );
         load();
       } else {
@@ -198,15 +200,19 @@ const CasConfigSection = () => {
                   <Sparkles className="w-4 h-4 text-indigo-600" />
                   <span className="text-sm font-bold text-slate-900 dark:text-slate-100">CAS Parser Provider</span>
                   <span className="ml-auto text-[10px] uppercase tracking-wider text-indigo-600 font-bold">
-                    Active: {provider.provider === "claude_vision" ? "Claude Vision" : "casparser.in"}
+                    Active: {
+                      provider.provider === "claude_vision" ? "Claude Vision"
+                      : provider.provider === "nivesh_cas_parser" ? "Nivesh Parser"
+                      : "casparser.in"
+                    }
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                  Switch between Anthropic Claude Vision (image-based parsing via Sonnet 4.5) and the
-                  casparser.in API. Claude Vision is great when casparser credits are exhausted or when
-                  you want richer extraction (transactions, accounts, investor info).
+                  Switch between three CAS parsing engines: <strong>casparser.in</strong> (text-based PDFs, paid credits),{" "}
+                  <strong>Claude Vision</strong> (Sonnet 4.5 image OCR via Emergent LLM key), or{" "}
+                  <strong>Nivesh Parser</strong> (Google Document AI — works on scanned PDFs, requires GCP service account).
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setProviderSwitch("casparser_api")}
@@ -253,6 +259,30 @@ const CasConfigSection = () => {
                     </div>
                     <div className="text-[11px] text-slate-500">
                       Image OCR via {provider.claude_model || "claude-sonnet-4-5"} · Emergent LLM key
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProviderSwitch("nivesh_cas_parser")}
+                    disabled={providerSaving || provider.provider === "nivesh_cas_parser"}
+                    data-testid="cas-provider-nivesh"
+                    className={`text-left p-3 rounded-xl border-2 transition-colors ${
+                      provider.provider === "nivesh_cas_parser"
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
+                        : "border-slate-200 dark:border-slate-700 hover:border-indigo-300 bg-white dark:bg-slate-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="w-4 h-4 text-emerald-500" />
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100">Nivesh Parser</span>
+                      {provider.nivesh_cas_parser_configured ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 ml-auto" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 text-rose-500 ml-auto" />
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Google Document AI · scanned PDFs · pay-per-page
                     </div>
                   </button>
                 </div>
