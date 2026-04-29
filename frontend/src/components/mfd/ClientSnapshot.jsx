@@ -1523,29 +1523,72 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
               )}
 
               {/* ── Tax breakdown footnote ───────────────────────────────── */}
-              {tax.tax_breakdown && (
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" data-testid="tax-breakdown">
-                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">
-                    Indicative tax breakdown
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
-                    {[
-                      ["Equity STCG", tax.tax_breakdown.equity_stcg, "amber"],
-                      ["Equity LTCG", tax.tax_breakdown.equity_ltcg, "emerald"],
-                      ["Debt slab",   tax.tax_breakdown.debt_slab,   "rose"],
-                      ["Debt LTCG legacy", tax.tax_breakdown.debt_ltcg_legacy, "violet"],
-                      ["Cess (4%)",   tax.tax_breakdown.cess_4pct,   "slate"],
-                    ].map(([label, val, tone]) => (
-                      <div key={label} className="rounded-md bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5">
-                        <div className="text-[9px] uppercase font-semibold text-slate-500">{label}</div>
-                        <div className={`tabular-nums font-bold text-${tone}-700 dark:text-${tone}-400`}>
-                          {fmtRs(val || 0)}
+              {tax.tax_breakdown && (() => {
+                // Detect "all positions are undated" — buckets all at zero
+                // even though there is real unrealized gain. The 4 ₹0 cells
+                // are technically correct but mislead the eye, so highlight
+                // the root cause inline (in addition to the amber banner up
+                // top) and link to the fix.
+                const dated = (tax.equity_stcg_count || 0) + (tax.equity_ltcg_count || 0)
+                            + (tax.debt_slab_count || 0)  + (tax.debt_ltcg_count || 0);
+                const allUndated = dated === 0 && (tax.undated_count || 0) > 0;
+                return (
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" data-testid="tax-breakdown">
+                    <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1.5">
+                      Indicative tax breakdown
+                    </div>
+                    {allUndated ? (
+                      // Single, unmissable callout — replaces the row of ₹0
+                      // cells which gave the false impression of "no tax due".
+                      <div
+                        className="rounded-lg border-2 border-amber-300 dark:border-amber-700 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-3.5 flex items-start gap-3"
+                        data-testid="tax-breakdown-undated"
+                      >
+                        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                            Tax buckets can't be computed yet
+                          </div>
+                          <div className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5 leading-relaxed">
+                            All <strong>{tax.undated_count} positions</strong> are missing a purchase date,
+                            so we can't split them into STCG / LTCG buckets. The unrealized gain shown
+                            above ({fmtRs(tax.total_unrealized_rs)}) is correct — only the indicative
+                            <em> tax </em>is unavailable.
+                          </div>
+                          <div className="text-[11px] text-amber-900 dark:text-amber-200 mt-2 font-semibold">
+                            Fix: <span className="font-normal">re-parse the latest CAS PDF — the
+                            structured parser captures per-lot allotment dates.</span>
+                          </div>
                         </div>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
+                        {[
+                          ["Equity STCG", tax.tax_breakdown.equity_stcg, "amber"],
+                          ["Equity LTCG", tax.tax_breakdown.equity_ltcg, "emerald"],
+                          ["Debt slab",   tax.tax_breakdown.debt_slab,   "rose"],
+                          ["Debt LTCG legacy", tax.tax_breakdown.debt_ltcg_legacy, "violet"],
+                          ["Cess (4%)",   tax.tax_breakdown.cess_4pct,   "slate"],
+                        ].map(([label, val, tone]) => (
+                          <div key={label} className="rounded-md bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5">
+                            <div className="text-[9px] uppercase font-semibold text-slate-500">{label}</div>
+                            <div className={`tabular-nums font-bold text-${tone}-700 dark:text-${tone}-400`}>
+                              {fmtRs(val || 0)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Even when SOME positions are dated, flag any undated leftovers. */}
+                    {!allUndated && (tax.undated_count || 0) > 0 && (
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-1.5">
+                        ⚠ {tax.undated_count} position{tax.undated_count === 1 ? "" : "s"} undated and excluded
+                        from this breakdown — re-parse CAS to include them.
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* ── Regime metadata · Switch warning · Footnotes ─────────── */}
               {tax.regime && (

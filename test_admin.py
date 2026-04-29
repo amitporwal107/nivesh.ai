@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 async def test_admin_intelligence():
-    BASE_URL = "https://advisor-timeline.preview.emergentagent.com/api"
+    BASE_URL = "https://wealth-advisor-96.preview.emergentagent.com/api"
     ADMIN_SESSION = "370eff71-fda1-46d8-b506-b81b894d634f"
     
     headers = {

@@ -3,7 +3,7 @@
   "backend_issues": {
     "critical": [],
     "minor": [
-      {"endpoint": "tests/test_v2_plans.py", "issue": "Pre-existing test file has hardcoded stale preview URL 'https://advisor-timeline.preview.emergentagent.com' \u2014 causes 404s. Live endpoint /api/plans/generate works (returns 200). Not an Iteration 38 regression. Main agent should update BASE_URL to read from REACT_APP_BACKEND_URL env."}
+      {"endpoint": "tests/test_v2_plans.py", "issue": "Pre-existing test file has hardcoded stale preview URL 'https://wealth-advisor-96.preview.emergentagent.com' \u2014 causes 404s. Live endpoint /api/plans/generate works (returns 200). Not an Iteration 38 regression. Main agent should update BASE_URL to read from REACT_APP_BACKEND_URL env."}
     ]
   },
   "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
@@ -34,5 +34,5 @@
   "retest_needed": false,
   "main_agent_can_self_test": true,
   "context_for_next_testing_agent": "Iteration 38 shipped clean. Phase A health parity verified within \u00b11 across Dashboard/Insights/Plan Board. Phase B stock scoring engine + admin endpoints fully unit & API tested. Unresolved item: Postgres migration 008 (stock_master table) is pending production deploy \u2014 /api/admin/v3-stock-master returns error field in sandbox (expected). Groww Nifty 100 scraper is deferred follow-up. Stale hardcoded URL in test_v2_plans.py pre-existed; not related to this iteration.",
-  "rca of the issue": "N/A \u2014 no issues found in Iteration 38 scope. The test_v2_plans.py failures RCA: hardcoded BASE_URL='https://advisor-timeline.preview.emergentagent.com' in lines 21-22 of that file predates iteration 38. Live endpoint returns 200; fix is to replace the constant with os.environ['REACT_APP_BACKEND_URL']."
+  "rca of the issue": "N/A \u2014 no issues found in Iteration 38 scope. The test_v2_plans.py failures RCA: hardcoded BASE_URL='https://wealth-advisor-96.preview.emergentagent.com' in lines 21-22 of that file predates iteration 38. Live endpoint returns 200; fix is to replace the constant with os.environ['REACT_APP_BACKEND_URL']."
 }
