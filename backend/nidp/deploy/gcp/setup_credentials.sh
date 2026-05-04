@@ -203,13 +203,30 @@ if [[ -f "$GITIGNORE_ROOT/.gitignore" ]]; then
     fi
 fi
 
-# Hard-fail if the key path would land inside a git repo and isn't ignored.
+# Hard-fail if the key path would land inside a git repo and isn't
+# ignored. git check-ignore exits:
+#    0   → path matches a gitignore rule (safe)
+#    1   → path is INSIDE the repo and NOT ignored (UNSAFE — fail)
+#  128   → path is OUTSIDE the repo (also safe — git can't reach it)
 if [[ -d "$GITIGNORE_ROOT/.git" ]] && ! $DRY && [[ -f "$KEY_PATH" ]]; then
-    if ! git -C "$GITIGNORE_ROOT" check-ignore -q "$KEY_PATH"; then
-        log "ERROR: $KEY_PATH is NOT git-ignored. Remove it before continuing."
-        exit 1
-    fi
-    log "  ✓ git check-ignore confirms $KEY_PATH is excluded"
+    git -C "$GITIGNORE_ROOT" check-ignore -q "$KEY_PATH" 2>/dev/null
+    rc=$?
+    case "$rc" in
+        0)
+            log "  ✓ git check-ignore confirms $KEY_PATH is excluded by .gitignore"
+            ;;
+        128)
+            log "  ✓ key path is outside the repo — physically unreachable to git commit"
+            ;;
+        1)
+            log "ERROR: $KEY_PATH is inside the repo but NOT git-ignored." >&2
+            log "  Either move it outside the repo, or add the path to .gitignore." >&2
+            exit 1
+            ;;
+        *)
+            log "  WARN: git check-ignore returned $rc (unexpected); proceeding cautiously."
+            ;;
+    esac
 fi
 
 # ── 6. Smoke-verify the key works ───────────────────────────────────
