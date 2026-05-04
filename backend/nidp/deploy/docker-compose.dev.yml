@@ -1,0 +1,153 @@
+# NIDP local development stack.
+#
+# Brings up the production-shaped infra so ingesters can be exercised
+# end-to-end without cloud accounts:
+#
+#   postgres + timescaledb    — primary store
+#   redpanda                  — Kafka-API broker (single-node, no ZK)
+#   schema-registry           — Confluent SR, talks to redpanda
+#   redis                     — cache/lock substrate
+#   prometheus                — scrapes ingester /metrics
+#   grafana                   — dashboards (admin/admin)
+#   minio                     — S3-compatible (raw-archive prod path)
+#
+# Usage:
+#   cd backend/nidp/deploy
+#   docker compose -f docker-compose.dev.yml up -d
+#   docker compose -f docker-compose.dev.yml exec postgres \
+#       psql -U postgres -d nidp -c "select 1"
+#
+# Ports:
+#   5433  postgres                (avoid clash with host PG on 5432)
+#   9092  redpanda kafka          (host advertised)
+#   8081  schema registry
+#   6380  redis                   (avoid clash with host redis on 6379)
+#   9090  prometheus
+#   3000  grafana
+#   9000  minio                   (S3 API)
+#   9001  minio console
+#
+# Network: nidp-dev (created automatically).
+
+version: "3.9"
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: nidp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER:     postgres
+      POSTGRES_DB:       nidp
+    ports:
+      - "5433:5432"
+    volumes:
+      - nidp-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: nidp-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,PLAINTEXT_HOST://localhost:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: nidp-schema-registry
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://redpanda:29092
+    ports:
+      - "8081:8081"
+
+  redis:
+    image: redis:7-alpine
+    container_name: nidp-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: nidp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER:     nidp-dev
+      MINIO_ROOT_PASSWORD: nidp-dev-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - nidp-minio-data:/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nidp-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - nidp-prom-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=14d"
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nidp-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER:     admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - nidp-grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+volumes:
+  nidp-pg-data:
+  nidp-minio-data:
+  nidp-prom-data:
+  nidp-grafana-data:
+
+# Default network is `nidp_default`; rename via `name:` in
+# top-level networks if running alongside other compose stacks.

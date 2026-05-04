@@ -1,0 +1,90 @@
+{
+  "title": "NIDP — Snapshot & Validation",
+  "uid": "nidp-snapshot",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["nidp", "snapshot", "validation"],
+  "time": {"from": "now-7d", "to": "now"},
+  "refresh": "1m",
+  "templating": {"list": []},
+  "panels": [
+    {
+      "title": "Latest snapshot status",
+      "type": "stat",
+      "id": 1,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "rawSql": "SELECT snapshot_status FROM nidp.daily_snapshot ORDER BY as_of_date DESC LIMIT 1",
+        "format": "table"
+      }]
+    },
+    {
+      "title": "Latest snapshot date",
+      "type": "stat",
+      "id": 2,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "rawSql": "SELECT max(as_of_date) FROM nidp.daily_snapshot WHERE snapshot_status = 'READY'",
+        "format": "table"
+      }]
+    },
+    {
+      "title": "Snapshot status (last 30 days)",
+      "type": "table",
+      "id": 3,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 0, "y": 4, "w": 24, "h": 10},
+      "targets": [{
+        "rawSql": "SELECT as_of_date, snapshot_status, prices_eod_ready, delivery_ready, index_eod_ready, fii_dii_ready, corp_actions_ready, bulk_deals_ready, block_deals_ready, rbi_yields_ready, built_at FROM nidp.daily_snapshot ORDER BY as_of_date DESC LIMIT 30",
+        "format": "table"
+      }]
+    },
+    {
+      "title": "Validation findings (last 7 days)",
+      "type": "table",
+      "id": 4,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 0, "y": 14, "w": 24, "h": 10},
+      "targets": [{
+        "rawSql": "SELECT detected_at, ingester, target_date, severity, failure_class, rule_name, message FROM nidp.validation_findings WHERE detected_at > NOW() - INTERVAL '7 days' ORDER BY detected_at DESC LIMIT 200",
+        "format": "table"
+      }]
+    },
+    {
+      "title": "BLOCK findings count (24h)",
+      "type": "stat",
+      "id": 5,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red",   "value": 1}
+            ]
+          }
+        }
+      },
+      "targets": [{
+        "rawSql": "SELECT count(*) FROM nidp.validation_findings WHERE detected_at > NOW() - INTERVAL '24 hours' AND failure_class = 'BLOCK'",
+        "format": "table"
+      }]
+    },
+    {
+      "title": "Validation status by ingester (latest run)",
+      "type": "table",
+      "id": 6,
+      "datasource": {"type": "postgres", "uid": "postgres"},
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "rawSql": "SELECT ingester, status, rules_failed, findings_count FROM nidp.v_latest_validation ORDER BY ingester",
+        "format": "table"
+      }]
+    }
+  ]
+}

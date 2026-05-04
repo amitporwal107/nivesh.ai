@@ -1,0 +1,11 @@
+{
+  "CM": [
+    {"tradingDate":"04-Mar-2026","weekDay":"Wednesday","description":"Holi"},
+    {"tradingDate":"14-Apr-2026","weekDay":"Tuesday","description":"Dr. Baba Saheb Ambedkar Jayanti"},
+    {"tradingDate":"15-Aug-2026","weekDay":"Saturday","description":"Independence Day"}
+  ],
+  "FO": [
+    {"tradingDate":"04-Mar-2026","weekDay":"Wednesday","description":"Holi"},
+    {"tradingDate":"14-Apr-2026","weekDay":"Tuesday","description":"Dr. Baba Saheb Ambedkar Jayanti"}
+  ]
+}

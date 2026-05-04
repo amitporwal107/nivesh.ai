@@ -1,0 +1,31 @@
+# NIDP runtime dependencies (production)
+# Pinning style: caret/lower-bound; CI lockfile (requirements.lock) holds exact pins.
+
+# ── Core ──
+aiohttp>=3.9,<4
+asyncpg>=0.29,<0.30
+
+# ── Observability ──
+prometheus-client>=0.19,<0.21
+
+# ── Messaging ──
+# Kafka producer + Avro + Confluent Schema Registry. The "avro" extra
+# pulls fastavro; "schema-registry" pulls cachetools/requests.
+confluent-kafka[avro,schema-registry]>=2.3,<3
+
+# ── Storage backends ──
+# boto3 for S3 raw-archive backend. Keep optional in dev (env-flag
+# selects local) but list it here so prod images install it.
+boto3>=1.34,<2
+
+# ── Parsers ──
+# fii_dii: openpyxl for XLSX, xlrd<2 for legacy XLS.
+openpyxl>=3.1,<4
+xlrd>=1.2,<2
+
+# rbi_yields + html-fallback paths
+beautifulsoup4>=4.12,<5
+lxml>=5,<6
+
+# pandas read_html fallback for fii_dii html variant
+pandas>=2,<3

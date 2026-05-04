@@ -1,0 +1,102 @@
+{
+  "title": "NIDP — Ingestion Overview",
+  "uid": "nidp-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "tags": ["nidp"],
+  "time": {"from": "now-24h", "to": "now"},
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(nidp_ingester_runs_total, service)",
+        "includeAll": true,
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Ingester runs (24h)",
+      "type": "stat",
+      "id": 1,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum by (status) (increase(nidp_ingester_runs_total{service=~\"$service\"}[24h]))",
+        "legendFormat": "{{status}}"
+      }]
+    },
+    {
+      "title": "Failed runs (24h)",
+      "type": "stat",
+      "id": 2,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        }
+      },
+      "targets": [{
+        "expr": "sum(increase(nidp_ingester_runs_total{status=\"FAILED\",service=~\"$service\"}[24h]))",
+        "legendFormat": "FAILED"
+      }]
+    },
+    {
+      "title": "Rows ingested (rate, 5m)",
+      "type": "timeseries",
+      "id": 3,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum by (service) (rate(nidp_ingester_rows_total{kind=\"inserted\",service=~\"$service\"}[5m]))",
+        "legendFormat": "{{service}}"
+      }]
+    },
+    {
+      "title": "Source fetch status (24h)",
+      "type": "barchart",
+      "id": 4,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "sum by (source, status) (increase(nidp_source_fetch_total[24h]))",
+        "legendFormat": "{{source}} / {{status}}"
+      }]
+    },
+    {
+      "title": "Ingester duration p95",
+      "type": "timeseries",
+      "id": 5,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le, service) (rate(nidp_ingester_duration_seconds_bucket{service=~\"$service\"}[10m])))",
+        "legendFormat": "{{service}}"
+      }]
+    },
+    {
+      "title": "Kafka publish errors (5m rate)",
+      "type": "timeseries",
+      "id": 6,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 6},
+      "targets": [{
+        "expr": "sum by (topic) (rate(nidp_kafka_publish_total{status!=\"ok\"}[5m]))",
+        "legendFormat": "{{topic}}"
+      }]
+    }
+  ]
+}

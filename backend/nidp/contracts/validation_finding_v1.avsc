@@ -1,0 +1,22 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "ValidationFindingV1",
+  "doc": "One validation rule failure. Topic: nidp.validation_findings.v1",
+  "fields": [
+    {"name": "finding_id",     "type": "string"},
+    {"name": "validation_id",  "type": "string"},
+    {"name": "job_run_id",     "type": "string"},
+    {"name": "ingester",       "type": "string"},
+    {"name": "target_date",    "type": ["null", "string"], "default": null},
+    {"name": "rule_name",      "type": "string"},
+    {"name": "severity",       "type": {"type": "enum", "name": "ValSeverity",
+                                         "symbols": ["INFO","WARN","ERROR","CRITICAL"]}},
+    {"name": "failure_class",  "type": {"type": "enum", "name": "ValFailureClass",
+                                         "symbols": ["RETRY","FIX","BLOCK","INFO"]}},
+    {"name": "message",        "type": "string"},
+    {"name": "expected",       "type": ["null", "string"], "default": null},
+    {"name": "actual",         "type": ["null", "string"], "default": null},
+    {"name": "detected_at",    "type": "string"}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "IngestionCompletedV1",
+  "doc": "Cross-cutting event emitted by every ingester service when a run terminates.",
+  "fields": [
+    {"name": "service",        "type": "string",                       "doc": "Service name (e.g. 'bulk_deals')."},
+    {"name": "source",         "type": "string",                       "doc": "Logical source name (e.g. 'NSE_BULK')."},
+    {"name": "run_id",         "type": "string",                       "doc": "UUID4 — references nidp.job_log.run_id."},
+    {"name": "target_date",    "type": ["null", "string"],             "default": null,
+                                                                       "doc": "ISO date the run was for; null for non-dated sources."},
+    {"name": "rows_fetched",   "type": "int",                          "default": 0},
+    {"name": "rows_inserted",  "type": "int",                          "default": 0},
+    {"name": "rows_skipped",   "type": "int",                          "default": 0},
+    {"name": "artifact_path",  "type": ["null", "string"],             "default": null,
+                                                                       "doc": "URI of the archived raw file (file://… or s3://…)."},
+    {"name": "completed_at",   "type": "string",                       "doc": "ISO-8601 UTC timestamp."}
+  ]
+}

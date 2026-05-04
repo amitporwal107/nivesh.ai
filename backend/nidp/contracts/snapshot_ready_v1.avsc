@@ -1,0 +1,25 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "SnapshotReadyV1",
+  "doc": "Emitted by snapshot_builder when stock_daily_snapshot + market_daily_snapshot are both built and consistent for a date. Topic: nidp.snapshot_ready.v1",
+  "fields": [
+    {"name": "as_of_date",         "type": "string"},
+    {"name": "build_run_id",       "type": "string"},
+    {"name": "stock_rows_built",   "type": "int"},
+    {"name": "market_built",       "type": "boolean"},
+    {"name": "domains_present",    "type": {"type": "array", "items": "string"},
+     "doc": "List of domain names that contributed (e.g. ['prices_eod','delivery','fii_dii'])"},
+    {"name": "domains_carried_forward", "type": {"type": "array", "items": {
+        "type": "record",
+        "name": "CarriedForwardDomain",
+        "fields": [
+          {"name": "domain",       "type": "string"},
+          {"name": "as_of_date",   "type": "string"},
+          {"name": "lag_days",     "type": "int"}
+        ]
+    }}, "default": []},
+    {"name": "warnings",           "type": {"type": "array", "items": "string"}, "default": []},
+    {"name": "built_at",           "type": "string"}
+  ]
+}

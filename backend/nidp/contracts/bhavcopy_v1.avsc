@@ -1,0 +1,24 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "BhavcopyV1",
+  "doc": "One EOD bhavcopy row from NSE. Topic: nidp.bhavcopy.v1",
+  "fields": [
+    {"name": "as_of_date",    "type": "string"},
+    {"name": "symbol",        "type": "string"},
+    {"name": "series",        "type": "string"},
+    {"name": "isin",          "type": ["null", "string"], "default": null},
+    {"name": "prev_close",    "type": ["null", "double"], "default": null},
+    {"name": "open_price",    "type": ["null", "double"], "default": null},
+    {"name": "high_price",    "type": ["null", "double"], "default": null},
+    {"name": "low_price",     "type": ["null", "double"], "default": null},
+    {"name": "close_price",   "type": ["null", "double"], "default": null},
+    {"name": "last_price",    "type": ["null", "double"], "default": null},
+    {"name": "avg_price",     "type": ["null", "double"], "default": null},
+    {"name": "volume",        "type": ["null", "long"],   "default": null},
+    {"name": "turnover",      "type": ["null", "double"], "default": null},
+    {"name": "trades",        "type": ["null", "long"],   "default": null},
+    {"name": "source",        "type": "string", "default": "NSE_BHAVCOPY"},
+    {"name": "source_run_id", "type": "string"}
+  ]
+}

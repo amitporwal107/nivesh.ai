@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "RbiYieldsV1",
+  "doc": "Daily RBI G-Sec / T-Bill yield. Topic: nidp.rbi_yields.v1",
+  "fields": [
+    {"name": "as_of_date",   "type": "string"},
+    {"name": "tenor",        "type": "string", "doc": "OVERNIGHT | 91D | 364D | 1Y | 5Y | 10Y"},
+    {"name": "yield_pct",    "type": "double"},
+    {"name": "instrument",   "type": ["null", "string"], "default": null},
+    {"name": "source",       "type": "string", "default": "RBI_REF_RATE"},
+    {"name": "source_run_id","type": "string"}
+  ]
+}

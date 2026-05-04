@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "BulkDealsV1",
+  "doc": "One bulk-deal row from NSE bulk.csv. Topic: nidp.bulk_deals.v1",
+  "fields": [
+    {"name": "as_of_date",   "type": "string",                "doc": "ISO date (yyyy-mm-dd)."},
+    {"name": "symbol",       "type": "string"},
+    {"name": "client_name",  "type": "string"},
+    {"name": "deal_type",    "type": {"type": "enum", "name": "BulkDealType", "symbols": ["BUY", "SELL"]}},
+    {"name": "quantity",     "type": "long"},
+    {"name": "avg_price",    "type": "double"},
+    {"name": "deal_seq",     "type": "int", "default": 1},
+    {"name": "remarks",      "type": ["null", "string"], "default": null},
+    {"name": "source",       "type": "string", "default": "NSE_BULK"},
+    {"name": "source_run_id","type": "string"}
+  ]
+}

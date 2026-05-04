@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "DeliveryV1",
+  "doc": "Daily delivery % per symbol from NSE sec_bhavdata_full. Topic: nidp.delivery.v1",
+  "fields": [
+    {"name": "as_of_date",       "type": "string"},
+    {"name": "symbol",           "type": "string"},
+    {"name": "series",           "type": "string"},
+    {"name": "traded_qty",       "type": ["null", "long"], "default": null},
+    {"name": "deliverable_qty",  "type": ["null", "long"], "default": null},
+    {"name": "deliverable_pct",  "type": ["null", "double"], "default": null},
+    {"name": "source",           "type": "string", "default": "NSE_SEC_BHAVDATA"},
+    {"name": "source_run_id",    "type": "string"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "NseCalendarV1",
+  "doc": "One trading-holiday row from NSE holiday master. Topic: nidp.nse_calendar.v1",
+  "fields": [
+    {"name": "holiday_date",  "type": "string"},
+    {"name": "segment",       "type": "string", "doc": "CM | FO | CD | COM | DEBT | MF"},
+    {"name": "description",   "type": ["null", "string"], "default": null},
+    {"name": "source",        "type": "string", "default": "NSE_HOLIDAY_MASTER"},
+    {"name": "source_run_id", "type": "string"}
+  ]
+}

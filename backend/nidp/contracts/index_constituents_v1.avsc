@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "IndexConstituentsV1",
+  "doc": "One constituent row of an NSE index. Topic: nidp.index_constituents.v1",
+  "fields": [
+    {"name": "as_of_date",   "type": "string"},
+    {"name": "index_name",   "type": "string"},
+    {"name": "symbol",       "type": "string"},
+    {"name": "isin",         "type": ["null", "string"], "default": null},
+    {"name": "company_name", "type": ["null", "string"], "default": null},
+    {"name": "industry",     "type": ["null", "string"], "default": null},
+    {"name": "weight_pct",   "type": ["null", "double"], "default": null},
+    {"name": "source",       "type": "string", "default": "NSE_INDEX_LIST"},
+    {"name": "source_run_id","type": "string"}
+  ]
+}

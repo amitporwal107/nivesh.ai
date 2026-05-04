@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "FiiDiiV1",
+  "doc": "One FII/DII flow row from NSE fii_stats. Topic: nidp.fii_dii.v1",
+  "fields": [
+    {"name": "as_of_date",     "type": "string"},
+    {"name": "category",       "type": {"type": "enum", "name": "FlowCategory",
+                                         "symbols": ["FII", "DII", "PROP", "CLIENT"]}},
+    {"name": "segment",        "type": {"type": "enum", "name": "FlowSegment",
+                                         "symbols": ["EQUITY_CASH","INDEX_FUTURES","INDEX_OPTIONS",
+                                                     "STOCK_FUTURES","STOCK_OPTIONS"]}},
+    {"name": "buy_value_cr",   "type": ["null", "double"], "default": null},
+    {"name": "sell_value_cr",  "type": ["null", "double"], "default": null},
+    {"name": "net_value_cr",   "type": ["null", "double"], "default": null},
+    {"name": "buy_contracts",  "type": ["null", "long"],   "default": null},
+    {"name": "sell_contracts", "type": ["null", "long"],   "default": null},
+    {"name": "net_contracts",  "type": ["null", "long"],   "default": null},
+    {"name": "open_interest",  "type": ["null", "long"],   "default": null},
+    {"name": "source",         "type": "string", "default": "NSE_FII_DII"},
+    {"name": "source_run_id",  "type": "string"}
+  ]
+}
