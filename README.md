@@ -1622,6 +1622,7 @@ Plus Mongo: `system_config.chartink_scans` (scan list + webhook token).
 
 ## 15. Further reading
 
+- **`/app/docs/FUNCTIONAL_DOCUMENT.md`** — *non-engineer friendly* what / how / why / unique. Start here if you're new to the project or doing a stakeholder pitch.
 - **`/app/docs/TECHNICAL_SPEC.md`** — product spec, API surface, flows, testing
 - **`/app/memory/PRD.md`** — session-by-session changelog + backlog
 - **`/app/memory/V2_ACTION_GENERATION_RULES_COMPLETE.md`** — rule-engine spec
