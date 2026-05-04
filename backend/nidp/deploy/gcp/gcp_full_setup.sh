@@ -270,6 +270,13 @@ if should_run 4; then
         log "would scp $DEPLOY_DIR/docker-compose.dev.yml + prometheus.yml + grafana/ to VM"
         log "would ssh + apt-get install docker + docker compose up -d"
     else
+        # pscp on Windows (used by gcloud on MINGW) requires the
+        # destination directory to exist. Linux scp creates it
+        # implicitly with --recurse, but pscp doesn't.
+        log "  ensuring /tmp/nidp exists on VM..."
+        gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT --quiet \
+            --command='sudo mkdir -p /tmp/nidp && sudo chmod 777 /tmp/nidp'
+
         log "  pushing compose stack to VM..."
         gcloud compute scp --recurse \
             "$DEPLOY_DIR/docker-compose.dev.yml" \
