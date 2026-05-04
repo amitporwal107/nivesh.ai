@@ -116,8 +116,11 @@ for role in "${ROLES[@]}"; do
 done
 
 # 3. GCS bucket
-if ! gsutil ls -b "gs://$BUCKET" &>/dev/null; then
-    maybe_run "gsutil mb -l $REGION -p $PROJECT gs://$BUCKET"
+# Use `gcloud storage` (modern) instead of `gsutil` — gsutil has a
+# separate auth path (~/.boto) that often isn't configured on Windows
+# / fresh installs, even when gcloud itself is fully authenticated.
+if ! gcloud storage buckets describe "gs://$BUCKET" --project="$PROJECT" &>/dev/null; then
+    maybe_run "gcloud storage buckets create gs://$BUCKET --location=$REGION --project=$PROJECT"
     manifest "gcs_bucket" "$BUCKET" "$REGION"
 else
     log "  ✓ bucket already exists: gs://$BUCKET"

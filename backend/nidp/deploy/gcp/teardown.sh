@@ -86,7 +86,7 @@ done
 
 # 6. GCS buckets (force — empties first)
 for n in "${BUCKETS[@]:-}"; do
-    maybe "gsutil -m rm -r gs://$n"
+    maybe "gcloud storage rm -r gs://$n --project=$PROJECT --quiet"
 done
 
 # 7. Service accounts (delete keys first, then SA)
