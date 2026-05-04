@@ -535,14 +535,28 @@ async def get_analysis(request: Request):
     analysis = (doc.get("analysis") if doc else None) or None
 
     # Always attach the unified Portfolio Health block so the Insights tab
-    # renders the same score as the Dashboard. If it fails, clients can
-    # fall back to the legacy `risk_gauge`.
+    # renders the same score as the Dashboard.
+    #
+    # Hard 12s timeout PLUS asyncio.shield: cache and snapshot fast-paths
+    # return in <50ms; only cold-start compute (Groww/V3/intelligence) is
+    # slow. When the fast-paths miss AND the live pipeline takes longer
+    # than 12s, we return null (UI exits its "Scoring…" spinner) but the
+    # task keeps running on the event loop and writes to Redis + the
+    # snapshot doc when it completes. The client retry hook polls every
+    # 4s and gets the score from the warm cache on the next attempt.
+    import asyncio as _asyncio
     try:
         from services import portfolio_health as _ph
-        hr = await _ph.build_portfolio_health(user["user_id"])
+        task = _asyncio.create_task(_ph.build_portfolio_health(user["user_id"]))
+        hr = await _asyncio.wait_for(_asyncio.shield(task), timeout=12.0)
         if analysis is None:
             analysis = {}
         analysis["portfolio_health"] = hr.to_dict()
+    except _asyncio.TimeoutError:
+        logger.warning(f"portfolio_health compute >12s for user {user['user_id']} — returning null, background task will warm the cache")
+        if analysis is None:
+            analysis = {}
+        analysis["portfolio_health"] = None
     except Exception as e:  # noqa: BLE001
         logger.warning(f"attach portfolio_health to /insights/analysis failed: {e}")
     return analysis

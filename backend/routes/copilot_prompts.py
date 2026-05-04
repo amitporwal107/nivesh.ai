@@ -560,12 +560,115 @@ def _build_viz_for_prompt(prompt_id: str, ctx: Dict[str, Any]) -> Optional[Dict[
     return None
 
 
+def _advisor_prompts() -> Dict[str, Any]:
+    """Curated cross-client prompts for advisors viewing the workspace
+    dashboard (i.e. NOT impersonating a single client). Surfaced on the
+    floating Nivesh Copilot in MFD/advisory mode."""
+    primary = [{
+        "id": "advisor_call_today", "tier": "primary", "bucket": "advisor_today",
+        "label": "Which clients should I call today?",
+        "outcome": "Top 10 high-priority clients with the recommended action for each.",
+        "query": "Give me my top 10 high-priority clients today — for each, name, the issue, and the recommended action.",
+        "icon": "Phone", "color": "indigo", "badge": "Daily brief",
+    }]
+    secondary = [
+        {"id": "advisor_top_aum", "tier": "secondary", "bucket": "advisor_aum",
+         "label": "Who are my top clients by AUM?",
+         "outcome": "Ranked AUM list with month-over-month change.",
+         "query": "Rank my clients by AUM. Show their name, AUM, and how it moved this month.",
+         "icon": "TrendingUp", "color": "emerald", "badge": None},
+        {"id": "advisor_underperformers", "tier": "secondary", "bucket": "advisor_perf",
+         "label": "Which clients are underperforming the benchmark?",
+         "outcome": "Clients lagging NIFTY 50 by >5% with the size of the gap.",
+         "query": "Show clients whose portfolios are lagging NIFTY 50 by more than 5%. Include AUM and gap size.",
+         "icon": "TrendingDown", "color": "rose", "badge": None},
+        {"id": "advisor_rebalance", "tier": "secondary", "bucket": "advisor_rebalance",
+         "label": "Who needs rebalancing now?",
+         "outcome": "Clients deviating >10% from their target allocation.",
+         "query": "Which clients are deviating more than 10% from their target allocation? List the bucket that is off.",
+         "icon": "Scale", "color": "amber", "badge": None},
+    ]
+    advanced = [
+        {"id": "advisor_concentration", "tier": "advanced", "bucket": "advisor_risk",
+         "label": "Who has >40% in a single fund or stock?",
+         "outcome": "Concentration risk — clients with one position dominating their book.",
+         "query": "List clients with more than 40% of their portfolio in a single fund or stock. Show the position and weight.",
+         "icon": "AlertTriangle", "color": "rose", "badge": None},
+        {"id": "advisor_idle_cash", "tier": "advanced", "bucket": "advisor_opp",
+         "label": "Where can I generate additional investments today?",
+         "outcome": "Clients with idle cash > ₹2L or surplus capacity.",
+         "query": "Which clients have idle cash above ₹2 lakh or capacity to add to their SIP today?",
+         "icon": "Sparkles", "color": "indigo", "badge": None},
+        {"id": "advisor_stopped_sips", "tier": "advanced", "bucket": "advisor_churn",
+         "label": "Which clients stopped their SIPs recently?",
+         "outcome": "Churn-risk signal — recent SIP drop-offs need a touchpoint.",
+         "query": "Which of my clients have stopped or paused SIPs in the last 3 months? Show last contribution date.",
+         "icon": "AlertTriangle", "color": "amber", "badge": None},
+    ]
+    return {
+        "mode": "advisor",
+        "prompts": primary + secondary + advanced,
+        "primary": primary,
+        "secondary": secondary,
+        "advanced": advanced,
+        "journey": "advisor",
+        "context_summary": {},
+    }
+
+
+def _investor_prompts_curated() -> List[Dict[str, Any]]:
+    """Always-on investor prompts as a base layer. Returned alongside the
+    portfolio-context-driven scored prompts so a brand-new individual user
+    has something useful to click even before holdings are scored."""
+    return [
+        {"id": "investor_health_drop", "tier": "secondary", "bucket": "investor",
+         "label": "Why is my health score where it is?",
+         "outcome": "Plain-English breakdown of the 4 health components.",
+         "query": "Why is my portfolio health score what it is? Walk me through each component.",
+         "icon": "ShieldCheck", "color": "indigo"},
+        {"id": "investor_biggest_risk", "tier": "secondary", "bucket": "investor",
+         "label": "What's the single biggest risk in my portfolio?",
+         "outcome": "The one issue most worth fixing first.",
+         "query": "What is the single biggest risk in my portfolio right now and how do I fix it?",
+         "icon": "AlertTriangle", "color": "rose"},
+        {"id": "investor_tax_moves", "tier": "advanced", "bucket": "investor_tax",
+         "label": "What tax moves should I consider this FY?",
+         "outcome": "LTCG/STCG-aware suggestions tied to my actual holdings.",
+         "query": "What tax moves should I consider this financial year given my current holdings?",
+         "icon": "Receipt", "color": "emerald"},
+    ]
+
+
+async def _is_advisor_mode(session_user_id: str, calling_user_id: str) -> bool:
+    """True when the caller's session belongs to an ADVISORY workspace
+    AND they are NOT currently impersonating a specific client (i.e. the
+    caller's user_id matches their own session_user_id)."""
+    if session_user_id != calling_user_id:
+        return False
+    try:
+        ws = await db.workspaces.find_one(
+            {"owner_user_id": session_user_id}, {"_id": 0, "type": 1},
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(ws and (ws.get("type") or "").upper() == "ADVISORY")
+
+
 @router.get("/copilot/suggested-prompts")
 async def suggested_prompts(request: Request) -> Dict[str, Any]:
     """Return the top 5 most relevant prompts for this user right now,
     grouped into 3 tiers: primary (1) · secondary (2-3) · advanced (collapsed).
+
+    Two modes:
+      • Advisor (ADVISORY workspace, not impersonating) → cross-client
+        prompts (top AUM, who needs a call, underperformers, …).
+      • Individual investor (or advisor while impersonating a client) →
+        portfolio-context-driven prompts based on the actual holdings.
     """
     user = await get_current_user(request)
+    session_uid = user.get("_session_user_id") or user["user_id"]
+    if await _is_advisor_mode(session_uid, user["user_id"]):
+        return _advisor_prompts()
     ctx = await _build_context(user["user_id"])
 
     # User-journey awareness — affects which prompt becomes "primary"
@@ -622,6 +725,7 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
     ordered = primary + secondary + advanced
     top = ordered[:_MAX_PROMPTS + 3]  # primary(1) + secondary(up to 3) + advanced(up to 3) → ~7 max
     return {
+        "mode": "investor",
         "prompts": top,
         "journey": journey,
         "primary": primary,

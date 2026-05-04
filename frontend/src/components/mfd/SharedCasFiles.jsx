@@ -25,12 +25,14 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export default function SharedCasFiles({ profileId = null, compact = false }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [reparseFor, setReparseFor] = useState(null); // file_id pending password input
   const [pwInput, setPwInput] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const url = profileId
         ? `${API}/mfd/profiles/${profileId}/cas-uploads`
@@ -38,7 +40,10 @@ export default function SharedCasFiles({ profileId = null, compact = false }) {
       const { data } = await axios.get(url, { withCredentials: true });
       setFiles(data.files || []);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Could not load shared files");
+      // Render inline rather than fire a global toast — list-load failures
+      // shouldn't bleed across navigation. Action errors (download/reparse)
+      // still toast because the user is actively waiting on those.
+      setLoadError(e?.response?.data?.detail || e?.message || "Could not load shared files");
     } finally {
       setLoading(false);
     }
@@ -112,6 +117,24 @@ export default function SharedCasFiles({ profileId = null, compact = false }) {
     return (
       <div className="flex items-center justify-center py-6 text-xs text-slate-500" data-testid="cas-files-loading">
         <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading shared files…
+      </div>
+    );
+  }
+
+  if (!loading && loadError && files.length === 0) {
+    return (
+      <div className="flex items-start gap-2 p-3 text-xs text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg bg-rose-50 dark:bg-rose-950/40"
+           data-testid="cas-files-error">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <div className="font-semibold">Couldn't load CAS history</div>
+          <div className="text-[11px] opacity-80 mt-0.5">{loadError}</div>
+          <button type="button" onClick={load}
+                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300 hover:underline"
+                  data-testid="cas-files-retry">
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -190,11 +213,36 @@ function FileRow({
             {file.holdings_count > 0 && (
               <span className="text-emerald-600 font-semibold">· {file.holdings_count} holdings</span>
             )}
+            {file.transactions_count > 0 && (
+              <span>· {file.transactions_count} txns</span>
+            )}
+            {file.sips_count > 0 && (
+              <span>· {file.sips_count} SIPs</span>
+            )}
             {sizeKb && <span>· {sizeKb}</span>}
             {file.stored_at && <span>· {fmtDate(file.stored_at)}</span>}
             {!compact && file.client_name && <span className="truncate">· {file.client_name}</span>}
             {(file.reparse_count || 0) > 0 && <span>· re-parsed {file.reparse_count}×</span>}
           </div>
+          {(file.period_start || file.period_end || file.statement_type) && (
+            <div className="text-[10px] flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-0.5"
+                 data-testid={`cas-file-meta-${file.file_id}`}>
+              {file.statement_type && (
+                <span className={`inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider ${STATEMENT_TYPE_TONES[file.statement_type]?.cls || "bg-slate-100 text-slate-600"}`}
+                      title={STATEMENT_TYPE_TONES[file.statement_type]?.tip}>
+                  {STATEMENT_TYPE_TONES[file.statement_type]?.label || file.statement_type}
+                </span>
+              )}
+              {(file.period_start || file.period_end) && (
+                <span className="text-slate-500">
+                  {fmtPeriod(file.period_start, file.period_end)}
+                </span>
+              )}
+              {file.parser_source && (
+                <span className="text-slate-400">· {file.parser_source}</span>
+              )}
+            </div>
+          )}
           {file.status === "error" && file.error && (
             <div className="text-[10px] text-rose-600 mt-1 flex items-start gap-1" data-testid={`cas-file-error-${file.file_id}`}>
               <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
@@ -277,10 +325,41 @@ const STATUS_TONES = {
   error:      { bg: "bg-rose-100 dark:bg-rose-950", fg: "text-rose-700", icon: AlertTriangle, label: "Parse failed" },
 };
 
+const STATEMENT_TYPE_TONES = {
+  detailed: {
+    cls:   "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+    label: "Detailed",
+    tip:   "Full transaction history per scheme — enables lot-level tax bucketing",
+  },
+  partial: {
+    cls:   "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300",
+    label: "Partial",
+    tip:   "Some transactions present — likely a short-window CAS, older SIPs missing",
+  },
+  summary_or_demat: {
+    cls:   "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300",
+    label: "Summary",
+    tip:   "No transaction history — either a CAMS/KFintech summary statement or NSDL/CDSL demat-only eCAS",
+  },
+};
+
 function fmtDate(iso) {
   if (!iso) return "";
   try {
     const d = new Date(iso);
     return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   } catch { return iso.slice(0, 10); }
+}
+
+function fmtPeriod(start, end) {
+  const fmt = (s) => {
+    if (!s) return null;
+    try {
+      return new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+    } catch { return s.slice(0, 10); }
+  };
+  const s = fmt(start);
+  const e = fmt(end);
+  if (s && e) return `${s} → ${e}`;
+  return s || e || "";
 }

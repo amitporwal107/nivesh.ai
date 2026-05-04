@@ -128,24 +128,70 @@ html {
     100% { transform: translateX(100%); }
 }
 
-/* Chat bubble styles */
+/* Chat bubble styles — refined: subtle gradient surface, soft shadow,
+   asymmetric tail, refined letter-spacing for editorial feel */
 .chat-user-bubble {
     background: linear-gradient(135deg, #059669 0%, #047857 100%);
     color: white;
     border-radius: 1.25rem 1.25rem 0.25rem 1.25rem;
+    box-shadow: 0 4px 14px -6px rgba(4, 120, 87, 0.4);
+    letter-spacing: 0.01em;
 }
 
 .chat-ai-bubble {
-    background: #F8FAFC;
-    color: #1E293B;
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+    color: #0F172A;
     border-radius: 1.25rem 1.25rem 1.25rem 0.25rem;
-    border: 1px solid #E2E8F0;
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 14px -8px rgba(15, 23, 42, 0.08);
+    letter-spacing: 0.005em;
 }
 
 .dark .chat-ai-bubble {
-    background: #1E293B;
+    background: linear-gradient(180deg, #1E293B 0%, #172033 100%);
     color: #E2E8F0;
-    border-color: #334155;
+    border-color: rgba(51, 65, 85, 0.7);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 14px -8px rgba(0, 0, 0, 0.4);
+}
+
+/* Refined typography for AI bullets — used by ReactMarkdown's `ul > li`
+   inside .chat-markdown. Editorial, uniform vertical rhythm, accent
+   bullet marker. */
+.chat-markdown ul {
+    list-style: none;
+    padding-left: 0;
+    margin-left: 0;
+}
+.chat-markdown ul > li {
+    position: relative;
+    padding-left: 1.1rem;
+    margin-bottom: 0.4rem;
+    line-height: 1.55;
+}
+.chat-markdown ul > li::before {
+    content: "";
+    position: absolute;
+    left: 0.15rem;
+    top: 0.6em;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
+}
+.chat-markdown strong {
+    color: #047857;
+    font-weight: 600;
+}
+.dark .chat-markdown strong {
+    color: #34d399;
+}
+.chat-markdown em {
+    color: #475569;
+    font-style: italic;
+}
+.dark .chat-markdown em {
+    color: #94a3b8;
 }
 
 /* Streaming cursor */

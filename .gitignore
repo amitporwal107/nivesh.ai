@@ -345,3 +345,17 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/45.pack
+
+# GitHub PAT (NIDP push) — never commit
+.gh-token
+.gh/
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+frontend/node_modules/.cache/default-development/43.pack

@@ -57,6 +57,7 @@ class ProfileCreate(BaseModel):
     # without contacts (e.g. CAS-first import flow).
     email: Optional[str] = Field(None, max_length=255)
     mobile: Optional[str] = Field(None, max_length=20)
+    pan: Optional[str] = Field(None, max_length=10)
 
 
 class ProfileUpdate(BaseModel):
@@ -66,6 +67,7 @@ class ProfileUpdate(BaseModel):
     notes: Optional[str] = None
     email: Optional[str] = Field(None, max_length=255)
     mobile: Optional[str] = Field(None, max_length=20)
+    pan: Optional[str] = Field(None, max_length=10)
     last_reviewed_at: Optional[str] = None   # ISO string
 
 
@@ -297,11 +299,26 @@ async def create_profile(payload: ProfileCreate, request: Request):
         ws = await mfd_workspace.set_workspace_mode(
             owner_uid, mfd_workspace.WORKSPACE_ADVISORY,
         )
+    # Reject duplicates by email / mobile / PAN — surface the existing
+    # record so the advisor can switch to it instead of creating a ghost.
+    from services import identity_uniqueness as _iu
+    chk = await _iu.check_identity_uniqueness(
+        email=payload.email, mobile=payload.mobile, pan=payload.pan,
+    )
+    if not chk.ok:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "identity_conflict",
+                "message": "A user / client with the same identifier already exists.",
+                **chk.to_dict(),
+            },
+        )
     prof = await mfd_workspace.create_client_profile(
         ws["workspace_id"],
         name=payload.name, aum_rs=payload.aum_rs,
         tags=payload.tags, notes=payload.notes,
-        email=payload.email, mobile=payload.mobile,
+        email=payload.email, mobile=payload.mobile, pan=payload.pan,
         owner_user_id=owner_uid,
     )
     return await _profile_with_priority(prof)
@@ -319,6 +336,24 @@ async def update_profile(profile_id: str, payload: ProfileUpdate, request: Reque
     user = await get_current_user(request)
     await _owned_or_404(profile_id, _session_user_id(user))
     updates = payload.model_dump(exclude_none=True)
+    # Same uniqueness gate when an advisor edits a client's contact info.
+    if any(k in updates for k in ("email", "mobile", "pan")):
+        from services import identity_uniqueness as _iu
+        chk = await _iu.check_identity_uniqueness(
+            email=updates.get("email"),
+            mobile=updates.get("mobile"),
+            pan=updates.get("pan"),
+            exclude_profile_id=profile_id,
+        )
+        if not chk.ok:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "identity_conflict",
+                    "message": "Another user / client already uses one of these identifiers.",
+                    **chk.to_dict(),
+                },
+            )
     prof = await mfd_workspace.update_profile(profile_id, **updates)
     return await _profile_with_priority(prof)
 
@@ -423,6 +458,75 @@ async def put_client_notes(
     return _notes_doc_out(doc)
 
 
+def _build_lot_coverage(
+    *,
+    n_lot_resolved: int,
+    n_holding_only: int,
+    n_cas_transactions: int,
+    n_cas_symbols: int,
+    n_undated: int,
+) -> Dict[str, Any]:
+    """Classify the source CAS quality + recommend a follow-up action.
+
+    The advisor's mental model is "did the CAS the client uploaded carry
+    transaction history, and for how many holdings?". We infer it from:
+      • n_cas_transactions  — total tx rows persisted for this user
+      • n_cas_symbols       — distinct ISINs/schemes with txn rows
+      • n_lot_resolved      — holdings split into FIFO lots
+      • n_holding_only      — fell back to holding.buy_date (or undated)
+      • n_undated           — bucketed as 'undated' (no buy_date at all)
+
+    Quality levels (drives the UI CTA):
+      no_data            — zero CAS transactions in DB. Almost certainly a
+                           demat-only NSDL/CDSL CAS or a CAMS/KFintech
+                           summary statement (no transaction history).
+      partial            — CAS has SOME transactions but most holdings are
+                           still unmatched. Typically a short-window
+                           detailed CAS (last 3-6 months) — older SIPs
+                           are missing.
+      good               — most holdings split into per-lot history.
+    """
+    n_holdings = n_lot_resolved + n_holding_only
+    if n_cas_transactions == 0:
+        quality = "no_data"
+        action = "request_detailed_cas"
+        message = ("CAS uploaded has no transaction history. Ask the client "
+                   "for a CAMS + KFintech detailed statement covering "
+                   "01-Apr-2010 → today to unlock SIP-level tax bucketing.")
+    elif n_holdings > 0 and n_lot_resolved < 0.5 * n_holdings:
+        quality = "partial"
+        action = "request_detailed_cas"
+        message = (f"Only {n_lot_resolved}/{n_holdings} holdings have lot-level "
+                   f"history. The CAS likely covers a short window — request a "
+                   f"detailed statement for 01-Apr-2010 → today.")
+    elif n_undated > 0 and n_undated >= 0.3 * max(n_holdings, 1):
+        quality = "partial"
+        action = "manual_or_extend"
+        message = (f"{n_undated} holdings still undated (likely direct equity / "
+                   f"NSDL holdings). Add manual buy dates for those, or extend "
+                   f"the CAS date range.")
+    else:
+        quality = "good"
+        action = None
+        message = "Lot-level coverage looks healthy."
+
+    return {
+        "n_holdings_lot_resolved": n_lot_resolved,
+        "n_holdings_holding_only": n_holding_only,
+        "n_cas_transactions":      n_cas_transactions,
+        "n_cas_symbols":           n_cas_symbols,
+        "n_undated":               n_undated,
+        "data_source": (
+            "cas_lots" if n_lot_resolved > 0 and n_lot_resolved >= n_holding_only
+            else "mixed" if n_lot_resolved > 0
+            else "holdings_only"
+        ),
+        "cas_quality": quality,             # no_data | partial | good
+        "recommended_action": action,        # request_detailed_cas | manual_or_extend | None
+        "hint": message,
+    }
+
+
 @router.get("/profiles/{profile_id}/tax-summary")
 async def tax_summary(profile_id: str, request: Request):
     """Unrealized gain/loss scan + tax-harvesting opportunities.
@@ -473,6 +577,8 @@ async def tax_summary(profile_id: str, request: Request):
     harvest_picks: List[Dict[str, Any]] = []
     loss_picks: List[Dict[str, Any]] = []
     near_lt_picks: List[Dict[str, Any]] = []
+    n_lot_resolved = 0   # holdings split into multi-lot via CAS transactions
+    n_holding_only  = 0  # holdings using their own buy_date (no CAS coverage)
 
     def _is_equity_taxed(asset: str, equity_pct: Optional[float]) -> bool:
         """Apply the 65% rule: ≥65% equity → equity tax bucket."""
@@ -488,23 +594,111 @@ async def tax_summary(profile_id: str, request: Request):
         # gold, debt, hybrid_debt, fd, etc → debt tax bucket
         return False
 
-    async for h in db.holdings.find(
-        {"user_id": shadow},
-        {"_id": 0, "name": 1, "asset_type": 1, "ticker": 1, "quantity": 1,
-         "buy_price": 1, "current_price": 1, "buy_date": 1,
-         "equity_exposure_pct": 1, "sector": 1},
-    ):
-        qty = float(h.get("quantity") or 0)
-        bp  = float(h.get("buy_price") or 0)
-        cp  = float(h.get("current_price") or 0)
-        if qty <= 0 or bp <= 0:
-            continue
-        invested = qty * bp
-        current  = qty * cp
-        gain     = current - invested
-        total_invested += invested
-        total_current  += current
+    # ── Tier-2 lot-level coverage from cas_transactions ─────────────────
+    # When a user has uploaded a CAS, each MF holding can be split into
+    # the underlying SIP/purchase lots — each with its own buy_date and
+    # buy_price. We use the FIFO matcher to derive these and bucket them
+    # individually. Holdings without any CAS-transaction coverage fall
+    # back to the single-lot holding.buy_date path below.
+    #
+    # Match keys are normalised (uppercase + whitespace-collapsed) on
+    # BOTH sides because cas_transactions store ISIN as-extracted (mixed
+    # case) while holdings.ticker is uppercased — without normalisation
+    # we'd miss most matches.
+    def _norm_isin(s: Any) -> Optional[str]:
+        if not s:
+            return None
+        v = str(s).strip().upper()
+        return v or None
 
+    def _norm_name(s: Any) -> Optional[str]:
+        if not s:
+            return None
+        v = " ".join(str(s).strip().upper().split())
+        return v or None
+
+    fifo_lots_by_isin: Dict[str, List[Any]] = {}
+    fifo_lots_by_name: Dict[str, List[Any]] = {}
+    fifo_n_tx = 0
+    fifo_n_symbols = 0
+    try:
+        from services import tax_engine_fifo as _tef
+        _state = await _tef.build_user_tax_state(shadow)
+        fifo_n_tx = _state.n_transactions
+        # Only use lot-level data when there's REAL CAS-transaction coverage
+        # for at least one symbol. Otherwise FIFO is just the holding-level
+        # data wrapped in a single seeded lot — no new info.
+        if fifo_n_tx > 0:
+            for sym, lots in _state.matcher.holdings.items():
+                live = [l for l in lots if l.quantity > 1e-6 and l.buy_date]
+                if not live:
+                    continue
+                fifo_n_symbols += 1
+                # Index by ISIN-like key (uppercased)
+                nk = _norm_isin(sym)
+                if nk and nk.startswith("INF"):
+                    fifo_lots_by_isin.setdefault(nk, live)
+                # Index by scheme_name from the lots (any one carries it)
+                for l in live:
+                    nn = _norm_name(l.scheme_name)
+                    if nn:
+                        fifo_lots_by_name.setdefault(nn, live)
+                        break
+                # If `sym` itself is a scheme_name (no ISIN on the txn), index it by name too
+                if nk and not nk.startswith("INF"):
+                    nn2 = _norm_name(sym)
+                    if nn2:
+                        fifo_lots_by_name.setdefault(nn2, live)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"FIFO tax-state build failed for {shadow}: {e}")
+
+    def _resolve_lots(h: Dict[str, Any], qty: float, bp: float) -> List[Dict[str, Any]]:
+        """Return per-lot {qty, buy_price, buy_dt, days_held} records.
+
+        Match order: holding.isin → holding.ticker (often holds ISIN for MFs)
+        → holding.name (scheme_name fallback). All keys normalised to
+        uppercase / whitespace-collapsed before lookup. When FIFO lots
+        cover within ±20% of the holding's current quantity, scale lot
+        qty proportionally so headline totals stay consistent. Larger
+        drift (CAS missing major buys/sells) → fall back to holding-
+        level so we don't fabricate gains from stale CAS data.
+        """
+        matched = None
+        # 1. ISIN-like keys
+        for k in (h.get("isin"), h.get("ticker")):
+            nk = _norm_isin(k)
+            if nk and nk in fifo_lots_by_isin:
+                matched = fifo_lots_by_isin[nk]
+                break
+        # 2. Scheme-name fallback (handles CAS txns without ISIN)
+        if not matched:
+            nn = _norm_name(h.get("name"))
+            if nn and nn in fifo_lots_by_name:
+                matched = fifo_lots_by_name[nn]
+
+        if matched and qty > 0:
+            sum_lots_qty = sum(l.quantity for l in matched)
+            if sum_lots_qty > 0:
+                drift = abs(sum_lots_qty - qty) / qty
+                if drift <= 0.20:
+                    # FIFO lot quantities ≈ holding quantity → trust FIFO.
+                    # Scale to exactly match holding.qty so per-bucket sums
+                    # reconcile with the headline total_invested.
+                    scale = qty / sum_lots_qty
+                    out = []
+                    for l in matched:
+                        bd = l.buy_date if l.buy_date.tzinfo else l.buy_date.replace(tzinfo=timezone.utc)
+                        out.append({
+                            "qty":       l.quantity * scale,
+                            "buy_price": float(l.buy_price),
+                            "buy_dt":    bd,
+                            "days_held": (now - bd).days,
+                            "source":    "cas_lot",
+                        })
+                    return out
+                # else: drift > 20% — likely partial coverage; fall through
+
+        # Holding-level fallback
         bd_raw = h.get("buy_date")
         bd = None
         days_held = None
@@ -516,67 +710,129 @@ async def tax_summary(profile_id: str, request: Request):
                 days_held = (now - bd).days
             except Exception:  # noqa: BLE001
                 pass
+        return [{"qty": qty, "buy_price": bp, "buy_dt": bd,
+                 "days_held": days_held, "source": "holding"}]
+
+    async for h in db.holdings.find(
+        {"user_id": shadow},
+        {"_id": 0, "name": 1, "asset_type": 1, "ticker": 1, "isin": 1,
+         "quantity": 1, "buy_price": 1, "current_price": 1, "buy_date": 1,
+         "equity_exposure_pct": 1, "sector": 1},
+    ):
+        qty = float(h.get("quantity") or 0)
+        bp  = float(h.get("buy_price") or 0)
+        cp  = float(h.get("current_price") or 0)
+        if qty <= 0 or cp <= 0:
+            continue
 
         asset = (h.get("asset_type") or "").lower()
         eq_pct = h.get("equity_exposure_pct")
         is_equity = _is_equity_taxed(asset, eq_pct)
         lt_days = EQUITY_LT_DAYS if is_equity else DEBT_LT_DAYS
 
-        bucket = None
-        if days_held is None:
-            undated_gain += gain; undated_n += 1; bucket = "undated"
-        elif is_equity:
-            if days_held >= lt_days:
-                eq_ltcg += gain; eq_ltcg_n += 1; bucket = "equity_ltcg"
-            else:
-                eq_stcg += gain; eq_stcg_n += 1; bucket = "equity_stcg"
+        # Display name — for SGBs the parser sometimes leaves the issuer
+        # ("GOVERNMENT") in `name`; resolve the actual series from ISIN so
+        # every downstream list (biggest, harvest, loss, near-LT) can tell
+        # tranches apart.
+        display_name = h.get("name")
+        if asset == "gold":
+            from services.sgb_prices import resolve_sgb_display_name
+            display_name = resolve_sgb_display_name(display_name, h.get("ticker"))
+
+        lot_records = _resolve_lots(h, qty, bp)
+        # Skip holdings whose only data point is a placeholder cost basis
+        # AND no CAS lots — nothing meaningful to bucket.
+        if all(l["buy_price"] <= 0 for l in lot_records):
+            continue
+
+        used_cas = any(l["source"] == "cas_lot" for l in lot_records)
+        if used_cas:
+            n_lot_resolved += 1
         else:
-            # Debt / specified MF: post-Apr-2023 ALL gains at slab.
-            # For lots bought BEFORE the cutover, legacy LTCG @12.5% applies
-            # only when held > 36 months (no indexation).
-            if bd and bd < DEBT_CUTOVER and days_held >= DEBT_LT_DAYS:
-                debt_ltcg += gain; debt_ltcg_n += 1; bucket = "debt_ltcg_legacy"
+            n_holding_only += 1
+
+        for lot in lot_records:
+            lot_qty       = lot["qty"]
+            lot_bp        = lot["buy_price"]
+            lot_bd        = lot["buy_dt"]
+            lot_days_held = lot["days_held"]
+            if lot_qty <= 0 or lot_bp < 0:
+                continue
+
+            lot_invested = lot_qty * lot_bp
+            lot_current  = lot_qty * cp
+            lot_gain     = lot_current - lot_invested
+            total_invested += lot_invested
+            total_current  += lot_current
+
+            bucket = None
+            if lot_days_held is None:
+                undated_gain += lot_gain; undated_n += 1; bucket = "undated"
+            elif is_equity:
+                if lot_days_held >= lt_days:
+                    eq_ltcg += lot_gain; eq_ltcg_n += 1; bucket = "equity_ltcg"
+                else:
+                    eq_stcg += lot_gain; eq_stcg_n += 1; bucket = "equity_stcg"
             else:
-                debt_stcg_slab += gain; debt_stcg_slab_n += 1; bucket = "debt_slab"
+                # Debt / specified MF: post-Apr-2023 ALL gains at slab.
+                # For lots bought BEFORE the cutover, legacy LTCG @12.5%
+                # applies only when held > 36 months (no indexation).
+                if lot_bd and lot_bd < DEBT_CUTOVER and lot_days_held >= DEBT_LT_DAYS:
+                    debt_ltcg += lot_gain; debt_ltcg_n += 1; bucket = "debt_ltcg_legacy"
+                else:
+                    debt_stcg_slab += lot_gain; debt_stcg_slab_n += 1; bucket = "debt_slab"
 
-        # ── Harvest opportunity scoring ──────────────────────────────
-        # Rule 1: equity LTCG winners → realize up to ₹1.25 L this FY
-        if bucket == "equity_ltcg" and gain > 0:
-            harvest_picks.append({
-                "name": h.get("name"), "asset_type": asset,
-                "ticker": h.get("ticker"), "gain": round(gain, 2),
-                "days_held": days_held, "rationale": "Equity LTCG · use ₹1.25L exemption",
-            })
+            lot_tag = (f" · {lot_bd.date().isoformat()} lot"
+                       if lot["source"] == "cas_lot" and lot_bd else "")
 
-        # Rule 4: book losers (any asset) — offset against any gains
-        if gain < 0 and abs(gain) >= 1000:
-            loss_picks.append({
-                "name": h.get("name"), "asset_type": asset,
-                "ticker": h.get("ticker"), "gain": round(gain, 2),
-                "days_held": days_held,
-                "bucket": bucket,
-                "rationale": "Book loss · offset against STCG/LTCG",
-            })
-
-        # Rule 10: timing arb — equity STCG within 30 days of LT cutover
-        if bucket == "equity_stcg" and gain > 0 and days_held is not None:
-            days_to_lt = EQUITY_LT_DAYS - days_held
-            if 0 < days_to_lt <= 30:
-                # Tax saving = (20% - 12.5%) × gain (ignoring exemption)
-                near_lt_picks.append({
-                    "name": h.get("name"), "asset_type": asset,
-                    "gain": round(gain, 2),
-                    "days_held": days_held,
-                    "days_to_lt": days_to_lt,
-                    "tax_saving_if_wait": round(gain * (EQUITY_STCG_RATE - EQUITY_LTCG_RATE), 2),
-                    "rationale": f"Wait {days_to_lt}d → save 7.5% tax",
+            # ── Harvest opportunity scoring (per-lot) ─────────────────
+            # Rule 1: equity LTCG winners → realize up to ₹1.25 L this FY
+            if bucket == "equity_ltcg" and lot_gain > 0:
+                harvest_picks.append({
+                    "name": display_name, "asset_type": asset,
+                    "ticker": h.get("ticker"), "gain": round(lot_gain, 2),
+                    "days_held": lot_days_held,
+                    "lot_buy_date": lot_bd.date().isoformat() if lot_bd else None,
+                    "lot_source": lot["source"],
+                    "rationale": f"Equity LTCG{lot_tag} · use ₹1.25L exemption",
                 })
 
-        if abs(gain) >= 10000:
-            biggest.append({
-                "name": h.get("name"), "asset_type": asset,
-                "gain": round(gain, 2), "bucket": bucket, "days_held": days_held,
-            })
+            # Rule 4: book losers (any asset) — offset against any gains
+            if lot_gain < 0 and abs(lot_gain) >= 1000:
+                loss_picks.append({
+                    "name": display_name, "asset_type": asset,
+                    "ticker": h.get("ticker"), "gain": round(lot_gain, 2),
+                    "days_held": lot_days_held,
+                    "bucket": bucket,
+                    "lot_buy_date": lot_bd.date().isoformat() if lot_bd else None,
+                    "lot_source": lot["source"],
+                    "rationale": f"Book loss{lot_tag} · offset against STCG/LTCG",
+                })
+
+            # Rule 10: timing arb — equity STCG within 30 days of LT cutover
+            if bucket == "equity_stcg" and lot_gain > 0 and lot_days_held is not None:
+                days_to_lt = EQUITY_LT_DAYS - lot_days_held
+                if 0 < days_to_lt <= 30:
+                    # Tax saving = (20% - 12.5%) × gain (ignoring exemption)
+                    near_lt_picks.append({
+                        "name": display_name, "asset_type": asset,
+                        "gain": round(lot_gain, 2),
+                        "days_held": lot_days_held,
+                        "days_to_lt": days_to_lt,
+                        "lot_buy_date": lot_bd.date().isoformat() if lot_bd else None,
+                        "lot_source": lot["source"],
+                        "tax_saving_if_wait": round(lot_gain * (EQUITY_STCG_RATE - EQUITY_LTCG_RATE), 2),
+                        "rationale": f"Wait {days_to_lt}d{lot_tag} → save 7.5% tax",
+                    })
+
+            if abs(lot_gain) >= 10000:
+                biggest.append({
+                    "name": display_name, "asset_type": asset,
+                    "gain": round(lot_gain, 2), "bucket": bucket,
+                    "days_held": lot_days_held,
+                    "lot_buy_date": lot_bd.date().isoformat() if lot_bd else None,
+                    "lot_source": lot["source"],
+                })
 
     biggest.sort(key=lambda x: x["gain"], reverse=True)
     harvest_picks.sort(key=lambda x: x["gain"], reverse=True)
@@ -644,6 +900,14 @@ async def tax_summary(profile_id: str, request: Request):
             max(1, eq_stcg_n + eq_ltcg_n + debt_stcg_slab_n + debt_ltcg_n + undated_n),
             1,
         ),
+        # ── Lot-level coverage (Tier-2 from cas_transactions) ──
+        "lot_coverage": _build_lot_coverage(
+            n_lot_resolved=n_lot_resolved,
+            n_holding_only=n_holding_only,
+            n_cas_transactions=fifo_n_tx,
+            n_cas_symbols=fifo_n_symbols,
+            n_undated=undated_n,
+        ),
         # ── Tax regime metadata for UI footnote ──
         "regime": {
             "label":        "Indian MF Tax · post-Jul-2024 / post-Apr-2023",
@@ -653,6 +917,11 @@ async def tax_summary(profile_id: str, request: Request):
             "switch_warning": "Switching = sale + buy. Holding period resets, tax payable now.",
             "stt_note":     "STT applies on equity-fund redemptions.",
             "elss_note":    "ELSS deduction available only in old tax regime.",
+            "lot_basis":    (
+                "Lot-level holding periods from CAS transactions (per SIP installment)"
+                if n_lot_resolved > 0
+                else "Holding-level avg cost basis (no CAS-transaction coverage)"
+            ),
         },
     }
 

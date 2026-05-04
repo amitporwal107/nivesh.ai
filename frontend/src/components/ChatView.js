@@ -15,44 +15,65 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChatMessageSkeleton } from "@/components/ui/skeleton-loaders";
 import CopilotPromptCard from "@/components/copilot/CopilotPromptCard";
 import SaveAsPlanCard, { shouldShowSavePlan } from "@/components/copilot/SaveAsPlanCard";
+import ChartBlock from "@/components/copilot/ChartBlock";
+import { parseCopilotChartBlocks } from "@/lib/parseCopilotChartBlocks";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const MarkdownMessage = ({ content }) => (
-  <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    components={{
-      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-      h1: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
-      h2: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
-      h3: ({ children }) => <h4 className="text-sm font-semibold mb-1.5 mt-2 first:mt-0">{children}</h4>,
-      code: ({ inline, children }) =>
-        inline ? (
-          <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>
+const MARKDOWN_COMPONENTS = {
+  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  h1: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+  h2: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+  h3: ({ children }) => <h4 className="text-sm font-semibold mb-1.5 mt-2 first:mt-0">{children}</h4>,
+  code: ({ inline, children }) =>
+    inline ? (
+      <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>
+    ) : (
+      <pre className="bg-slate-200 dark:bg-slate-700 p-3 rounded-lg text-xs font-mono overflow-x-auto mb-2">
+        <code>{children}</code>
+      </pre>
+    ),
+  table: ({ children }) => (
+    <div className="overflow-x-auto mb-2">
+      <table className="text-xs border-collapse w-full">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 bg-slate-100 dark:bg-slate-700 font-semibold text-left">{children}</th>,
+  td: ({ children }) => <td className="border border-slate-300 dark:border-slate-600 px-2 py-1">{children}</td>,
+  blockquote: ({ children }) => <blockquote className="border-l-3 border-emerald-500 pl-3 italic my-2 text-slate-600 dark:text-slate-300">{children}</blockquote>,
+  hr: () => <hr className="my-3 border-slate-200 dark:border-slate-600" />,
+};
+
+// Renders a single Copilot message: splits any ```chart``` JSON blocks
+// out of the markdown stream and replaces them with Recharts visuals.
+// During streaming, in-flight chart blocks (no closing fence yet) just
+// fall through as plain markdown — the `done` event re-renders with
+// the server-validated content.
+const MarkdownMessage = ({ content }) => {
+  const segments = parseCopilotChartBlocks(content);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.kind === "chart" ? (
+          <ChartBlock key={i} spec={seg.spec} />
         ) : (
-          <pre className="bg-slate-200 dark:bg-slate-700 p-3 rounded-lg text-xs font-mono overflow-x-auto mb-2">
-            <code>{children}</code>
-          </pre>
-        ),
-      table: ({ children }) => (
-        <div className="overflow-x-auto mb-2">
-          <table className="text-xs border-collapse w-full">{children}</table>
-        </div>
-      ),
-      th: ({ children }) => <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 bg-slate-100 dark:bg-slate-700 font-semibold text-left">{children}</th>,
-      td: ({ children }) => <td className="border border-slate-300 dark:border-slate-600 px-2 py-1">{children}</td>,
-      blockquote: ({ children }) => <blockquote className="border-l-3 border-emerald-500 pl-3 italic my-2 text-slate-600 dark:text-slate-300">{children}</blockquote>,
-      hr: () => <hr className="my-3 border-slate-200 dark:border-slate-600" />,
-    }}
-  >
-    {content}
-  </ReactMarkdown>
-);
+          <ReactMarkdown
+            key={i}
+            remarkPlugins={[remarkGfm]}
+            components={MARKDOWN_COMPONENTS}
+          >
+            {seg.text}
+          </ReactMarkdown>
+        )
+      )}
+    </>
+  );
+};
 
 /* ── Quick Action Buttons shown after AI response ── */
 const QuickActions = ({ content, onAction }) => {
@@ -104,24 +125,60 @@ function detectActions(content) {
   return actions.slice(0, 3);
 }
 
-/* ── Streaming "thinking" indicator ── */
-const StreamingIndicator = () => (
-  <div className="flex gap-3 justify-start">
-    <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
-      <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
-    </div>
-    <div className="chat-ai-bubble px-4 py-3">
-      <div className="flex items-center gap-2">
-        <div className="flex gap-1">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+/* ── Streaming "thinking" indicator with rotating professional phrases ── */
+const _THINKING_PHRASES = [
+  "Analysing your portfolio…",
+  "Cross-checking holdings against your targets…",
+  "Pulling drift across asset classes…",
+  "Computing AMC and sector concentration…",
+  "Looking up look-through stock exposures…",
+  "Drafting the recommendation…",
+];
+
+const StreamingIndicator = () => {
+  const [idx, setIdx] = React.useState(0);
+  React.useEffect(() => {
+    const t = setInterval(() => setIdx((i) => (i + 1) % _THINKING_PHRASES.length), 2200);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="flex gap-3 justify-start"
+    >
+      <div className="relative w-8 h-8 flex-shrink-0 mt-1">
+        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 opacity-90 animate-pulse" />
+        <div className="absolute inset-0 rounded-xl ring-2 ring-emerald-300/40" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Bot className="w-4 h-4 text-white drop-shadow" strokeWidth={1.75} />
         </div>
-        <span className="text-xs text-slate-400 ml-1">Analyzing your portfolio...</span>
       </div>
-    </div>
-  </div>
-);
+      <div className="chat-ai-bubble px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="flex gap-1">
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "180ms" }} />
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "360ms" }} />
+          </div>
+          <AnimatePresence mode="wait">
+            <motion.span
+              key={idx}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.25 }}
+              className="text-xs text-slate-500 dark:text-slate-400 italic"
+            >
+              {_THINKING_PHRASES[idx]}
+            </motion.span>
+          </AnimatePresence>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
 
 const SessionItem = ({ session, isActive, onClick, onDelete }) => (
   <div
@@ -679,45 +736,57 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
                       }
                       return "";
                     })();
+                    const isUser = msg.role === "user";
                     return (
                     <motion.div
                       key={msg.message_id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                      layout
+                      className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}
                     >
-                      {msg.role === "assistant" && (
-                        <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
-                          <Bot className="w-4 h-4 text-emerald-600" strokeWidth={1.5} />
+                      {!isUser && (
+                        <div className="relative w-8 h-8 flex-shrink-0 mt-1">
+                          <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/30 dark:to-emerald-800/30" />
+                          <div className="absolute inset-0 rounded-xl ring-1 ring-emerald-200/60 dark:ring-emerald-700/40" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Bot className="w-4 h-4 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />
+                          </div>
                         </div>
                       )}
-                      <div className={`max-w-[85%] sm:max-w-[75%] ${msg.role === "user" ? "" : ""}`}>
-                        <div
+                      <div className={`max-w-[85%] sm:max-w-[75%]`}>
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ duration: 0.35, delay: 0.05 }}
                           className={`px-4 py-3 text-sm leading-relaxed ${
-                            msg.role === "user"
-                              ? "chat-user-bubble whitespace-pre-wrap"
-                              : "chat-ai-bubble chat-markdown"
+                            isUser
+                              ? "chat-user-bubble whitespace-pre-wrap shadow-sm"
+                              : "chat-ai-bubble chat-markdown shadow-sm"
                           }`}
                         >
-                          {msg.role === "assistant" ? (
+                          {!isUser ? (
                             <MarkdownMessage content={msg.content} />
                           ) : (
                             msg.content
                           )}
-                        </div>
+                        </motion.div>
                         {/* Save-as-Plan CTA (high-intent responses only) */}
-                        {msg.role === "assistant" && msg.message_id !== "temp_ai" && shouldShowSavePlan(msg.content, prevUser) && (
+                        {!isUser && msg.message_id !== "temp_ai" && shouldShowSavePlan(msg.content, prevUser) && (
                           <SaveAsPlanCard onNavigateToPlanBoard={onNavigateToPlanBoard} />
                         )}
                         {/* Action buttons for AI messages */}
-                        {msg.role === "assistant" && msg.message_id !== "temp_ai" && (
+                        {!isUser && msg.message_id !== "temp_ai" && (
                           <QuickActions content={msg.content} onAction={handleQuickAction} />
                         )}
                       </div>
-                      {msg.role === "user" && (
-                        <div className="w-8 h-8 bg-emerald-600 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
-                          <User className="w-4 h-4 text-white" strokeWidth={1.5} />
+                      {isUser && (
+                        <div className="relative w-8 h-8 flex-shrink-0 mt-1">
+                          <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-md shadow-emerald-500/20" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <User className="w-4 h-4 text-white" strokeWidth={1.75} />
+                          </div>
                         </div>
                       )}
                     </motion.div>

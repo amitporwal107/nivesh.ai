@@ -1,7 +1,9 @@
 """Admin routes: Whitelist management, stats, OCR corrections."""
 from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime, timezone
+from typing import Optional
 import logging
+import os
 
 from deps import db, get_current_user, require_admin
 
@@ -430,6 +432,70 @@ async def delete_secret(key: str, request: Request, env: str = ""):
     return {
         "status": "ok", "key": key, "deleted": True,
         "env": "production" if target_env == "production" else "preview",
+    }
+
+
+@router.get("/admin/secrets/{key}/reveal")
+async def reveal_secret(key: str, request: Request, env: str = ""):
+    """Return the FULL plaintext value of one secret for the given env.
+
+    Admin-only. Every successful reveal is recorded to the audit log so
+    we can see who looked at which credential and when. Use this for the
+    "show / copy" buttons on the admin Secrets page.
+    """
+    user = await require_admin(request)
+    from helpers import secrets as _secrets
+    target_env = (env.strip().lower() or _secrets.current_env())
+    target_env = "production" if target_env == "production" else "preview"
+
+    # Read the value from the env-scoped doc; fall back to the legacy
+    # shared doc; finally fall back to process env (current deploy only).
+    value: Optional[str] = None
+    source = "missing"
+    scoped_doc = await db.system_config.find_one(
+        {"key": f"secrets:{target_env}"}, {"_id": 0, "values": 1},
+    )
+    scoped_val = ((scoped_doc or {}).get("values") or {}).get(key)
+    if isinstance(scoped_val, str) and scoped_val:
+        value = scoped_val
+        source = f"secrets:{target_env}"
+    if value is None:
+        legacy_doc = await db.system_config.find_one(
+            {"key": "secrets"}, {"_id": 0, "values": 1},
+        )
+        legacy_val = ((legacy_doc or {}).get("values") or {}).get(key)
+        if isinstance(legacy_val, str) and legacy_val:
+            value = legacy_val
+            source = "secrets (legacy shared)"
+    if value is None and target_env == _secrets.current_env():
+        env_val = os.environ.get(key)
+        if env_val:
+            value = env_val
+            source = "process env"
+
+    # Audit — who revealed which key for which env.
+    try:
+        from services import audit
+        await audit.record(
+            user_id=user.get("user_id", ""),
+            action="secret_reveal",
+            metadata={
+                "secret_key": key,
+                "env": target_env,
+                "source": source,
+                "actor_email": user.get("email"),
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("secret reveal audit log failed", exc_info=True)
+
+    return {
+        "key": key,
+        "env": target_env,
+        "source": source,
+        "configured": value is not None,
+        "value": value,
+        "masked_value": _secrets.mask(value) if value else "",
     }
 
 

@@ -158,29 +158,27 @@ async def create_client_profile(
     tags: Optional[List[str]] = None, notes: Optional[str] = None,
     owner_user_id: Optional[str] = None,
     email: Optional[str] = None, mobile: Optional[str] = None,
+    pan: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Client profile gets its own **shadow user_id** so the existing
     engine (portfolio/insights/goals/V3) runs against it unchanged.
 
-    We materialize a minimal user row so any code that joins on
-    `users.user_id` (session lookups, audit, etc.) keeps working.
-
-    `email` + `mobile` are stored both on the shadow user (so the
-    invite flow can read them) and on the profile (so the MFD list
-    surfaces them).
+    `email` + `mobile` + `pan` are stored both on the shadow user (so
+    the invite flow can read them) and on the profile (so the MFD list
+    surfaces them). Denormalised `*_norm` keys mirror them in a
+    canonical form so the uniqueness index / lookup is fast.
     """
+    from services import identity_uniqueness as _iu
     shadow_user_id = str(uuid.uuid4())
-    clean_email = (email or "").strip().lower() or None
-    clean_mobile = "".join(ch for ch in (mobile or "") if ch.isdigit()) or None
+    ident = _iu.stamped_identity_fields(email=email, mobile=mobile, pan=pan)
     shadow_user = {
         "user_id": shadow_user_id,
         "name": name,
-        "email": clean_email,
-        "mobile": clean_mobile,
         "is_shadow": True,              # flag so we never expose shadow users in auth flows
         "shadow_of_workspace": workspace_id,
         "shadow_owner_user_id": owner_user_id,
         "created_at": _now_iso(),
+        **ident,
     }
     await db.users.insert_one(shadow_user)
 
@@ -189,15 +187,15 @@ async def create_client_profile(
         "workspace_id": workspace_id,
         "type": PROFILE_CLIENT,
         "shadow_user_id": shadow_user_id,
+        "owner_user_id": owner_user_id,
         "name": name,
         "aum_rs": aum_rs,
         "tags": tags or [],
         "notes": notes,
-        "email": clean_email,
-        "mobile": clean_mobile,
         "last_reviewed_at": None,
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
+        **ident,
     }
     await db.profiles.insert_one(prof)
     return {k: v for k, v in prof.items() if k != "_id"}
@@ -221,8 +219,10 @@ async def update_profile(
     profile_id: str, *, name: Optional[str] = None, aum_rs: Optional[float] = None,
     tags: Optional[List[str]] = None, notes: Optional[str] = None,
     email: Optional[str] = None, mobile: Optional[str] = None,
+    pan: Optional[str] = None,
     last_reviewed_at: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
+    from services import identity_uniqueness as _iu
     updates: Dict[str, Any] = {"updated_at": _now_iso()}
     shadow_updates: Dict[str, Any] = {}
     if name is not None:
@@ -234,14 +234,16 @@ async def update_profile(
         updates["tags"] = tags
     if notes is not None:
         updates["notes"] = notes
-    if email is not None:
-        clean_email = email.strip().lower() or None
-        updates["email"] = clean_email
-        shadow_updates["email"] = clean_email
-    if mobile is not None:
-        clean_mobile = "".join(ch for ch in mobile if ch.isdigit()) or None
-        updates["mobile"] = clean_mobile
-        shadow_updates["mobile"] = clean_mobile
+    # Identity fields go through the canonical stamper so the *_norm
+    # columns stay in sync with the displayed values.
+    ident = _iu.stamped_identity_fields(
+        email=email if email is not None else None,
+        mobile=mobile if mobile is not None else None,
+        pan=pan if pan is not None else None,
+    )
+    if ident:
+        updates.update(ident)
+        shadow_updates.update(ident)
     if last_reviewed_at is not None:
         updates["last_reviewed_at"] = last_reviewed_at
     await db.profiles.update_one({"profile_id": profile_id}, {"$set": updates})

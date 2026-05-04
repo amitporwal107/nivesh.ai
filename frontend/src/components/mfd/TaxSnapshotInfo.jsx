@@ -180,8 +180,11 @@ function TaxSnapshotModal({ onClose }) {
               </li>
               <li>
                 <strong>Rule 7 — SIP lot-level harvesting.</strong> Each SIP installment has its own
-                holding period. Lot-level harvest scoring is enabled once we have the structured
-                CAS transactions (in progress — see the "View parsed statement" link on snapshots).
+                holding period. <strong>Now live:</strong> when CAS transactions are imported, each
+                lot is bucketed by its actual purchase date — so a fund with 24 SIP installments
+                gets split across STCG / LTCG buckets correctly, and per-lot harvest opportunities
+                are surfaced individually. Holdings without CAS transactions still fall back to the
+                holding-level avg-cost method.
               </li>
             </ul>
           </section>
@@ -198,14 +201,48 @@ function TaxSnapshotModal({ onClose }) {
             </div>
           </section>
 
+          {/* Data source */}
+          <section>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1.5">
+              Where the dates come from
+            </h3>
+            <ul className="text-xs text-slate-600 dark:text-slate-400 space-y-1 list-disc list-inside">
+              <li>
+                <strong>CAS transactions (preferred).</strong> Each PURCHASE / SIP_PURCHASE row is a
+                lot with its own buy_date and NAV. FIFO matcher consumes them chronologically and
+                offsets redemptions, leaving the open lots that belong to today's holdings.
+              </li>
+              <li>
+                <strong>Holding-level avg cost (fallback).</strong> When no CAS transaction exists
+                for a symbol (direct equity, off-platform funds, demat-only NSDL CAS), we use the
+                holding's `buy_date` and weighted-avg `buy_price`.
+              </li>
+              <li>
+                <strong>CAS quality matters.</strong> The card classifies the imported CAS as
+                <em> good</em> (most holdings have lots), <em>partial</em> (short-window or many
+                unmatched), or <em>no_data</em> (demat-only / summary statement). When it's not
+                good, the card surfaces a "Request detailed CAS" CTA that opens the client invite
+                flow — ask the client for a CAMS+KFintech detailed statement covering inception
+                (01-Apr-2010) → today.
+              </li>
+              <li>
+                <strong>Drift guard.</strong> If FIFO open-lot quantity diverges from the holding's
+                current quantity by &gt; 20% (CAS missing major buys/sells), we fall back to
+                holding-level rather than fabricate.
+              </li>
+            </ul>
+          </section>
+
           {/* Engine reference */}
           <section className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               <strong>Engine:</strong> <code>routes/mfd.py → tax_summary</code> +
+              <code> services/tax_engine_fifo/</code> (lot-level) +
               <code> services/tax_calculator.py</code>. Constants
               (<code>EQUITY_STCG_RATE</code>, <code>EQUITY_LTCG_RATE</code>,
               <code> LTCG_EXEMPTION_INR</code>, <code>DEBT_SLAB_RATE</code>, <code>CESS_PCT</code>)
-              live at the top of the route handler.
+              live at the top of the route handler. Lot coverage stats are returned
+              under <code>lot_coverage</code>.
             </p>
           </section>
         </div>

@@ -169,6 +169,41 @@ async def _stock_nifty100_refresh_job():
         logger.warning(f"nifty100_refresh error: {e}")
 
 
+async def _benchmark_refresh_job():
+    """Daily benchmark-index refresh — runs 18:30 IST per PRD. Pulls
+    OHLC for every index in benchmark_index._YF_TICKERS via yfinance,
+    upserts market_index_data, recomputes returns / volatility /
+    drawdown into index_metrics, busts Redis cache for `/api/index/latest`.
+    """
+    try:
+        from services import benchmark_index as _bm
+        results = await _bm.refresh_all()
+        ok = sum(1 for r in results if r.get("ok"))
+        logger.info(f"benchmark_refresh: {ok}/{len(results)} indices refreshed")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"benchmark_refresh error: {e}")
+
+
+async def _macro_intelligence_job():
+    """Daily macro intelligence refresh — runs 18:35 IST (5 min after the
+    benchmark job) per Macro PRD. Ingests crude/USDINR/yield/Nifty via
+    yfinance, computes features, classifies regime, persists everything
+    so /api/macro/today returns fresh data the next morning."""
+    try:
+        from services import macro_engine
+        out = await macro_engine.run_daily()
+        ing = out.get("ingest", {})
+        state = out.get("state", {})
+        logger.info(
+            f"macro_intelligence: success={ing.get('success_count')}/4 "
+            f"confidence={ing.get('overall_confidence')} "
+            f"risk={state.get('risk')} regime={state.get('market')} "
+            f"insight='{state.get('insight')}'"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"macro_intelligence error: {e}")
+
+
 async def _portfolio_snapshot_job():
     """Daily EOD portfolio snapshot — runs 23:30 IST, after all NAV /
     analytics / V3 rescore jobs have completed, so per-holding
@@ -233,6 +268,20 @@ def start():
     _scheduler.add_job(
         _portfolio_snapshot_job, CronTrigger(hour=23, minute=30),
         id="portfolio_snapshot_daily", replace_existing=True, max_instances=1,
+    )
+    # Benchmark indices: daily 18:30 IST per the PRD. Pulls NSE indices
+    # (Nifty 50, Midcap 150, Smallcap 250, Bank, IT, etc.) from yfinance,
+    # upserts OHLC into market_index_data, recomputes returns/volatility/
+    # drawdown, busts the latest-snapshot Redis cache.
+    _scheduler.add_job(
+        _benchmark_refresh_job, CronTrigger(hour=18, minute=30),
+        id="benchmark_index_daily", replace_existing=True, max_instances=1,
+    )
+    # Macro Intelligence layer: 18:35 IST — 5 min after the benchmark job
+    # so the regime classifier has fresh Nifty close to compare to its 50DMA.
+    _scheduler.add_job(
+        _macro_intelligence_job, CronTrigger(hour=18, minute=35),
+        id="macro_intelligence_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

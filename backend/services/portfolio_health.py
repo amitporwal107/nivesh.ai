@@ -24,9 +24,12 @@ the relevant sub-scores as `low_confidence=True` so the UI can show a
 'heuristic' badge.
 """
 from __future__ import annotations
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ── Calibration constants ──────────────────────────────────────────────
@@ -126,6 +129,28 @@ class HealthResult:
             },
             "risk_drivers": self.risk_drivers,
         }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "HealthResult":
+        comps = {}
+        for k, c in (d.get("components") or {}).items():
+            comps[k] = ComponentScore(
+                name=c.get("name", k),
+                score=float(c.get("score") or 0),
+                weight=float(c.get("weight") or 0),
+                sub_scores=c.get("sub_scores") or {},
+                drivers=c.get("drivers") or [],
+                low_confidence=bool(c.get("low_confidence")),
+                note=c.get("note"),
+            )
+        return cls(
+            health_score=float(d.get("health_score") or 0),
+            grade=d.get("grade") or "F",
+            components=comps,
+            risk_drivers=d.get("risk_drivers") or [],
+            low_confidence=bool(d.get("low_confidence")),
+            summary=d.get("summary") or "",
+        )
 
 
 # ── Small helpers ──────────────────────────────────────────────────────
@@ -451,16 +476,27 @@ def compute_portfolio_health(
     all_drivers.sort(key=lambda d: d.get("impact_points", 0), reverse=True)
     top_drivers = all_drivers[:5]
 
-    # Narrative
+    # Narrative — plain English so non-technical users understand what
+    # "Health 48 / Grade D" actually means and which component is dragging it.
     rank_map = [
         (85, "Excellent"), (70, "Strong"), (55, "Fair"), (40, "Weak"), (0, "Poor"),
     ]
     label = next(name for threshold, name in rank_map if total >= threshold)
     grade = score_to_grade(total)
+
+    def _band(score: float) -> str:
+        if score >= 85: return "excellent"
+        if score >= 70: return "good"
+        if score >= 55: return "fair"
+        if score >= 40: return "weak"
+        return "poor"
+
     summary = (
-        f"{label} portfolio — overall Health {round(total):d}/100 (Grade {grade}) "
-        f"(D {diversification.score:.0f} · R {risk.score:.0f} · "
-        f"C {cost.score:.0f} · P {performance.score:.0f})."
+        f"{label} portfolio — Health {round(total):d}/100 (Grade {grade}). "
+        f"Diversification is {_band(diversification.score)} ({diversification.score:.0f}), "
+        f"Risk is {_band(risk.score)} ({risk.score:.0f}), "
+        f"Cost is {_band(cost.score)} ({cost.score:.0f}), "
+        f"Performance is {_band(performance.score)} ({performance.score:.0f})."
     )
 
     low_conf = any(c.low_confidence for c in (diversification, risk, cost, performance))
@@ -632,6 +668,168 @@ def _portfolio_avg_health_from_v3(
     }
 
 
+HEALTH_CACHE_TTL_S = 24 * 3600  # 24h — long enough that activate-snapshot returns instantly
+
+
+async def _active_snapshot_date(user_id: str) -> Optional[str]:
+    from deps import db as _db
+    u = await _db.users.find_one(
+        {"user_id": user_id}, {"_id": 0, "cas_view_state": 1},
+    )
+    return ((u or {}).get("cas_view_state") or {}).get("current_snapshot_date")
+
+
+def _health_cache_key(user_id: str, snapshot_date: Optional[str]) -> Optional[str]:
+    """Stable Redis key for a user's health when viewing a specific snapshot.
+    Returns None when no snapshot is mounted (then we don't cache — the live
+    holdings table can be in any transient state)."""
+    if not snapshot_date:
+        return None
+    return f"health:{user_id}:{snapshot_date}"
+
+
+async def cache_health_for_snapshot(
+    user_id: str, snapshot_date: str, result: HealthResult,
+) -> bool:
+    """Persist a computed health result for one snapshot — TWO backing
+    stores so a Redis-less environment still gets a fast path:
+      - Redis under `health:{user_id}:{snapshot_date}` (24h TTL)
+      - Mongo `portfolio_snapshots.health_full` (durable, no TTL)
+
+    Called from `cas_snapshot_engine.create_cas_snapshot` so timeline-
+    scrubbing is instant — the next `build_portfolio_health(user_id)`
+    that resolves to this snapshot returns from Mongo without re-running
+    the Groww/V3/intelligence pipeline.
+    """
+    from services import redis_client
+    from deps import db as _db
+    payload = result.to_dict()
+    key = _health_cache_key(user_id, snapshot_date)
+    redis_ok = False
+    if key:
+        try:
+            redis_ok = await redis_client.cache_set(key, payload, ttl_s=HEALTH_CACHE_TTL_S)
+        except Exception:  # noqa: BLE001
+            logger.warning("cache_health_for_snapshot redis write failed", exc_info=True)
+    try:
+        await _db.portfolio_snapshots.update_one(
+            {"user_id": user_id, "snapshot_date": snapshot_date},
+            {"$set": {"health_full": payload}},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("cache_health_for_snapshot mongo write failed", exc_info=True)
+    return redis_ok
+
+
+async def _snapshot_fast_path(user_id: str, snap_date: Optional[str]) -> Optional[HealthResult]:
+    """Mongo fast-path: read a previously-computed HealthResult off the
+    active snapshot doc. Returns None if no snapshot is mounted, no
+    score is stored, or the doc shape is unrecognised.
+
+    This makes the common case (user already has a CAS-derived snapshot
+    mounted) instantaneous — `cas_snapshot_engine.create_cas_snapshot`
+    populates `health_full` at create time.
+    """
+    if not snap_date:
+        return None
+    from deps import db as _db
+    snap = await _db.portfolio_snapshots.find_one(
+        {"user_id": user_id, "snapshot_date": snap_date},
+        {"_id": 0, "health_full": 1, "health_score": 1, "grade": 1, "scores": 1, "summary": 1},
+    )
+    if not snap:
+        return None
+    # Best case — the full payload was stashed at create time.
+    if isinstance(snap.get("health_full"), dict) and snap["health_full"].get("health_score") is not None:
+        try:
+            return HealthResult.from_dict(snap["health_full"])
+        except Exception:  # noqa: BLE001
+            logger.warning("snapshot health_full deserialise failed for %s", user_id, exc_info=True)
+    # Older snapshots only have flat scores. Reconstruct a minimal
+    # HealthResult so the UI shows the score+grade without the full
+    # component drilldown (which the page can fetch lazily on click).
+    hs = snap.get("health_score")
+    if hs is None:
+        return None
+    flat = snap.get("scores") or {}
+    comps: Dict[str, ComponentScore] = {}
+    for k, v in flat.items():
+        if k == "health":
+            continue
+        try:
+            comps[k] = ComponentScore(name=k, score=float(v), weight=0.0)
+        except (TypeError, ValueError):
+            pass
+    # Synthesise the human-readable summary from the flat scores when the
+    # snapshot doesn't carry one (older snapshots predate the summary field).
+    # Mirrors the labelling in compute_portfolio_health so the Insights UI
+    # reads the same plain-English explainer regardless of which path served it.
+    stored_summary = snap.get("summary")
+    if not stored_summary:
+        rank_map = [
+            (85, "Excellent"), (70, "Strong"), (55, "Fair"), (40, "Weak"), (0, "Poor"),
+        ]
+        score_for_label = float(hs)
+        label = next(name for threshold, name in rank_map if score_for_label >= threshold)
+
+        def _band(s: float) -> str:
+            if s >= 85: return "excellent"
+            if s >= 70: return "good"
+            if s >= 55: return "fair"
+            if s >= 40: return "weak"
+            return "poor"
+
+        # Component scores live under varied keys depending on snapshot vintage
+        # ("Diversification" vs "diversification"); normalise on lookup.
+        def _score_of(name: str) -> Optional[float]:
+            for k in (name, name.lower(), name.capitalize(), name.upper()):
+                if k in flat:
+                    try:
+                        return float(flat[k])
+                    except (TypeError, ValueError):
+                        return None
+            return None
+
+        ds = _score_of("diversification")
+        rs = _score_of("risk")
+        cs = _score_of("cost")
+        ps = _score_of("performance")
+
+        if all(v is not None for v in (ds, rs, cs, ps)):
+            stored_summary = (
+                f"{label} portfolio — Health {round(score_for_label):d}/100 "
+                f"(Grade {snap.get('grade') or _grade_from_score(score_for_label)}). "
+                f"Diversification is {_band(ds)} ({ds:.0f}), "
+                f"Risk is {_band(rs)} ({rs:.0f}), "
+                f"Cost is {_band(cs)} ({cs:.0f}), "
+                f"Performance is {_band(ps)} ({ps:.0f})."
+            )
+        else:
+            stored_summary = (
+                f"{label} portfolio — Health {round(score_for_label):d}/100 "
+                f"(Grade {snap.get('grade') or _grade_from_score(score_for_label)})."
+            )
+
+    return HealthResult(
+        health_score=float(hs),
+        grade=snap.get("grade") or _grade_from_score(float(hs)),
+        components=comps,
+        risk_drivers=[],
+        low_confidence=False,
+        summary=stored_summary,
+    )
+
+
+def _grade_from_score(s: float) -> str:
+    if s >= 90: return "A+"
+    if s >= 80: return "A"
+    if s >= 70: return "B+"
+    if s >= 60: return "B"
+    if s >= 50: return "C"
+    if s >= 40: return "D"
+    return "F"
+
+
 async def build_portfolio_health(
     user_id: str,
     *,
@@ -643,6 +841,11 @@ async def build_portfolio_health(
     (cached 24h), MF overlap from portfolio_intelligence, and the user's
     risk profile. Calls the 4 component scorers and returns the full
     HealthResult (ready to serialise via `.to_dict()`).
+
+    Result is memoised in Redis under `health:{user_id}:{snapshot_date}`
+    for 24h so activating an older snapshot doesn't re-run the full
+    enrichment pipeline (Groww/V3/intelligence) unless the holdings
+    underneath actually changed.
     """
     # Lazy imports so unit tests can import portfolio_health without the
     # whole FastAPI graph.
@@ -650,6 +853,32 @@ async def build_portfolio_health(
     from services import portfolio_intelligence as _pintel    # noqa: WPS433
     from services import v3_integration as _v3i               # noqa: WPS433
     from services import stock_enricher as _enricher          # noqa: WPS433
+    from services import redis_client as _redis               # noqa: WPS433
+
+    # ── Cache lookup ────────────────────────────────────────────────────
+    snap_date = await _active_snapshot_date(user_id)
+    cache_key = _health_cache_key(user_id, snap_date)
+    if not force_refresh_stocks:
+        # 1. Redis (instant)
+        if cache_key:
+            try:
+                cached = await _redis.cache_get(cache_key)
+                if cached:
+                    logger.info("portfolio_health redis cache hit %s", cache_key)
+                    return HealthResult.from_dict(cached)
+            except Exception:  # noqa: BLE001
+                logger.warning("portfolio_health redis read failed", exc_info=True)
+        # 2. Mongo snapshot doc (durable fallback for Redis-less envs)
+        snap_health = await _snapshot_fast_path(user_id, snap_date)
+        if snap_health is not None:
+            logger.info("portfolio_health snapshot fast-path hit %s/%s", user_id, snap_date)
+            # Backfill Redis so subsequent reads stay fast
+            if cache_key:
+                try:
+                    await _redis.cache_set(cache_key, snap_health.to_dict(), ttl_s=HEALTH_CACHE_TTL_S)
+                except Exception:  # noqa: BLE001
+                    pass
+            return snap_health
 
     # 1. Load all holdings (MF + equity + ETF)
     all_holdings: List[Dict[str, Any]] = await _db.holdings.find(
@@ -660,7 +889,7 @@ async def build_portfolio_health(
 
     if not all_holdings:
         return HealthResult(
-            health_score=0.0, components={}, risk_drivers=[],
+            health_score=0.0, grade="F", components={}, risk_drivers=[],
             low_confidence=True, summary="No holdings on file — upload a CAS to compute Health.",
         )
 
@@ -874,4 +1103,12 @@ async def build_portfolio_health(
     result = compute_portfolio_health(
         diversification=divers, risk=risk, cost=cost, performance=perf,
     )
+    # Persist to BOTH Redis (TTL'd) and the snapshot doc (durable) so
+    # subsequent reads short-circuit the slow path even when Redis is
+    # unconfigured or has been flushed.
+    if snap_date and result and result.health_score is not None:
+        try:
+            await cache_health_for_snapshot(user_id, snap_date, result)
+        except Exception:  # noqa: BLE001
+            logger.warning("portfolio_health write-back failed", exc_info=True)
     return result

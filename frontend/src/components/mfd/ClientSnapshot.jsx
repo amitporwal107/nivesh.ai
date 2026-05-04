@@ -10,14 +10,15 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, Target, AlertTriangle, CheckCircle2,
   Calendar, Sparkles, ArrowRight, Activity, Scale, RefreshCw, Plus, Eye,
   ShieldCheck, Receipt, Share2, Mail, MessageSquare, StickyNote, Save, Copy,
-  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Bot, Link2,
+  Wallet, IndianRupee, ChevronDown, ChevronRight, Zap, PieChart, Link2,
+  Loader2,
 } from "lucide-react";
-import NiveshCopilot from "./NiveshCopilot";
 import TimeMachineStrip from "./TimeMachineStrip";
 import ClientCasInviteModal from "./ClientCasInviteModal";
 import CasTimeMachine from "./CasTimeMachine";
 import HealthScoreInfo from "./HealthScoreInfo";
 import TaxSnapshotInfo from "./TaxSnapshotInfo";
+import SharedCasFiles from "./SharedCasFiles";
 import ExportHoldingsButton from "@/components/ExportHoldingsButton";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -297,14 +298,15 @@ const impactBadgesFor = (action) => {
 };
 
 // ── Score ring (SVG) ──────────────────────────────────────────────────
-const ScoreRing = ({ value, tone, testId }) => {
+const ScoreRing = ({ value, tone, testId, loading }) => {
   const t = TONE[tone] || TONE.slate;
   const v = value == null ? 0 : Math.max(0, Math.min(100, Math.round(value)));
   const C = 2 * Math.PI * 40;
   const off = C * (1 - v / 100);
+  const showSpinner = value == null;
   return (
     <div className="relative w-32 h-32 flex-shrink-0" data-testid={testId}>
-      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+      <svg viewBox="0 0 100 100" className={`w-full h-full -rotate-90 ${showSpinner ? "animate-pulse" : ""}`}>
         <circle cx="50" cy="50" r="40" strokeWidth="8" stroke="currentColor" className="text-slate-100 dark:text-slate-800" fill="none" />
         <circle
           cx="50" cy="50" r="40" strokeWidth="8" stroke="currentColor"
@@ -314,8 +316,13 @@ const ScoreRing = ({ value, tone, testId }) => {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        {value == null ? (
-          <span className="text-xs text-slate-400 italic">Calculating…</span>
+        {showSpinner ? (
+          <>
+            <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+            <span className="text-[10px] text-slate-400 italic mt-1.5" data-testid={`${testId}-loading`}>
+              {loading ? "Scoring…" : "Computing"}
+            </span>
+          </>
         ) : (
           <>
             <span className={`text-3xl font-bold ${t.text} tabular-nums leading-none`}>{v}</span>
@@ -349,7 +356,22 @@ const ComponentBar = ({ label, value, tone, testId }) => {
 // ── GoalsRollup — consolidated view for Client 360 ───────────────────
 // Same shape as the retail /goals page but compact: stats strip + per-goal
 // progress rows. Re-renders on every goals[] change (add / edit / delete).
-const GoalsRollup = ({ goals }) => {
+const GoalsRollup = ({ goals, sipSummary }) => {
+  const sipGapMonths     = sipSummary?.gap_months || 0;
+  const longestGap       = sipSummary?.longest_gap_months || 0;
+  // The goals projection assumes the planned monthly SIP keeps flowing.
+  // If real CAS data shows missed months OR the actual avg SIP is far
+  // below plan, the on-track % is misleading. We also re-display the
+  // *actual-rate* on-track that the backend computes from CAS data.
+  const goalsExpectSip   = goals.some((g) => (g.monthly_sip_rs || 0) > 0);
+  const actualSip        = goals[0]?.actual_monthly_sip_rs;
+  const plannedSipTotal  = goals.reduce((s, g) => s + (g.monthly_sip_rs || 0), 0);
+  // Treat "actual far below plan" as a gap signal even if cas_transactions
+  // doesn't expose missed months — covers the case where the mandate
+  // simply runs at a fraction of plan with no formal pause.
+  const sipUnderRunning  = actualSip != null && plannedSipTotal > 0
+    && actualSip < plannedSipTotal * 0.5;
+  const showGapWarning   = goalsExpectSip && (sipGapMonths > 0 || sipUnderRunning);
   const rollup = useMemo(() => {
     const total_target = goals.reduce((s, g) => s + (g.target_amount_rs || 0), 0);
     const total_sip    = goals.reduce((s, g) => s + (g.monthly_sip_rs || 0), 0);
@@ -358,10 +380,16 @@ const GoalsRollup = ({ goals }) => {
       ? with_track.reduce((s, g) => s + (g.on_track_pct * (g.target_amount_rs || 1)), 0) /
         Math.max(1, with_track.reduce((s, g) => s + (g.target_amount_rs || 1), 0))
       : null;
+    // Same weighted average, but using the actual-rate on_track from CAS.
+    const with_actual = goals.filter((g) => g.on_track_pct_actual != null);
+    const wOnTrackActual = with_actual.length
+      ? with_actual.reduce((s, g) => s + (g.on_track_pct_actual * (g.target_amount_rs || 1)), 0) /
+        Math.max(1, with_actual.reduce((s, g) => s + (g.target_amount_rs || 1), 0))
+      : null;
     const minH = Math.min(Infinity, ...goals.map((g) => g.horizon_years || Infinity));
     const maxH = Math.max(0, ...goals.map((g) => g.horizon_years || 0));
     return {
-      total_target, total_sip, wOnTrack,
+      total_target, total_sip, wOnTrack, wOnTrackActual,
       minH: minH === Infinity ? 0 : minH, maxH,
       onTrack: goals.filter((g) => g.on_track_pct != null && g.on_track_pct >= 85).length,
       atRisk:  goals.filter((g) => g.on_track_pct != null && g.on_track_pct < 60).length,
@@ -372,6 +400,37 @@ const GoalsRollup = ({ goals }) => {
 
   return (
     <div data-testid="client360-goals-rollup">
+      {/* SIP gap warning — projected on-track % assumes uninterrupted SIP;
+          flag missed months from CAS AND a chronic plan-vs-actual shortfall
+          so the advisor knows the headline number is best-case, not actual. */}
+      {showGapWarning && (
+        <div
+          data-testid="rollup-sip-gap-warning"
+          className="mb-3 rounded-lg border-l-4 border-rose-400 bg-rose-50/70 dark:bg-rose-900/20 px-3 py-2 flex items-start gap-2"
+        >
+          <span className="text-rose-500 text-sm leading-none mt-0.5">⚠</span>
+          <div className="text-[11px] text-rose-700 dark:text-rose-200 leading-relaxed">
+            {sipGapMonths > 0 ? (
+              <>
+                <strong>SIP gap detected.</strong> {sipGapMonths} month{sipGapMonths === 1 ? "" : "s"} with no
+                SIP / purchase{longestGap > 1 ? ` (longest run: ${longestGap})` : ""}.
+              </>
+            ) : (
+              <>
+                <strong>SIP under-running plan.</strong>
+              </>
+            )}
+            {actualSip != null && plannedSipTotal > 0 && (
+              <>
+                {" "}Actual avg ≈ {fmtRs(actualSip)}/mo across last 6 months vs plan {fmtRs(plannedSipTotal)}/mo.
+              </>
+            )}
+            {" "}The plan-on-track % below assumes the planned SIP keeps flowing — the
+            <strong> actual-on-track</strong> column shows where the goal lands at the current rate.
+          </div>
+        </div>
+      )}
+
       {/* Summary strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
         <div data-testid="rollup-target">
@@ -396,7 +455,17 @@ const GoalsRollup = ({ goals }) => {
           <div className="text-[9px] uppercase tracking-wider font-semibold text-slate-400">Overall</div>
           <div className={`text-lg font-bold ${TONE[tone].text} tabular-nums mt-0.5`}>
             {rollup.wOnTrack != null ? `${Math.round(rollup.wOnTrack)}%` : "Simulate"}
+            <span className="text-[9px] font-normal text-slate-400 ml-1">plan</span>
           </div>
+          {rollup.wOnTrackActual != null && (
+            <div className={`text-[11px] font-semibold tabular-nums ${
+              rollup.wOnTrackActual < 60 ? "text-rose-600" :
+              rollup.wOnTrackActual < 85 ? "text-amber-600" : "text-emerald-600"
+            }`} data-testid="rollup-on-track-actual">
+              {Math.round(rollup.wOnTrackActual)}%
+              <span className="text-[9px] font-normal text-slate-400 ml-1">actual SIP</span>
+            </div>
+          )}
           <div className="text-[9px] text-slate-500">
             {rollup.onTrack} on track · {rollup.atRisk} at risk
           </div>
@@ -426,8 +495,22 @@ const GoalsRollup = ({ goals }) => {
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <div className={`text-xs font-bold tabular-nums w-12 text-right ${TONE[gTone].text}`}>
-                {g.on_track_pct != null ? `${Math.round(g.on_track_pct)}%` : "—"}
+              <div className="w-20 text-right">
+                <div className={`text-xs font-bold tabular-nums ${TONE[gTone].text}`}>
+                  {g.on_track_pct != null ? `${Math.round(g.on_track_pct)}%` : "—"}
+                </div>
+                {g.on_track_pct_actual != null && g.on_track_pct_actual !== g.on_track_pct && (
+                  <div
+                    className={`text-[10px] tabular-nums ${
+                      g.on_track_pct_actual < 60 ? "text-rose-600" :
+                      g.on_track_pct_actual < 85 ? "text-amber-600" : "text-emerald-600"
+                    }`}
+                    title="On-track using the actual avg SIP from CAS over the last 6 months"
+                    data-testid={`rollup-goal-actual-${g.goal_id}`}
+                  >
+                    {Math.round(g.on_track_pct_actual)}% actual
+                  </div>
+                )}
               </div>
               <div className="hidden md:block text-[11px] text-slate-500 tabular-nums w-16 text-right flex-shrink-0">
                 {g.horizon_years}y
@@ -446,6 +529,7 @@ const GoalsRollup = ({ goals }) => {
 export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh }) {
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
   const [goals, setGoals] = useState([]);
   const [activePlan, setActivePlan] = useState(null);
   const [actions, setActions] = useState([]);
@@ -454,6 +538,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [collapsedBuckets, setCollapsedBuckets] = useState({ enhance: true }); // enhance starts collapsed
   const [trend, setTrend] = useState(null);
   const [tax, setTax] = useState(null);
+  const [sipSummary, setSipSummary] = useState(null);
   const [notes, setNotes] = useState({
     note: "", sip_amount_rs: "", sip_frequency: "monthly",
     next_sip_due: "", preferred_channel: "",
@@ -462,7 +547,6 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   const [notesDirty, setNotesDirty] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [copilotOpen, setCopilotOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
 
   const profileId = activeProfile?.profile_id;
@@ -471,13 +555,14 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
     if (!profileId) return;
     setLoading(true);
     try {
-      const [hRes, gRes, pRes, tRes, nRes, xRes] = await Promise.all([
+      const [hRes, gRes, pRes, tRes, nRes, xRes, sRes] = await Promise.all([
         axios.get(`${API}/insights/analysis`,    { withCredentials: true }).catch(() => null),
         axios.get(`${API}/goals`,                { withCredentials: true }).catch(() => null),
         axios.get(`${API}/plans/active`,         { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/portfolio-trend`, { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/notes`,           { withCredentials: true }).catch(() => null),
         axios.get(`${API}/mfd/profiles/${profileId}/tax-summary`,     { withCredentials: true }).catch(() => null),
+        axios.get(`${API}/portfolio/cas-sip-summary`, { params: { profile_id: profileId }, withCredentials: true }).catch(() => null),
       ]);
       setHealth(hRes?.data?.portfolio_health || null);
       setGoals(gRes?.data?.goals || gRes?.data || []);
@@ -493,6 +578,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
       setActions(list);
       setTrend(tRes?.data || null);
       setTax(xRes?.data || null);
+      setSipSummary(sRes?.data || null);
       if (nRes?.data) {
         setNotes({
           note: nRes.data.note || "",
@@ -510,6 +596,40 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
   }, [profileId]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Health-score retry — `/insights/analysis` sometimes returns before the
+  // V3 enrichment pipeline finishes (the unified health is attached
+  // best-effort, so a slow Groww/V3 call leaves portfolio_health=null).
+  // Poll every 4s up to 5 attempts when the score is missing but holdings
+  // exist, so the UI escapes the "Calculating…" dead-state without a manual
+  // refresh. Stops as soon as a score arrives or the page changes profile.
+  useEffect(() => {
+    if (loading) return;
+    if (!profileId) return;
+    if (health?.health_score != null) return;
+    let attempt = 0;
+    let cancelled = false;
+    setHealthLoading(true);
+    const tick = async () => {
+      attempt += 1;
+      try {
+        const r = await axios.get(`${API}/insights/analysis`, { withCredentials: true });
+        const ph = r?.data?.portfolio_health || null;
+        if (!cancelled && ph?.health_score != null) {
+          setHealth(ph);
+          setHealthLoading(false);
+          return;
+        }
+      } catch { /* keep retrying */ }
+      if (!cancelled && attempt < 5) {
+        setTimeout(tick, 4000);
+      } else if (!cancelled) {
+        setHealthLoading(false);
+      }
+    };
+    const id = setTimeout(tick, 4000);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [loading, profileId, health?.health_score]);
 
   const saveNotes = async () => {
     setSavingNotes(true);
@@ -856,14 +976,6 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
             <Link2 className="w-3.5 h-3.5 mr-1" /> Invite for CAS
           </Button>
           <Button
-            variant="default" size="sm"
-            onClick={() => setCopilotOpen(true)}
-            data-testid="snapshot-open-copilot"
-            className="h-8 text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white border-0"
-          >
-            <Bot className="w-3.5 h-3.5 mr-1" /> Copilot
-          </Button>
-          <Button
             variant="outline" size="sm"
             onClick={() => setActiveTab("portfolio")}
             data-testid="snapshot-open-portfolio"
@@ -998,7 +1110,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           {/* ── Health + breakdown card (left, spans 2) ──────────── */}
           <Card className="lg:col-span-2 p-5" data-testid="snapshot-health-card">
             <div className="flex items-start gap-6 flex-wrap">
-              <ScoreRing value={hs} tone={hsTone} testId="snapshot-health-ring" />
+              <ScoreRing value={hs} tone={hsTone} testId="snapshot-health-ring" loading={healthLoading} />
               <div className="flex-1 min-w-[220px]">
                 <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 inline-flex items-center">
                   Portfolio Health
@@ -1014,6 +1126,18 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 leading-relaxed" data-testid="snapshot-health-summary">
                   {health?.summary || client.ai_summary || "No summary available yet."}
                 </p>
+                {/* Plain-English explainer of what the four components mean,
+                    so a Grade D / Weak result is actionable. Shown only when
+                    we actually have a score; collapses on cold-start. */}
+                {hs != null && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed" data-testid="snapshot-health-explainer">
+                    <strong>Diversification</strong> = spread across funds, AMCs and sectors ·
+                    {" "}<strong>Risk</strong> = volatility / drawdown vs your profile ·
+                    {" "}<strong>Cost</strong> = expense-ratio leak (Direct vs Regular) ·
+                    {" "}<strong>Performance</strong> = returns vs benchmark.
+                    {" "}80+ is strong, 55–79 fair, below 55 needs work.
+                  </p>
+                )}
                 {/* riskAlignment stays below (same line) */}
                 <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium" data-testid="snapshot-risk-alignment">
                   <ShieldCheck className={`w-3.5 h-3.5 ${TONE[riskAlignment.tone].text}`} />
@@ -1336,7 +1460,7 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 </div>
               </div>
             ) : (
-              <GoalsRollup goals={goals} />
+              <GoalsRollup goals={goals} sipSummary={sipSummary} />
             )}
           </Card>
 
@@ -1356,6 +1480,22 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                     Unrealized gain / loss split — helps time the rebalance
                   </div>
                 </div>
+                {tax.lot_coverage?.n_holdings_lot_resolved > 0 && (
+                  <span
+                    data-testid="snapshot-tax-lot-badge"
+                    title={
+                      `${tax.lot_coverage.n_holdings_lot_resolved} holding${tax.lot_coverage.n_holdings_lot_resolved === 1 ? "" : "s"} ` +
+                      `split into individual SIP / purchase lots from ${tax.lot_coverage.n_cas_transactions} CAS transactions. ` +
+                      (tax.lot_coverage.n_holdings_holding_only > 0
+                        ? `${tax.lot_coverage.n_holdings_holding_only} holding${tax.lot_coverage.n_holdings_holding_only === 1 ? "" : "s"} use holding-level avg cost.`
+                        : "")
+                    }
+                    className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    Lot-level · {tax.lot_coverage.n_holdings_lot_resolved}/
+                    {tax.lot_coverage.n_holdings_lot_resolved + tax.lot_coverage.n_holdings_holding_only}
+                  </span>
+                )}
               </div>
 
               {/* Top row of big numbers */}
@@ -1390,17 +1530,33 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
                 </div>
               </div>
 
-              {/* Coverage + undated caveat */}
-              {tax.undated_count > 0 && (
+              {/* Coverage + undated caveat — message + action driven by backend */}
+              {(tax.undated_count > 0 || tax.lot_coverage?.recommended_action) && (
                 <div
                   data-testid="tax-coverage-note"
-                  className="mt-3 flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+                  className="mt-3 flex items-start gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
                 >
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="text-[11px] text-amber-800 dark:text-amber-300">
-                    {tax.undated_count} holding{tax.undated_count === 1 ? " is" : "s are"} missing buy date
-                    ({fmtRs(tax.undated_gain_rs)} gain not categorised). Re-import the latest CAS to split them into STCG / LTCG.
+                  <div className="flex-1 text-[11px] text-amber-800 dark:text-amber-300">
+                    {tax.undated_count > 0 && (
+                      <div className="mb-1">
+                        <strong>{tax.undated_count}</strong> holding{tax.undated_count === 1 ? " is" : "s are"} missing buy date
+                        ({fmtRs(tax.undated_gain_rs)} gain not categorised).
+                      </div>
+                    )}
+                    {tax.lot_coverage?.hint && (
+                      <div data-testid="tax-coverage-hint">{tax.lot_coverage.hint}</div>
+                    )}
                   </div>
+                  {tax.lot_coverage?.recommended_action === "request_detailed_cas" && (
+                    <button
+                      data-testid="tax-request-detailed-cas"
+                      onClick={() => setInviteOpen(true)}
+                      className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold px-2.5 py-1 transition-colors"
+                    >
+                      Request detailed CAS
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1784,6 +1940,34 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
         </div>
       )}
 
+      {/* ── CAS statement history ──────────────────────────────────── */}
+      {!loading && (
+        <Card className="p-5" data-testid="snapshot-cas-history-card">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                <Receipt className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-slate-800 dark:text-slate-100">CAS statement history</div>
+                <div className="text-[11px] text-slate-500">
+                  Every CAS the client uploaded — download originals, re-parse, audit
+                </div>
+              </div>
+            </div>
+            <Button
+              size="sm" variant="outline"
+              onClick={() => setInviteOpen(true)}
+              className="h-8 text-[11px]"
+              data-testid="snapshot-cas-history-invite"
+            >
+              <Mail className="w-3.5 h-3.5 mr-1" /> Request new CAS
+            </Button>
+          </div>
+          <SharedCasFiles profileId={profileId} />
+        </Card>
+      )}
+
       {/* ── Flag strip ─────────────────────────────────────────────── */}
       {!loading && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 pt-1">
@@ -1799,13 +1983,6 @@ export default function ClientSnapshot({ activeProfile, setActiveTab, onRefresh 
           </Button>
         </div>
       )}
-
-      {/* ── Nivesh Copilot drawer ──────────────────────────────────── */}
-      <NiveshCopilot
-        open={copilotOpen}
-        onClose={() => setCopilotOpen(false)}
-        clientName={client.name}
-      />
 
       {/* ── Client CAS invite modal ───────────────────────────────── */}
       <ClientCasInviteModal

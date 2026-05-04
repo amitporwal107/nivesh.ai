@@ -217,7 +217,48 @@ async def list_goals(request: Request):
             "created_at DESC",
             _user_uuid(user_id),
         )
-    return {"goals": [_row_to_goal_dict(r) for r in rows]}
+    goals = [_row_to_goal_dict(r) for r in rows]
+
+    # Reconcile each goal's on-track % against the ACTUAL recent SIP from
+    # CAS, not just the planned mandate. Without this, a client whose
+    # plan says ₹50k/mo but who's only contributing ₹5k/mo still shows a
+    # rosy 45% on track. Stored `on_track_pct` becomes "plan-on-track";
+    # we attach `actual_monthly_sip_rs` and `on_track_pct_actual` so the
+    # UI can flag the gap.
+    if goals:
+        try:
+            from services import cas_snapshot_engine as _eng
+            from services import goal_engine as _ge
+            sip_stats = await _eng.actual_monthly_sip_rate(user_id, lookback_months=6)
+            actual_sip = float(sip_stats.get("avg_monthly_rs") or 0)
+            for g in goals:
+                g["actual_monthly_sip_rs"] = actual_sip
+                g["actual_sip_window_months"] = sip_stats.get("months_observed", 0)
+                g["actual_sip_gap_months"] = sip_stats.get("gap_months", 0)
+                planned_sip = float(g.get("monthly_sip_rs") or 0)
+                target_today = float(g.get("target_amount_rs") or 0)
+                horizon = float(g.get("horizon_years") or 0)
+                start_corpus = float(g.get("current_corpus_rs") or 0)
+                exp_ret = float(g.get("expected_return_pct") or 12.0)
+                inflation = float(g.get("inflation_pct") or 6.0)
+                if target_today > 0 and horizon > 0:
+                    fv = _ge.inflate_target(target_today, horizon, inflation)
+                    projected_actual = _ge.project_corpus_fixed(
+                        start_corpus, actual_sip, horizon, exp_ret,
+                    )
+                    g["on_track_pct_actual"] = round(
+                        min(100.0, (projected_actual / fv * 100) if fv > 0 else 0), 1
+                    )
+                    # Difference flag the UI can use without recomputing.
+                    plan_pct = float(g.get("on_track_pct") or 0)
+                    g["on_track_pct_plan"] = plan_pct
+                    g["on_track_drop_pp"] = round(plan_pct - g["on_track_pct_actual"], 1)
+                    g["sip_shortfall_rs"] = round(max(0.0, planned_sip - actual_sip), 2)
+        except Exception:
+            # Best-effort enrichment — original goals payload is still served.
+            pass
+
+    return {"goals": goals}
 
 
 @router.post("")

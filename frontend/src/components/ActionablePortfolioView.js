@@ -3,16 +3,55 @@ import axios from "axios";
 import { toast } from "sonner";
 import {
   AlertTriangle, TrendingUp, TrendingDown, Shield, Zap, RefreshCw,
-  Download, Filter, ChevronDown, ChevronRight, Info, X,
+  Download, Filter, ChevronDown, ChevronRight, Info, X, Calendar,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import SwitchCostPanel from "./insights/SwitchCostPanel";
+import DecisionCard from "./insights/DecisionCard";
+import DiscoverInternationalView from "./insights/DiscoverInternationalView";
+import PortfolioBuilderView from "./insights/PortfolioBuilderView";
+import { Globe } from "lucide-react";
+import PositionalPicks from "@/components/PositionalPicks";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmtINR = (n) => n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;
 const fmtPct = (n, dp = 1) => n == null ? "—" : `${n.toFixed(dp)}%`;
+
+// Normalise a fund name so two holdings of the same scheme but different
+// plan / option / folio / abbreviation collapse to the same key. Used to
+// flag duplicate holdings (Direct vs Regular vs Growth vs IDCW etc.).
+const normaliseSchemeKey = (name) => {
+  if (!name) return "";
+  let n = ` ${String(name).toLowerCase()} `;
+  // drop parenthetical notes ("(erstwhile…)", "(g)", etc.)
+  n = n.replace(/\([^)]*\)/g, " ");
+  // unify dashes / commas / dots / pipes / slashes to spaces
+  n = n.replace(/[-,.|/]+/g, " ");
+  // strip plan / option / dividend tokens
+  const STRIP = [
+    "direct plan", "regular plan", "direct", "regular",
+    "growth option", "growth plan", "growth",
+    "dividend reinvestment", "dividend payout", "dividend",
+    "idcw payout", "idcw reinvestment", "idcw",
+    "bonus", "annual", "quarterly", "monthly",
+    "mutual fund", "fund of funds", "fund", "scheme",
+  ];
+  for (const tok of STRIP) {
+    n = n.replace(new RegExp(`\\s${tok}\\s`, "g"), " ");
+  }
+  // common short suffixes left dangling
+  n = n.replace(/\s(g|d|idcw|gr|gp)\s/g, " ");
+  // drop leading 2-5 letter broker/CAS code: " dfg " / " mcog "
+  n = n.replace(/^\s+[a-z]{2,5}\s+(?=[a-z])/, " ");
+  return n.replace(/\s+/g, " ").trim();
+};
+const fmtSnapDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
 
 // Score band (Strong / Good / Average / Weak) — user-approved Feb 2026.
 // `inverted` flips colours for Exit-score where LOW = GOOD.
@@ -219,20 +258,158 @@ const ActionBadge = ({ badge }) => {
   );
 };
 
+// Per-asset-type methodology shown in the Score Breakdown info popover.
+// Mirrors the V3 weights from services/stock_scoring.py and v3 fund engine.
+const METHODOLOGY = {
+  equity: {
+    title: "How we score stocks (V3 equity engine)",
+    dims: [
+      { label: "Fund Strength (Quality)", desc: "long-term durability",
+        components: "ROE · 3y EPS growth · Earnings consistency · Debt/Equity · Promoter holding · Market-cap stability" },
+      { label: "Performance Stability (Health)", desc: "current trajectory",
+        components: "Revenue growth · Profit-margin trend · Debt trend · Earnings surprises · Volatility · Dividend yield" },
+      { label: "Sell Pressure (Exit)", desc: "risk of holding longer",
+        components: "PE overvaluation · Earnings decline · Quality deterioration · Debt spike · Liquidity risk · Tax impact" },
+      { label: "Portfolio Fit (Add)", desc: "fit with your existing mix",
+        components: "Sector gap · Low overlap · Relative valuation · Quality · Momentum · Dividend" },
+    ],
+    composite: "Composite = 40% Quality + 30% Health + 20% (100−Exit) + 10% Add",
+    sources: "Data: Groww + Moneycontrol + Morningstar. Each primitive is normalised 0–100 and weighted.",
+  },
+  fund: {
+    title: "How we score mutual funds (V3 fund engine)",
+    dims: [
+      { label: "Fund Strength (Quality)", desc: "manager skill + holdings quality",
+        components: "5y rolling alpha · Sharpe · Holdings quality · Manager tenure · Expense efficiency" },
+      { label: "Performance Stability (Health)", desc: "consistency across cycles",
+        components: "1y/3y returns · Drawdown · Volatility · Category-relative momentum" },
+      { label: "Sell Pressure (Exit)", desc: "reasons to switch out",
+        components: "Underperformance · Mandate drift · Style mismatch · Plan-type cost · Fund age" },
+      { label: "Portfolio Fit (Add)", desc: "incremental value to your portfolio",
+        components: "Category gap · Overlap · Risk fit · Tax efficiency · Liquidity" },
+    ],
+    composite: "Composite = 40% Quality + 30% Health + 20% (100−Exit) + 10% Add",
+    sources: "Data: AMFI NAV + Morningstar + AMC factsheets. Each primitive is normalised 0–100 and weighted.",
+  },
+};
+
+const ScoringInfoPopover = ({ assetType }) => {
+  const [open, setOpen] = useState(false);
+  const meth = METHODOLOGY[assetType === "equity" ? "equity" : "fund"];
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        className="text-slate-400 hover:text-slate-600 transition-colors"
+        aria-label="How scoring works"
+        data-testid="scoring-info-toggle"
+      >
+        <Info className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-30"
+            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+          />
+          <div
+            className="absolute left-0 top-5 z-40 w-[360px] bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-[11px] text-slate-600 normal-case tracking-normal font-normal"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="scoring-info-popover"
+          >
+            <div className="flex items-start justify-between mb-2">
+              <strong className="text-slate-800 text-[12px]">{meth.title}</strong>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-slate-400 hover:text-slate-600 -mt-0.5"
+                aria-label="Close"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {meth.dims.map((d) => (
+                <li key={d.label}>
+                  <div className="font-semibold text-slate-700">{d.label} <span className="text-slate-400 font-normal">— {d.desc}</span></div>
+                  <div className="text-slate-500 leading-snug">{d.components}</div>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 pt-2 border-t border-slate-100 text-slate-500 leading-snug">
+              <div className="font-mono text-[10px] text-slate-700">{meth.composite}</div>
+              <div className="mt-1">{meth.sources}</div>
+            </div>
+          </div>
+        </>
+      )}
+    </span>
+  );
+};
+
 const ExpandedRow = ({ h, onSwitch }) => {
   const s = h.scores || {};
+  // Renamed labels per UX critique 2026-04-30: Quality→Fund Strength,
+  // Health→Performance Stability, Exit→Sell Pressure, Add→Portfolio Fit.
+  // Each chip now also exposes a one-line "why this matters" so users
+  // don't need to know the engine internals to read the score.
   const subs = [
-    { label: "Quality",  value: s.quality,  inverted: false, desc: "Long-term business strength" },
-    { label: "Health",   value: s.health,   inverted: false, desc: "Momentum + stability" },
-    { label: "Exit",     value: s.exit,     inverted: true,  desc: "Sell-signal (lower = safer)" },
-    { label: "Add",      value: s.add,      inverted: false, desc: "Portfolio-fit for new allocation" },
+    { label: "Fund Strength",         value: s.quality, inverted: false,
+      desc: "Long-term business quality of the fund's holdings",
+      why: "A weak basket erodes returns over years of compounding." },
+    { label: "Performance Stability", value: s.health,  inverted: false,
+      desc: "Recent momentum + risk-adjusted consistency",
+      why: "Stable performers reduce sequence-of-returns risk." },
+    { label: "Sell Pressure",         value: s.exit,    inverted: true,
+      desc: "How strongly the engine wants you out (lower = safer to keep)",
+      why: "Higher = the fund is dragging the portfolio." },
+    { label: "Portfolio Fit",         value: s.add,     inverted: false,
+      desc: "How well a fresh allocation fits your current mix",
+      why: "Higher = fills a gap, lower = duplicates exposure." },
   ];
+  // Alpha-vs-benchmark numbers (live from /portfolio/holdings-enriched).
+  const fundReturn = h.cagr_3y_pct ?? h.xirr_pct ?? null;
+  const benchmarkReturn = h.benchmark_cagr_3y_pct ?? null;
+  const benchmarkLabel = h.benchmark_label || h.benchmark_name || null;
+  const expectedAlpha = h.expected_alpha_annual_pct ?? (h.switch_cost?.alpha_pct_annual ?? null);
   return (
     <tr className="bg-slate-50 border-b border-slate-100" data-testid={`row-expanded-${h.holding_id}`}>
       <td colSpan={11} className="p-5">
+        {/* Hero card — single unified Decision Card answers the four
+            questions (Why / What to do / Cost & Tax / Worth it?) in one
+            place. Replaces the prior DecisionVerdict + SwitchCostPanel split.
+            Stocks: parked until the equity engine is in place — show only
+            score breakdown + returns/cost panels, no recommendation. */}
+        {h.asset_type !== "equity" && <DecisionCard
+          action={h.action_badge?.action}
+          subAction={h.action_badge?.sub_action}
+          scores={s}
+          switchCost={h.switch_cost}
+          investedRs={h.invested_rs}
+          valueRs={h.value_rs}
+          pnlRs={h.pnl_rs}
+          buyDate={h.buy_date}
+          isEquity={h.is_equity_fund != null ? h.is_equity_fund : !/(debt|liquid|bond|gilt|short term|low duration|money market)/i.test(h.category || h.name || "")}
+          recommendationReason={h.recommendation_reason}
+          allocationCurrent={h.weight_pct}
+          allocationTarget={h.target_weight_pct}
+          categoryRank={h.category_rank}
+          categoryRankTotal={h.category_rank_total}
+          categoryLabel={h.category}
+          benchmarkLabel={benchmarkLabel}
+          benchmarkReturn={benchmarkReturn}
+          fundReturn={fundReturn}
+          alphaAnnual={expectedAlpha}
+          toFund={h.to_fund}
+          toAllocationPct={h.to_allocation_pct}
+        />}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
-            <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Score Breakdown</h5>
+            <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
+              Score Breakdown
+              <ScoringInfoPopover assetType={h.asset_type} />
+            </h5>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {subs.map((x) => {
                 const b = scoreBand(x.value, x.inverted);
@@ -246,7 +423,9 @@ const ExpandedRow = ({ h, onSwitch }) => {
                       <div className="h-full rounded-full transition-all"
                            style={{ width: `${x.value || 0}%`, background: b.hex }} />
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5 truncate">{b.label} · {x.desc}</p>
+                    <p className="text-[10px] text-slate-500 mt-1.5 leading-snug" title={x.why}>
+                      <span className="font-semibold text-slate-600">{b.label}</span> · {x.desc}
+                    </p>
                   </div>
                 );
               })}
@@ -278,23 +457,13 @@ const ExpandedRow = ({ h, onSwitch }) => {
                 <div className="text-amber-700 text-[11px] flex items-center gap-1 pt-1">⚠ Regular plan — switch to Direct saves cost</div>
               )}
             </div>
-            {h.action_badge?.action === "SWITCH" && (
+            {h.asset_type !== "equity" && h.action_badge?.action === "SWITCH" && (
               <Button size="sm" className="w-full bg-amber-500 hover:bg-amber-600 text-white" onClick={() => onSwitch(h)} data-testid={`btn-open-switch-${h.holding_id}`}>
                 <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Explore switch options
               </Button>
             )}
           </div>
         </div>
-        {/* Cost-of-Switch panel — visualises the PRD framework */}
-        {h.switch_cost && (
-          <SwitchCostPanel
-            impact={h.switch_cost}
-            recommendation={h.action_badge?.action}
-            action_strength={h.action_badge?.action === "SWITCH" ? "MEDIUM" : null}
-            action={h.action_badge?.action}
-            testidPrefix={`switch-cost-${h.holding_id}`}
-          />
-        )}
       </td>
     </tr>
   );
@@ -334,6 +503,8 @@ export default function ActionablePortfolioView() {
   const [sortBy, setSortBy] = useState({ key: "value_rs", dir: "desc" });
   const [switchTarget, setSwitchTarget] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [snapInfo, setSnapInfo] = useState(null); // { current_snapshot_date, is_default_latest, latest_snapshot_date }
+  const [discoverOpen, setDiscoverOpen] = useState(false);
   const tableRef = React.useRef(null);
   const scrollToTable = () => {
     tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -347,7 +518,23 @@ export default function ActionablePortfolioView() {
     } catch (e) { toast.error(e.response?.data?.detail || e.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  const loadSnapInfo = async () => {
+    try {
+      const r = await axios.get(`${API}/portfolio/cas-snapshots`, {
+        params: { limit: 1 }, withCredentials: true,
+      });
+      const d = r.data || {};
+      const latest = (d.snapshots || [])[0]?.snapshot_date || null;
+      setSnapInfo({
+        current_snapshot_date: d.current_snapshot_date || latest,
+        is_default_latest: d.is_default_latest !== false,
+        latest_snapshot_date: latest,
+      });
+    } catch {
+      setSnapInfo(null);
+    }
+  };
+  useEffect(() => { load(); loadSnapInfo(); }, []);
 
   const triggerRefresh = async () => {
     setRefreshing(true);
@@ -389,9 +576,85 @@ export default function ActionablePortfolioView() {
     return counts;
   }, [data]);
 
+  // Map every duplicate-fund holding_id → metadata about the cluster it
+  // belongs to (group size, total ₹ value across the cluster). Two holdings
+  // are considered duplicates when their normalised scheme key matches AND
+  // they are mutual funds / ETFs (stocks aren't grouped because the same
+  // ticker appearing twice is genuinely the same holding, not a duplicate
+  // pattern). Result is computed off the *unfiltered* holdings list so the
+  // badge is stable when the user toggles tabs / filters.
+  const duplicateInfo = useMemo(() => {
+    const map = new Map();
+    if (!data) return map;
+    // Common AMC-prefix tokens that are NOT scheme-distinguishing on their
+    // own. When the CAS parser truncates a name to just these, treat the
+    // row as "name not granular enough" and skip clustering.
+    const AMC_ONLY = new Set([
+      "hdfc", "icici", "icici prudential", "sbi", "axis", "kotak",
+      "uti", "nippon", "nippon india", "sundaram", "tata", "dsp",
+      "mirae", "mirae asset", "aditya birla", "aditya birla sun life",
+      "franklin", "franklin india", "quant", "edelweiss", "invesco",
+      "motilal oswal", "ppfas", "parag parikh", "pgim", "canara robeco",
+      "hsbc", "lic", "lic mf", "jm", "navi", "samco", "trust",
+    ]);
+    // Detect plan from the original (pre-normalised) name. Returns
+    // "direct", "regular", or "" if neither token is present.
+    const planOf = (name) => {
+      const n = (name || "").toLowerCase();
+      if (/\bdirect\b/.test(n)) return "direct";
+      if (/\bregular\b/.test(n)) return "regular";
+      return "";
+    };
+    const groups = new Map();   // key → [{id, ticker, plan}]
+    const totals = new Map();   // key → cumulative ₹ value
+    for (const h of data.holdings) {
+      const at = (h.asset_type || "").toLowerCase();
+      if (at !== "mutual_fund" && at !== "mutual fund" && at !== "etf") continue;
+      const qty = Number(h.quantity || 0);
+      const val = Number(h.value_rs || 0);
+      if (qty <= 0 && val <= 0) continue;
+      const key = normaliseSchemeKey(h.name);
+      if (!key) continue;
+      const tokens = key.split(/\s+/).filter(Boolean);
+      if (tokens.length < 3 || key.length < 12 || AMC_ONLY.has(key)) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ id: h.holding_id, ticker: h.ticker, plan: planOf(h.name) });
+      totals.set(key, (totals.get(key) || 0) + (h.value_rs || 0));
+    }
+    let groupIdx = 0;
+    for (const [key, items] of groups.entries()) {
+      if (items.length < 2) continue;
+      // Real cross-plan duplicate = SAME normalised scheme present as BOTH
+      // Direct and Regular. Multi-folio of the same plan (e.g. 3 Direct
+      // folios of HDFC Balanced) is NOT a duplicate — those are legit
+      // separate folios that share the same scheme. Same for distinct
+      // ISINs sharing a short prefix.
+      const plans = new Set(items.map((it) => it.plan).filter(Boolean));
+      if (!(plans.has("direct") && plans.has("regular"))) continue;
+      // Final guard: if all tickers (ISINs) are the same, it's the same
+      // exact instrument bought twice — not a Direct/Regular pair (those
+      // have different ISINs). Skip.
+      const tickers = items.map((it) => (it.ticker || "").trim()).filter(Boolean);
+      const uniqueTickers = new Set(tickers);
+      if (uniqueTickers.size < 2) continue;
+      groupIdx += 1;
+      const meta = { group: groupIdx, count: items.length, total_value: totals.get(key) || 0, key };
+      items.forEach((it) => map.set(it.id, meta));
+    }
+    return map;
+  }, [data]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     let rows = data.holdings;
+    // Hide fully-redeemed positions (qty == 0 AND value == 0) — they
+    // clutter the table and falsely trigger the duplicate detector when
+    // a Regular plan has been switched out but the row stuck around.
+    rows = rows.filter((h) => {
+      const q = Number(h.quantity || 0);
+      const v = Number(h.value_rs || 0);
+      return q > 0 || v > 0;
+    });
     // Asset-type tab first
     const tab = ASSET_TABS.find((t) => t.id === assetTab) || ASSET_TABS[0];
     rows = rows.filter(tab.test);
@@ -408,7 +671,9 @@ export default function ActionablePortfolioView() {
       else if (filter === "REGULAR") rows = rows.filter(h => h.is_regular_plan);
       else if (filter === "UNSCORED") rows = rows.filter(h => !h.scores || h.scores.quality == null);
       else if (filter === "WEAK") rows = rows.filter(h => (h.composite_score || 100) < 50);
-      else rows = rows.filter(h => h.action_badge?.action === filter);
+      // Action-based filters apply to funds only — stock recommendations
+      // are parked, so equity rows must not match SWITCH/ADD/HOLD/EXIT.
+      else rows = rows.filter(h => h.asset_type !== "equity" && h.action_badge?.action === filter);
     }
     rows = [...rows].sort((a, b) => {
       const A = a[sortBy.key]; const B = b[sortBy.key];
@@ -434,7 +699,18 @@ export default function ActionablePortfolioView() {
   );
 
   if (loading) return <div className="p-10 text-center text-slate-500">Loading portfolio…</div>;
-  if (!data || !data.holdings.length) return <div className="p-10 text-center text-slate-500">No holdings found. Upload a CAS to begin.</div>;
+  if (!data || !data.holdings.length) {
+    // Empty state — show the AI Portfolio Builder so the advisor can
+    // propose a starting portfolio while CAS upload is pending.
+    return (
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto" data-testid="portfolio-empty-state">
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 mb-4 text-[12px] text-slate-600">
+          No holdings yet. Upload a CAS to import existing investments — or use the AI Portfolio Builder below to propose a starting portfolio from the risk profile + goals on file.
+        </div>
+        <PortfolioBuilderView />
+      </div>
+    );
+  }
 
   const t = data.totals || {};
   const lastRefreshed = new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -443,7 +719,28 @@ export default function ActionablePortfolioView() {
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-2" data-testid="portfolio-header">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Portfolio</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Portfolio</h1>
+            {snapInfo?.current_snapshot_date && (
+              <span
+                className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                  snapInfo.is_default_latest
+                    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                    : "bg-amber-50 text-amber-800 border-amber-200"
+                }`}
+                title={
+                  snapInfo.is_default_latest
+                    ? "Showing the latest CAS snapshot"
+                    : `Showing an older snapshot. Latest is ${fmtSnapDate(snapInfo.latest_snapshot_date)}.`
+                }
+                data-testid="portfolio-snapshot-badge"
+              >
+                <Calendar className="w-3 h-3" />
+                Snapshot · {fmtSnapDate(snapInfo.current_snapshot_date)}
+                {!snapInfo.is_default_latest && <span className="ml-0.5">(historical)</span>}
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-slate-500 mt-0.5">
             {t.count || 0} holdings across {Object.entries(assetCounts).filter(([k,v]) => k !== "all" && v > 0).length} asset classes
             <span className="mx-1.5 text-slate-300">·</span>
@@ -453,6 +750,16 @@ export default function ActionablePortfolioView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={discoverOpen ? "default" : "outline"}
+            onClick={() => setDiscoverOpen((v) => !v)}
+            data-testid="header-toggle-discover-intl"
+            className={discoverOpen ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+          >
+            <Globe className="w-3.5 h-3.5 mr-1" />
+            {discoverOpen ? "Hide international" : "Discover international"}
+          </Button>
           <Button size="sm" variant="outline" onClick={triggerRefresh} disabled={refreshing} data-testid="header-refresh-scores">
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />
             {refreshing ? "Scoring…" : "Refresh scores"}
@@ -483,6 +790,13 @@ export default function ActionablePortfolioView() {
           </Button>
         </div>
       </div>
+
+      {/* Discover International panel — toggles on demand. */}
+      {discoverOpen && (
+        <div className="border-t border-slate-200 pt-4" data-testid="discover-international-section">
+          <DiscoverInternationalView />
+        </div>
+      )}
 
       {/* Hero totals */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -663,6 +977,34 @@ export default function ActionablePortfolioView() {
         </div>
       )}
 
+      {/* Duplicate-funds rollup banner — only when at least one cluster
+          exists. Tells the advisor at a glance how many duplicate
+          mutual-fund holdings (Direct + Regular variants of the same
+          scheme) are inflating the portfolio. */}
+      {duplicateInfo.size > 0 && (() => {
+        const groupCount = new Set([...duplicateInfo.values()].map((m) => m.group)).size;
+        const totalValue = [...new Set([...duplicateInfo.entries()].map(([, m]) => `${m.group}:${m.total_value}`))]
+          .reduce((s, kv) => s + parseFloat(kv.split(":")[1] || 0), 0);
+        return (
+          <div
+            data-testid="duplicate-funds-banner"
+            className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 flex items-start gap-2"
+          >
+            <span className="text-amber-600 text-sm leading-none mt-0.5">⚠</span>
+            <div className="text-[12px] text-amber-900 leading-relaxed">
+              <strong>{groupCount}</strong> duplicate fund {groupCount === 1 ? "scheme" : "schemes"} detected
+              ({duplicateInfo.size} holdings · {fmtINR(totalValue)} total). Look for Regular vs Direct twins —
+              consolidating into the Direct plan typically saves ~0.7-1% p.a. in expense ratio.
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Positional Picks — 5–30 day technical trade ideas (Chartink + technical
+          scoring). Stocks-only signal — irrelevant for the MF / ETF / Gold tabs,
+          so we render it only when the user is viewing the Stocks tab. */}
+      {assetTab === "equity" && <PositionalPicks />}
+
       {/* Filters + Search + Export */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -709,17 +1051,36 @@ export default function ActionablePortfolioView() {
               </tr>
             </thead>
             <tbody data-testid="portfolio-table-body">
-              {filtered.map((h) => (
+              {filtered.map((h) => {
+                const dup = duplicateInfo.get(h.holding_id);
+                return (
                 <React.Fragment key={h.holding_id}>
-                  <tr className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                  <tr className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${dup ? "bg-amber-50/40" : ""}`}
                       onClick={() => toggleExpand(h.holding_id)}
                       data-testid={`row-${h.holding_id}`}>
                     <td className="p-2.5 text-slate-400">{expanded.has(h.holding_id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</td>
                     <td className="p-2.5">
                       <div className="flex items-center gap-2 max-w-xs">
-                        <div className="font-semibold text-slate-900 text-[13px] truncate flex-1">{h.name}</div>
+                        <div
+                          className="font-semibold text-slate-900 text-[13px] truncate flex-1"
+                          title={`${h.name}${h.ticker ? `\nISIN: ${h.ticker}` : ""}${h.folio_number ? `\nFolio: ${h.folio_number}` : ""}`}
+                          data-testid={`name-${h.holding_id}`}
+                        >
+                          {h.name}
+                        </div>
                         <DualRating morningstar={h.morningstar_rating} nivesh={niveshStars(h.composite_score)} />
                       </div>
+                      {dup && (
+                        <div className="mt-0.5">
+                          <span
+                            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200"
+                            title={`${dup.count} holdings of the same fund (Direct & Regular variants combined). Total ₹${Math.round(dup.total_value).toLocaleString("en-IN")} — consolidating into the Direct plan typically saves ~0.7-1% p.a.`}
+                            data-testid={`dup-badge-${h.holding_id}`}
+                          >
+                            ⚠ Duplicate · {dup.count} variants
+                          </span>
+                        </div>
+                      )}
                       <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
                         <span>{h.sector || h.nse_symbol || ""}</span>
                         {h.category_rank && h.category_rank_total && h.category_rank_total > 3 && (
@@ -758,7 +1119,7 @@ export default function ActionablePortfolioView() {
                     <td className="p-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <ActionBadge badge={h.action_badge} />
-                        {h.action_badge?.action === "SWITCH" && (
+                        {h.asset_type !== "equity" && h.action_badge?.action === "SWITCH" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setSwitchTarget(h); }}
                             className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2"
@@ -774,7 +1135,8 @@ export default function ActionablePortfolioView() {
                     {expanded.has(h.holding_id) && <ExpandedRow h={h} onSwitch={setSwitchTarget} />}
                   </AnimatePresence>
                 </React.Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {filtered.length === 0 && (
@@ -832,6 +1194,31 @@ const SwitchPanel = ({ holding, onClose }) => {
           )}
           {!loading && data?.candidates?.map((c, i) => {
             const ss = c.switch_score || {};
+            // Tier the Switch Score colour so a low score (32, 38) never
+            // renders in the same emerald as a strong one (70+). The
+            // unified emerald-on-everything was misleading users.
+            const score = ss.switch_score;
+            const scoreColour = score == null ? "text-slate-400"
+              : score >= 60 ? "text-emerald-600"
+              : score >= 45 ? "text-amber-600"
+              : "text-rose-600";
+            // Honest cost framing: when expense_ratio_new is missing we
+            // can't compute a cost gain; when it's higher than the old
+            // ER we show the *extra cost* in red instead of clamping to 0%.
+            const costSigned = ss.cost_gain_pct_signed;
+            const costNode = costSigned == null
+              ? <span className="text-slate-400">—</span>
+              : costSigned > 0
+                ? <span className="text-emerald-700">+{costSigned.toFixed(1)}%</span>
+                : costSigned < 0
+                  ? <span className="text-rose-600">{costSigned.toFixed(1)}% (extra cost)</span>
+                  : <span className="text-slate-500">0%</span>;
+            const expenseNode = ss.expense_ratio_new == null
+              ? <span className="text-slate-400">— vs {ss.expense_ratio_old?.toFixed(2)}%</span>
+              : <>{ss.expense_ratio_new.toFixed(2)}% vs {ss.expense_ratio_old?.toFixed(2)}%</>;
+            const exitNode = ss.exit_load_pct > 0
+              ? `${ss.exit_load_pct.toFixed(1)}%`
+              : <span className="text-slate-400">None</span>;
             return (
               <div key={i} className="border rounded-xl p-4 hover:border-emerald-300 transition-colors" data-testid={`switch-candidate-${i}`}>
                 <div className="flex items-start justify-between gap-3 mb-2">
@@ -841,7 +1228,7 @@ const SwitchPanel = ({ holding, onClose }) => {
                   </div>
                   <div className="text-right">
                     <div className="text-[10px] uppercase text-slate-400">Switch Score</div>
-                    <div className="text-2xl font-bold text-emerald-600">{ss.switch_score?.toFixed(0) || "—"}</div>
+                    <div className={`text-2xl font-bold ${scoreColour}`}>{score?.toFixed(0) || "—"}</div>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] mt-3">
@@ -854,15 +1241,15 @@ const SwitchPanel = ({ holding, onClose }) => {
                   </div>
                   <div className="bg-slate-50 rounded p-2">
                     <div className="text-slate-400">Expense</div>
-                    <div className="font-semibold">{ss.expense_ratio_new?.toFixed(2)}% vs {ss.expense_ratio_old?.toFixed(2)}%</div>
+                    <div className="font-semibold">{expenseNode}</div>
                   </div>
                   <div className="bg-slate-50 rounded p-2">
                     <div className="text-slate-400">Cost gain</div>
-                    <div className="font-semibold text-emerald-700">{ss.cost_gain_pct?.toFixed(0)}%</div>
+                    <div className="font-semibold">{costNode}</div>
                   </div>
                   <div className="bg-slate-50 rounded p-2">
                     <div className="text-slate-400">Exit load</div>
-                    <div className="font-semibold">{ss.exit_load_pct?.toFixed(1)}%</div>
+                    <div className="font-semibold">{exitNode}</div>
                   </div>
                 </div>
               </div>

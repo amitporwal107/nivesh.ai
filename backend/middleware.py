@@ -41,13 +41,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("Authorization", "")
         key = session or auth or request.client.host if request.client else "unknown"
 
-        # Higher limit for AI endpoints (they're slower)
-        if "/chat/stream" in request.url.path:
+        # Per-path budgets. Numbers reflect typical UI patterns: ChatView
+        # mount alone hits /chat/sessions + /chat/messages + /chat/warmup +
+        # /copilot/suggested-prompts on every open, ClientSnapshot polls
+        # /insights/analysis up to 5×, and a normal session opens the
+        # Copilot drawer multiple times — the old 60/min cap collapsed
+        # under that load even with no abuse.
+        path = request.url.path
+        if "/chat/stream" in path:
             max_req = 30  # SSE streams are long-lived, fewer needed
-        elif "/chat/" in request.url.path or "/insights/" in request.url.path:
-            max_req = 60
-        else:
+        elif path.endswith("/chat/warmup"):
+            # Idempotent fire-and-forget — exempt from limiting so a
+            # rapid open-close-open of the drawer doesn't burn the bucket.
+            return await call_next(request)
+        elif "/chat/" in path or "/insights/" in path:
             max_req = 200
+        else:
+            max_req = 300
 
         if not rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60):
             return JSONResponse(

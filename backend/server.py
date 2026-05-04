@@ -51,12 +51,17 @@ from routes.plans import router as plans_router  # V2: Action Plans
 from routes.goals import router as goals_router  # Goal-Based Investment Planning
 from routes.compliance import router as compliance_router  # DPDP Act 2023 compliance
 from routes.mfd import router as mfd_router  # MFD multi-client layer
+from routes.advisor import router as advisor_router  # Advisor Home insight cards
+from routes.portfolio_builder import router as portfolio_builder_router  # AI Portfolio Builder + risk chat + sim + export
+from routes.macro import router as macro_router, stock_router as macro_stock_router  # Macro Intelligence Layer
 from routes.portfolio_snapshots import router as portfolio_snapshots_router  # Time-Machine
 from routes.portfolio_export import router as portfolio_export_router  # CSV/XLSX export
 from routes.client_cas_invite import mfd_router as cas_invite_mfd_router, public_router as cas_invite_public_router
 from routes.data_health import router as data_health_router  # Global stale-data banner
 from routes.cas_transactions import router as cas_transactions_router  # SIP detection + txn history
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
+from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
+from routes.positional import router as positional_router  # Positional Trading Engine (technical, 5-30d)
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -91,12 +96,18 @@ app.include_router(plans_router)  # V2: Action Plans
 app.include_router(goals_router)  # Goal-Based Investment Planning
 app.include_router(compliance_router)  # DPDP: consent / audit / PAN / export
 app.include_router(mfd_router)  # MFD multi-client layer (User → Workspace → Profile)
+app.include_router(advisor_router)  # Advisor Home insight cards (today / aum / underperformers / rebalance)
+app.include_router(portfolio_builder_router)  # AI Portfolio Builder + conversational risk chat + simulation + PDF/WA export
+app.include_router(macro_router)  # Macro Intelligence Layer (daily regime + features for the positional engine)
+app.include_router(macro_stock_router)  # /api/stock/{symbol}/why — explainability tied to macro
 app.include_router(portfolio_snapshots_router)  # Portfolio Time-Machine
 app.include_router(cas_invite_mfd_router)       # Client CAS invite (MFD side)
 app.include_router(cas_invite_public_router)    # Client CAS invite (public, no auth)
 app.include_router(data_health_router)           # Global stale-data banner
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
+app.include_router(benchmarks_router)             # Benchmark Index Data Service
+app.include_router(positional_router)              # Positional Trading Engine
 
 
 # Root endpoint
@@ -163,6 +174,38 @@ async def startup_seed():
         await _snap.ensure_indexes()
     except Exception as e:
         logger.warning(f"portfolio_snapshot index ensure failed: {e}")
+    # Benchmark Index Data Service — run migration 014 once on startup,
+    # idempotent. The daily refresh job is wired into mf_scheduler.
+    try:
+        from services import benchmark_index as _bm
+        await _bm.ensure_schema()
+    except Exception as e:
+        logger.warning(f"benchmark schema ensure failed: {e}")
+    # Macro Intelligence Layer — apply migration 016 once on startup.
+    # The daily ingest+regime job is wired into mf_scheduler at 18:35 IST.
+    try:
+        from services import macro_engine as _macro
+        await _macro.ensure_schema()
+    except Exception as e:
+        logger.warning(f"macro schema ensure failed: {e}")
+    # Identity uniqueness indexes (email_norm / mobile_norm / pan_norm)
+    try:
+        from services import identity_uniqueness as _iu
+        await _iu.ensure_identity_indexes()
+    except Exception as e:
+        logger.warning(f"identity index ensure failed: {e}")
+    # Datastore isolation — refuse to start production when Postgres /
+    # Redis / Mongo are shared with the preview environment. Preview
+    # deploys log a warning and continue.
+    try:
+        from helpers import datastore_isolation as _di
+        await _di.enforce_isolation_at_startup(db)
+    except RuntimeError:
+        # Production-side hard fail — re-raise so supervisor restarts
+        # us until the operator fixes the secrets doc.
+        raise
+    except Exception as e:
+        logger.warning(f"datastore isolation audit failed: {e}")
 
 
 @app.on_event("shutdown")

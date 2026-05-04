@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Search, Users, RefreshCw, Loader2, Trash2, AlertTriangle, ShieldCheck,
-  ShieldOff, LogOut, Eraser, X, BarChart3, Database,
+  ShieldOff, LogOut, Eraser, X, BarChart3, Database, UserPlus, Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +30,10 @@ export default function UserManagementSection() {
   const [confirmText, setConfirmText] = useState("");
   const [resetting, setResetting] = useState(false);
   const [resetResult, setResetResult] = useState(null);
+  // Add-user modal state
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ email: "", name: "", is_admin: false });
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async (q = "") => {
     setLoading(true);
@@ -82,6 +86,34 @@ export default function UserManagementSection() {
       load(search.trim());
     } catch (e) {
       toast.error("Failed to invalidate sessions");
+    }
+  };
+
+  const openAdd = () => {
+    setAddForm({ email: "", name: "", is_admin: false });
+    setAddOpen(true);
+  };
+  const closeAdd = () => { if (!adding) setAddOpen(false); };
+
+  const submitAdd = async (e) => {
+    e?.preventDefault?.();
+    const email = addForm.email.trim().toLowerCase();
+    const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+    if (!emailOk) { toast.error("Enter a valid email"); return; }
+    setAdding(true);
+    try {
+      const res = await axios.post(
+        `${API}/admin/users`,
+        { email, name: addForm.name.trim() || null, is_admin: addForm.is_admin },
+        { withCredentials: true }
+      );
+      toast.success(`Added ${res.data?.user?.email}${addForm.is_admin ? " (admin)" : ""}`);
+      setAddOpen(false);
+      load(search.trim());
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to add user");
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -141,17 +173,28 @@ export default function UserManagementSection() {
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => load(search.trim())}
-            disabled={loading}
-            data-testid="user-mgmt-refresh"
-            className="rounded-xl border-slate-200 dark:border-slate-700"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={openAdd}
+              data-testid="user-mgmt-add"
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <UserPlus className="w-3.5 h-3.5 mr-1.5" />
+              Add user
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => load(search.trim())}
+              disabled={loading}
+              data-testid="user-mgmt-refresh"
+              className="rounded-xl border-slate-200 dark:border-slate-700"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <form onSubmit={onSearch} className="flex items-center gap-2 mb-4">
@@ -394,6 +437,105 @@ export default function UserManagementSection() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Add user modal */}
+      {addOpen && (
+        <div
+          data-testid="add-user-modal"
+          className="fixed inset-0 z-50 bg-slate-900/70 flex items-center justify-center p-4"
+          onClick={closeAdd}
+        >
+          <form
+            onSubmit={submitAdd}
+            className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center flex-shrink-0">
+                <UserPlus className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Add user</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Whitelists the email so they can sign in via Google. The
+                  account appears here immediately and becomes fully active
+                  on first login.
+                </p>
+              </div>
+              <button type="button" onClick={closeAdd} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Email <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative mb-3">
+              <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                data-testid="add-user-email"
+                type="email"
+                value={addForm.email}
+                onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="user@example.com"
+                className="pl-10 rounded-xl border-slate-200 dark:border-slate-700 dark:bg-slate-900"
+                autoFocus
+                disabled={adding}
+                required
+              />
+            </div>
+
+            <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Name <span className="text-slate-400 font-normal">(optional)</span>
+            </label>
+            <Input
+              data-testid="add-user-name"
+              value={addForm.name}
+              onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Full name"
+              className="rounded-xl border-slate-200 dark:border-slate-700 dark:bg-slate-900 mb-3"
+              disabled={adding}
+            />
+
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 mb-5 cursor-pointer">
+              <input
+                type="checkbox"
+                data-testid="add-user-is-admin"
+                checked={addForm.is_admin}
+                onChange={(e) => setAddForm((f) => ({ ...f, is_admin: e.target.checked }))}
+                className="rounded"
+                disabled={adding}
+              />
+              Grant admin privileges
+            </label>
+
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeAdd}
+                disabled={adding}
+                className="rounded-xl"
+                data-testid="add-user-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={adding || !addForm.email.trim()}
+                data-testid="add-user-submit"
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                {adding ? (
+                  <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Adding…</>
+                ) : (
+                  <><UserPlus className="w-3.5 h-3.5 mr-1.5" /> Add user</>
+                )}
+              </Button>
+            </div>
+          </form>
         </div>
       )}
     </Card>

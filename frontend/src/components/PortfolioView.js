@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import CasUploadButton from "@/components/CasUploadButton";
 import ExportHoldingsButton from "@/components/ExportHoldingsButton";
+import PositionalPicks from "@/components/PositionalPicks";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -529,6 +530,11 @@ const PortfolioView = ({ holdings, onRefresh, portfolios = [] }) => {
           </div>
         </Card>
       )}
+
+      {/* Positional Picks — 5–30 day trade ideas, portfolio-aware */}
+      <div className="mt-6">
+        <PositionalPicks />
+      </div>
 
       {/* Top Movers Chart */}
       {(moversData.gainers.length > 0 || moversData.losers.length > 0) && (

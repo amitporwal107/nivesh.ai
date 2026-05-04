@@ -125,10 +125,35 @@ def _holding_from_pref(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 def _holding_from_sgb(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     isin = (row.get("isin") or "").strip()
-    name = (row.get("series") or row.get("issuer") or "Sovereign Gold Bond").strip()
+    raw_name = (row.get("series") or row.get("issuer") or "Sovereign Gold Bond").strip()
+    # Issuer-only names (e.g. "GOVERNMENT") leak through when Claude finds the
+    # SGB row but no explicit series text. Resolve via ISIN lookup so the UI
+    # shows the actual series (e.g. "SGB 2023-24 Series III") instead.
+    from services.sgb_prices import resolve_sgb_display_name
+    name = resolve_sgb_display_name(raw_name, isin)
     qty = _f(row.get("num_units"))
     price = _f(row.get("market_price_per_unit_inr"))
     value = _f(row.get("value_inr"))
+    fv = _f(row.get("face_value_per_unit_inr"))
+    # SGB per-gram prices have historically ranged ~₹2,500–₹20,000. When the
+    # parser drops the *total holding value* into `market_price_per_unit_inr`
+    # (e.g. 1329224 instead of ~15,000) and `value_inr` is left as 0, the
+    # downstream `qty × price` blows up by 4-5 orders of magnitude. Detect the
+    # anomaly and reinterpret the field as total value, then synthesise a
+    # plausible (qty, unit_price) using the RBI issue price when known.
+    SGB_UNIT_PRICE_CEILING = 50_000.0  # ₹/gram — well above any real market price
+    NOMINAL_SGB_UNIT_PRICE = 10_000.0  # mid-range fallback when issue price unknown
+    suspect = (value <= 0 and price > SGB_UNIT_PRICE_CEILING) or (
+        value <= 0 and qty > 0 and price > 0 and fv > 0 and price > 50 * fv
+    )
+    if suspect:
+        from services.sgb_prices import get_sgb_issue_price
+        total = price  # the misplaced total
+        sgb_info = get_sgb_issue_price(isin) or {}
+        unit_price = float(sgb_info.get("issue_price") or NOMINAL_SGB_UNIT_PRICE)
+        qty = round(total / unit_price, 4)
+        price = round(unit_price, 4)
+        value = total
     if price == 0 and qty > 0 and value > 0:
         price = round(value / qty, 4)
     if not isin and not name:
@@ -153,6 +178,13 @@ def _holding_from_mf_demat(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     value = _f(row.get("value_inr"))
     if nav == 0 and qty > 0 and value > 0:
         nav = round(value / qty, 4)
+    # When `value_inr` materially disagrees with qty*nav, trust the printed
+    # value (it's read directly from the CAS column) and back-fill qty —
+    # NAV is typically the most reliable column when both are present.
+    if value > 0 and nav > 0 and qty > 0:
+        expected = qty * nav
+        if expected > 0 and abs(expected - value) / value > 0.05:
+            qty = round(value / nav, 4)
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -183,6 +215,12 @@ def _holding_from_mf_folio(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         avg_cost = round(total_cost / qty, 4)
     if nav == 0 and qty > 0 and value > 0:
         nav = round(value / qty, 4)
+    # When `current_value_inr` disagrees with qty*nav by >5%, trust the
+    # printed value (CAMS/KFin column is reliable) and back-fill qty.
+    if value > 0 and nav > 0 and qty > 0:
+        expected = qty * nav
+        if expected > 0 and abs(expected - value) / value > 0.05:
+            qty = round(value / nav, 4)
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -197,32 +235,106 @@ def _holding_from_mf_folio(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
+        "folio_number": (row.get("folio_number") or "").strip(),
         "parsed_by": "claude_folio",
     }
+
+
+_PURCHASE_TXN_KEYWORDS = ("PURCHASE", "SIP", "BUY", "ALLOTMENT", "INVESTMENT")
+_NON_PURCHASE_KEYWORDS = ("REDEMPTION", "REDEEM", "SELL", "SALE", "SWITCH OUT", "SWITCH-OUT", "STT", "STAMP", "REVERSAL", "CANCEL", "PLEDGE")
+
+
+def _is_purchase(t: Dict[str, Any]) -> bool:
+    raw_type = (t.get("transaction_type") or t.get("type") or "").upper()
+    desc = (t.get("description") or "").upper()
+    blob = f"{raw_type} {desc}"
+    if any(k in blob for k in _NON_PURCHASE_KEYWORDS):
+        return False
+    if any(k in blob for k in _PURCHASE_TXN_KEYWORDS):
+        return True
+    # Fallback: any txn with positive units AND positive amount looks like a buy
+    try:
+        units = float(t.get("units") or 0)
+        amt = float(t.get("amount_inr") or t.get("amount") or 0)
+    except (TypeError, ValueError):
+        units, amt = 0.0, 0.0
+    return units > 0 and amt > 0
+
+
+def _build_buy_date_index(claude_data: Dict[str, Any]) -> Tuple[Dict[Tuple[str, str], str], Dict[str, str]]:
+    """Scan transactions and return two earliest-purchase-date maps:
+      by_isin_folio: {(isin, folio): YYYY-MM-DD}  — for MF folios
+      by_isin:       {isin: YYYY-MM-DD}            — fallback for demat / equities
+
+    The Claude payload puts transactions in a top-level dict (`mutual_fund_transactions`,
+    `demat_transactions`) instead of nesting them under each holding the way
+    casparser.in does, so the existing per-row helper can't see them.
+    """
+    by_pair: Dict[Tuple[str, str], str] = {}
+    by_isin: Dict[str, str] = {}
+    txns_root = claude_data.get("transactions") or {}
+
+    def _ingest(items):
+        for t in items or []:
+            if not isinstance(t, dict):
+                continue
+            if not _is_purchase(t):
+                continue
+            d = (t.get("date") or "")[:10]
+            if not d:
+                continue
+            isin = (t.get("isin") or "").strip().upper()
+            folio = (t.get("folio_number") or t.get("folio") or "").strip()
+            if isin and folio:
+                key = (isin, folio)
+                if key not in by_pair or d < by_pair[key]:
+                    by_pair[key] = d
+            if isin:
+                if isin not in by_isin or d < by_isin[isin]:
+                    by_isin[isin] = d
+
+    _ingest(txns_root.get("mutual_fund_transactions"))
+    _ingest(txns_root.get("demat_transactions"))
+    return by_pair, by_isin
+
+
+def _apply_buy_date(h: Dict[str, Any], row: Dict[str, Any],
+                    by_pair: Dict[Tuple[str, str], str],
+                    by_isin: Dict[str, str]) -> None:
+    if h.get("buy_date"):
+        return
+    isin = (h.get("ticker") or "").strip().upper()
+    folio = (row.get("folio_number") or row.get("folio") or "").strip()
+    bd = by_pair.get((isin, folio)) if folio else None
+    bd = bd or by_isin.get(isin)
+    if bd:
+        h["buy_date"] = bd
 
 
 def map_to_holdings(claude_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Flatten Claude's nested holdings into our internal list."""
     out: List[Dict[str, Any]] = []
     holdings = claude_data.get("holdings") or {}
+    by_pair, by_isin = _build_buy_date_index(claude_data)
 
     for r in holdings.get("equities") or []:
         h = _holding_from_equity(r)
-        if h: out.append(h)
+        if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
     for r in holdings.get("preference_shares") or []:
         h = _holding_from_pref(r)
-        if h: out.append(h)
+        if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
     for r in holdings.get("sovereign_gold_bonds") or []:
         h = _holding_from_sgb(r)
-        if h: out.append(h)
+        if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
     for r in holdings.get("mutual_funds_demat") or []:
         h = _holding_from_mf_demat(r)
-        if h: out.append(h)
+        if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
     for r in holdings.get("mutual_fund_folios") or []:
         h = _holding_from_mf_folio(r)
-        if h: out.append(h)
+        if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
 
-    logger.info(f"Claude → {len(out)} holdings mapped")
+    n_dated = sum(1 for h in out if h.get("buy_date"))
+    logger.info(f"Claude → {len(out)} holdings mapped ({n_dated} with buy_date)")
     return out
 
 

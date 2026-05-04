@@ -98,3 +98,27 @@ async def manual_snapshot(payload: ManualSnapshotRequest, request: Request):
     uid = user["user_id"]
     doc = await _snap.persist_snapshot(uid, trigger=payload.trigger or "manual")
     return {"snapshot": doc, "persisted": doc.get("holdings_count", 0) > 0}
+
+
+@router.post("/snapshots/backfill-names")
+async def backfill_holding_names(request: Request):
+    """Repair truncated MF/ETF scheme names by looking up each holding's
+    ISIN in the AMFI master. Idempotent — only renames when AMFI's name
+    is materially better than what's stored. Updates both the live
+    `holdings` table and embedded `portfolio_snapshots.holdings` arrays."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    from services import cas_snapshot_engine as _eng
+    return await _eng.backfill_holding_names_from_amfi(uid)
+
+
+@router.post("/snapshots/backfill-health")
+async def backfill_snapshot_health(request: Request):
+    """One-shot: compute Portfolio Health for every historical snapshot
+    that's missing it, so the Time Machine deltas + sparkline can plot
+    a real trend. Slow (one health compute per snapshot) — the route
+    awaits to completion so the UI can poll the result. Subsequent
+    calls are no-ops because `only_missing=True` skips populated rows."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    return await _snap.backfill_snapshot_health(uid)
