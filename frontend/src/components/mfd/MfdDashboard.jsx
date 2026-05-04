@@ -17,6 +17,9 @@ import {
 } from "lucide-react";
 import AddClientDialog from "./AddClientDialog";
 import PriorityChip from "./PriorityChip";
+import AdvisorHomeView from "./AdvisorHomeView";
+// MacroBar + SectorHeatmap moved to MarketDashboard — they're market-wide
+// signals, not advisor-specific. Reach them via the "Market" sidebar entry.
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -441,6 +444,17 @@ export default function MfdDashboard({ onEnterProfile }) {
           <Plus className="w-4 h-4 mr-1" /> Add client
         </Button>
       </div>
+
+      {/* ── 1b. Advisor Home insight grid (proactive, 4 cards) ─────
+              Loads /api/advisor/{today,aum,underperformers,rebalance}
+              independently and renders DecisionCard-style summaries. */}
+      <AdvisorHomeView
+        onOpenClient={(profileId) => {
+          const p = profiles.find((x) => x.profile_id === profileId);
+          if (p) activateProfile(p);
+          else activateProfile({ profile_id: profileId, name: "client" });
+        }}
+      />
 
       {/* ── 2. Today's Actions feed ──────────────────────────────── */}
       <Card className="p-4 border-indigo-100 dark:border-indigo-900/40" data-testid="mfd-action-feed">

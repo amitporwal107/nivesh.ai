@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from services import cas_snapshot_engine; print\\('ok'\\)\")",
+      "Bash(python -c \"import ast, sys; ast.parse\\(open\\('services/cas_snapshot_engine.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(pip3 list *)",
+      "Bash(/root/.venv/bin/python -c ' *)",
+      "Bash(PGPASSWORD=postgres psql -h localhost -U postgres -l)"
+    ]
+  }
+}

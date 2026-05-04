@@ -23,6 +23,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from deps import db, get_current_user
+from services.copilot_charts import (
+    CHART_PROTOCOL, validate_chart_blocks, log_invalid_chart_specs,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/copilot", tags=["copilot"])
@@ -226,6 +229,90 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
     return ctx
 
 
+async def _is_advisor_caller(session_user_id: str, calling_user_id: str) -> bool:
+    """True if the caller is the owner of an ADVISORY workspace AND is
+    NOT currently impersonating a specific client. Mirrors the same
+    detection used by /copilot/suggested-prompts so prompt suggestions
+    and ask-context stay in sync."""
+    if session_user_id != calling_user_id:
+        return False
+    try:
+        ws = await db.workspaces.find_one(
+            {"owner_user_id": session_user_id}, {"_id": 0, "type": 1},
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(ws and (ws.get("type") or "").upper() == "ADVISORY")
+
+
+async def _advisor_book_block(owner_user_id: str) -> str:
+    """Compact advisor-book summary fed to the LLM: one line per client
+    with name, AUM, return %, top issue. Sorted by AUM desc; capped at
+    100 clients so we never blow the context budget."""
+    profs = await db.profiles.find(
+        {"workspace_id": {"$exists": True}},
+        {"_id": 0, "profile_id": 1, "name": 1, "shadow_user_id": 1,
+         "workspace_id": 1, "aum_rs": 1, "type": 1},
+    ).to_list(500)
+    # Filter to profiles owned by this advisor
+    ws_ids = {w["workspace_id"] async for w in db.workspaces.find(
+        {"owner_user_id": owner_user_id}, {"_id": 0, "workspace_id": 1},
+    )}
+    profs = [p for p in profs if p.get("workspace_id") in ws_ids and p.get("type") == "CLIENT"]
+    if not profs:
+        return "No clients linked to this advisory workspace yet."
+    rows: List[Dict[str, Any]] = []
+    for p in profs:
+        suid = p.get("shadow_user_id")
+        if not suid:
+            rows.append({"name": p.get("name") or "—", "aum": float(p.get("aum_rs") or 0)})
+            continue
+        # Aggregate live AUM + invested from holdings
+        try:
+            agg = db.holdings.aggregate([
+                {"$match": {"user_id": suid}},
+                {"$group": {
+                    "_id": None,
+                    "current": {"$sum": {"$multiply": [{"$ifNull": ["$quantity", 0]}, {"$ifNull": ["$current_price", 0]}]}},
+                    "invested": {"$sum": {"$multiply": [{"$ifNull": ["$quantity", 0]}, {"$ifNull": ["$buy_price", 0]}]}},
+                    "n": {"$sum": 1},
+                }},
+            ])
+            cur, inv, n = 0.0, 0.0, 0
+            async for r in agg:
+                cur = float(r.get("current") or 0)
+                inv = float(r.get("invested") or 0)
+                n = int(r.get("n") or 0)
+        except Exception:  # noqa: BLE001
+            cur, inv, n = float(p.get("aum_rs") or 0), 0.0, 0
+        # Pick up cached health + recent action count
+        cached = await db.mfd_profile_signal_cache.find_one(
+            {"user_id": suid}, {"_id": 0, "portfolio_score": 1, "ai_summary": 1, "recommendations": 1},
+        )
+        rows.append({
+            "name": p.get("name") or "—",
+            "aum": cur if cur > 0 else float(p.get("aum_rs") or 0),
+            "invested": inv,
+            "ret_pct": ((cur - inv) / inv * 100) if inv > 0 else None,
+            "holdings": n,
+            "score": (cached or {}).get("portfolio_score"),
+            "summary": ((cached or {}).get("ai_summary") or "")[:120],
+            "actions": len((cached or {}).get("recommendations") or []),
+        })
+    rows.sort(key=lambda r: r["aum"] or 0, reverse=True)
+    rows = rows[:100]
+    lines = [f"TOTAL CLIENTS: {len(rows)}", "RANKED BY AUM (desc):"]
+    for i, r in enumerate(rows, 1):
+        ret = f"{r['ret_pct']:+.1f}%" if r["ret_pct"] is not None else "—"
+        score = f"{int(r['score'])}/100" if r["score"] is not None else "—"
+        lines.append(
+            f"{i}. {r['name']} · AUM ₹{r['aum']:,.0f} · ret {ret} · "
+            f"holdings {r['holdings']} · health {score} · actions {r['actions']}"
+            + (f" · {r['summary']}" if r['summary'] else "")
+        )
+    return "\n".join(lines)
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────
 @router.get("/models")
 async def list_models(request: Request):
@@ -339,14 +426,25 @@ async def ask(payload: AskRequest, request: Request):
     without us needing a server-side session store in Pass 1."""
     user = await get_current_user(request)
     uid = user["user_id"] if isinstance(user, dict) else user.user_id
+    session_uid = user.get("_session_user_id") if isinstance(user, dict) else None
+    session_uid = session_uid or uid
+    advisor_mode = await _is_advisor_caller(session_uid, uid)
     ctx = await _build_context(uid)
-    system = (
-        "You are the MFD's AI copilot — a senior investment analyst with access "
-        "to the client's full portfolio context. Answer crisply (≤ 120 words), "
-        "grounded in the numbers provided. If the question can't be answered "
-        "from the context, say so — don't speculate. End with a clear next step "
-        "when relevant."
+    base_system = (
+        "You are the advisor's cross-client AI copilot. You have access to "
+        "the entire client book provided below. Answer crisply (≤ 200 words), "
+        "ground every claim in the numbers. When the user asks for clients "
+        "matching a condition, return a Markdown table with name, AUM and the "
+        "specific number that triggered the match. End with one concrete next "
+        "step. Never speculate beyond the data."
+    ) if advisor_mode else (
+        "You are the user's personal investment AI copilot — a senior analyst "
+        "with access to their full portfolio context. Answer crisply (≤ 120 "
+        "words), grounded in the numbers provided. If the question can't be "
+        "answered from the context, say so — don't speculate. End with a "
+        "clear next step when relevant."
     )
+    system = base_system + CHART_PROTOCOL
     history_block = ""
     if payload.history:
         turns = []
@@ -355,13 +453,29 @@ async def ask(payload: AskRequest, request: Request):
             content = (h.get("content") or "")[:400]
             turns.append(f"{role}: {content}")
         history_block = "\nCONVERSATION SO FAR:\n" + "\n".join(turns) + "\n"
-    user_prompt = (
-        f"PORTFOLIO CONTEXT:\n{_portfolio_context_block(ctx)}"
-        f"{history_block}\n"
-        f"QUESTION: {payload.question}"
-    )
+
+    if advisor_mode:
+        book_block = await _advisor_book_block(session_uid)
+        user_prompt = (
+            f"ADVISOR CLIENT BOOK:\n{book_block}\n"
+            f"{history_block}\n"
+            f"QUESTION: {payload.question}"
+        )
+    else:
+        user_prompt = (
+            f"PORTFOLIO CONTEXT:\n{_portfolio_context_block(ctx)}"
+            f"{history_block}\n"
+            f"QUESTION: {payload.question}"
+        )
     resp = await _llm_call(payload.model, system, user_prompt, session_id=f"ask-{uid}")
-    return {"response": resp, "model": payload.model}
+    validated = validate_chart_blocks(resp)
+    await log_invalid_chart_specs(db, uid, payload.model, "copilot/ask", validated["invalid_specs"])
+    return {
+        "response": validated["clean_text"],
+        "model": payload.model,
+        "mode": "advisor" if advisor_mode else "investor",
+        "chart_count": validated["valid_count"],
+    }
 
 
 # ── Bundled brief: single LLM call → 4 section narratives ──────────────

@@ -95,6 +95,37 @@ def get_sgb_issue_price(isin: str) -> dict | None:
     return SGB_ISSUE_PRICES.get(isin)
 
 
+# Names that the upstream CAS parsers sometimes produce for SGBs when no
+# series field is extracted. We treat any of these as "generic" and prefer
+# the ISIN-derived series label instead.
+_GENERIC_SGB_NAMES = {
+    "", "government", "government of india", "goi",
+    "sovereign gold bond", "sovereign gold bonds",
+    "sgb", "sovereign gold bond (sgb)",
+}
+
+
+def get_sgb_series_name(isin: str) -> str | None:
+    """Return the human-readable series label for an SGB ISIN
+    (e.g. 'SGB 2023-24 Series III'), or None if unknown."""
+    info = get_sgb_issue_price(isin)
+    return (info or {}).get("series")
+
+
+def resolve_sgb_display_name(name: str | None, isin: str | None) -> str:
+    """Return the best display name for an SGB. If `name` is missing or
+    generic (issuer-only, like 'GOVERNMENT'), substitute the series label
+    looked up from `isin`. Falls back to the original name (or
+    'Sovereign Gold Bond') if no series is on file."""
+    nm = (name or "").strip()
+    if nm.lower() in _GENERIC_SGB_NAMES:
+        series = get_sgb_series_name(isin or "")
+        if series:
+            return series
+        return nm or "Sovereign Gold Bond"
+    return nm
+
+
 def apply_sgb_issue_prices(holdings: list) -> tuple[list, int]:
     """
     For gold/SGB holdings, set buy_price to the RBI issue price if:

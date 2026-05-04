@@ -25,6 +25,33 @@ NSE_EQUITY_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv
 NSE_ETF_URL = "https://nsearchives.nseindia.com/content/equities/eq_etfseclist.csv"
 NSE_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
+# Local fallback bundled in the repo so ISIN→symbol resolution still works
+# when nsearchives is unreachable (sandboxes, restricted egress, weekends).
+import os
+_LOCAL_EQUITY_CSV = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "equity_list.csv")
+
+
+def _load_isin_map_from_local() -> Dict[str, str]:
+    """Read the bundled NSE equity master CSV and return ISIN→symbol.
+    Header: SYMBOL, NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE,
+            MARKET LOT, ISIN NUMBER, FACE VALUE."""
+    mapping: Dict[str, str] = {}
+    try:
+        with open(_LOCAL_EQUITY_CSV, "r", encoding="utf-8", errors="ignore") as fp:
+            reader = csv.reader(fp)
+            next(reader, None)
+            for row in reader:
+                if len(row) >= 7:
+                    sym = row[0].strip()
+                    isin = row[6].strip()
+                    if sym and isin:
+                        mapping[isin] = sym
+    except FileNotFoundError:
+        logger.debug("Local equity_list.csv not found at %s", _LOCAL_EQUITY_CSV)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Local equity CSV read failed: {e}")
+    return mapping
+
 
 async def _load_isin_map() -> Dict[str, str]:
     """Download NSE equity + ETF master lists and build ISIN -> NSE symbol mapping."""
@@ -68,6 +95,14 @@ async def _load_isin_map() -> Dict[str, str]:
                 logger.info(f"Loaded {etf_count} ETF ISIN mappings from NSE")
         except Exception as e:
             logger.warning(f"Failed to fetch NSE ETF list: {e}")
+
+    # Network fetch may fail in sandboxes / weekends — fall back to the
+    # bundled equity_list.csv so resolution still works offline.
+    if not mapping:
+        local = _load_isin_map_from_local()
+        if local:
+            mapping = local
+            logger.info(f"ISIN map loaded from local equity_list.csv ({len(mapping)} rows)")
 
     if mapping:
         _isin_to_symbol = mapping

@@ -954,6 +954,46 @@ def _public_file_view(invite: dict, f: dict) -> dict:
     }
 
 
+async def _enrich_files_with_parsed_meta(files: List[dict]) -> List[dict]:
+    """Join cas_parsed_responses (period_start/end, transactions_count,
+    parser_source) onto each file row so the history UI can show
+    'covers Jan-Mar 2024 · 142 transactions · detailed' per row.
+    """
+    if not files:
+        return files
+    file_ids = [f["file_id"] for f in files if f.get("file_id")]
+    if not file_ids:
+        return files
+    parsed_by_id: dict = {}
+    async for p in db.cas_parsed_responses.find(
+        {"file_id": {"$in": file_ids}},
+        {"_id": 0, "file_id": 1, "period_start": 1, "period_end": 1,
+         "transactions_count": 1, "sips_count": 1, "parser_source": 1},
+    ):
+        parsed_by_id[p["file_id"]] = p
+    for f in files:
+        meta = parsed_by_id.get(f.get("file_id"))
+        if not meta:
+            continue
+        f["period_start"]       = meta.get("period_start")
+        f["period_end"]         = meta.get("period_end")
+        f["transactions_count"] = meta.get("transactions_count") or 0
+        f["sips_count"]         = meta.get("sips_count") or 0
+        f["parser_source"]      = meta.get("parser_source")
+        # Statement type heuristic — drives the "detailed / summary / demat-only"
+        # badge in the history list. Mirrors the lot_coverage classification
+        # used in tax-summary so the two views agree.
+        n_tx = f.get("transactions_count") or 0
+        n_h  = f.get("holdings_count") or 0
+        if n_tx == 0:
+            f["statement_type"] = "summary_or_demat"
+        elif n_h > 0 and n_tx < n_h:
+            f["statement_type"] = "partial"
+        else:
+            f["statement_type"] = "detailed"
+    return files
+
+
 @mfd_router.get("/profiles/{profile_id}/cas-uploads")
 async def list_cas_uploads_for_profile(profile_id: str, request: Request):
     """Return every raw CAS PDF the client uploaded for this profile
@@ -974,6 +1014,7 @@ async def list_cas_uploads_for_profile(profile_id: str, request: Request):
             if not f.get("file_id"):
                 continue  # legacy rows with no persisted file
             files.append(_public_file_view(inv, f))
+    files = await _enrich_files_with_parsed_meta(files)
     files.sort(key=lambda x: x.get("stored_at") or "", reverse=True)
     return {"files": files, "count": len(files)}
 

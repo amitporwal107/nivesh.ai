@@ -32,7 +32,7 @@ from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Optional
 
 from deps import db
-from services import portfolio_snapshot as _v1_snap
+from services import pg_client, portfolio_snapshot as _v1_snap
 from services.cas_period_detector import detect_statement_period
 
 logger = logging.getLogger(__name__)
@@ -113,11 +113,55 @@ def _bucket(asset_type: Optional[str]) -> str:
 
 
 async def get_latest_snapshot_date(user_id: str) -> Optional[str]:
+    """Latest snapshot date that carries a full holdings array.
+
+    The eod_cron job persists lightweight trend snapshots (total_value +
+    top_holdings only — no full `holdings` field). Those are valuable for
+    the trend sparkline but should NOT be eligible to be "the active
+    portfolio view", because mounting them into the live holdings table
+    yields zero rows. Filter them out so callers (Time Machine, snapshot
+    activation, is_default_latest checks) only see snapshots they can
+    actually mount.
+    """
     doc = await db.portfolio_snapshots.find_one(
-        {"user_id": user_id}, {"_id": 0, "snapshot_date": 1},
+        {"user_id": user_id,
+         "holdings": {"$exists": True, "$not": {"$size": 0}}},
+        {"_id": 0, "snapshot_date": 1},
         sort=[("snapshot_date", -1)],
     )
     return doc.get("snapshot_date") if doc else None
+
+
+async def _resolve_full_scheme_name(name: str, ticker: str, asset_type: str) -> str:
+    """Repair a CAS-parsed fund name using the AMFI master (keyed by ISIN).
+
+    The Claude/CAS extractor sometimes truncates scheme names ("HDFC Balanced",
+    "NIPPON INDIA", "SUNDARAM"). When we have an ISIN (`ticker` for MF rows
+    holds the ISIN), we look it up in AMFI's authoritative NAV feed and
+    swap in the canonical scheme name — but only if it looks better than
+    what's stored, so we don't replace good names with worse ones.
+    """
+    name = (name or "").strip()
+    ticker = (ticker or "").strip().upper()
+    at = (asset_type or "").lower()
+    if at not in ("mutual_fund", "mutual fund", "etf"):
+        return name
+    if not ticker.startswith("INF"):  # AMFI MF ISINs all start with INF
+        return name
+    try:
+        from services import amfi_nav
+        entry = await amfi_nav.lookup_nav(isin=ticker)
+    except Exception:  # noqa: BLE001
+        return name
+    if not entry:
+        return name
+    canonical = (entry.get("scheme_name") or "").strip()
+    if not canonical:
+        return name
+    # Use AMFI's name if our stored one is materially shorter or generic.
+    if len(canonical) > len(name) + 4:
+        return canonical
+    return name
 
 
 async def write_holdings_table(user_id: str, holdings: List[Dict[str, Any]],
@@ -128,11 +172,14 @@ async def write_holdings_table(user_id: str, holdings: List[Dict[str, Any]],
     await db.holdings.delete_many({"user_id": user_id})
     inserted = 0
     for h in holdings:
+        resolved_name = await _resolve_full_scheme_name(
+            h.get("name", "Unknown"), h.get("ticker", ""), h.get("asset_type") or "",
+        )
         doc = {
             "holding_id": h.get("holding_id") or f"hold_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
             "portfolio_id": h.get("portfolio_id", ""),
-            "name": h.get("name", "Unknown"),
+            "name": resolved_name,
             "ticker": h.get("ticker", ""),
             "asset_type": (h.get("asset_type") or "equity"),
             "quantity": float(h.get("quantity") or 0),
@@ -150,6 +197,219 @@ async def write_holdings_table(user_id: str, holdings: List[Dict[str, Any]],
     await db.fund_performance_cache.delete_many({"user_id": user_id})
     await db.mfd_profile_signal_cache.delete_many({"user_id": user_id})
     return inserted
+
+
+async def backfill_holding_names_from_amfi(user_id: Optional[str] = None) -> Dict[str, Any]:
+    """One-shot: walk `db.holdings` (and stored snapshot.holdings arrays),
+    look up each MF/ETF row's ISIN in AMFI, and replace truncated stored
+    names with the canonical AMFI scheme name. Idempotent — names that
+    already look full enough are left alone."""
+    from services import amfi_nav
+    await amfi_nav.fetch_nav_data()  # ensure cached
+    q: Dict[str, Any] = {"asset_type": {"$in": ["mutual_fund", "etf"]}}
+    if user_id:
+        q["user_id"] = user_id
+    total = 0
+    updated = 0
+    async for h in db.holdings.find(q, {"_id": 1, "name": 1, "ticker": 1, "asset_type": 1}):
+        total += 1
+        new_name = await _resolve_full_scheme_name(
+            h.get("name") or "", h.get("ticker") or "", h.get("asset_type") or "",
+        )
+        if new_name and new_name != (h.get("name") or ""):
+            await db.holdings.update_one({"_id": h["_id"]}, {"$set": {"name": new_name}})
+            updated += 1
+    # Snapshots embed their own holdings array — fix those too so a future
+    # snapshot activation doesn't reintroduce the truncated names.
+    sq: Dict[str, Any] = {}
+    if user_id:
+        sq["user_id"] = user_id
+    snap_updated = 0
+    async for snap in db.portfolio_snapshots.find(sq, {"_id": 1, "holdings": 1}):
+        holdings = snap.get("holdings") or []
+        changed = False
+        for h in holdings:
+            if (h.get("asset_type") or "").lower() not in ("mutual_fund", "etf"):
+                continue
+            new_name = await _resolve_full_scheme_name(
+                h.get("name") or "", h.get("ticker") or "", h.get("asset_type") or "",
+            )
+            if new_name and new_name != (h.get("name") or ""):
+                h["name"] = new_name
+                changed = True
+        if changed:
+            await db.portfolio_snapshots.update_one(
+                {"_id": snap["_id"]}, {"$set": {"holdings": holdings}},
+            )
+            snap_updated += 1
+    return {
+        "scanned_holdings": total,
+        "renamed_holdings": updated,
+        "snapshots_renamed": snap_updated,
+    }
+
+
+async def _enrich_buy_dates(
+    user_id: str,
+    holdings: List[Dict[str, Any]],
+    txns_just_received: List[Dict[str, Any]],
+) -> int:
+    """Backfill `buy_date` on holdings using:
+      1. The transactions array passed into this snapshot, AND
+      2. The user's existing `cas_transactions` collection (covers
+         purchases from prior CAS uploads — the current CAS only carries
+         that month's transactions, but a fund SIP'd for years has its
+         original buy date in an earlier statement).
+
+    For each holding we use the earliest purchase txn matching
+    (isin, folio_number) — falling back to ISIN-only when folio is empty
+    (demat MFs / equities). Returns the number of holdings patched.
+    """
+    pairs: Dict[tuple, str] = {}
+    by_isin: Dict[str, str] = {}
+
+    def _ingest(t: Dict[str, Any]) -> None:
+        if not isinstance(t, dict):
+            return
+        ttype = (t.get("type") or t.get("transaction_type") or "").upper()
+        desc = (t.get("description") or t.get("raw_description") or "").upper()
+        if any(k in f"{ttype} {desc}" for k in ("REDEMPTION", "SELL", "SWITCH OUT", "SWITCH-OUT", "REVERSAL", "PLEDGE", "STT", "STAMP")):
+            return
+        is_buy = (
+            ttype in ("PURCHASE", "SIP_PURCHASE", "BUY")
+            or any(k in f"{ttype} {desc}" for k in ("PURCHASE", "SIP", "BUY", "ALLOTMENT"))
+        )
+        if not is_buy:
+            try:
+                if float(t.get("units") or 0) > 0 and float(t.get("amount") or t.get("amount_inr") or 0) > 0:
+                    is_buy = True
+            except (TypeError, ValueError):
+                pass
+        if not is_buy:
+            return
+        d = (t.get("date") or "")[:10]
+        if not d:
+            return
+        isin = (t.get("isin") or "").strip().upper()
+        folio = (t.get("folio") or t.get("folio_number") or "").strip()
+        if isin and folio:
+            key = (isin, folio)
+            if key not in pairs or d < pairs[key]:
+                pairs[key] = d
+        if isin:
+            if isin not in by_isin or d < by_isin[isin]:
+                by_isin[isin] = d
+
+    for t in txns_just_received or []:
+        _ingest(t)
+    cursor = db.cas_transactions.find(
+        {"user_id": user_id, "type": {"$in": ["PURCHASE", "SIP_PURCHASE", "BUY"]}},
+        {"_id": 0, "isin": 1, "folio": 1, "folio_number": 1, "date": 1, "type": 1, "units": 1, "amount": 1},
+    )
+    async for t in cursor:
+        _ingest(t)
+
+    patched = 0
+    for h in holdings:
+        if h.get("buy_date"):
+            continue
+        isin = (h.get("ticker") or "").strip().upper()
+        folio = (h.get("folio_number") or h.get("folio") or "").strip()
+        bd = pairs.get((isin, folio)) if folio else None
+        bd = bd or by_isin.get(isin)
+        if bd:
+            h["buy_date"] = bd
+            patched += 1
+    if patched:
+        logger.info("buy_date enrichment: patched %d/%d holdings for %s", patched, len(holdings), user_id)
+    return patched
+
+
+async def _resolve_instrument_id(conn, holding: Dict[str, Any]) -> Optional[str]:
+    """Map a snapshot holding to an `instrument_master.instrument_id` (UUID)
+    by ISIN first, then symbol/ticker. Returns None when no match — the
+    caller skips the holding rather than failing the whole snapshot."""
+    isin = (holding.get("isin") or "").strip()
+    if isin:
+        row = await conn.fetchrow(
+            "SELECT instrument_id::text FROM instrument_master WHERE isin = $1 LIMIT 1",
+            isin,
+        )
+        if row:
+            return row["instrument_id"]
+    sym = (holding.get("ticker") or holding.get("symbol") or "").strip()
+    if sym:
+        row = await conn.fetchrow(
+            "SELECT instrument_id::text FROM instrument_master WHERE symbol = $1 LIMIT 1",
+            sym,
+        )
+        if row:
+            return row["instrument_id"]
+    return None
+
+
+async def _persist_pg_snapshot(
+    *,
+    user_id: str,
+    snapshot_date: str,
+    holdings: List[Dict[str, Any]],
+    aggs: Dict[str, Any],
+) -> None:
+    """Mirror a CAS snapshot into the relational `portfolio_snapshot_master`
+    + `portfolio_snapshot_holdings` tables (migration 012). Best-effort —
+    PG outages must not break the Mongo write path."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        logger.debug("pg snapshot: pool unavailable, skipping")
+        return
+    total_value = aggs.get("total_value")
+    total_invested = aggs.get("total_invested")
+    try:
+        snap_date = date.fromisoformat((snapshot_date or "")[:10])
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO portfolio_snapshot_master
+                        (client_id, snapshot_date, total_value, total_invested)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (client_id, snapshot_date) DO UPDATE SET
+                        total_value = EXCLUDED.total_value,
+                        total_invested = EXCLUDED.total_invested,
+                        updated_at = NOW()
+                    RETURNING id
+                    """,
+                    user_id, snap_date, total_value, total_invested,
+                )
+                snapshot_id = row["id"]
+                # Replace holdings for this snapshot — re-uploads are common.
+                await conn.execute(
+                    "DELETE FROM portfolio_snapshot_holdings WHERE snapshot_id = $1",
+                    snapshot_id,
+                )
+                tv = float(total_value or 0)
+                for h in holdings:
+                    iid = await _resolve_instrument_id(conn, h)
+                    if not iid:
+                        continue
+                    qty = float(h.get("quantity") or 0)
+                    cmp_ = float(h.get("current_price") or h.get("buy_price") or 0)
+                    value = qty * cmp_
+                    weight = round(value / tv * 100, 2) if tv > 0 else 0.0
+                    await conn.execute(
+                        """
+                        INSERT INTO portfolio_snapshot_holdings
+                            (snapshot_id, instrument_id, units, current_value, weight_pct)
+                        VALUES ($1, $2::uuid, $3, $4, $5)
+                        ON CONFLICT (snapshot_id, instrument_id) DO UPDATE SET
+                            units = EXCLUDED.units,
+                            current_value = EXCLUDED.current_value,
+                            weight_pct = EXCLUDED.weight_pct
+                        """,
+                        snapshot_id, iid, qty, round(value, 2), weight,
+                    )
+    except Exception:  # noqa: BLE001
+        logger.warning("pg snapshot persist failed for %s/%s", user_id, snapshot_date, exc_info=True)
 
 
 async def create_cas_snapshot(
@@ -173,6 +433,10 @@ async def create_cas_snapshot(
         # Fallback: today (better than nothing — MFD can re-edit later)
         period_end = _today_iso()
     snapshot_date = period_end
+
+    # Backfill buy_date from this CAS's txns plus any older cas_transactions
+    # so the tax-snapshot view can split STCG vs LTCG.
+    await _enrich_buy_dates(user_id, holdings, transactions or [])
 
     # Compute allocation/health from the snapshot holdings (NOT from
     # the live holdings table — they may belong to an older snapshot).
@@ -209,6 +473,14 @@ async def create_cas_snapshot(
         upsert=True,
     )
 
+    # Mirror into the relational portfolio_snapshot tables (migration 012)
+    await _persist_pg_snapshot(
+        user_id=user_id,
+        snapshot_date=snapshot_date,
+        holdings=holdings,
+        aggs=aggs,
+    )
+
     # If this snapshot is now the latest → mirror to the live holdings table
     if is_latest:
         await write_holdings_table(user_id, holdings, source="cas")
@@ -223,7 +495,9 @@ async def create_cas_snapshot(
         )
         # Compute v3 health for the freshly mounted snapshot. We update
         # the snapshot doc with the score so the timeline can plot it
-        # without re-running the engine.
+        # without re-running the engine, AND stash the full HealthResult
+        # in Redis under (user_id, snapshot_date) so subsequent activates
+        # of this same snapshot are instant.
         try:
             from services import portfolio_health as _ph
             hr = await _ph.build_portfolio_health(user_id)
@@ -243,8 +517,26 @@ async def create_cas_snapshot(
                 snap["scores"] = scores
                 snap["health_score"] = round(float(hr.health_score), 2)
                 snap["grade"] = hr.grade
+                # cache_health_for_snapshot writes to BOTH Redis and Mongo
+                # (snap.health_full) so the next read short-circuits the
+                # Groww/V3/intelligence pipeline entirely.
+                await _ph.cache_health_for_snapshot(user_id, snapshot_date, hr)
         except Exception:  # noqa: BLE001
             logger.warning("cas_snapshot: health compute failed for %s", user_id, exc_info=True)
+    else:
+        # Non-latest CAS upload (advisor importing an older statement).
+        # Without this, the new snapshot is born with health_score=None
+        # and the Time Machine deltas / sparkline will never see it. Run
+        # the backfill helper restricted to missing rows — it temp-mounts
+        # the snapshot's holdings, computes, and restores the live state.
+        try:
+            from services import portfolio_snapshot as _ps
+            await _ps.backfill_snapshot_health(user_id, only_missing=True)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "cas_snapshot: non-latest health backfill failed for %s/%s",
+                user_id, snapshot_date, exc_info=True,
+            )
 
     snap["is_latest"] = is_latest
     return snap
@@ -451,20 +743,85 @@ async def sip_monthly_summary(user_id: str, from_date: Optional[str] = None,
         }},
         {"$sort": {"_id": 1}},
     ]
-    months = []
+    raw: List[Dict[str, Any]] = []
     total_all = 0.0
     async for d in db.cas_transactions.aggregate(pipeline):
         m = d["_id"]
         amt = round(float(d.get("total") or 0), 2)
-        months.append({
+        raw.append({
             "month": m,
             "total": amt,
             "count": int(d.get("count") or 0),
             "source": "cas_transactions",
+            "gap": False,
         })
         total_all += amt
 
-    return {"months": months, "total_invested": round(total_all, 2)}
+    # Fill gap months between first and last so the SIP chart shows
+    # missed contributions explicitly (essential for advisor follow-up).
+    months: List[Dict[str, Any]] = []
+    gap_count = 0
+    longest_gap = 0
+    if raw:
+        by_month = {r["month"]: r for r in raw}
+        first_y, first_m = (int(x) for x in raw[0]["month"].split("-"))
+        last_y, last_m = (int(x) for x in raw[-1]["month"].split("-"))
+        y, m = first_y, first_m
+        run = 0
+        while (y < last_y) or (y == last_y and m <= last_m):
+            key = f"{y:04d}-{m:02d}"
+            row = by_month.get(key)
+            if row:
+                months.append(row)
+                run = 0
+            else:
+                months.append({
+                    "month": key,
+                    "total": 0.0,
+                    "count": 0,
+                    "source": "gap",
+                    "gap": True,
+                })
+                gap_count += 1
+                run += 1
+                longest_gap = max(longest_gap, run)
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+    return {
+        "months": months,
+        "total_invested": round(total_all, 2),
+        "gap_months": gap_count,
+        "longest_gap_months": longest_gap,
+    }
+
+
+async def actual_monthly_sip_rate(
+    user_id: str, *, lookback_months: int = 6,
+) -> Dict[str, Any]:
+    """Average monthly SIP / purchase amount over the last `lookback_months`
+    *as observed in CAS data*, including gap months as zeroes.
+
+    Used by the goal-rollup to surface a realistic on-track % rather
+    than the optimistic one based on the planned mandate.
+    Returns dict with avg, total, months_observed, gap_months_in_window.
+    """
+    summary = await sip_monthly_summary(user_id)
+    months = summary.get("months") or []
+    if not months:
+        return {"avg_monthly_rs": 0.0, "total_in_window_rs": 0.0,
+                "months_observed": 0, "gap_months": 0}
+    window = months[-lookback_months:]
+    total = sum(float(m.get("total") or 0) for m in window)
+    gap_in_window = sum(1 for m in window if m.get("gap"))
+    return {
+        "avg_monthly_rs": round(total / max(1, len(window)), 2),
+        "total_in_window_rs": round(total, 2),
+        "months_observed": len(window),
+        "gap_months": gap_in_window,
+    }
 
 
 async def sip_breakdown_for_month(user_id: str, month: str) -> Dict[str, Any]:

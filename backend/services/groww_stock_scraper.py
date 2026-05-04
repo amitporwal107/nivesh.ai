@@ -790,15 +790,60 @@ async def search_groww_by_symbol(
     return None
 
 
+async def _backfill_nse_symbols(user_id: str) -> Dict[str, int]:
+    """Resolve `nse_symbol` from ISIN for any equity holding that has a
+    ticker like 'INE901L01018' but no NSE symbol. Uses NSE's master CSVs
+    (cached in-process for 24h via live_price._load_isin_map). Without
+    this step `refresh_user_stocks` finds zero symbols to score → score
+    coverage stays at the MF-only ceiling.
+    """
+    from deps import db
+    from services.live_price import _load_isin_map
+    cursor = db.holdings.find(
+        {
+            "user_id": user_id,
+            "asset_type": "equity",
+            "$or": [{"nse_symbol": None}, {"nse_symbol": ""}, {"nse_symbol": {"$exists": False}}],
+        },
+        {"_id": 0, "holding_id": 1, "ticker": 1, "name": 1},
+    )
+    candidates: List[Dict[str, str]] = []
+    async for h in cursor:
+        tkr = (h.get("ticker") or "").strip().upper()
+        if tkr.startswith(("INE", "INF", "IN0")) and len(tkr) == 12:
+            candidates.append({"holding_id": h.get("holding_id"), "isin": tkr})
+    if not candidates:
+        return {"resolved": 0, "missing": 0}
+    isin_map = await _load_isin_map()
+    resolved = 0
+    misses = 0
+    for c in candidates:
+        sym = isin_map.get(c["isin"])
+        if not sym:
+            misses += 1
+            continue
+        await db.holdings.update_one(
+            {"user_id": user_id, "holding_id": c["holding_id"]},
+            {"$set": {"nse_symbol": sym.upper(), "isin": c["isin"]}},
+        )
+        resolved += 1
+    if resolved or misses:
+        logger.info("nse_symbol backfill for %s: %d resolved, %d unmatched", user_id, resolved, misses)
+    return {"resolved": resolved, "missing": misses}
+
+
 async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
     """Refresh fundamentals for the user's currently-held equities only.
     Strategy:
-      1. Try Nifty 100 path (fast — one call to fetch_nifty_100_constituents).
-      2. For symbols not in Nifty 100, fall back to `search_groww_by_symbol`
+      1. Backfill nse_symbol from ISIN (NSE master CSV) for any holding
+         that's missing one — without this step we score zero stocks.
+      2. Try Nifty 100 path (fast — one call to fetch_nifty_100_constituents).
+      3. For symbols not in Nifty 100, fall back to `search_groww_by_symbol`
          to resolve slug, then scrape + persist inline.
     """
     from deps import db
     from services import pg_client
+    backfill = await _backfill_nse_symbols(user_id)
     cursor = db.holdings.find(
         {"user_id": user_id, "asset_type": "equity"},
         {"_id": 0, "nse_symbol": 1},
@@ -809,7 +854,7 @@ async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
         if s:
             symbols.append(s.upper())
     if not symbols:
-        return {"ok": True, "total": 0, "note": "No equity holdings"}
+        return {"ok": True, "total": 0, "note": "No equity holdings", "backfill": backfill}
 
     start = datetime.now(timezone.utc)
     # Phase 1: Nifty 100 path

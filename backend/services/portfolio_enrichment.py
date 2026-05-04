@@ -331,19 +331,91 @@ async def build_enriched_portfolio(
 
     holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     if not holdings:
-        return {"holdings": [], "alerts": [], "totals": {}, "coverage_pct": 0,
-                "health": None}
+        # Self-heal: when `db.holdings` is empty but the user has at least
+        # one parsed CAS snapshot in `db.portfolio_snapshots`, the live
+        # holdings table got nuked or was never populated (write_holdings_table
+        # didn't fire after the parse, or a delete_many ran). Load the
+        # latest snapshot into holdings so the UI doesn't falsely tell the
+        # user / advisor to "Upload a CAS to begin" when the CAS was already
+        # ingested. Snapshots are preserved in `portfolio_snapshots`; this
+        # only rewrites the live mirror.
+        try:
+            # Pick the latest snapshot that ACTUALLY carries a `holdings`
+            # array. The eod_cron writes lightweight trend snapshots
+            # (`top_holdings` + aggregates only, no `holdings` field).
+            # If we self-heal from one of those, `write_holdings_table`
+            # wipes the live table to zero rows on every page-load — the
+            # exact failure mode this self-heal was designed to fix.
+            latest_snap = await db.portfolio_snapshots.find_one(
+                {"user_id": user_id,
+                 "holdings": {"$exists": True, "$not": {"$size": 0}}},
+                {"_id": 0, "snapshot_date": 1},
+                sort=[("snapshot_date", -1)],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"snapshot self-heal probe failed for {user_id}: {e}")
+            latest_snap = None
+        if latest_snap and latest_snap.get("snapshot_date"):
+            try:
+                from services import cas_snapshot_engine as cse
+                logger.info(
+                    "holdings self-heal: rehydrating %s from snapshot %s",
+                    user_id, latest_snap["snapshot_date"],
+                )
+                await cse.load_snapshot_into_holdings(
+                    user_id, latest_snap["snapshot_date"],
+                )
+                holdings = await db.holdings.find(
+                    {"user_id": user_id}, {"_id": 0},
+                ).to_list(2000)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "holdings self-heal failed for %s (snapshot %s): %s",
+                    user_id, latest_snap["snapshot_date"], e,
+                )
+        if not holdings:
+            return {"holdings": [], "alerts": [], "totals": {}, "coverage_pct": 0,
+                    "health": None}
 
     # Load stock scores in bulk
     stock_scores_by_sym: Dict[str, Dict[str, Any]] = {}
+    # Symbol backfills derived from ISIN — written back to db.holdings at the
+    # end so subsequent renders are fully enriched without a full reparse.
+    isin_to_symbol_backfill: Dict[str, str] = {}
     try:
         pool = await pg_client.get_pool()
         if pool is not None:
+            equity_holdings = [
+                h for h in holdings
+                if (h.get("asset_type") or "").lower() == "equity"
+            ]
             symbols = [
                 (h.get("nse_symbol") or "").upper()
-                for h in holdings if (h.get("asset_type") or "").lower() == "equity"
+                for h in equity_holdings
             ]
             symbols = [s for s in symbols if s]
+            # Resolve missing nse_symbols via ISIN so freshly-parsed CAS rows
+            # (which carry ISIN but not the NSE ticker) still match V3 scores.
+            missing_isins = [
+                (h.get("ticker") or "").strip()
+                for h in equity_holdings
+                if not (h.get("nse_symbol") or "").strip()
+            ]
+            missing_isins = [i for i in missing_isins if i]
+            if missing_isins:
+                try:
+                    async with pool.acquire() as conn:
+                        iso_rows = await conn.fetch(
+                            "SELECT nse_symbol, isin FROM stock_master "
+                            "WHERE isin = ANY($1::text[])",
+                            missing_isins,
+                        )
+                    for r in iso_rows:
+                        if r["isin"] and r["nse_symbol"]:
+                            isin_to_symbol_backfill[r["isin"]] = r["nse_symbol"]
+                            symbols.append(r["nse_symbol"])
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"isin→symbol backfill skipped: {e}")
             if symbols:
                 async with pool.acquire() as conn:
                     rows = await conn.fetch(
@@ -472,6 +544,7 @@ async def build_enriched_portfolio(
     )
     total_val = 0.0
     total_inv = 0.0
+    total_val_known = 0.0
     alloc: Dict[str, float] = {}
     scored_equities = 0
     total_equities = 0
@@ -484,8 +557,17 @@ async def build_enriched_portfolio(
         cp = float(h.get("current_price") or 0)
         val = qty * cp
         inv = qty * bp
+        # Cost-basis-unknown rows must NOT poison portfolio totals — they
+        # have buy_price=0 (CAS doesn't carry cost basis for direct
+        # equities and we couldn't reconstruct it from snapshot history).
+        # If we counted these, total_invested would understate and the
+        # portfolio-level return % would balloon. Track value but skip
+        # invested AND skip the matching value when computing pnl_rs.
+        cost_basis_known = bp > 0
         total_val += val
-        total_inv += inv
+        if cost_basis_known:
+            total_inv += inv
+            total_val_known += val
         name_l = (h.get("name") or "").lower()
 
         # Lookup scores
@@ -502,6 +584,14 @@ async def build_enriched_portfolio(
         if at == "equity":
             total_equities += 1
             sym = (h.get("nse_symbol") or "").upper()
+            if not sym:
+                # Fall back to ISIN-resolved symbol from stock_master.
+                resolved = isin_to_symbol_backfill.get(
+                    (h.get("ticker") or "").strip(),
+                )
+                if resolved:
+                    sym = resolved.upper()
+                    h["nse_symbol"] = sym
             s = stock_scores_by_sym.get(sym)
             if s:
                 scored_equities += 1
@@ -573,12 +663,18 @@ async def build_enriched_portfolio(
                 else ("cagr_1y" if ret_1y_ext is not None else "cagr_5y")
             )
 
-        # ── Cost-of-Switch breakdown (PRD framework) ──────────────────
-        # Cheap: only requires invested/current/holding-period — no peer
-        # lookup, no Mongo round-trip. Computed for every holding so the
-        # ActionablePortfolioView expanded row can show the same panel as
-        # the Insights tab.
+        # ── Decision engine + Cost-of-Switch (PRD framework) ──────────
+        # Two-tier strategy:
+        # 1. Always compute the cheap switch-cost breakdown (tax + exit +
+        #    slippage). No peer lookup needed.
+        # 2. When sub_category + peers are available, also run the full
+        #    decision engine to surface to_fund / to_allocation_pct + a
+        #    real benchmark-based alpha. Falls back gracefully when peer
+        #    data is missing.
         switch_cost_block = None
+        to_fund: Optional[str] = None
+        to_allocation_pct: Optional[int] = None
+        is_equity_fund = True
         if at in ("mutual_fund", "etf") and val > 0:
             try:
                 from services import switch_decision_engine as sde
@@ -593,12 +689,17 @@ async def build_enriched_portfolio(
                         holding_age_days = (date.today() - bd).days
                     except (TypeError, ValueError):
                         pass
-                # Equity-fund tax treatment unless name suggests debt.
+                # Equity-fund tax treatment unless name OR category suggests debt.
+                cat_l = (category or "").lower()
                 is_equity_fund = not any(
-                    k in name_l for k in ("liquid", "debt", "bond", "gilt",
-                                          "corporate", "short term", "ultra short",
-                                          "money market", "low duration")
+                    k in name_l or k in cat_l
+                    for k in ("liquid", "debt", "bond", "gilt",
+                              "corporate", "short term", "ultra short",
+                              "money market", "low duration")
                 )
+
+                # Cheap path — always runs. Provides the % chips even when
+                # the heavy decision engine path can't run (no peers).
                 cost_inp = sde.DecisionInputs(
                     invested_amount=inv, current_value=val,
                     holding_period_days=holding_age_days,
@@ -606,27 +707,95 @@ async def build_enriched_portfolio(
                     exit_load_pct=float(h.get("exit_load_pct") or 0),
                 )
                 c = sde.compute_switch_costs(cost_inp)
-                # Annual alpha proxy:
-                # • Regular plan → expense gap of ~0.8% (typical Reg-Direct gap)
-                # • Otherwise → 0 (peer-fund alpha lives in /v3-portfolio)
-                alpha_pct_annual = 0.8 if is_regular else 0.0
+                fallback_alpha_pct = 0.8 if is_regular else 0.0
                 switch_cost_block = {
-                    # ₹ values
                     "tax_cost": c["tax_cost"],
                     "exit_cost": c["exit_cost"],
                     "slippage_cost": c["slippage_cost"],
                     "total_cost": c["total_cost"],
-                    # decimal % values for display (×100)
                     "switch_cost_pct": round(c["switch_cost_pct"] * 100, 3),
                     "tax_impact_pct": round(c["tax_impact_pct"] * 100, 3),
                     "exit_load_pct": round(c["exit_load_pct"] * 100, 3),
                     "slippage_pct": round(c["slippage_pct"] * 100, 3),
-                    "alpha_pct_annual": alpha_pct_annual,
-                    # Net benefit estimate over a 5-year horizon (rough proxy)
-                    "cost_saving": round(val * (alpha_pct_annual / 100.0) * 5, 0) if alpha_pct_annual > 0 else 0,
+                    "alpha_pct_annual": fallback_alpha_pct,
+                    "cost_saving": round(val * (fallback_alpha_pct / 100.0) * 5, 0) if fallback_alpha_pct > 0 else 0,
                     "alpha_gain": 0,
-                    "net_benefit": round(val * (alpha_pct_annual / 100.0) * 5 - c["total_cost"], 0) if alpha_pct_annual > 0 else 0,
+                    "net_benefit": round(val * (fallback_alpha_pct / 100.0) * 5 - c["total_cost"], 0) if fallback_alpha_pct > 0 else 0,
                 }
+
+                # Heavy path — full decision engine with peers. Skipped if
+                # no instrument_id resolved (e.g., CAS-only holding) since
+                # without it we can't fetch the peer universe reliably.
+                lookup_iid = (m or {}).get("instrument_id")
+                if lookup_iid:
+                    try:
+                        from services import candidate_fund_hydrator as cfh
+                        ctx = await cfh.fetch_current_fund_context(
+                            db, instrument_id=lookup_iid, scheme_name=h.get("name"),
+                        ) or {}
+                        sub_cat = ctx.get("sub_category") or category
+                        peers = []
+                        if sub_cat:
+                            peers = await cfh.fetch_candidates_for_category(
+                                db, sub_cat, prefer_direct=True,
+                                exclude_instrument_id=lookup_iid,
+                            )
+                        if peers:
+                            sub_lower = (sub_cat or "").lower()
+                            is_thematic = any(
+                                kw in sub_lower
+                                for kw in ("sector", "thematic", "energy", "infra",
+                                           "pharma", "fmcg", "tech", "banking",
+                                           "psu", "consumption", "manufactur")
+                            )
+                            full_inp = sde.DecisionInputs(
+                                quality=(score_bundle or {}).get("quality"),
+                                health=(score_bundle or {}).get("health"),
+                                exit_s=(score_bundle or {}).get("exit"),
+                                add=(score_bundle or {}).get("add"),
+                                invested_amount=inv, current_value=val,
+                                holding_period_days=holding_age_days,
+                                is_equity=is_equity_fund,
+                                exit_load_pct=float(h.get("exit_load_pct") or 0),
+                                expense_current=ctx.get("expense_current"),
+                                expense_direct=ctx.get("expense_direct"),
+                                current_return_5y=ctx.get("current_return_5y"),
+                                current_drawdown=ctx.get("current_drawdown"),
+                                current_consistency=ctx.get("current_consistency"),
+                                current_category=sub_cat,
+                                current_fund_name=h.get("name"),
+                                direct_plan_available=bool(
+                                    ctx.get("expense_current") is not None
+                                    and ctx.get("expense_direct") is not None
+                                    and ctx["expense_current"] > ctx["expense_direct"]
+                                ),
+                                portfolio_weight_pct=weight_pct,
+                                is_sector_or_thematic=is_thematic,
+                                candidate_funds=peers,
+                            )
+                            decision = sde.decide(
+                                full_inp,
+                                plan_type="regular" if is_regular else "direct",
+                            )
+                            d = sde.result_to_dict(decision)
+                            to_fund = d.get("to_fund")
+                            to_allocation_pct = d.get("allocation_pct")
+                            # Replace the fallback impact block with the
+                            # engine's real numbers (proper alpha, net_benefit).
+                            # NB: the engine's `impact` dict already stores
+                            # switch_cost_pct / tax_impact_pct / exit_load_pct /
+                            # slippage_pct / alpha_pct_annual in display-percent
+                            # form (×100 applied inside decide()'s breakdown).
+                            # Do NOT multiply again — the cheap fallback above
+                            # uses raw decimals from compute_switch_costs and
+                            # converts there, but result_to_dict pulls from the
+                            # already-converted breakdown.
+                            switch_cost_block = {
+                                **switch_cost_block,
+                                **d.get("impact", {}),
+                            }
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"decision engine skipped for {h.get('name')}: {e}")
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"switch_cost compute failed for {h.get('name')}: {e}")
 
@@ -638,9 +807,14 @@ async def build_enriched_portfolio(
             "category": category,
             "quantity": qty, "buy_price": bp, "current_price": cp,
             "buy_date": h.get("buy_date"),
-            "value_rs": round(val, 2), "invested_rs": round(inv, 2),
-            "pnl_rs": round(val - inv, 2),
-            "pnl_pct": round((val - inv) / inv * 100, 2) if inv > 0 else 0,
+            "value_rs": round(val, 2),
+            "invested_rs": round(inv, 2) if cost_basis_known else None,
+            "pnl_rs": round(val - inv, 2) if cost_basis_known else None,
+            "pnl_pct": (
+                round((val - inv) / inv * 100, 2)
+                if cost_basis_known and inv > 0 else None
+            ),
+            "cost_basis_source": h.get("cost_basis_source"),
             "xirr_pct": xirr_pct,
             "xirr_source": xirr_source,
             "cagr_1y_pct": round(float(ret_1y_ext), 2) if ret_1y_ext is not None else None,
@@ -657,6 +831,11 @@ async def build_enriched_portfolio(
             "action_badge": badge,
             "expense_ratio": expense_ratio,
             "switch_cost": switch_cost_block,
+            "to_fund": to_fund,
+            "to_allocation_pct": to_allocation_pct,
+            "is_equity_fund": is_equity_fund if at in ("mutual_fund", "etf") else None,
+            "weight_pct": (round(weight_pct, 2)
+                           if weight_pct is not None else None),
             "low_confidence": (
                 score_bundle is None
                 or (stock_scores_by_sym.get((h.get("nse_symbol") or "").upper()) or {}).get("low_confidence", False)
@@ -676,8 +855,134 @@ async def build_enriched_portfolio(
         elif at in ("gold",):
             alloc["hybrid"] = alloc.get("hybrid", 0) + val
 
+        # Per-holding target bucket — keyed to target_allocator's
+        # {equity, debt, gold, cash} taxonomy. Used below for the
+        # allocation gap shown in the ADD verdict reasoning.
+        is_liquid = any(k in name_l for k in ["liquid", "money market", "ultra short"])
+        is_debt = any(k in name_l for k in ["debt", "bond", "gilt", "corporate", "short term", "low duration"])
+        if at in ("gold",):
+            target_bucket = "gold"
+        elif at in ("equity", "stock"):
+            target_bucket = "equity"
+        elif at == "etf":
+            target_bucket = "equity"
+        elif at in ("mutual_fund",):
+            if is_liquid:
+                target_bucket = "cash"
+            elif is_debt:
+                target_bucket = "debt"
+            else:
+                target_bucket = "equity"
+        else:
+            target_bucket = "equity"
+        enriched[-1]["_target_bucket"] = target_bucket
+
     if total_val > 0:
         alloc = {k: round((v / total_val) * 100, 1) for k, v in alloc.items()}
+
+    # ── Per-holding target_weight_pct ─────────────────────────────────
+    # Naive split: bucket target % is divided evenly across holdings in
+    # that bucket. Crude (doesn't reflect category leadership or fund
+    # size), but unblocks the ADD verdict's allocation-gap reasoning.
+    # When target_allocator is unavailable (no risk profile yet),
+    # target_weight_pct stays None and the verdict falls back gracefully.
+    try:
+        from services.target_allocator import compute_target_allocation
+        ta = await compute_target_allocation(user_id)
+        bucket_target_pct = ta.allocation or {}
+        bucket_holdings: Dict[str, List[int]] = {}
+        for i, row in enumerate(enriched):
+            b = row.pop("_target_bucket", None)
+            if b:
+                bucket_holdings.setdefault(b, []).append(i)
+        for bucket, idxs in bucket_holdings.items():
+            target_pct = float(bucket_target_pct.get(bucket) or 0)
+            if target_pct <= 0 or not idxs:
+                continue
+            per_fund = round(target_pct / len(idxs), 2)
+            for i in idxs:
+                enriched[i]["target_weight_pct"] = per_fund
+                enriched[i]["target_bucket"] = bucket
+
+        # ── Reconcile ADD badge with allocation gap ──────────────────
+        # `derive_action_badge` flags ADD purely from scores (Add≥70 +
+        # Quality≥65) — it has no allocation context at the time it runs.
+        # When the fund is already at or over its target weight, ADD is
+        # the wrong CTA: the DecisionCard correctly downgrades to HOLD,
+        # so do the same on the badge to keep the row pill consistent
+        # with the expanded card.
+        ALLOC_OVER_THRESHOLD_PP = 0.5  # >0.5pp over target → block ADD
+        for row in enriched:
+            badge = row.get("action_badge") or {}
+            if badge.get("action") != "ADD":
+                continue
+            cur = row.get("weight_pct")
+            tgt = row.get("target_weight_pct")
+            if cur is None or tgt is None:
+                continue
+            if (cur - tgt) >= ALLOC_OVER_THRESHOLD_PP:
+                row["action_badge"] = {
+                    **HOLD,
+                    "reason": (
+                        f"Already at target ({cur:.1f}% vs {tgt:.1f}%) — "
+                        "fresh capital better deployed elsewhere."
+                    ),
+                    "sub_action": "At target",
+                    "sub_reason": (
+                        f"Allocation {cur:.1f}% is over target {tgt:.1f}% "
+                        f"by {(cur - tgt):.1f}pp."
+                    ),
+                }
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"target_weight_pct hydration skipped: {e}")
+        # Strip the temp key so it doesn't leak into the response
+        for row in enriched:
+            row.pop("_target_bucket", None)
+
+    # Hydrate benchmark CAGR per row — one Postgres read per distinct
+    # benchmark, then attach to all rows that map there. The Decision
+    # Verdict UI computes alpha = fund_cagr - benchmark_cagr.
+    try:
+        from services import benchmark_index as _bm
+        wanted: Dict[str, List[int]] = {}
+        for i, row in enumerate(enriched):
+            cat = (row.get("category") or row.get("scores", {}).get("category"))
+            if not cat:
+                # Best-effort: heuristic category from name
+                from services.action_plan_manager import ActionPlanManager as _APM
+                try:
+                    cat = _APM()._infer_category_from_name(row.get("name") or "")
+                except Exception:  # noqa: BLE001
+                    cat = None
+            if not cat:
+                continue
+            bench = await _bm.get_benchmark_for_category(cat)
+            if not bench:
+                continue
+            wanted.setdefault(bench, []).append(i)
+            row["benchmark_label"] = bench.replace("_", " ").title()
+            row["benchmark_name"] = bench
+        # One latest-snapshot read per distinct benchmark
+        for bench, idxs in wanted.items():
+            snap = await _bm.get_latest_index(bench)
+            if not snap:
+                continue
+            cagr_3y = (snap.get("metrics") or {}).get("return_3y")
+            cagr_1y = (snap.get("metrics") or {}).get("return_1y")
+            for i in idxs:
+                if cagr_3y is not None:
+                    enriched[i]["benchmark_cagr_3y_pct"] = round(float(cagr_3y) * 100, 2)
+                if cagr_1y is not None:
+                    enriched[i]["benchmark_cagr_1y_pct"] = round(float(cagr_1y) * 100, 2)
+                # Forward expected alpha = max(historical alpha, 0).
+                # Conservative — never assume forward gain just because of past alpha.
+                fund_3y = enriched[i].get("cagr_3y_pct")
+                if fund_3y is not None and cagr_3y is not None:
+                    enriched[i]["expected_alpha_annual_pct"] = round(
+                        max(0.0, float(fund_3y) - float(cagr_3y) * 100), 2,
+                    )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("benchmark hydration skipped: %s", e)
 
     # Ideal alloc + risk profile from Portfolio Health
     ideal_alloc = {"equity": 60, "debt": 30, "hybrid": 10}
@@ -774,8 +1079,14 @@ async def build_enriched_portfolio(
             "count": len(enriched),
             "value_rs": round(total_val, 2),
             "invested_rs": round(total_inv, 2),
-            "pnl_rs": round(total_val - total_inv, 2),
-            "pnl_pct": round((total_val - total_inv) / total_inv * 100, 2) if total_inv else 0,
+            # P&L is computed only over holdings whose cost basis is
+            # known — pairing total_val (which includes unknown-basis
+            # rows) with total_inv would produce an inflated profit.
+            "pnl_rs": round(total_val_known - total_inv, 2),
+            "pnl_pct": (
+                round((total_val_known - total_inv) / total_inv * 100, 2)
+                if total_inv else 0
+            ),
             "xirr_pct": port_xirr_pct,
         },
         "coverage_pct": coverage_pct,
@@ -785,6 +1096,20 @@ async def build_enriched_portfolio(
         "portfolio_impact": portfolio_impact,
         "_cache_hit": False,
     }
+    # Persist any ISIN→nse_symbol backfills we resolved so future renders
+    # don't repeat the lookup. Best-effort — never fail enrichment for this.
+    if isin_to_symbol_backfill:
+        try:
+            for isin, sym in isin_to_symbol_backfill.items():
+                await db.holdings.update_many(
+                    {"user_id": user_id, "ticker": isin,
+                     "asset_type": "equity",
+                     "$or": [{"nse_symbol": None}, {"nse_symbol": ""}]},
+                    {"$set": {"nse_symbol": sym}},
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"nse_symbol backfill persist skipped: {e}")
+
     # Cache for 5 minutes — refresh-fundamentals and refresh-prices evict this key.
     try:
         await _rc.cache_set(cache_key, result, ttl_s=300)

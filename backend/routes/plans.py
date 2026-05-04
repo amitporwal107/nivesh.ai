@@ -131,6 +131,39 @@ async def get_active_plan(request: Request):
     }
 
 
+@router.delete("/plans/active")
+async def clear_active_plan(request: Request):
+    """Archive the current active plan.
+
+    Used by the trash button in the Plan Board UI when the user wants
+    to discard the current recommendations and start over (e.g. after
+    significant portfolio changes, or when the suggestions feel stale).
+    A completely fresh plan can then be generated via POST /plans/generate.
+
+    Returns the archived plan's id + status so the UI can confirm.
+    Idempotent — calling on a user with no active plan returns ok=False.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    plan = await plan_manager.get_active_plan(user_id)
+    if not plan:
+        return {"ok": False, "reason": "no_active_plan",
+                "message": "No active plan to clear."}
+    archived = await plan_manager.archive_plan(
+        plan["plan_id"], user_id, reason="cleared_by_user",
+    )
+    if not archived:
+        return {"ok": False, "reason": "archive_failed",
+                "plan_id": plan["plan_id"]}
+    return {
+        "ok": True,
+        "plan_id": plan["plan_id"],
+        "version": plan.get("version"),
+        "message": "Active plan cleared. Generate a new plan to get fresh recommendations.",
+    }
+
+
 @router.get("/plans/active/health-projection")
 async def get_active_plan_health_projection(request: Request):
     """Return current + projected Portfolio Health if pending actions are

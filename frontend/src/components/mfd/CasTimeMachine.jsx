@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,7 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
   const [fromMonth, setFromMonth] = useState("");
   const [toMonth, setToMonth] = useState("");
   const [perf, setPerf] = useState([]);
-  const [sip, setSip] = useState({ months: [], total_invested: 0 });
+  const [sip, setSip] = useState({ months: [], total_invested: 0, gap_months: 0, longest_gap_months: 0 });
   const [txns, setTxns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [chartsLoading, setChartsLoading] = useState(false);
@@ -103,11 +103,12 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
       const params = profileId ? { profile_id: profileId } : {};
       const r = await axios.get(`${API}/portfolio/cas-snapshots`, { params, withCredentials: true });
       const data = r.data;
-      setSnaps(data.snapshots || []);
+      const list = data.snapshots || [];
+      setSnaps(list);
       setCurrentDate(data.current_snapshot_date || null);
 
       // Auto-set range to all available months
-      const months = snapshotMonths(data.snapshots || []);
+      const months = snapshotMonths(list);
       if (months.length > 0) {
         setFromMonth(months[0]);
         setToMonth(months[months.length - 1]);
@@ -117,7 +118,7 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [profileId]);
 
   useEffect(() => { loadSnapshots(); }, [loadSnapshots]);
 
@@ -136,25 +137,26 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
         }).catch(() => ({ data: { series: [] } })),
         axios.get(`${API}/portfolio/cas-sip-summary`, {
           params: { from: fromDate, to: toDate, ...pid }, withCredentials: true,
-        }).catch(() => ({ data: { months: [], total_invested: 0 } })),
+        }).catch(() => ({ data: { months: [], total_invested: 0, gap_months: 0, longest_gap_months: 0 } })),
         axios.get(`${API}/portfolio/cas-top-transactions`, {
           params: { from: fromDate, to: toDate, n: 10, ...pid }, withCredentials: true,
         }).catch(() => ({ data: { transactions: [] } })),
       ]);
       setPerf(perfR.data?.series || []);
-      setSip(sipR.data || { months: [], total_invested: 0 });
+      setSip(sipR.data || { months: [], total_invested: 0, gap_months: 0, longest_gap_months: 0 });
       setTxns(txnR.data?.transactions || []);
     } finally {
       setChartsLoading(false);
     }
-  }, []);
+  }, [profileId]);
 
   useEffect(() => {
     if (fromMonth && toMonth) loadCharts(fromMonth, toMonth);
   }, [fromMonth, toMonth, loadCharts]);
 
-  // Activate a snapshot (load its holdings into live view)
-  const activate = useCallback(async (snapDate) => {
+  // Activate a snapshot (load its holdings into live view).
+  // `silent=true` suppresses the toast (used by the auto-jump-to-latest hook).
+  const activate = useCallback(async (snapDate, { silent = false } = {}) => {
     setActivating(snapDate);
     const pid = profileId ? `?profile_id=${profileId}` : "";
     try {
@@ -163,14 +165,36 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
         {}, { withCredentials: true }
       );
       setCurrentDate(snapDate);
-      toast.success(`Loaded ${snapDate} snapshot into Client 360`);
+      if (!silent) toast.success(`Loaded ${snapDate} snapshot into Client 360`);
       if (onSnapshotActivated) onSnapshotActivated(snapDate);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Failed to activate snapshot");
+      if (!silent) toast.error(e?.response?.data?.detail || "Failed to activate snapshot");
     } finally {
       setActivating(null);
     }
-  }, [onSnapshotActivated]);
+  }, [profileId, onSnapshotActivated]);
+
+  // Default-to-latest: when the snapshots load and the active one isn't the
+  // newest on file, silently activate the newest. Stops the dashboard from
+  // serving stale data after a fresh CAS upload that didn't auto-promote.
+  // Runs at most once per profileId because we gate on `autoLatestDoneRef`.
+  const autoLatestDoneRef = useRef(null);
+  useEffect(() => {
+    if (loading || snaps.length === 0) return;
+    if (autoLatestDoneRef.current === profileId) return;
+    // Snapshots come back sorted desc by snapshot_date — pick the first
+    // (newest). Fall back to a max() in case the API ever changes order.
+    const latest = snaps.reduce(
+      (a, b) => (b.snapshot_date > (a?.snapshot_date || "") ? b : a),
+      null,
+    );
+    if (latest && latest.snapshot_date !== currentDate) {
+      autoLatestDoneRef.current = profileId;
+      activate(latest.snapshot_date, { silent: true });
+    } else {
+      autoLatestDoneRef.current = profileId;
+    }
+  }, [loading, snaps, currentDate, profileId, activate]);
 
   // Load drill-down for a specific month
   const loadDrillDown = useCallback(async (month) => {
@@ -261,22 +285,49 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
     <div className="space-y-4" data-testid="cas-time-machine">
       {/* ── Snapshot tiles ──────────────────────────────────────────── */}
       <Card className="p-4" data-testid="cas-snapshot-tiles">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <History className="w-4 h-4 text-indigo-500" />
             <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
               CAS Upload History
             </span>
             <Badge variant="outline" className="text-xs">{snaps.length} snapshots</Badge>
+            {availableMonths.length > 0 && (
+              <span className="text-xs text-slate-500" data-testid="cas-snapshots-range">
+                {fmtMonth(availableMonths[0])} → {fmtMonth(availableMonths[availableMonths.length - 1])}
+              </span>
+            )}
           </div>
-          <Button
-            variant="ghost" size="sm"
-            onClick={loadSnapshots}
-            className="h-7 px-2 text-xs"
-            data-testid="cas-refresh-btn"
-          >
-            <RefreshCw className="w-3 h-3 mr-1" /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Snapshot picker dropdown — full list, easier than scrolling tiles */}
+            {snaps.length > 0 && (
+              <select
+                value={currentDate || ""}
+                onChange={(e) => {
+                  const d = e.target.value;
+                  if (d && d !== currentDate) activate(d);
+                }}
+                className="h-7 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs px-2 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                data-testid="cas-snapshot-select"
+                disabled={!!activating}
+              >
+                {snaps.map((s) => (
+                  <option key={s.snapshot_date} value={s.snapshot_date}>
+                    {fmtMonth(s.snapshot_date?.slice(0, 7))}
+                    {s.total_value != null ? ` · ${fmtRs(s.total_value)}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button
+              variant="ghost" size="sm"
+              onClick={loadSnapshots}
+              className="h-7 px-2 text-xs"
+              data-testid="cas-refresh-btn"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="flex gap-2.5 overflow-x-auto pb-1 snap-x">
@@ -548,12 +599,33 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
               </div>
             ) : (
               <>
-                <div className="flex gap-4 mb-3">
+                <div className="flex gap-4 mb-3 flex-wrap">
                   <StatPill
                     label="Total invested"
                     value={fmtRs(sip.total_invested)}
                   />
                   <StatPill label="Months" value={sip.months.length} />
+                  {sip.gap_months > 0 && (
+                    <div
+                      data-testid="sip-gap-pill"
+                      className="bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-900/50 rounded-lg px-3 py-1.5"
+                      title="Months with no SIP / purchase transactions between the first and most recent SIP"
+                    >
+                      <div className="text-[10px] text-rose-600 dark:text-rose-400 uppercase tracking-wide font-bold">
+                        SIP gap
+                      </div>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <span className="text-sm font-bold tabular-nums text-rose-700 dark:text-rose-300">
+                          {sip.gap_months} month{sip.gap_months === 1 ? "" : "s"}
+                        </span>
+                        {sip.longest_gap_months > 1 && (
+                          <span className="text-[10px] text-rose-500">
+                            longest run: {sip.longest_gap_months}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <span className="text-[10px] text-slate-400 self-center ml-auto">Click a bar for fund breakdown</span>
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
@@ -571,20 +643,38 @@ export default function CasTimeMachine({ profileId, onSnapshotActivated }) {
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(m) => m?.slice(2)} />
                     <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v) => fmtRs(v)} width={60} />
                     <Tooltip
-                      formatter={(v) => [fmtRs(v), "Invested"]}
+                      formatter={(v, _name, item) => {
+                        const isGap = item?.payload?.gap;
+                        return isGap ? ["No SIP / purchase", "Missed"] : [fmtRs(v), "Invested"];
+                      }}
                       labelFormatter={(l) => `${fmtMonth(l)} — click to drill down`}
                       contentStyle={{ fontSize: 11, borderRadius: 8 }}
                     />
+                    {/* Render the actual SIP bars; gap months get a rose
+                        baseline so the chart screams the gaps visually. */}
                     <Bar
-                      dataKey="total"
+                      dataKey={(m) => (m.gap ? Math.max(1000, sip.total_invested ? sip.total_invested * 0.04 : 1000) : m.total)}
                       radius={[4, 4, 0, 0]}
-                      fill="#6366f1"
                       activeBar={{ fill: "#4f46e5", stroke: "#4338ca", strokeWidth: 2 }}
-                    />
+                    >
+                      {sip.months.map((m, i) => (
+                        <Cell
+                          key={i}
+                          fill={m.gap ? "#fda4af" : "#6366f1"}
+                          stroke={m.gap ? "#f43f5e" : undefined}
+                          strokeDasharray={m.gap ? "3 3" : undefined}
+                          strokeWidth={m.gap ? 1.5 : 0}
+                          fillOpacity={m.gap ? 0.5 : 1}
+                        />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
                 <p className="text-[10px] text-slate-400 text-center mt-1">
                   Real CAS transactions parsed from your client's statements.
+                  {sip.gap_months > 0 && (
+                    <span className="text-rose-500"> · dashed bars = months with no SIP</span>
+                  )}
                 </p>
 
                 {/* ── Drill-down panel ─────────────────────────────── */}

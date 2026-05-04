@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter, LayoutGrid, List, Lightbulb } from "lucide-react";
+import { Calendar, CheckCircle2, Clock, TrendingUp, RefreshCw, Plus, Filter, LayoutGrid, List, Lightbulb, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +25,8 @@ const PlanBoardView = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active"); // Default to "active" to hide archived plans
   const [generating, setGenerating] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [compactView, setCompactView] = useState(false);
 
   useEffect(() => {
@@ -56,6 +62,25 @@ const PlanBoardView = () => {
       toast.error("Failed to load plans");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const clearActivePlan = async () => {
+    try {
+      setClearing(true);
+      const res = await axios.delete(`${API}/plans/active`, { withCredentials: true });
+      if (res.data?.ok) {
+        toast.success("Active plan cleared. Generate a new plan to start fresh.");
+        await fetchPlans();
+      } else {
+        toast.info(res.data?.message || "No active plan to clear.");
+      }
+    } catch (error) {
+      console.error("Error clearing plan:", error);
+      toast.error(error.response?.data?.detail || "Failed to clear plan");
+    } finally {
+      setClearing(false);
+      setConfirmClear(false);
     }
   };
 
@@ -124,6 +149,24 @@ const PlanBoardView = () => {
                 <Lightbulb className="w-5 h-5 mr-2" />
                 View Insights
               </Button>
+              {activePlan && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setConfirmClear(true)}
+                  disabled={clearing || generating}
+                  data-testid="clear-active-plan-btn"
+                  title="Clear active plan — start over with fresh recommendations"
+                  className="min-h-[48px] text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                >
+                  {clearing ? (
+                    <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-5 h-5 mr-2" />
+                  )}
+                  Clear Active Plan
+                </Button>
+              )}
               <Button
                 onClick={generateNewPlan}
                 disabled={generating}
@@ -140,6 +183,32 @@ const PlanBoardView = () => {
               </Button>
             </div>
           </div>
+
+          {/* Confirm-clear modal — destructive action, requires explicit OK */}
+          <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear active plan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will archive your current active plan
+                  {activePlan?.version ? ` (v${activePlan.version})` : ""}. You can
+                  generate a brand-new plan afterwards. Archived plans remain
+                  visible under the "Archived" filter.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={clearActivePlan}
+                  disabled={clearing}
+                  data-testid="clear-active-plan-confirm"
+                  className="bg-rose-600 hover:bg-rose-700"
+                >
+                  {clearing ? "Clearing…" : "Clear plan"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Filters */}
           <div className="flex items-center justify-between">

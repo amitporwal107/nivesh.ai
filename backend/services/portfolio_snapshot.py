@@ -205,15 +205,179 @@ async def build_trend_series(
     user_id: str, days: int = 30,
 ) -> List[Dict[str, Any]]:
     """Light-weight time series for sparklines — one row per snapshot
-    day, newest last, only the fields sparklines need."""
+    day, newest last, only the fields sparklines need.
+
+    Filters by `days` only if the date window catches at least 2 snapshots.
+    Otherwise (e.g. monthly CAS snapshots viewed with `days=30`) falls back
+    to the last 30 snapshots regardless of date so the sparkline still
+    shows a meaningful series. The frontend's "30d" label is now a soft
+    indicator — what matters is the trend, not the literal window.
+    """
     from datetime import timedelta
     cutoff = (datetime.now(IST).date() - timedelta(days=days)).strftime("%Y-%m-%d")
+    proj = {
+        "_id": 0, "snapshot_date": 1, "total_value": 1, "health_score": 1,
+        "allocation": 1, "return_pct": 1, "scores": 1,
+    }
     cursor = db.portfolio_snapshots.find(
         {"user_id": user_id, "snapshot_date": {"$gte": cutoff}},
-        {"_id": 0, "snapshot_date": 1, "total_value": 1, "health_score": 1,
-         "allocation": 1, "return_pct": 1, "scores": 1},
+        proj,
     ).sort("snapshot_date", 1)
-    return [doc async for doc in cursor]
+    series = [doc async for doc in cursor]
+    if len(series) >= 2:
+        return series
+    # Fallback: last 30 snapshots regardless of date window.
+    cursor = db.portfolio_snapshots.find(
+        {"user_id": user_id}, proj,
+    ).sort("snapshot_date", -1).limit(30)
+    series = [doc async for doc in cursor]
+    series.reverse()  # newest last for sparklines
+    return series
+
+
+async def backfill_snapshot_health(user_id: str, *, only_missing: bool = True) -> Dict[str, Any]:
+    """Compute and persist Portfolio Health for every historical snapshot
+    of `user_id` so the Time Machine deltas (and the trend sparkline)
+    have something to plot. Old snapshots only ever got health computed
+    when they were active — historical scores stay null forever
+    otherwise.
+
+    Strategy:
+      1. Read current `cas_view_state.current_snapshot_date` so we can
+         restore the live holdings table afterwards (the user's "current"
+         view is unchanged when this returns).
+      2. For each snapshot (oldest first):
+           a. Skip if `health_score` already set and `only_missing=True`.
+           b. Mount its stored `holdings` into `db.holdings` for the user.
+           c. Run `build_portfolio_health(user_id)` against those holdings.
+           d. Persist `health_score / grade / scores` on the snapshot doc
+              and warm both Redis and `health_full` for the snapshot.
+      3. Re-mount the original active snapshot's holdings + state.
+
+    Best-effort. Errors on a single snapshot are logged and don't
+    abort the loop. Returns a summary dict for the caller.
+    """
+    from services import portfolio_health as _ph
+    user_doc = await db.users.find_one(
+        {"user_id": user_id}, {"_id": 0, "cas_view_state": 1},
+    )
+    cas_state = (user_doc or {}).get("cas_view_state") or {}
+    original_active = cas_state.get("current_snapshot_date")
+
+    snaps: List[Dict[str, Any]] = await db.portfolio_snapshots.find(
+        {"user_id": user_id},
+        {"_id": 0, "snapshot_date": 1, "holdings": 1, "health_score": 1},
+    ).sort("snapshot_date", 1).to_list(500)
+
+    processed = skipped = failed = 0
+    for snap in snaps:
+        snap_date = snap.get("snapshot_date")
+        if not snap_date:
+            continue
+        if only_missing and snap.get("health_score") is not None:
+            skipped += 1
+            continue
+        snap_holdings = snap.get("holdings") or []
+        if not snap_holdings:
+            skipped += 1
+            continue
+        try:
+            # Mount this snapshot's holdings as the user's live holdings.
+            # Insert-then-delete (instead of delete-then-insert) so concurrent
+            # readers — and the daily eod_cron snapshot job — never observe
+            # an empty `db.holdings`. We tag the new rows with
+            # `_backfill_user`, drop everything else for this user, then
+            # strip the marker.
+            stamped = [
+                {**{k: v for k, v in h.items() if k != "_id"},
+                 "user_id": user_id, "_backfill_user": user_id}
+                for h in snap_holdings
+            ]
+            if stamped:
+                await db.holdings.insert_many(stamped)
+            await db.holdings.delete_many({
+                "user_id": user_id, "_backfill_user": {"$ne": user_id},
+            })
+            await db.holdings.update_many(
+                {"user_id": user_id, "_backfill_user": user_id},
+                {"$unset": {"_backfill_user": ""}},
+            )
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "cas_view_state.current_snapshot_date": snap_date,
+                    "cas_view_state.last_updated": _now_iso(),
+                }},
+                upsert=True,
+            )
+            hr = await _ph.build_portfolio_health(user_id, force_refresh_stocks=True)
+            if hr and hr.health_score is not None:
+                scores = {
+                    "health": round(float(hr.health_score), 2),
+                    **{c.name: round(float(c.score), 2) for c in (hr.components or {}).values()},
+                }
+                await db.portfolio_snapshots.update_one(
+                    {"user_id": user_id, "snapshot_date": snap_date},
+                    {"$set": {
+                        "scores": scores,
+                        "health_score": round(float(hr.health_score), 2),
+                        "grade": hr.grade,
+                        "summary": hr.summary,
+                    }},
+                )
+                await _ph.cache_health_for_snapshot(user_id, snap_date, hr)
+                processed += 1
+            else:
+                failed += 1
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "backfill_snapshot_health: %s/%s failed",
+                user_id, snap_date, exc_info=True,
+            )
+            failed += 1
+
+    # ── Restore the original active snapshot ─────────────────────────
+    if original_active:
+        original_snap = await db.portfolio_snapshots.find_one(
+            {"user_id": user_id, "snapshot_date": original_active},
+            {"_id": 0, "holdings": 1},
+        )
+        if original_snap and original_snap.get("holdings"):
+            # Same insert-then-delete swap as the per-iteration code above.
+            stamped = [
+                {**{k: v for k, v in h.items() if k != "_id"},
+                 "user_id": user_id, "_backfill_user": user_id}
+                for h in original_snap["holdings"]
+            ]
+            if stamped:
+                await db.holdings.insert_many(stamped)
+            await db.holdings.delete_many({
+                "user_id": user_id, "_backfill_user": {"$ne": user_id},
+            })
+            await db.holdings.update_many(
+                {"user_id": user_id, "_backfill_user": user_id},
+                {"$unset": {"_backfill_user": ""}},
+            )
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "cas_view_state.current_snapshot_date": original_active,
+                "cas_view_state.last_updated": _now_iso(),
+            }},
+            upsert=True,
+        )
+
+    return {
+        "user_id": user_id,
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
+        "restored_to": original_active,
+    }
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def diff_snapshots(new_snap: Dict[str, Any], old_snap: Optional[Dict[str, Any]]) -> Dict[str, Any]:

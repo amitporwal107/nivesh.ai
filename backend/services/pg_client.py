@@ -54,8 +54,18 @@ async def get_pool() -> Optional[asyncpg.Pool]:
             pass
         _pool = None
     try:
+        # statement_cache_size=0 disables asyncpg's prepared-statement
+        # cache. We run idempotent migrations (016, 017, ...) on startup
+        # and on demand from the macro backfill endpoint. Without this,
+        # the cache holds stale plans that crash with
+        #     "cached statement plan is invalid due to a database
+        #      schema or configuration change"
+        # the first time a SELECT/INSERT touches a freshly-altered table.
+        # Cost of disabling: ~5% per query for plan-only statements; we
+        # don't run high-throughput PG queries so this is fine.
         _pool = await asyncpg.create_pool(
-            url, min_size=1, max_size=5, command_timeout=10
+            url, min_size=1, max_size=5, command_timeout=10,
+            statement_cache_size=0,
         )
         _last_url = url
         logger.info("Postgres pool initialized")

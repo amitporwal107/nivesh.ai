@@ -3,6 +3,8 @@
 All endpoints require admin session. Safe-by-default — destructive actions
 (delete, invalidate) are explicit and non-batched.
 """
+import re
+import uuid
 from fastapi import APIRouter, HTTPException, Request
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -12,6 +14,8 @@ from deps import db, require_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @router.get("/users")
@@ -74,6 +78,83 @@ def _session_alive(sess) -> bool:
     except (ValueError, TypeError):
         return False
     return exp > datetime.now(timezone.utc)
+
+
+@router.post("/users")
+async def create_user(request: Request) -> Dict[str, Any]:
+    """Admin-create a user. Whitelists the email (which is what gates
+    Google sign-in) and pre-creates the `users` + `user_profiles` rows
+    so the user appears in the admin directory immediately. They become
+    fully active on first sign-in (Google OAuth fills picture/etc.).
+
+    Body: {email: str, name?: str, is_admin?: bool}
+    """
+    admin = await require_admin(request)
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    name = (body.get("name") or "").strip() or None
+    is_admin = bool(body.get("is_admin"))
+
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    # Reject duplicates explicitly so the admin sees a clear error rather
+    # than a silent upsert collapsing two intents into one row.
+    existing = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"User with email {email} already exists (user_id={existing['user_id']})",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+
+    # Whitelist (gates Google OAuth on first login)
+    await db.whitelisted_users.update_one(
+        {"email": email},
+        {"$set": {
+            "email": email,
+            "is_admin": is_admin,
+            "status": "invited",
+            "invited_at": now_iso,
+            "invited_by": admin.get("email"),
+        }},
+        upsert=True,
+    )
+
+    # Pre-create users row so they show in the admin list before first login
+    await db.users.insert_one({
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "picture": None,
+        "is_admin": is_admin,
+        "created_at": now_iso,
+        "created_by_admin": admin.get("email"),
+        "invited": True,
+    })
+
+    # Minimal user_profiles row (onboarding flags = false so first login
+    # walks the welcome flow normally).
+    await db.user_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "user_id": user_id,
+            "email": email,
+            "onboarding_completed": False,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }},
+        upsert=True,
+    )
+
+    logger.info(
+        f"admin[{admin.get('email')}] created user {email} "
+        f"(user_id={user_id}, is_admin={is_admin})"
+    )
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {"ok": True, "user": user_doc}
 
 
 @router.get("/users/{user_id}")
@@ -280,3 +361,89 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
         "profile_reset": bool(profile_res.modified_count),
         "redis_keys_cleared": redis_cleared,
     }
+
+
+# ── Identity uniqueness ────────────────────────────────────────────────
+@router.get("/identity/duplicates")
+async def list_identity_duplicates(request: Request):
+    """Scan all users + profiles and surface every email / mobile / PAN
+    that maps to more than one record. Used by the admin UI to clean up
+    ghost users created before the uniqueness gate was added."""
+    await require_admin(request)
+    from services import identity_uniqueness as _iu
+    return await _iu.scan_existing_duplicates()
+
+
+@router.post("/identity/check")
+async def check_identity(request: Request):
+    """Pre-flight check — given (email, mobile, pan), report whether any
+    of them already exist on a user or client profile. The advisor's
+    "Add client" form calls this on blur before submitting so the
+    advisor sees the conflict inline instead of as a 409 on save."""
+    await require_admin(request)
+    from services import identity_uniqueness as _iu
+    body = await request.json()
+    chk = await _iu.check_identity_uniqueness(
+        email=body.get("email"),
+        mobile=body.get("mobile"),
+        pan=body.get("pan"),
+        exclude_profile_id=body.get("exclude_profile_id"),
+        exclude_user_id=body.get("exclude_user_id"),
+    )
+    return chk.to_dict()
+
+
+@router.post("/identity/backfill")
+async def backfill_identity_norms(request: Request):
+    """Compute `email_norm` / `mobile_norm` / `pan_norm` on every existing
+    row that's missing them, so the duplicate-scan + uniqueness check
+    can find legacy data. Idempotent."""
+    await require_admin(request)
+    from services import identity_uniqueness as _iu
+    from deps import db as _db
+    updated_profiles = 0
+    async for p in _db.profiles.find(
+        {}, {"_id": 1, "email": 1, "mobile": 1, "pan": 1,
+             "email_norm": 1, "mobile_norm": 1, "pan_norm": 1},
+    ):
+        ident = _iu.stamped_identity_fields(
+            email=p.get("email"), mobile=p.get("mobile"), pan=p.get("pan"),
+        )
+        if not ident:
+            continue
+        # Only write the *_norm side; preserve any displayed value formatting.
+        norm_only = {k: v for k, v in ident.items() if k.endswith("_norm")}
+        if any(p.get(k) != v for k, v in norm_only.items()):
+            await _db.profiles.update_one({"_id": p["_id"]}, {"$set": norm_only})
+            updated_profiles += 1
+    updated_users = 0
+    async for u in _db.users.find(
+        {}, {"_id": 1, "email": 1, "mobile": 1, "pan": 1,
+             "email_norm": 1, "mobile_norm": 1, "pan_norm": 1},
+    ):
+        ident = _iu.stamped_identity_fields(
+            email=u.get("email"), mobile=u.get("mobile"), pan=u.get("pan"),
+        )
+        if not ident:
+            continue
+        norm_only = {k: v for k, v in ident.items() if k.endswith("_norm")}
+        if any(u.get(k) != v for k, v in norm_only.items()):
+            await _db.users.update_one({"_id": u["_id"]}, {"$set": norm_only})
+            updated_users += 1
+    return {"profiles_updated": updated_profiles, "users_updated": updated_users}
+
+
+# ── Datastore isolation audit ──────────────────────────────────────────
+@router.get("/datastore-isolation")
+async def datastore_isolation(request: Request):
+    """Show whether preview and production point at distinct Postgres /
+    Redis / Mongo datastores. Returns a per-key SHA-256 fingerprint
+    matrix (no full URLs leaked) and an explicit `collisions` list.
+
+    The operator should ensure all three keys differ between the two
+    environments. To fix a collision, set a distinct value for the key
+    on the production-scoped secrets doc via the existing secret-edit
+    flow (PATCH /api/admin/secrets ... env=production)."""
+    await require_admin(request)
+    from helpers import datastore_isolation as _di
+    return await _di.audit_isolation(db)

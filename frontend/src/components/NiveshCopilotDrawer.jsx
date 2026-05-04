@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import axios from "axios";
 import { Sparkles, X, Maximize2, Minimize2, GripVertical } from "lucide-react";
 import ChatView from "@/components/ChatView";
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const STORAGE_KEY = "nivesh-copilot-drawer-width";
 const DEFAULT_WIDTH = 560;
@@ -49,6 +52,20 @@ const NiveshCopilotDrawer = ({ open, onClose, onNavigateToPlanBoard }) => {
       document.body.style.overflow = prevOverflow;
     };
   }, [open, onClose]);
+
+  // Warm up the AI chat's portfolio-intelligence context as soon as the
+  // drawer opens. Fire-and-forget: the response just confirms the Redis
+  // cache was primed, so the user's first message hits warm context and
+  // first-token latency drops dramatically. Failure is silent — chat
+  // still works, just with the cold-path compute on first send.
+  const warmedRef = useRef(false);
+  useEffect(() => {
+    if (!open || warmedRef.current) return;
+    warmedRef.current = true;
+    axios
+      .post(`${API}/chat/warmup`, {}, { withCredentials: true })
+      .catch(() => { /* non-blocking */ });
+  }, [open]);
 
   // Drag-to-resize — works only while NOT maximised
   const onDragStart = useCallback((e) => {

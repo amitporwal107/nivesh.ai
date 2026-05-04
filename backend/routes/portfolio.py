@@ -67,13 +67,117 @@ async def search_instruments(q: str = ""):
 # ==================== HOLDINGS CRUD ====================
 
 @router.get("/portfolio/holdings-enriched")
-async def get_enriched_holdings(request: Request):
+async def get_enriched_holdings(request: Request, fresh: bool = False):
     """Actionable Portfolio payload — per-holding scores + action badges +
     XIRR + portfolio alerts. Powers the new decision-engine Portfolio page.
+
+    Pass `?fresh=true` to bypass the 5-minute Redis cache. Useful when an
+    earlier empty response (e.g., a request that landed before CAS ingest
+    completed) got cached and is masking the real holdings.
     """
     user = await get_current_user(request)
     from services import portfolio_enrichment as _pe
-    return await _pe.build_enriched_portfolio(user["user_id"])
+    user_id = user["user_id"]
+
+    try:
+        return await _pe.build_enriched_portfolio(user_id, use_cache=not fresh)
+    except Exception as e:  # noqa: BLE001
+        # Safety net: never let a partial enrichment failure (Mongo timeout,
+        # decision-engine glitch, peer-fetch hiccup) flip the UI into the
+        # "Upload CAS" empty-state. Fall back to a minimal response built
+        # straight from the holdings collection so the user at least sees
+        # their portfolio, with an `_enrichment_error` flag so frontend can
+        # surface a soft warning later if we add one.
+        logger.exception(f"holdings-enriched enrichment failed for {user_id}: {e}")
+        try:
+            raw = await db.holdings.find(
+                {"user_id": user_id}, {"_id": 0},
+            ).to_list(2000)
+            holdings = []
+            for h in raw:
+                qty = float(h.get("quantity") or 0)
+                bp = float(h.get("buy_price") or 0)
+                cp = float(h.get("current_price") or 0)
+                val = qty * cp
+                inv = qty * bp
+                cb_known = bp > 0
+                holdings.append({
+                    "holding_id": h.get("holding_id"),
+                    "name": h.get("name"),
+                    "isin": h.get("ticker"),
+                    "nse_symbol": h.get("nse_symbol"),
+                    "asset_type": h.get("asset_type"),
+                    "sector": h.get("sector"),
+                    "category": h.get("category"),
+                    "quantity": qty,
+                    "buy_price": bp,
+                    "current_price": cp,
+                    "buy_date": h.get("buy_date"),
+                    "value_rs": round(val, 2),
+                    "invested_rs": round(inv, 2) if cb_known else None,
+                    "pnl_rs": round(val - inv, 2) if cb_known else None,
+                    "pnl_pct": round((val - inv) / inv * 100, 2) if cb_known and inv > 0 else None,
+                    # Enrichment fields — left null on the fallback path so
+                    # the frontend renders dashes / em-dashes rather than
+                    # stale or fabricated values.
+                    "scores": None,
+                    "composite_score": None,
+                    "action_badge": None,
+                    "switch_cost": None,
+                    "weight_pct": None,
+                    "low_confidence": True,
+                })
+            return {
+                "holdings": holdings,
+                "alerts": [],
+                "totals": {
+                    "value_rs": round(sum(h["value_rs"] for h in holdings), 2),
+                    "invested_rs": round(sum(h["invested_rs"] or 0 for h in holdings), 2),
+                },
+                "coverage_pct": 0,
+                "health": None,
+                "_enrichment_error": str(e)[:200],
+            }
+        except Exception as inner:  # noqa: BLE001
+            logger.exception(f"holdings-enriched fallback also failed: {inner}")
+            raise HTTPException(
+                status_code=500,
+                detail="Portfolio enrichment temporarily unavailable. Try ?fresh=true.",
+            )
+
+
+@router.get("/portfolio/international-recommendations")
+async def international_recommendations(request: Request):
+    """End-to-end international FoF recommendation for the current user.
+
+    Returns:
+      • target % + ₹ amount to invest in international
+      • current exposure
+      • Core / Selective / Tactical / Avoid bands with cached fund primitives
+      • portfolio context (risk, horizon, IT concentration, US exposure)
+
+    If the international fund cache is empty, response includes `_stale: true`
+    and the caller should POST `/portfolio/international-funds/refresh` first.
+    """
+    user = await get_current_user(request)
+    from services import international_funds as _intl
+    return await _intl.recommend_international_funds(user["user_id"])
+
+
+@router.post("/portfolio/international-funds/refresh")
+async def refresh_international_fund_cache(request: Request, force: bool = False):
+    """Refresh the local international FoF cache by scraping Groww.
+
+    Walks the curated seed list and re-pulls primitives (returns, expense,
+    AUM, ratios, holdings) via the existing groww_client. Skips funds whose
+    cached row is < 24h old unless ?force=true. Returns a summary dict.
+
+    Auth: requires login (any user can trigger). Rate-limited at the cache
+    layer — repeated calls are no-ops.
+    """
+    await get_current_user(request)  # auth gate, no user-specific state
+    from services import international_funds as _intl
+    return await _intl.refresh_international_funds(force=force)
 
 
 @router.get("/portfolio/switch-candidates")
@@ -103,11 +207,17 @@ async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
 
     # Resolve current holding's category via fuzzy name match
     def _base_key(n: str) -> str:
-        """Normalise + strip Regular/Direct/Plan so HDFC Small Cap's
-        Regular plan matches its Direct sibling for category lookup."""
+        """Normalise + strip plan/growth/option words so two variants of
+        the same scheme collapse. Without stripping `fund`/`scheme` the
+        Regular variant ("SBI Contra Fund Regular Plan Growth") wouldn't
+        match its Direct sibling ("SBI Contra Direct Plan Growth"), so the
+        sibling slips into the candidate list as a "replacement"."""
         import re
         k = _normalize_fund_name(n or "")
-        k = re.sub(r"\b(regular|direct|plan|growth|idcw|div|dividend)\b", " ", k)
+        k = re.sub(
+            r"\b(regular|direct|plan|growth|idcw|div|dividend|fund|scheme|the)\b",
+            " ", k,
+        )
         return " ".join(k.split())
 
     norm_holding = _base_key(holding.get("name") or "")
@@ -145,25 +255,57 @@ async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
         and "direct" in (f.get("scheme_name") or "").lower()
         and "regular" not in (f.get("scheme_name") or "").lower()
     ]
-    # Sort: quality-improvement first, then by switch_score proxy (add+quality)
-    ranked = sorted(
-        siblings,
-        key=lambda f: (
-            (f.get("scores", {}).get("quality") or 0) - old_quality,
-            (f.get("scores", {}).get("add") or 0) + (f.get("scores", {}).get("quality") or 0)
-        ),
-        reverse=True,
-    )[:max(1, min(10, int(limit)))]
 
-    cand_list = []
-    for c in ranked:
+    # Real exit load on EXITING the current fund (not the candidate).
+    # Hardcoding 1.0% inflated friction uniformly and made the modal say
+    # "Exit load 1.0%" for every candidate even when the holding had none.
+    holding_exit_load_pct = float(holding.get("exit_load_pct") or 0)
+
+    # Build switch scores for ALL siblings, then keep only those that are
+    # genuinely better than the current holding on at least one of the
+    # two PRD axes (quality OR cost). A candidate that loses on both is
+    # not a "replacement" — it's a downgrade. Without this the modal was
+    # showing -29 ΔQuality picks like Sundaram Value as recommendations.
+    QUALITY_FLOOR = -1.0   # tolerate ~1pt rounding noise on quality
+    scored = []
+    for c in siblings:
         c_prim = c.get("primitives") or {}
-        new_er = c_prim.get("expense_ratio_direct") or c_prim.get("expense_ratio_regular") or 0.5
+        # No silent default — when expense data is missing we want the UI
+        # to render "—" instead of an invented 0.5% that creates phantom
+        # cost gains downstream.
+        new_er = c_prim.get("expense_ratio_direct") or c_prim.get("expense_ratio_regular")
         ss = _pe.compute_switch_score(
             old={"scores": old_scores, "expense_ratio": old_er, "tax_impact_pct": 0},
-            new={"scores": c.get("scores") or {}, "expense_ratio": new_er},
-            exit_load_pct=1.0,
+            new={"scores": c.get("scores") or {}, "expense_ratio": new_er if new_er is not None else old_er},
+            exit_load_pct=holding_exit_load_pct,
         )
+        # Surface the raw delta even when negative (compute_switch_score
+        # currently clamps cost_gain to ≥0, hiding a cost LOSS — recompute
+        # the signed delta here so the UI can show "+extra cost" honestly).
+        if new_er is not None and old_er:
+            ss["cost_gain_pct_signed"] = round((old_er - new_er) / max(0.01, old_er) * 100.0, 1)
+        else:
+            ss["cost_gain_pct_signed"] = None
+        ss["expense_ratio_new"] = new_er  # may be None
+        scored.append((c, ss))
+
+    # Filter: must improve on quality OR cost. Weak candidates dropped.
+    qualified = [
+        (c, ss) for c, ss in scored
+        if (ss.get("delta_quality") or 0) > QUALITY_FLOOR
+        or ((ss.get("cost_gain_pct_signed") or 0) > 0)
+    ]
+    qualified.sort(
+        key=lambda pair: (
+            (pair[1].get("delta_quality") or 0),
+            (pair[1].get("cost_gain_pct_signed") or 0),
+        ),
+        reverse=True,
+    )
+    qualified = qualified[:max(1, min(10, int(limit)))]
+
+    cand_list = []
+    for c, ss in qualified:
         cand_list.append({
             "instrument_id": c.get("instrument_id"),
             "name": c.get("scheme_name"),

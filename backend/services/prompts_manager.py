@@ -43,8 +43,9 @@ def _bootstrap_defaults() -> None:
         register(
             "financial_advisor_system",
             FINANCIAL_ADVISOR_SYSTEM,
-            "Main Copilot system prompt. Enforces grounding to V2 active plan. "
-            "Template variable: {portfolio_context}.",
+            "Main Copilot system prompt. Allows direct factual answers from the "
+            "Portfolio Intelligence block; grounds specific recommendations in "
+            "the active action plan. Template variable: {portfolio_context}.",
             used_in=["routes/chat.py (stream & non-stream)"],
         )
         register(

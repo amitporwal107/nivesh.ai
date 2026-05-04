@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { KeyRound, RefreshCw, Eye, EyeOff, CheckCircle2, XCircle, Save, Trash2, Plus, FlaskConical } from "lucide-react";
+import { KeyRound, RefreshCw, Eye, EyeOff, CheckCircle2, XCircle, Save, Trash2, Plus, FlaskConical, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,13 +17,18 @@ const CATEGORY_LABELS = {
   custom: "Custom",
 };
 
-const SecretRow = ({ secret, onUpdate, onDelete, onTest }) => {
+const SecretRow = ({ secret, viewingEnv, onUpdate, onDelete, onTest }) => {
   const [editing, setEditing] = useState(false);
   const [newValue, setNewValue] = useState("");
   const [showValue, setShowValue] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  // Reveal state — full value is fetched on demand from the audit-logged
+  // /reveal endpoint, never returned by the list endpoint.
+  const [revealedValue, setRevealedValue] = useState(null);
+  const [revealing, setRevealing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleSave = async () => {
     if (!newValue.trim()) return;
@@ -40,6 +45,49 @@ const SecretRow = ({ secret, onUpdate, onDelete, onTest }) => {
     const r = await onTest(secret.key);
     setTestResult(r);
     setTesting(false);
+  };
+
+  // Fetch the unmasked value from the reveal endpoint. Cached on the
+  // row so a second click toggles visibility without re-hitting the API.
+  const fetchRevealed = async () => {
+    if (revealedValue !== null) return revealedValue;
+    setRevealing(true);
+    try {
+      const env = encodeURIComponent(viewingEnv || "");
+      const res = await axios.get(
+        `${API}/admin/secrets/${secret.key}/reveal?env=${env}`,
+        { withCredentials: true },
+      );
+      setRevealedValue(res.data.value || "");
+      return res.data.value || "";
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to reveal");
+      return null;
+    } finally {
+      setRevealing(false);
+    }
+  };
+
+  const handleToggleReveal = async () => {
+    if (showValue) {
+      setShowValue(false);
+      return;
+    }
+    const v = await fetchRevealed();
+    if (v !== null) setShowValue(true);
+  };
+
+  const handleCopy = async () => {
+    const v = await fetchRevealed();
+    if (v == null) return;
+    try {
+      await navigator.clipboard.writeText(v);
+      setCopied(true);
+      toast.success(`Copied ${secret.key}`);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Clipboard write blocked — select and copy manually");
+    }
   };
 
   return (
@@ -68,11 +116,40 @@ const SecretRow = ({ secret, onUpdate, onDelete, onTest }) => {
             )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-2">{secret.description}</p>
-          <code className="font-mono text-xs text-slate-700 dark:text-slate-300 break-all" data-testid={`secret-value-${secret.key}`}>
-            {secret.masked_value || "—"}
+          <code
+            className={`font-mono text-xs break-all select-all ${showValue ? "text-emerald-700 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"}`}
+            data-testid={`secret-value-${secret.key}`}
+            title={showValue ? "Full value (click again on the eye to hide)" : "Masked — click the eye to reveal"}
+          >
+            {showValue ? (revealedValue || "(empty)") : (secret.masked_value || "—")}
           </code>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {secret.configured && (
+            <>
+              <Button
+                data-testid={`secret-reveal-${secret.key}`}
+                variant="ghost" size="sm"
+                onClick={handleToggleReveal}
+                disabled={revealing}
+                className="h-8 px-2"
+                title={showValue ? "Hide value" : "Show full value"}
+              >
+                {revealing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  : showValue ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </Button>
+              <Button
+                data-testid={`secret-copy-${secret.key}`}
+                variant="ghost" size="sm"
+                onClick={handleCopy}
+                disabled={revealing}
+                className={`h-8 px-2 ${copied ? "text-emerald-600" : ""}`}
+                title="Copy full value to clipboard (audit-logged)"
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </Button>
+            </>
+          )}
           {secret.test_fn && (
             <Button
               data-testid={`secret-test-${secret.key}`}
@@ -359,6 +436,7 @@ const SecretsSection = ({ categoryFilter = null, title = "Secrets", subtitle = "
                     <SecretRow
                       key={s.key}
                       secret={s}
+                      viewingEnv={viewingEnv}
                       onUpdate={handleUpdate}
                       onDelete={handleDelete}
                       onTest={handleTest}

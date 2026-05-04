@@ -18,6 +18,7 @@ import RiskProfileView from "@/components/RiskProfileView";
 import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import MfdDashboard from "@/components/mfd/MfdDashboard";
+import MarketDashboard from "@/components/MarketDashboard";
 import ClientCasUpload from "@/components/mfd/ClientCasUpload";
 import MfdOnboardingWizard from "@/components/mfd/MfdOnboardingWizard";
 import ClientSnapshot from "@/components/mfd/ClientSnapshot";
@@ -253,6 +254,11 @@ const Dashboard = () => {
         return <RiskProfileView onComplete={handleRiskProfileComplete} existingProfile={userProfile?.risk_profile} />;
       case "advisor":
         return <MfdDashboard onEnterProfile={enterProfile} />;
+      case "market":
+        // Market Dashboard — macro regime + sector heatmap + positional ideas.
+        // Does not consume per-client data, so it works regardless of
+        // workspace mode or impersonation state.
+        return <MarketDashboard />;
       case "admin":
         return user?.is_admin ? <AdminView /> : null;
       default:

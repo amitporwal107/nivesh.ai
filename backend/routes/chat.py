@@ -1,7 +1,8 @@
 """AI Chat routes."""
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import uuid
 import json
@@ -11,6 +12,10 @@ from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
 from services.action_plan_manager import ActionPlanManager
+from routes.copilot import _advisor_book_block, _is_advisor_caller
+from services.copilot_charts import (
+    CHART_PROTOCOL, validate_chart_blocks, log_invalid_chart_specs,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -18,29 +23,48 @@ router = APIRouter(prefix="/api")
 _plan_manager = ActionPlanManager()
 
 
-async def _v2_active_plan_context(user_id: str) -> str:
-    """Build a COMPACT, STRICT block describing the user's current V2 active plan.
+# Advisor-mode system prompt — replaces FINANCIAL_ADVISOR_SYSTEM (which is
+# tuned for a single user's portfolio + Plan Board) when the caller is an
+# advisor asking cross-client questions. Mirrors the contract used in
+# /copilot/ask so advisor experience stays consistent across surfaces.
+_ADVISOR_CHAT_SYSTEM = """You are the advisor's cross-client AI copilot for nivesh.ai.
+You have access to the entire client book provided below.
 
-    This is injected into every chat turn so the AI can ONLY reference V2's
-    actions — never invent its own. If there is no active plan we tell the AI
-    exactly that, so it stops volunteering recommendations.
-    """
+Style: crisp, ≤ 250 words, ground every claim in the numbers in the book.
+When the user asks for clients matching a condition (top AUM, underperformers,
+needing rebalance, etc.), return a Markdown table with name, AUM and the
+specific number that triggered the match. End with one concrete next step.
+Never speculate beyond the data in the book. If the book has zero clients,
+say so and suggest adding a client profile.
+
+{portfolio_context}
+
+DISCLAIMER: AI-generated guidance for educational purposes. Always consult a SEBI-registered advisor."""
+
+
+async def _active_plan_context(user_id: str) -> str:
+    """Build a COMPACT block describing the user's current active action plan,
+    if any. The system prompt's rules tell the AI how to behave when this
+    block is empty (answer factual questions from intelligence data, redirect
+    specific recommendations to a fresh Plan Board run)."""
     try:
         plan = await _plan_manager.get_active_plan(user_id)
     except Exception as e:
-        logger.debug(f"v2 plan context fetch failed: {e}")
+        logger.debug(f"active plan context fetch failed: {e}")
         plan = None
 
     if not plan or not plan.get("actions"):
         return (
-            "\n\n── V2 ACTIVE PLAN (SOURCE OF TRUTH) ──\n"
-            "No active V2 plan for this user.\n"
-            "Rule: Do NOT recommend any actions. Tell the user: 'V2 hasn't flagged "
-            "any actions yet. Click Generate New Plan on the Plan Board to run V2.'\n"
+            "\n\n── ACTIVE ACTION PLAN ──\n"
+            "No active action plan exists for this user yet.\n"
+            "For SPECIFIC recommendations (which fund to exit, tax-aware moves, "
+            "fresh fund picks) suggest a Plan Board run. Factual questions about "
+            "overlap, allocation, exposure, etc. are still answerable from the "
+            "PORTFOLIO INTELLIGENCE block above.\n"
         )
 
     lines = [
-        "\n\n── V2 ACTIVE PLAN (SOURCE OF TRUTH) ──",
+        "\n\n── ACTIVE ACTION PLAN (USE FOR SPECIFIC RECOMMENDATIONS) ──",
         f"Plan ID: {plan.get('plan_id')} · Status: {plan.get('status')} · "
         f"Generated: {str(plan.get('created_at',''))[:10]}",
         f"Total actions: {len(plan['actions'])} · "
@@ -55,7 +79,7 @@ async def _v2_active_plan_context(user_id: str) -> str:
             f"(equity LTCG ₹{tti.get('equity_ltcg',0):,.0f}, equity STCG ₹{tti.get('equity_stcg',0):,.0f})"
         )
 
-    lines.append("\nActions (use these EXACTLY — do NOT invent new ones):")
+    lines.append("\nActions (recommend these EXACTLY for action-shaped questions):")
     for i, a in enumerate(plan["actions"], 1):
         reasons = " · ".join(a.get("reason_codes") or [])
         ti = a.get("tax_impact") or {}
@@ -70,24 +94,443 @@ async def _v2_active_plan_context(user_id: str) -> str:
             f"₹{amt:,.0f} · {reasons}{tax_str}"
         )
 
-    lines.append(
-        "\nRule: If the user asks 'what should I do', describe the actions above. "
-        "If they ask about a stock/fund that's NOT in this list, respond: 'V2 hasn't "
-        "flagged that instrument. Here's what V2 is prioritising instead: …' and list 1-3 "
-        "V2 actions from above.\n"
-    )
     return "\n".join(lines)
 
 
+# Keywords that signal the user is asking for an action recommendation
+# (sell/exit/switch/add/buy/rebalance/optimise) rather than a factual lookup.
+# When present AND the user has no active plan, we auto-generate one before
+# the LLM call so the answer can cite real plan actions instead of refusing.
+_ACTIONABLE_KEYWORDS = (
+    "should i sell", "should i exit", "should i remove", "should i trim",
+    "should i buy", "should i add", "should i switch", "should i rebalance",
+    "exit ", "sell ", "trim ", "remove with", "switch to", "switch from",
+    "rebalance", "fix my", "fix overlap", "clean up my", "clean up portfolio",
+    "tax-smart", "tax smart", "tax-loss harvest", "tax loss harvest",
+    "harvest loss", "optimise tax", "optimize tax", "minimise tax", "minimize tax",
+    "where should i invest", "where to invest",
+    "what should i do", "next action", "next step",
+    "minimal tax impact", "with minimum tax",
+)
 
-async def _compute_portfolio_intelligence_context(user_id: str) -> str:
-    """Generate PG-based Portfolio Intelligence context for AI chat."""
+
+def _is_actionable_question(message: str) -> bool:
+    """Cheap heuristic — returns True when the user's message looks like it
+    expects a specific action recommendation rather than a factual answer."""
+    m = (message or "").lower()
+    return any(kw in m for kw in _ACTIONABLE_KEYWORDS)
+
+
+async def _ensure_plan_for_actionable_question(user_id: str, message: str) -> None:
+    """If the user asks an actionable question but has no active plan, run a
+    Plan Board generation in-line so the LLM can cite real actions. Best-effort:
+    swallows errors so a slow generation never breaks the chat reply.
+
+    Skips when:
+      - the user already has an active plan (no need to regenerate),
+      - the question is purely factual (no need for a plan),
+      - the user has no holdings (nothing to plan against)."""
+    if not _is_actionable_question(message):
+        return
+    try:
+        existing = await _plan_manager.get_active_plan(user_id)
+        if existing and existing.get("actions"):
+            return
+        holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(500)
+        if not holdings:
+            return
+        intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
+        plan = await _plan_manager.generate_plan(user_id, intelligence, holdings)
+        # generate_plan returns a "preview" plan; activate it so get_active_plan picks it up.
+        plan["status"] = "active"
+        await _plan_manager.create_plan(plan)
+        logger.info(f"chat: auto-generated action plan for {user_id} (actions={len(plan.get('actions') or [])})")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"chat auto-plan-gen failed for {user_id}: {e}")
+
+
+
+_KNOWN_AMCS = {
+    "HDFC", "ICICI", "SBI", "AXIS", "KOTAK", "NIPPON", "FRANKLIN",
+    "TEMPLETON", "MIRAE", "DSP", "TATA", "UTI", "INVESCO", "HSBC",
+    "IDFC", "SUNDARAM", "MOTILAL", "EDELWEISS", "BARODA", "CANARA",
+    "BANDHAN", "UNION", "BOI", "QUANTUM",
+}
+_MULTI_WORD_AMCS = [("ADITYA", "BIRLA"), ("PARAG", "PARIKH")]
+
+
+def _extract_amc(name: str) -> Optional[str]:
+    if not name:
+        return None
+    words = name.upper().split()
+    word_set = set(words)
+    for a, b in _MULTI_WORD_AMCS:
+        if a in word_set and b in word_set:
+            return f"{a} {b}"
+    for w in words:
+        if w in _KNOWN_AMCS:
+            return w
+    return words[0] if words else None  # fallback: first word
+
+
+def _amc_concentration_block(mf_investments: list) -> str:
+    """Bucket MF investments by extracted AMC and return a sorted markdown
+    block. Empty string when there are no MFs to bucket."""
+    if not mf_investments:
+        return ""
+    totals: Dict[str, float] = {}
+    grand = 0.0
+    for m in mf_investments:
+        amt = float(m.get("amount_rs") or 0)
+        if amt <= 0:
+            continue
+        amc = _extract_amc(m.get("scheme_name", ""))
+        if not amc:
+            continue
+        totals[amc] = totals.get(amc, 0.0) + amt
+        grand += amt
+    if grand <= 0:
+        return ""
+    rows = sorted(
+        [(amc, val, val / grand * 100) for amc, val in totals.items()],
+        key=lambda r: r[1], reverse=True,
+    )[:8]
+    out = "\nAMC Concentration (% of MF AUM):\n"
+    for amc, val, pct in rows:
+        out += f"  - {amc}: {pct:.1f}% (₹{val:,.0f})\n"
+    return out
+
+
+_EMPTY_HOLDINGS_BLOCK = (
+    "\n\n=== USER PORTFOLIO HOLDINGS ===\n"
+    "NO HOLDINGS RECORDED for this user. The user has not uploaded a CAS, "
+    "imported via Connect, or added holdings manually. When asked about "
+    "holdings, top funds, top stocks, returns, profit, performance, "
+    "allocation, sectors, or anything that requires holdings, you MUST "
+    "tell the user plainly: 'You don't have any holdings recorded yet — "
+    "upload your CAS or connect your portfolio to get started.' "
+    "DO NOT invent holding names, funds, stocks, percentages, or returns — "
+    "fabricating data here is a critical failure.\n"
+)
+
+
+def _render_portfolio_block(holdings: list) -> str:
+    """Holdings summary with EXPLICIT per-holding profit + return so the
+    LLM can answer 'top funds by return / profit' factually without
+    re-doing math. Also includes a pre-sorted top-by-return and
+    top-by-profit ranking so the model just reads the answer off.
+
+    Cost-basis sanity check: if buy_price == current_price AND there's
+    no buy_date, treat as a placeholder fill (CAS rebuild defaults to
+    cmp when avg cost can't be derived). Such holdings are listed
+    separately under "Holdings with unknown cost basis" and excluded
+    from any profit-based ranking — the AI is told upfront which
+    holdings can vs cannot be ranked.
+
+    Empty holdings → returns the explicit `_EMPTY_HOLDINGS_BLOCK`
+    instead of "" so the LLM can't silently confabulate.
+    """
+    if not holdings:
+        return _EMPTY_HOLDINGS_BLOCK
+    enriched = []
+    for h in holdings:
+        qty = float(h.get("quantity") or 0)
+        bp = float(h.get("buy_price") or 0)
+        cp = float(h.get("current_price") or 0)
+        inv = qty * bp
+        cur = qty * cp
+        profit = cur - inv
+        ret = (profit / inv * 100) if inv > 0 else 0.0
+        # Cost-basis confidence flag (see docstring).
+        has_buy_date = bool(h.get("buy_date"))
+        prices_match = abs(bp - cp) < 0.005
+        cost_basis_known = (bp > 0) and not (prices_match and not has_buy_date)
+        enriched.append({
+            "name": h.get("name", "Unknown"),
+            "type": h.get("asset_type", ""),
+            "sector": h.get("sector") or "N/A",
+            "qty": qty, "buy_price": bp, "current_price": cp,
+            "invested": inv, "current": cur,
+            "profit": profit, "ret_pct": ret,
+            "cost_basis_known": cost_basis_known,
+        })
+    # Totals — invested only counts holdings with known cost basis so the
+    # portfolio-level return % isn't dragged to 0% by placeholder rows.
+    ranked = [e for e in enriched if e["cost_basis_known"]]
+    total_inv = sum(e["invested"] for e in ranked)
+    total_cur = sum(e["current"] for e in ranked)
+    total_profit = total_cur - total_inv
+    total_ret = (total_profit / total_inv * 100) if total_inv > 0 else 0.0
+
+    unknown_basis = [e for e in enriched if not e["cost_basis_known"]]
+    out = (
+        "\n\n=== USER PORTFOLIO HOLDINGS ===\n"
+        f"Holdings with KNOWN cost basis: {len(ranked)} · "
+        f"invested ₹{total_inv:,.0f} · current ₹{total_cur:,.0f} · "
+        f"profit ₹{total_profit:+,.0f} · return {total_ret:+.1f}%\n"
+    )
+    if unknown_basis:
+        out += (
+            f"Holdings with UNKNOWN cost basis: {len(unknown_basis)} "
+            f"(buy_price was a placeholder; profit/return cannot be computed for these — "
+            f"they are excluded from rankings below but their CMP value is still tracked)\n"
+        )
+    out += f"\nAll Holdings ({len(enriched)}):\n"
+    for e in enriched:
+        if e["cost_basis_known"]:
+            out += (
+                f"  - {e['name']} [{e['type']}]: qty {e['qty']:g} · "
+                f"invested ₹{e['invested']:,.0f} · current ₹{e['current']:,.0f} · "
+                f"profit ₹{e['profit']:+,.0f} · return {e['ret_pct']:+.1f}% · "
+                f"sector {e['sector']}\n"
+            )
+        else:
+            out += (
+                f"  - {e['name']} [{e['type']}]: qty {e['qty']:g} · "
+                f"current ₹{e['current']:,.0f} · cost basis UNKNOWN · "
+                f"sector {e['sector']}\n"
+            )
+
+    # Pre-sorted leaderboards — the AI cites these verbatim for "top N
+    # funds by return / by profit / by loss" questions, eliminating the
+    # "I don't have performance data" failure mode where the model
+    # refuses to compute these from the rows above. Only holdings with
+    # known cost basis enter rankings.
+    only_funds = [e for e in ranked if (e["type"] or "").lower() in ("mutual_fund", "mf", "equity")]
+    if len(only_funds) >= 2:
+        by_ret = sorted(only_funds, key=lambda x: x["ret_pct"], reverse=True)[:5]
+        by_profit = sorted(only_funds, key=lambda x: x["profit"], reverse=True)[:5]
+        worst_ret = sorted(only_funds, key=lambda x: x["ret_pct"])[:3]
+        out += "\nTop holdings by RETURN %:\n"
+        for i, e in enumerate(by_ret, 1):
+            out += f"  {i}. {e['name']}: {e['ret_pct']:+.1f}% (profit ₹{e['profit']:+,.0f})\n"
+        out += "Top holdings by ABSOLUTE PROFIT (₹):\n"
+        for i, e in enumerate(by_profit, 1):
+            out += f"  {i}. {e['name']}: ₹{e['profit']:+,.0f} ({e['ret_pct']:+.1f}%)\n"
+        if worst_ret and worst_ret[0]["ret_pct"] < 0:
+            out += "Worst-performing holdings (by return %):\n"
+            for i, e in enumerate(worst_ret, 1):
+                if e["ret_pct"] >= 0:
+                    break
+                out += f"  {i}. {e['name']}: {e['ret_pct']:+.1f}% (loss ₹{e['profit']:+,.0f})\n"
+
+    # Per-sector breakdown — direct equity holdings only, and only those
+    # with known cost basis. Excluding placeholder-basis rows means the
+    # ranking actually reflects performance instead of being skewed by
+    # 0% rows. (For MF look-through stocks see the PORTFOLIO INTELLIGENCE
+    # block — sector exposure + top-stock exposure but no per-stock profit.)
+    direct_equities = [e for e in ranked if (e["type"] or "").lower() == "equity"]
+    by_sector: Dict[str, list] = {}
+    for e in direct_equities:
+        by_sector.setdefault(e["sector"] or "Unknown", []).append(e)
+    multi_sector = {s: rows for s, rows in by_sector.items() if rows}
+    if len(multi_sector) >= 1 and any(len(r) >= 1 for r in multi_sector.values()):
+        # Sort sectors by total ₹ profit desc so the most material
+        # sectors come first.
+        sector_order = sorted(
+            multi_sector.items(),
+            key=lambda kv: sum(r["profit"] for r in kv[1]),
+            reverse=True,
+        )
+        out += "\nTop equities BY SECTOR (direct holdings only, ranked within each sector):\n"
+        for sector, rows in sector_order:
+            top_in_sector = sorted(rows, key=lambda x: x["ret_pct"], reverse=True)[:3]
+            sector_total_profit = sum(r["profit"] for r in rows)
+            out += f"  Sector: {sector} ({len(rows)} holdings · sector profit ₹{sector_total_profit:+,.0f})\n"
+            for i, e in enumerate(top_in_sector, 1):
+                out += (
+                    f"    {i}. {e['name']}: return {e['ret_pct']:+.1f}% · "
+                    f"profit ₹{e['profit']:+,.0f}\n"
+                )
+    return out
+
+
+async def _compute_goals_context(user_id: str) -> str:
+    """User's financial goals from user_goals (PG). Includes both planned
+    on-track % and actual on-track % (reconciled against recent SIP from
+    CAS) so the AI can flag plan-vs-execution gaps without asking the
+    user. Returns empty string when PG is down or there are no goals."""
+    try:
+        from services import pg_client as _pg
+        pool = await _pg.get_pool()
+        if pool is None:
+            return ""
+        import uuid as _uuid
+        try:
+            uid = _uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        except Exception:  # noqa: BLE001
+            uid = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT goal_id, goal_type, goal_name, target_amount_rs, "
+                "horizon_years, current_corpus_rs, monthly_sip_rs, "
+                "expected_return_pct, on_track_pct, priority, status "
+                "FROM user_goals WHERE user_id = $1 AND COALESCE(status,'') <> 'archived' "
+                "ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, "
+                "created_at DESC LIMIT 8",
+                uid,
+            )
+        if not rows:
+            return (
+                "\n\n=== USER GOALS ===\n"
+                "NO GOALS RECORDED. The user has not created any financial "
+                "goals yet. When asked about goals or being on track, say "
+                "so plainly — DO NOT invent goal names or targets.\n"
+            )
+        # Reconcile actual vs planned SIP for the gap line.
+        actual_sip = 0.0
+        try:
+            from services import cas_snapshot_engine as _eng
+            stats = await _eng.actual_monthly_sip_rate(user_id, lookback_months=6)
+            actual_sip = float(stats.get("avg_monthly_rs") or 0)
+        except Exception:  # noqa: BLE001
+            pass
+        out = "\n\n=== USER GOALS ===\n"
+        out += f"Total goals: {len(rows)} · Actual recent SIP: ₹{actual_sip:,.0f}/mo (last 6 months)\n"
+        for r in rows:
+            target = float(r["target_amount_rs"] or 0)
+            horizon = float(r["horizon_years"] or 0)
+            sip = float(r["monthly_sip_rs"] or 0)
+            corpus = float(r["current_corpus_rs"] or 0)
+            on_track = float(r["on_track_pct"] or 0)
+            gap_line = ""
+            if sip > 0 and actual_sip + 1 < sip:
+                gap_line = f" · ⚠ SIP gap ₹{sip - actual_sip:,.0f}/mo"
+            out += (
+                f"  - {r['goal_name']} ({r['goal_type']}, {r['priority']}): "
+                f"target ₹{target:,.0f} in {horizon:.0f}y · "
+                f"corpus ₹{corpus:,.0f} · plan SIP ₹{sip:,.0f}/mo · "
+                f"{on_track:.0f}% on track{gap_line}\n"
+            )
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("goals context build failed for %s: %s", user_id, e)
+        return ""
+
+
+async def _compute_health_context(user_id: str) -> str:
+    """Portfolio Health scorecard — score/grade plus the top 3 risk drivers.
+    Different from the intelligence block: health is the holistic scorecard
+    the dashboard shows; intelligence is the analytic detail. Both inform
+    chat answers."""
+    try:
+        from services import portfolio_health as _ph
+        hr = await _ph.build_portfolio_health(user_id)
+        # Empty-portfolio sentinel: build_portfolio_health returns a
+        # 0/F result with a "no holdings on file" summary when the user
+        # has nothing to score. Treat that the same as "no health score"
+        # so the AI doesn't broadcast a misleading 0/100 grade.
+        is_empty_state = (
+            not hr or hr.health_score is None or
+            (hr.health_score == 0 and "no holdings" in (hr.summary or "").lower())
+        )
+        if is_empty_state:
+            return (
+                "\n\n=== PORTFOLIO HEALTH SCORECARD ===\n"
+                "NO HEALTH SCORE AVAILABLE (no portfolio yet, or scoring "
+                "pipeline hasn't run). DO NOT invent a score or grade.\n"
+            )
+        out = "\n\n=== PORTFOLIO HEALTH SCORECARD ===\n"
+        out += f"Health: {hr.health_score:.0f}/100 (Grade {hr.grade})"
+        if hr.low_confidence:
+            out += " · low-confidence (some sub-scores were heuristic)"
+        out += "\n"
+        if hr.summary:
+            out += f"Summary: {hr.summary}\n"
+        if hr.components:
+            comp_line = " · ".join(
+                f"{c.name}={c.score:.0f}" for c in hr.components.values()
+            )
+            out += f"Components: {comp_line}\n"
+        drivers = (hr.risk_drivers or [])[:3]
+        if drivers:
+            out += "Top risk drivers:\n"
+            for d in drivers:
+                label = d.get("label") or d.get("title") or d.get("kind", "")
+                detail = d.get("detail") or d.get("note") or ""
+                out += f"  - {label}: {detail[:160]}\n"
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("health context build failed for %s: %s", user_id, e)
+        return ""
+
+
+async def _compute_snapshot_context(user_id: str) -> str:
+    """Financial snapshot — income / expenses / corpus / liabilities — so
+    the AI can reason about affordability and savings rate. Returns empty
+    when no snapshot exists yet (user hasn't filled in goals onboarding)."""
+    try:
+        from services import pg_client as _pg
+        pool = await _pg.get_pool()
+        if pool is None:
+            return ""
+        import uuid as _uuid
+        try:
+            uid = _uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        except Exception:  # noqa: BLE001
+            uid = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT monthly_income_rs, monthly_expenses_rs, current_corpus_rs, "
+                "total_liabilities_rs, income_growth_pct, inflation_pct, behavior_score "
+                "FROM user_financial_snapshots WHERE user_id = $1",
+                uid,
+            )
+        if not row:
+            return (
+                "\n\n=== FINANCIAL SNAPSHOT ===\n"
+                "NO FINANCIAL SNAPSHOT RECORDED. The user hasn't filled in "
+                "income/expenses/corpus yet. DO NOT invent these figures.\n"
+            )
+        out = "\n\n=== FINANCIAL SNAPSHOT ===\n"
+        income = float(row["monthly_income_rs"] or 0)
+        expenses = float(row["monthly_expenses_rs"] or 0)
+        savings = max(0.0, income - expenses)
+        savings_rate = (savings / income * 100) if income > 0 else 0.0
+        out += f"Monthly income: ₹{income:,.0f} · expenses: ₹{expenses:,.0f} · "
+        out += f"savings capacity: ₹{savings:,.0f}/mo ({savings_rate:.0f}%)\n"
+        out += f"Current corpus: ₹{float(row['current_corpus_rs'] or 0):,.0f} · "
+        out += f"liabilities: ₹{float(row['total_liabilities_rs'] or 0):,.0f}\n"
+        if row.get("behavior_score") is not None:
+            out += f"Behavior score: {float(row['behavior_score']):.0f}/100\n"
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("snapshot context build failed for %s: %s", user_id, e)
+        return ""
+
+
+# Redis-backed warmup cache for the assembled intelligence-context string.
+# `compute_portfolio_intelligence` is the heaviest call in the chat path
+# (PG joins + look-through across all MFs), so we cache the rendered
+# string for a few minutes — invalidated implicitly when the TTL expires.
+# Key namespace lives under nivesh:cache:chat_ctx:intel:* via redis_client.
+_INTEL_CTX_TTL_S = 300
+
+
+async def _compute_portfolio_intelligence_context(user_id: str,
+                                                   *, use_cache: bool = True) -> str:
+    """Generate PG-based Portfolio Intelligence context for AI chat.
+
+    `use_cache=True` (default) checks Redis for a recent rendered copy
+    first; misses fall through to a fresh compute and re-populate. The
+    `/chat/warmup` endpoint always passes `use_cache=False` so the first
+    request after drawer-open primes the cache instead of returning a
+    stale value.
+    """
+    if use_cache:
+        try:
+            from services import redis_client as _redis
+            cached = await _redis.cache_get(f"chat_ctx:intel:{user_id}")
+            if isinstance(cached, str):
+                return cached
+        except Exception:  # noqa: BLE001
+            pass  # cache is best-effort
     try:
         metrics = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
-        
+
         if metrics.get("empty"):
             return ""
-        
+
         # Build intelligence summary for AI context
         narrative = metrics.get("narrative", {})
         compression = metrics.get("compression", {})
@@ -96,6 +539,7 @@ async def _compute_portfolio_intelligence_context(user_id: str) -> str:
         category_ineff = metrics.get("category_inefficiency", [])
         sector_exp = metrics.get("sector_exposure", [])
         redundancy = metrics.get("redundancy_suggestions", [])
+        mf_investments = metrics.get("mf_investments", [])
         
         ctx = "\n\n=== PORTFOLIO INTELLIGENCE (Real Stock-Level Analysis) ===\n"
         
@@ -113,13 +557,25 @@ async def _compute_portfolio_intelligence_context(user_id: str) -> str:
             for i, s in enumerate(top_stocks[:10], 1):
                 ctx += f"  {i}. {s['name']} ({s.get('sector', 'N/A')}): {s['exposure_pct']:.2f}% (₹{s['exposure_rs']:,.0f}) via {s['fund_count']} funds\n"
         
-        # Fund overlap pairs
+        # Fund overlap pairs (with the actual shared companies per pair so
+        # the AI can name them when asked "which companies are overlapping?")
         if pairs:
             ctx += "\nFund Overlap (Stock-Level):\n"
             for p in pairs[:5]:
                 ctx += f"  - {p['a_name']} ↔ {p['b_name']}: {p['overlap_pct']:.1f}% overlap ({p['shared_count']} shared stocks)\n"
                 if p.get('reasons'):
                     ctx += f"    Reasons: {', '.join(p['reasons'])}\n"
+                top_shared = p.get('top_shared') or []
+                if top_shared:
+                    parts = []
+                    for s in top_shared[:6]:
+                        # `key` is a slug like 'hdfc-bank' or a lowercased name; humanise it
+                        raw = (s.get('key') or '').replace('-', ' ').strip()
+                        name = raw.title() if raw else 'Unknown'
+                        parts.append(
+                            f"{name} ({s.get('w_a', 0):.1f}% in A · {s.get('w_b', 0):.1f}% in B)"
+                        )
+                    ctx += "    Shared companies: " + "; ".join(parts) + "\n"
         
         # Category inefficiency
         if category_ineff:
@@ -131,6 +587,9 @@ async def _compute_portfolio_intelligence_context(user_id: str) -> str:
                 else:
                     ctx += "\n"
         
+        # AMC concentration — bucket MF investments by fund-house name.
+        ctx += _amc_concentration_block(mf_investments)
+
         # Sector exposure
         if sector_exp:
             ctx += "\nSector Exposure (look-through):\n"
@@ -146,8 +605,16 @@ async def _compute_portfolio_intelligence_context(user_id: str) -> str:
                 ctx += f"sector drift {r['sector_l1_drift_pct']:.1f}%\n"
         
         ctx += "\n(Use this intelligence data to provide accurate, data-driven advice)\n"
+
+        # Best-effort write-through cache. Failure here never blocks the
+        # response — the chat just stays uncached and recomputes next time.
+        try:
+            from services import redis_client as _redis
+            await _redis.cache_set(f"chat_ctx:intel:{user_id}", ctx, ttl_s=_INTEL_CTX_TTL_S)
+        except Exception:  # noqa: BLE001
+            pass
         return ctx
-        
+
     except Exception as e:
         logger.warning(f"Failed to compute intelligence context: {e}")
         return ""
@@ -177,6 +644,104 @@ async def create_chat_session(request: Request):
     return {k: v for k, v in session_doc.items() if k != "_id"}
 
 
+class RAGRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    history: Optional[List[Dict[str, str]]] = None
+
+
+@router.post("/chat/rag")
+async def rag_chat(request: Request, payload: RAGRequest):
+    """RAG-driven Copilot endpoint.
+
+    Replaces the "dump the entire portfolio into the system prompt" flow
+    of /chat/send. Pipeline:
+
+      1. Keyword-based intent router → narrow query type.
+      2. Deterministic retriever → tight structured payload (~500 chars
+         instead of 5000), guaranteed to match the user's actual data.
+      3. Server-side chart spec (computed from the same retrieval — never
+         asked from the LLM, so values can't drift).
+      4. Small LLM call (≤400 tokens) that ONLY writes prose around the
+         payload. Hallucinated fund names are now structurally impossible
+         because the model never has training-data fund names in scope.
+
+    Returns:
+      {
+        "prose":            "<assistant text>",
+        "chart_spec":       {...} | null,    # rendered by frontend ChartBlock
+        "intent":           "ranking" | "concentration" | ...,
+        "retrieval_ok":     bool,
+        "retrieval_reason": "no_holdings" | ... | null,
+        "retrieval_summary": "<one-liner>",
+        "rows":             [...],            # raw structured data for client-side table
+      }
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    from services import copilot_rag
+    result = await copilot_rag.answer(
+        user_id=user_id, message=payload.message, history=payload.history,
+    )
+    return result
+
+
+@router.post("/chat/warmup")
+async def warmup_chat_context(request: Request):
+    """Fire-and-forget context preload.
+
+    Called by the frontend when the Nivesh Copilot drawer first opens.
+    Triggers a fresh compute of the heaviest pieces of the chat context
+    (portfolio intelligence including AMC concentration, sector exposure,
+    overlap, etc.) and caches the rendered string in Redis. Subsequent
+    `/chat/send` and `/chat/stream` calls within the TTL window read
+    straight from the cache, so the user sees first-token latency
+    measured in hundreds of ms instead of seconds.
+
+    Advisor mode skips intelligence (uses the cross-client book instead),
+    so warmup is a no-op for that path.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    session_user_id = user.get("_session_user_id") or user_id
+    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
+    if advisor_mode:
+        return {"ok": True, "warmed": False, "reason": "advisor_mode"}
+    # Warm all five context pieces in parallel. Intelligence is the only
+    # one with its own Redis-write (heaviest); the other four are cheap
+    # but hitting them now guarantees the first /chat/send doesn't pay
+    # any cold-start cost.
+    import asyncio as _asyncio
+    try:
+        intel, plan, goals, health, snapshot = await _asyncio.gather(
+            _compute_portfolio_intelligence_context(user_id, use_cache=False),
+            _active_plan_context(user_id),
+            _compute_goals_context(user_id),
+            _compute_health_context(user_id),
+            _compute_snapshot_context(user_id),
+            return_exceptions=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat warmup failed for %s: %s", user_id, e)
+        return {"ok": False, "warmed": False, "reason": str(e)[:120]}
+
+    def _len_safe(x):
+        return len(x) if isinstance(x, str) else 0
+
+    return {
+        "ok": True,
+        "warmed": True,
+        "ttl_s": _INTEL_CTX_TTL_S,
+        "blocks": {
+            "intelligence": _len_safe(intel),
+            "active_plan":  _len_safe(plan),
+            "goals":        _len_safe(goals),
+            "health":       _len_safe(health),
+            "snapshot":     _len_safe(snapshot),
+        },
+    }
+
+
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(request: Request, session_id: str):
     user = await get_current_user(request)
@@ -201,6 +766,8 @@ async def get_chat_messages(request: Request, session_id: Optional[str] = None):
 async def send_chat(request: Request, msg: ChatMessageInput):
     user = await get_current_user(request)
     user_id = user["user_id"]
+    session_user_id = user.get("_session_user_id") or user_id
+    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
 
     session_id = msg.session_id
     if not session_id:
@@ -244,53 +811,76 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
-    # Gather portfolio context
-    holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(100)
-    portfolio_context = ""
-    if holdings:
-        total_inv = sum(h["quantity"] * h["buy_price"] for h in holdings)
-        total_cur = sum(h["quantity"] * h["current_price"] for h in holdings)
-        portfolio_context = f"\n\nUser's Portfolio Summary:\n- Total Invested: \u20b9{total_inv:,.0f}\n- Current Value: \u20b9{total_cur:,.0f}\n- Returns: \u20b9{total_cur - total_inv:,.0f} ({((total_cur-total_inv)/total_inv*100) if total_inv > 0 else 0:.1f}%)\n- Holdings ({len(holdings)}):\n"
-        for h in holdings:
-            inv = h["quantity"] * h["buy_price"]
-            cur = h["quantity"] * h["current_price"]
-            ret = ((cur - inv) / inv * 100) if inv > 0 else 0
-            portfolio_context += f"  - {h['name']} ({h['asset_type']}): {h['quantity']} units @ \u20b9{h['buy_price']} -> \u20b9{h['current_price']} ({ret:.1f}%) | Sector: {h.get('sector','N/A')}\n"
-
-    # Risk profile context
-    user_profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0})
-    risk_context = ""
-    if user_profile and user_profile.get("risk_profile"):
-        rp = user_profile["risk_profile"]
-        risk_context = f"\n\nUser's Risk Profile: {rp.get('category', 'Unknown')} (Score: {rp.get('score', 'N/A')}/100)"
-
-    # Portfolio Intelligence context (PG-based stock-level data)
-    intelligence_context = await _compute_portfolio_intelligence_context(user_id)
-    # V2 active plan (single source of truth for actions)
-    v2_plan_context = await _v2_active_plan_context(user_id)
-
-    # Get recent chat history
+    # Gather recent chat history (used by both paths below).
     recent_msgs = await db.chat_messages.find(
         {"user_id": user_id, "session_id": session_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(20)
     recent_msgs.reverse()
+    history: List[Dict[str, str]] = []
+    if len(recent_msgs) > 1:
+        for m in recent_msgs[:-1]:
+            history.append({"role": m["role"], "content": m["content"][:500]})
 
-    try:
-        history = []
-        if len(recent_msgs) > 1:
-            for m in recent_msgs[:-1]:
-                history.append({"role": m["role"], "content": m["content"][:500]})
-
-        ai_response = await ai_engine.chat(
-            message=msg.message,
-            portfolio_context=portfolio_context + risk_context + intelligence_context + v2_plan_context,
-            history=history,
-            session_id=f"wealth_{user_id}_{session_id}",
+    # \u2500\u2500 Single-portfolio (investor) path: route through the RAG orchestrator.
+    # Replaces the old "dump everything into the system prompt" approach
+    # which made gpt-4o-mini hallucinate fund names from training data.
+    # The orchestrator returns prose + an optional chart_spec; we embed
+    # the chart spec as a fenced ```chart``` block so the existing
+    # frontend parser handles rendering without changes.
+    if not advisor_mode:
+        try:
+            from services import copilot_rag
+            await _ensure_plan_for_actionable_question(user_id, msg.message)
+            rag_result = await copilot_rag.answer(
+                user_id=user_id, message=msg.message, history=history,
+            )
+            prose = rag_result.get("prose") or ""
+            chart_spec = rag_result.get("chart_spec")
+            if chart_spec:
+                prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
+            # Re-validate (cheap) so any malformed blocks we somehow
+            # produced get rewritten before reaching the frontend.
+            validated = validate_chart_blocks(prose)
+            ai_response = validated["clean_text"]
+            await log_invalid_chart_specs(
+                db, user_id,
+                model="copilot_rag",
+                route=f"chat/send/{rag_result.get('intent','generic')}",
+                invalid=validated["invalid_specs"],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"RAG chat error: {e}", exc_info=True)
+            ai_response = (
+                "I'm having trouble connecting to my AI engine right now. "
+                "Please try again in a moment."
+            )
+    else:
+        # Advisor (cross-client) mode still uses the legacy path \u2014 its
+        # context shape (cross-client book) hasn't been ported to RAG yet.
+        book = await _advisor_book_block(session_user_id)
+        portfolio_context = f"\n\nADVISOR CLIENT BOOK:\n{book}\n"
+        try:
+            system_override = _ADVISOR_CHAT_SYSTEM.format(
+                portfolio_context=portfolio_context
+            ) + CHART_PROTOCOL
+            ai_response = await ai_engine.chat(
+                message=msg.message,
+                portfolio_context=portfolio_context,
+                history=history,
+                session_id=f"wealth_{user_id}_{session_id}",
+                system_override=system_override,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"LLM error (advisor): {e}")
+            ai_response = "I'm having trouble connecting to my AI engine right now. Please try again in a moment."
+        validated = validate_chart_blocks(ai_response)
+        ai_response = validated["clean_text"]
+        await log_invalid_chart_specs(
+            db, user_id,
+            model="ai_engine",
+            route="chat/send/advisor",
+            invalid=validated["invalid_specs"],
         )
-
-    except Exception as e:
-        logger.error(f"LLM error: {e}")
-        ai_response = "I'm having trouble connecting to my AI engine right now. Please try again in a moment."
 
     # Save AI response
     ai_msg_doc = {
@@ -314,6 +904,8 @@ async def stream_chat(request: Request):
     """Stream AI response token-by-token via SSE."""
     user = await get_current_user(request)
     user_id = user["user_id"]
+    session_user_id = user.get("_session_user_id") or user_id
+    advisor_mode = await _is_advisor_caller(session_user_id, user_id)
     body = await request.json()
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
@@ -364,18 +956,21 @@ async def stream_chat(request: Request):
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
     )
 
-    # Portfolio context
-    holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+    # Portfolio context \u2014 advisor mode swaps to the cross-client book.
     portfolio_context = ""
-    if holdings:
-        total_inv = sum(h["quantity"] * h["buy_price"] for h in holdings)
-        total_cur = sum(h["quantity"] * h["current_price"] for h in holdings)
-        portfolio_context = f"\n\nUser's Portfolio Summary:\n- Total Invested: \u20b9{total_inv:,.0f}\n- Current Value: \u20b9{total_cur:,.0f}\n- Returns: \u20b9{total_cur - total_inv:,.0f} ({((total_cur-total_inv)/total_inv*100) if total_inv > 0 else 0:.1f}%)\n- Holdings ({len(holdings)}):\n"
-        for h in holdings[:30]:
-            inv = h["quantity"] * h["buy_price"]
-            cur = h["quantity"] * h["current_price"]
-            ret = ((cur - inv) / inv * 100) if inv > 0 else 0
-            portfolio_context += f"  - {h['name']} ({h['asset_type']}): {h['quantity']} units @ \u20b9{h['buy_price']} -> \u20b9{h['current_price']} ({ret:.1f}%)\n"
+    risk_context = ""
+    if advisor_mode:
+        book = await _advisor_book_block(session_user_id)
+        portfolio_context = f"\n\nADVISOR CLIENT BOOK:\n{book}\n"
+    else:
+        holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+        if holdings:
+            portfolio_context = _render_portfolio_block(holdings)
+        # Risk profile
+        user_profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0})
+        if user_profile and user_profile.get("risk_profile"):
+            rp = user_profile["risk_profile"]
+            risk_context = f"\n\nUser's Risk Profile: {rp.get('category', 'Unknown')} (Score: {rp.get('score', 'N/A')}/100)"
 
     # Chat history
     recent_msgs = await db.chat_messages.find(
@@ -396,18 +991,55 @@ async def stream_chat(request: Request):
             meta = {"session_id": session_id, "user_msg_id": user_msg_id, "ai_msg_id": ai_msg_id}
             yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
 
-            # Portfolio Intelligence context (PG-based stock-level data)
-            intelligence_context = await _compute_portfolio_intelligence_context(user_id)
-            v2_plan_context = await _v2_active_plan_context(user_id)
-            
-            async for token in ai_engine.chat_stream(
-                message=message,
-                portfolio_context=portfolio_context + intelligence_context + v2_plan_context,
-                history=history,
-                session_id=f"wealth_{user_id}_{session_id}",
-            ):
-                full_response += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            # ── Single-portfolio (investor) path: route through the RAG
+            # orchestrator, fake-stream the prose char-by-char so the UI
+            # animation stays the same. The full prose + chart_spec are
+            # known up-front (single LLM call, not a stream), so we just
+            # chunk the result for the existing token-by-token consumer.
+            if not advisor_mode:
+                await _ensure_plan_for_actionable_question(user_id, message)
+                from services import copilot_rag
+                rag_result = await copilot_rag.answer(
+                    user_id=user_id, message=message, history=history,
+                )
+                prose = rag_result.get("prose") or ""
+                chart_spec = rag_result.get("chart_spec")
+                if chart_spec:
+                    prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
+
+                # Chunk the prose into ~24-char tokens so the UI animation
+                # still feels like a stream. No real network benefit, but
+                # the existing frontend renderer expects token deltas.
+                CHUNK = 24
+                for i in range(0, len(prose), CHUNK):
+                    tok = prose[i:i + CHUNK]
+                    full_response += tok
+                    yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+            else:
+                # Advisor (cross-client) mode — legacy book-block path.
+                full_context = portfolio_context
+                system_override = _ADVISOR_CHAT_SYSTEM.format(
+                    portfolio_context=portfolio_context
+                ) + CHART_PROTOCOL
+                async for token in ai_engine.chat_stream(
+                    message=message,
+                    portfolio_context=full_context,
+                    history=history,
+                    session_id=f"wealth_{user_id}_{session_id}",
+                    system_override=system_override,
+                ):
+                    full_response += token
+                    yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+
+            # Validate + sanitise the full response post-stream.
+            validated = validate_chart_blocks(full_response)
+            full_response = validated["clean_text"]
+            await log_invalid_chart_specs(
+                db, user_id,
+                model="copilot_rag" if not advisor_mode else "ai_engine",
+                route=f"chat/stream/{'advisor' if advisor_mode else 'investor'}",
+                invalid=validated["invalid_specs"],
+            )
 
             # Save complete AI response
             ai_msg_doc = {
@@ -420,7 +1052,7 @@ async def stream_chat(request: Request):
             }
             await db.chat_messages.insert_one(ai_msg_doc)
 
-            yield f"data: {json.dumps({'type': 'done', 'content': full_response})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'content': full_response, 'chart_count': validated['valid_count']})}\n\n"
 
         except Exception as e:
             logger.error(f"Stream error: {e}")

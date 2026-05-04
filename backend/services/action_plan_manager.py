@@ -232,7 +232,50 @@ class ActionPlanManager:
             portfolio_context=portfolio_context,
             signals=signals,
         )
-        
+
+        # 3b. Augment with Decision Engine drift / cap rules
+        # ────────────────────────────────────────────────────────────────
+        # The legacy V2 rules (1, 2, 2b, 4, 5, cost-leak) cover overlap,
+        # AMC concentration and the simple equity/debt floor. They do
+        # NOT cover asset-class drift vs computed targets, sector caps,
+        # or category caps — those live in `decision_engine_actions` and
+        # use the target_allocator → deviation_engine pipeline.
+        #
+        # We append these here, deduped against the legacy actions: if a
+        # legacy rule already touches a fund/asset, the drift suggestion
+        # is dropped (legacy rules are higher-quality because they have
+        # tax-impact + exit-score data the drift engine doesn't compute).
+        # Drift actions ride along as advisory, priority=medium, score=5.
+        try:
+            from services import decision_engine_actions as _de
+            drift_actions = await _de.generate_actions(user_id)
+            existing_assets = {(a.get("asset_name") or "").strip().lower()
+                               for a in actions}
+            appended = 0
+            for da in drift_actions:
+                asset_l = (da.asset_name or "").strip().lower()
+                # Skip when a legacy rule already targets the same fund
+                # OR when this is an ADD that would duplicate an existing
+                # ADD bucket (avoid two debt-fund adds, etc.).
+                if asset_l in existing_assets:
+                    continue
+                if da.type == "ADD" and any(
+                    a.get("type") == "ADD" and (a.get("bucket") or "") == da.bucket
+                    for a in actions
+                ):
+                    continue
+                actions.append(da.to_dict())
+                existing_assets.add(asset_l)
+                appended += 1
+            if appended:
+                logger.info(
+                    f"[Decision Engine] appended {appended} drift / cap "
+                    f"actions to plan (rules: "
+                    f"{sorted({a.rule for a in drift_actions if a.rule})})"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("decision engine augmentation failed: %s", e)
+
         # 5. Calculate portfolio-level tax impact
         total_tax_impact = self._calculate_total_tax_impact(actions)
         
@@ -639,24 +682,34 @@ class ActionPlanManager:
     # PLAN LIFECYCLE
     # ══════════════════════════════════════════════════════════════════════
     
-    async def archive_plan(self, plan_id: str, user_id: str, reason: str) -> None:
-        """Archive a plan (move to history)."""
+    async def archive_plan(self, plan_id: str, user_id: str, reason: str) -> bool:
+        """Archive a plan in-place — flips status to ARCHIVED on the
+        action_plans doc and records the reason. Used by the
+        DELETE /api/plans/active endpoint (manual user action) and by
+        refresh_plan (rev-up auto-archive). Returns True if a row was
+        actually updated, False otherwise (already archived / not found).
+        """
         plan = await self.get_plan(plan_id, user_id)
         if not plan:
-            return
-        
-        # Archive to plan_history collection
-        history_entry = {
-            "history_id": f"hist_{uuid4().hex[:12]}",
-            "plan_id": plan_id,
-            "user_id": user_id,
-            "version": plan["version"],
-            "status": STATUS_ARCHIVED,
-            "archived_at": datetime.now(timezone.utc),
-            "archive_reason": reason,
-            "plan_snapshot": plan,
-        }
-        
+            return False
+        result = await db.action_plans.update_one(
+            {"plan_id": plan_id, "user_id": user_id,
+             "status": {"$ne": STATUS_ARCHIVED}},
+            {"$set": {
+                "status": STATUS_ARCHIVED,
+                "archived_at": datetime.now(timezone.utc),
+                "archive_reason": reason,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        if result.modified_count > 0:
+            logger.info(
+                f"Archived plan {plan_id} for user {user_id} (reason={reason})"
+            )
+            return True
+        return False
+
+
 
     # ══════════════════════════════════════════════════════════════════════
     # V2 ACTION GENERATION RULES (6 Core Rules)
@@ -2055,14 +2108,25 @@ class ActionPlanManager:
         )
         after_overlap = max(0, before_overlap - 15 * cuts)
 
+        # AMC concentration: portfolio_intelligence doesn't expose
+        # amc_exposure, so compute it inline from mf_investments using
+        # the same extractor used by the action-rule path. Without this
+        # fallback, before_amc was always 0 and the dashboard showed
+        # "0% → 0%" regardless of how concentrated the portfolio was.
         amc_exposure = portfolio_intelligence.get("amc_exposure") or {}
-        total_mf = sum(amc_exposure.values()) or 1
-        before_amc = (max(amc_exposure.values()) / total_mf * 100) if amc_exposure else 0
+        if not amc_exposure:
+            mfis = portfolio_intelligence.get("mf_investments") or []
+            total_mf_val = sum(float(m.get("amount_rs") or 0) for m in mfis)
+            if total_mf_val > 0:
+                amc_exposure = self._calculate_amc_exposure_from_mf_investments(
+                    mfis, total_mf_val,
+                )
+        before_amc = max(amc_exposure.values()) if amc_exposure else 0.0
         amc_cuts = sum(
             1 for a in actions
             if "AMC_CONCENTRATION_EXIT" in (a.get("reason_codes") or [])
         )
-        after_amc = max(0, before_amc - 8 * amc_cuts)
+        after_amc = max(0.0, before_amc - 8 * amc_cuts)
 
         cost_saving_yr = 0.0
         for a in actions:
@@ -2071,12 +2135,26 @@ class ActionPlanManager:
                 er_delta = float(a.get("er_delta_pct") or 0.75) / 100
                 cost_saving_yr += amt * er_delta
 
+        # Debt projection: count both legacy ALLOCATION_GAP adds AND
+        # Decision Engine drift-driven debt ADDs (DEBT_UNDERWEIGHT) so
+        # the dashboard arrow reflects the full plan, not just one
+        # rule's contribution.
         alloc = portfolio_intelligence.get("asset_allocation") or {}
         before_debt = alloc.get("debt_pct", 0) or 0
+        total_val = portfolio_intelligence.get("total_value") or 0
         after_debt = before_debt
         for a in actions:
-            if "ALLOCATION_GAP" in (a.get("reason_codes") or []) and a.get("asset_type") in ("mutual_fund","bond","debt"):
-                total_val = portfolio_intelligence.get("total_value") or 1
+            codes = a.get("reason_codes") or []
+            counted = False
+            # Legacy: explicit ALLOCATION_GAP + asset_type filter
+            if "ALLOCATION_GAP" in codes and a.get("asset_type") in (
+                "mutual_fund", "bond", "debt",
+            ):
+                counted = True
+            # Decision Engine: any debt-underweight ADD
+            elif a.get("type") == "ADD" and "DEBT_UNDERWEIGHT" in codes:
+                counted = True
+            if counted and total_val > 0:
                 after_debt += (float(a.get("amount") or 0) / total_val) * 100
 
         return {
