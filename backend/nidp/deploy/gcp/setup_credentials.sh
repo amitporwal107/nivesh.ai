@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # setup_credentials.sh — provision the NIDP runtime service account
-# and download a JSON key to /app/.gcp/nidp-sa.json.
+# and download a JSON key to ${HOME}/.gcp/nidp-sa.json by default
+# (override via NIDP_SA_KEY_PATH or --key-out).
 #
 # Implements Path A from the runbook: a narrow-scope runtime SA with
 # only the roles the ingesters + Cloud Run jobs need at runtime. Your
@@ -14,7 +15,7 @@
 #
 # Usage:
 #   ./setup_credentials.sh --project=<PROJECT_ID> [--region=asia-south1]
-#                          [--key-out=/app/.gcp/nidp-sa.json]
+#                          [--key-out=${HOME}/.gcp/nidp-sa.json]
 #                          [--name=nidp-sa]
 #                          [--confirm]
 #
@@ -27,7 +28,11 @@ set -euo pipefail
 PROJECT="${GCP_PROJECT:-}"
 REGION="${GCP_REGION:-asia-south1}"
 SA_NAME="${NIDP_SA_NAME:-nidp-sa}"
-KEY_PATH="${NIDP_SA_KEY_PATH:-/app/.gcp/nidp-sa.json}"
+# Key path: portable default (HOME on Linux/macOS, USERPROFILE on
+# Windows MINGW). Override via NIDP_SA_KEY_PATH or --key-out.
+_default_key_dir="${HOME:-$USERPROFILE}"
+[[ -z "$_default_key_dir" ]] && _default_key_dir="."
+KEY_PATH="${NIDP_SA_KEY_PATH:-${_default_key_dir}/.gcp/nidp-sa.json}"
 DRY=true
 
 # ── Args ────────────────────────────────────────────────────────────
