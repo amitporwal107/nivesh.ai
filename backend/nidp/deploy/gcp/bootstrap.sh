@@ -85,6 +85,7 @@ APIS=(
     run.googleapis.com
     cloudscheduler.googleapis.com
     compute.googleapis.com
+    vpcaccess.googleapis.com
     logging.googleapis.com
     monitoring.googleapis.com
 )
