@@ -149,11 +149,17 @@ else
     log "  ✓ artifact registry already exists: $AR_REPO"
 fi
 
-# 6. GCE VM (runs docker-compose stack: PG+Timescale, Redpanda, Redis, Prometheus, Grafana)
+# 6. GCE VM (runs docker-compose stack: PG+Timescale, Redpanda, Schema
+#    Registry, Redis, Minio, Prometheus, Grafana). 7 containers — the
+#    confluent Schema Registry image alone is ~1GB, so 10GB default
+#    boot disk is not enough. 50GB gives headroom for images +
+#    Postgres data growth + raw archive cache.
 if ! gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --project="$PROJECT" &>/dev/null; then
     maybe_run "gcloud compute instances create $VM_NAME \
         --machine-type=e2-small \
         --image-family=debian-12 --image-project=debian-cloud \
+        --boot-disk-size=50GB \
+        --boot-disk-type=pd-balanced \
         --zone=$ZONE --project=$PROJECT \
         --service-account=$SA_EMAIL \
         --scopes=cloud-platform \

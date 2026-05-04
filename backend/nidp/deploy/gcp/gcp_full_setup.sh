@@ -286,19 +286,37 @@ if should_run 4; then
             --zone=$ZONE --project=$PROJECT --quiet
 
         log "  installing docker + bringing stack up (may take ~3 min)..."
+        # Debian default repos don't include docker-compose-plugin
+        # (it ships only via Docker's official apt repo). The official
+        # get.docker.com script wires Docker's repo + installs docker-ce
+        # AND docker-compose-plugin in one shot — works on Debian, Ubuntu,
+        # CentOS, etc. without per-distro branching.
         gcloud compute ssh $VM_NAME --zone=$ZONE --project=$PROJECT --quiet \
             --command='
             set -e
             if ! command -v docker >/dev/null; then
-                sudo apt-get update -qq
-                sudo apt-get install -y -qq docker.io docker-compose-plugin
+                curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+                sudo sh /tmp/get-docker.sh
+            fi
+            # Verify compose plugin is available; fall back to legacy
+            # docker-compose if missing.
+            if ! sudo docker compose version &>/dev/null; then
+                if ! sudo docker-compose --version &>/dev/null; then
+                    sudo apt-get update -qq && sudo apt-get install -y -qq docker-compose
+                fi
             fi
             sudo mkdir -p /opt/nidp
             sudo cp -r /tmp/nidp/* /opt/nidp/
             cd /opt/nidp
-            sudo docker compose -f docker-compose.dev.yml up -d
-            sleep 6
-            sudo docker compose -f docker-compose.dev.yml ps
+            if sudo docker compose version &>/dev/null; then
+                sudo docker compose -f docker-compose.dev.yml up -d
+                sleep 6
+                sudo docker compose -f docker-compose.dev.yml ps
+            else
+                sudo docker-compose -f docker-compose.dev.yml up -d
+                sleep 6
+                sudo docker-compose -f docker-compose.dev.yml ps
+            fi
             '
     fi
 fi
