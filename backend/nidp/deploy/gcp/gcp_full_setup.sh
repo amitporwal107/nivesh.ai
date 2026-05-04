@@ -113,34 +113,75 @@ if should_run 0; then
     fi
     log "  ✓ authenticated as: $ACTIVE"
 
-    if ! gcloud projects describe "$PROJECT" &>/dev/null; then
-        err "project '$PROJECT' not found or no access"
+    # Hard-fail if the active account is the runtime SA — those don't
+    # have IAM/billing-admin perms and the billing checks below will
+    # hang waiting for permissions they'll never get.
+    if [[ "$ACTIVE" == nidp-sa@*.iam.gserviceaccount.com ]]; then
+        err "active account is the NIDP runtime service account."
+        err "  the deploy needs your *personal* Google account (with project + billing admin)."
+        err "  fix:"
+        err "    gcloud auth login              # pick your personal account"
+        err "    gcloud auth application-default login"
+        err "    gcloud auth list               # confirm * is on your email, not nidp-sa"
+        exit 1
+    fi
+
+    # Wrap potentially-hanging gcloud calls with timeout so an SA
+    # without permissions errors out fast instead of waiting forever.
+    GCLOUD_TIMEOUT="${GCLOUD_TIMEOUT:-15}"
+    _gcloud() { timeout "${GCLOUD_TIMEOUT}s" gcloud "$@"; }
+
+    if ! _gcloud projects describe "$PROJECT" &>/dev/null; then
+        rc=$?
+        if [[ $rc -eq 124 ]]; then
+            err "gcloud projects describe '$PROJECT' timed out after ${GCLOUD_TIMEOUT}s."
+            err "  most likely cause: active account lacks resourcemanager.projects.get on this project."
+            err "  switch to your personal account: gcloud auth login"
+        else
+            err "project '$PROJECT' not found or no access"
+        fi
         exit 1
     fi
     log "  ✓ project accessible: $PROJECT"
 
-    BILL=$(gcloud beta billing projects describe "$PROJECT" \
-        --format='value(billingEnabled)' 2>/dev/null || echo false)
-    if [[ "$BILL" != "True" ]]; then
-        err "billing NOT enabled on $PROJECT. Enable it in console first."
+    # Billing check — fail-soft. Some accounts have project access but
+    # not billing-viewer; we warn and continue rather than block.
+    BILL=$(_gcloud beta billing projects describe "$PROJECT" \
+        --format='value(billingEnabled)' 2>/dev/null || true)
+    if [[ "$BILL" == "True" ]]; then
+        log "  ✓ billing enabled"
+    elif [[ -z "$BILL" ]]; then
+        warn "  ⚠ couldn't read billing status (timeout or insufficient billing.viewer perms)."
+        warn "    proceeding anyway — verify in console: https://console.cloud.google.com/billing"
+        $DRY || confirm_or_die "Continue without billing verification?"
+    else
+        err "billing NOT enabled on $PROJECT. Enable in console first."
         exit 1
     fi
-    log "  ✓ billing enabled"
 
-    gcloud config set project "$PROJECT" --quiet >/dev/null
+    _gcloud config set project "$PROJECT" --quiet >/dev/null 2>&1 || true
     log "  ✓ gcloud default project set to $PROJECT"
 
-    # Budget alert reminder
-    BUDGETS=$(gcloud beta billing budgets list \
-        --billing-account="$(gcloud beta billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's|.*/||')" \
-        --format='value(displayName)' 2>/dev/null | wc -l || echo 0)
-    if [[ "$BUDGETS" -eq 0 ]]; then
-        warn "  ⚠ no budget alerts found on this billing account."
-        warn "    set one at: https://console.cloud.google.com/billing/budgets"
-        warn "    recommended: \$50/mo with 50%/90%/100% thresholds"
-        $DRY || confirm_or_die "Continue without a budget alert?"
+    # Budget alert reminder — fail-soft (most accounts can't list budgets).
+    BA_RAW=$(_gcloud beta billing projects describe "$PROJECT" \
+        --format='value(billingAccountName)' 2>/dev/null || true)
+    if [[ -n "$BA_RAW" ]]; then
+        BA="${BA_RAW##*/}"
+        BUDGETS=$(_gcloud beta billing budgets list \
+            --billing-account="$BA" \
+            --format='value(displayName)' 2>/dev/null | wc -l || echo 0)
+        BUDGETS="${BUDGETS:-0}"
+        if [[ "$BUDGETS" -eq 0 ]]; then
+            warn "  ⚠ no budget alerts found on billing account $BA."
+            warn "    set one at: https://console.cloud.google.com/billing/budgets"
+            warn "    recommended: \$50/mo with 50%/90%/100% thresholds"
+            $DRY || confirm_or_die "Continue without a budget alert?"
+        else
+            log "  ✓ $BUDGETS budget alert(s) configured on $BA"
+        fi
     else
-        log "  ✓ $BUDGETS budget alert(s) configured"
+        warn "  ⚠ couldn't enumerate budgets (insufficient billing perms)."
+        warn "    please verify a budget alert exists in the console."
     fi
 fi
 
