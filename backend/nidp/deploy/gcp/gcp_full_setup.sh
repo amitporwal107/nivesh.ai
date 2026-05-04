@@ -217,6 +217,18 @@ fi
 if should_run 3; then
     section 3 "firewall + VPC connector for Cloud Run -> VM"
 
+    # Ensure vpcaccess.googleapis.com is enabled — connectors will hang
+    # on `create` indefinitely if the API isn't on, with no error.
+    if ! gcloud services list --enabled --project="$PROJECT" \
+            --filter='config.name=vpcaccess.googleapis.com' \
+            --format='value(config.name)' 2>/dev/null \
+            | grep -q vpcaccess.googleapis.com; then
+        log "  enabling vpcaccess.googleapis.com (required for VPC connector)..."
+        maybe "gcloud services enable vpcaccess.googleapis.com --project=$PROJECT"
+    else
+        log "  ✓ vpcaccess.googleapis.com already enabled"
+    fi
+
     if ! gcloud compute firewall-rules describe nidp-allow-internal \
             --project="$PROJECT" &>/dev/null; then
         maybe "gcloud compute firewall-rules create nidp-allow-internal \
