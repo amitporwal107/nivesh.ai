@@ -9,6 +9,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ async def upsert_bhavcopy(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
         return 0
     args = [
         (
-            r["as_of_date"], r["symbol"], r["series"], r.get("isin"),
+            to_date(r["as_of_date"]), r["symbol"], r["series"], r.get("isin"),
             r.get("prev_close"), r.get("open_price"), r.get("high_price"), r.get("low_price"),
             r.get("close_price"), r.get("last_price"), r.get("avg_price"),
             r.get("volume"), r.get("turnover"), r.get("trades"),

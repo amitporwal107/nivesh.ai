@@ -5,6 +5,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,9 @@ async def upsert_corporate_actions(rows: list[dict[str, Any]], run_id: uuid.UUID
         (r["symbol"], r.get("series"), r["action_type"], r.get("action_subtype"),
          r.get("purpose"), r.get("ratio"),
          r.get("face_value_pre"), r.get("face_value_post"), r.get("dividend_amount"),
-         r.get("record_date"), r["ex_date"],
-         r.get("bc_start_date"), r.get("bc_end_date"), r.get("announcement_date"),
+         to_date(r.get("record_date")), to_date(r["ex_date"]),
+         to_date(r.get("bc_start_date")), to_date(r.get("bc_end_date")),
+         to_date(r.get("announcement_date")),
          SOURCE_NAME, run_id)
         for r in rows
     ]

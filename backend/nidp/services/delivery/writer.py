@@ -5,6 +5,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ async def upsert_delivery(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
     args = [
-        (r["as_of_date"], r["symbol"], r["series"],
+        (to_date(r["as_of_date"]), r["symbol"], r["series"],
          r.get("traded_qty"), r.get("deliverable_qty"), r.get("deliverable_pct"),
          SOURCE_NAME, run_id)
         for r in rows

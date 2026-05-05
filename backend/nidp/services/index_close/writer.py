@@ -5,6 +5,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ async def upsert_index_close(rows: list[dict[str, Any]], run_id: uuid.UUID) -> i
     if not rows:
         return 0
     args = [
-        (r["as_of_date"], r["index_name"],
+        (to_date(r["as_of_date"]), r["index_name"],
          r.get("open_price"), r.get("high_price"), r.get("low_price"),
          r.get("close_price"),
          r.get("pe_ratio"), r.get("pb_ratio"), r.get("div_yield"),
