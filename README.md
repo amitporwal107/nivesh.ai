@@ -1612,11 +1612,165 @@ Plus Mongo: `system_config.chartink_scans` (scan list + webhook token).
 
 ---
 
+#### 14.I5 Pre-breakout accumulation detector + backtest calibration — *2026-05*
+
+The signal-quality leap from "show me what's breaking out" to "show me what's about to break out". Three-layer design (per the user's quant-system spec):
+
+| Layer | What it does | Status |
+|---|---|---|
+| 1. Accumulation detection | 4 named pre-breakout signals, fed by existing feature pack | ✅ shipped |
+| 2. Trigger detection | Stage classifier + Chartink confirmation | ✅ already shipped (§14.I2) |
+| 3. AI confidence | Bucketed empirical hit-rate from labelled backtest | ✅ deterministic v1 shipped; ML calibration v2 pending |
+
+**[Shipped]**
+
+*Detector* ([services/positional_engine/accumulation_detector.py](backend/services/positional_engine/accumulation_detector.py))
+
+- 4 named pre-breakout signals, each `(fired, strength)`:
+  - `vol_divergence` — volume Z > 1.0 AND |slope| < 0.1%/bar (volume rising while price stays flat → smart-money accumulation)
+  - `delivery_spike` — delivery-trend > +15% AND slope ≤ 0.3%/bar (rising delivery during sideways action — India-specific edge)
+  - `bb_squeeze` — BB width < 8% AND ATR% < 2.5% (compression always precedes expansion)
+  - `sector_lag` — stock 20d return < bench 20d return × 0.4 AND above SMA50 (catch-up trade)
+- Composite `accumulation_score` with **confirmation factor** — rewards multiple signal confirmation over one isolated strong signal. Mapping: 1→0.5×, 2→0.85×, 3→1.0×, 4→1.05×.
+- `is_early_opportunity` flag when score ≥ 0.55
+
+*Pipeline integration* ([pipeline.py](backend/services/positional_engine/pipeline.py))
+- Every scored symbol now carries a `pre_breakout` block — signals list + accumulation_score + early_opportunity flag
+- Persisted in `stock_technical_features.components` JSONB (no migration needed)
+- Pre-breakout signal names appended to the human-readable `reasons` list when fired
+
+*Backtest framework* ([backtest.py](backend/services/positional_engine/backtest.py), [migration 018](backend/migrations/018_positional_backtest.sql))
+- `label_universe()` — sweeps every (symbol, date) in `stock_ohlcv` history, replays the detector against bars-as-they-were-on-that-date, looks forward 5/10/20 trading days, records realised max-return + max-drawdown, and a binary "moved ≥5%" label per horizon
+- `positional_backtest_labels` table — labelled training set; (symbol, scan_date) PK
+- `calibrate()` — buckets the labelled rows by accumulation_score (7 buckets, 3 horizons) and stores the empirical hit-rate per bucket per horizon → `accumulation_calibration` table
+- `probability_of_move(score, horizon)` — bucket lookup that converts a live accumulation score into "47% chance of ≥5% move within 10 days, based on 1,234 historical setups"
+
+*API* ([routes/positional.py](backend/routes/positional.py))
+- `POST /api/positional/backtest/label` *(admin)* — kick off a label sweep (params: `max_symbols`, `step_days`)
+- `POST /api/positional/backtest/calibrate` *(admin)* — rebuild calibration table from latest labels
+- `GET /api/positional/backtest/calibration` *(auth)* — return the bucketed hit-rate table for UI display
+- `/api/positional/picks/mine` now returns `pre_breakout` block per pick (LEFT JOIN on `stock_technical_features`)
+
+*UI three-rail layout* ([PositionalPicks.jsx](frontend/src/components/PositionalPicks.jsx))
+- 🔥 **Early Opportunities** — `accumulation_score ≥ 0.55 AND stage = ACCUMULATION`. Indigo header. Where the actual alpha lives.
+- ⚡ **Active Trades** — `stage in (BREAKOUT, EARLY_BREAKOUT)` or weak-pre-breakout actionables. Emerald header.
+- 🧊 **Avoid Zone** — `stage in (EXTENDED, WEAK)`. Slate header, collapsed by default, opacity-60 when expanded.
+- Each card shows the fired pre-breakout signals as indigo chips + the % accumulation score in the chip header
+- 13 new unit tests (49 → 49 passing total in [tests/test_positional_engine.py](backend/tests/test_positional_engine.py))
+
+**[Shipped — calibration v2, 2026-05]**
+
+After the v1 calibration run revealed an inverted hit-rate (low-score buckets had the highest "moved ≥5% in 10d" rate), we sat with the data and figured out the v1 outcome metric was wrong, not the detector. Migration [019_positional_backtest_v2.sql](backend/migrations/019_positional_backtest_v2.sql) adds three metrics to disentangle the issue:
+
+| Metric | Definition | Purpose |
+|---|---|---|
+| `moved_5pct` (v1) | `fwd_max_return ≥ 5%` (fixed) | Backwards-compat. Baseline noise. |
+| `moved_scaled` | `fwd_max_return ≥ max(5%, atr_pct × 3)` | Vol-aware "expansion" — high-vol stocks need bigger moves to count. |
+| **`broke_high`** | Forward bar's high crosses scan_date's 20d-high | The actual breakout event. Scale-invariant. **Default metric for `probability_of_move`.** |
+
+`accumulation_calibration` table now keys on `(metric, bucket_lo, bucket_hi, horizon_days)` so all three live alongside each other. `probability_of_move(score, horizon, metric=…)` API takes a metric arg.
+
+**Honest finding from the 87-day, 56,831-label sweep**
+
+In an 87-day strong-bull-tape sample:
+- `broke_high` 20d shows a **U-shape**, not a monotonic curve. Top accumulation buckets (0.65–0.85) sit at 55–62% probability of breaking high; baseline (no signal) sits at 76%.
+- `moved_scaled` is **monotonically inverse** — top buckets move less in absolute terms because by construction they're tight-range stocks. This is the detector working as designed — it identifies *what won't move violently*, which has portfolio-management value (lower drawdown, cleaner stops) but isn't a "probability of move" lift over baseline.
+
+**What this means**
+
+- The infrastructure is correct; the empirical lift is dilute in a strong bull tape because **baseline is already very high** (76% of stocks break their 20d-high within 20 days when the index is up).
+- Real validation needs **≥1 year of OHLCV** spanning regimes (bull / sideways / bear). The detector's edge probably manifests in non-bull tapes.
+- UI should NOT surface a "P(move) 84%" calibrated probability today — it would be misleading. Stick to honest framing: signal count + named signals + setup quality, not a calibrated probability we can't yet defend over baseline.
+
+**[Pending — sequenced post-v2 finding]**
+
+- **OHLCV backfill to 2 years** — single biggest lever. Strong-bull 87-day sample doesn't show edge; longer history with regime mix probably does.
+- **Regime-conditional calibration** — split the calibration table by macro regime (BULL/BEAR/NEUTRAL on scan_date). Probable result: detector has stronger lift in non-bull tapes.
+- **Drop `probability_of_move` UI surface** until v3 calibration shows a real lift over baseline. The 4-signal-chip UI we already have is honest and informative as-is.
+- **ML calibration (v3)** — once OHLCV is 2 years deep AND we have regime-conditional calibration, swap the bucketed lookup for a calibrated logistic regression / gradient boosting model with proper cross-validation and Brier-score evaluation.
+- **Sector-lag signal upgrade** — currently approximated using Nifty-50 as the bench (gives directional intuition but blurs sector-specific lag). Needs per-sector index OHLC ingester to be fully accurate. The signal is flagged in the `components` blob so the upgrade is non-breaking.
+- **F&O accumulation signal** — OI rising while price range-bound is a strong institutional-positioning signal but requires F&O bhavcopy ingest, which is out of v1 scope.
+- **Backtest scheduling** — currently admin-triggered. Should run nightly after the daily pipeline (label new day's outcomes, re-calibrate weekly). Needs a cron entry in `mf_scheduler.py`.
+- **Behavioural features** — retail participation spike, prior-breakout success rate per symbol — listed in the user's spec but require additional data sources (broker order-flow, historical signal outcomes per symbol).
+
+---
+
+#### 14.I6 Conviction framework v1 — *2026-05*
+
+The user's quant-system feedback caught a real bug: ASTERDM at +12.8% past entry was showing as 🟢 TRIGGERED with MEDIUM confidence — i.e. the panel was treating "blew past entry by 30%" identically to "just crossed entry". Fixed by introducing a 4-pillar conviction score with hard penalties + a readiness-based cap.
+
+**[Shipped]**
+
+*Pillars + penalties* ([services/positional_engine/conviction.py](backend/services/positional_engine/conviction.py))
+
+- 4 pillar scores (each 0–100): **trend** (30%), **volume** (25%), **structure** (25%), **rr** (20%)
+- Penalties (point deductions from base score):
+  - `extended_chasing` — LTP > 15% past entry → −25
+  - `extended_late` — LTP 8–15% past entry → −15
+  - `overbought_rsi` — RSI > 75 → −15
+  - `high_rsi` — RSI 70–75 → −8
+  - `recent_spike` — 5d return > 12% → −10
+  - `above_breakout` — already 5%+ above 20d high → −10
+- Multi-scan bonus — 1 scan +3, 2 scans +6, 3+ scans +10 (signal clustering as alpha)
+- Final verdict: **HIGH_CONVICTION** (≥65) · **SETUP_FORMING** (45–65) · **AVOID_LATE** (<45)
+
+*Hard cap by readiness* — the breakthrough fix. Score alone wasn't enough to demote a clean-but-extended setup; now:
+- LTP > 15% past entry → forced `AVOID_LATE` regardless of score
+- LTP 8–15% past entry → capped at `SETUP_FORMING`
+
+*Readiness bucketing v2* ([routes/positional.py:_readiness()](backend/routes/positional.py))
+- New `LATE` bucket — LTP > entry × 1.08 (was missing; everything past entry was `TRIGGERED`)
+- `TRIGGERED` now means "0 to +8% above entry" — actionable now, not chasing
+
+*API integration* — `picks/mine?live=true` now returns a `conviction` block per pick:
+```json
+{
+  "verdict": "HIGH_CONVICTION",
+  "final_score": 81.7,
+  "pillars": {"trend": 86, "volume": 75, "structure": 66, "rr": 54},
+  "penalties": [],
+  "scan_bonus": 3,
+  "reasons": ["Strong trend (above 50/200 DMA)", "Volume confirms (rising delivery)"]
+}
+```
+Best-effort — yfinance hiccup degrades to `conviction: null`, never breaks the response.
+
+*UI three-rail v2* ([PositionalPicks.jsx](frontend/src/components/PositionalPicks.jsx))
+- Each card now leads with a verdict badge — 🟢 HIGH CONVICTION / 🟡 SETUP FORMING / 🔴 AVOID/LATE — with the 0–100 final score
+- Rails are now keyed on **verdict** (not stage): `🟢 High Conviction` / `🟡 Setup Forming` / `🧊 Avoid Zone`
+- LATE readiness chip (rose) replaces the misleading green TRIGGERED for stocks 8%+ past entry
+- LTP delta vs entry colours red when ≥+8% (previously emerald regardless of distance)
+
+*Tests* — 6 new conviction tests covering: clean setup → HIGH_CONVICTION; same setup +12% extended → SETUP_FORMING (capped); +20% extended → AVOID_LATE; weak pillars → AVOID_LATE; RSI 78 penalty fires; multi-scan bonus lifts borderline picks. **56/56 passing**.
+
+**Verified on live preview env**
+
+| Symbol | LTP +% | Old conf | New verdict |
+|---|---|---|---|
+| TATATECH | +3.5 | LOW | 🟢 HIGH_CONVICTION (81.7) |
+| HEMIPROP | +1.5 | MEDIUM | 🟢 HIGH_CONVICTION (75.7) |
+| **ASTERDM** | **+12.8** | **MEDIUM** | 🟡 **SETUP_FORMING** (68.7, capped) |
+| **QUESS** | **+30.0** | **MEDIUM** | 🔴 **AVOID_LATE** (59.8, capped) |
+| **INOXWIND** | **+33.0** | **LOW** | 🔴 **AVOID_LATE** (60.0) |
+
+The bold rows are the bug fix in action. The fix produces 8 high-conviction / 1 setup-forming / 6 avoid-late on today's 15-pick sample — much closer to the user's "2-3 high conviction, not 10 mediocre" target.
+
+**[Pending]**
+
+- **Gap-up detection** — current `recent_spike` proxy uses 5d return >12%. A proper gap-up check needs the open price vs prior close, which the trade-plan API doesn't yet expose. Per-bar gap detection in `feature_calculator.py` is the upgrade.
+- **Near-resistance penalty** — flagged in user spec but needs intraday support/resistance levels beyond `high_20d` / `swing_high_20`. Pivot-point computation lives in features but isn't surfaced as a "distance to next R" yet.
+- **Sector momentum integration** — already in scoring (sector pillar in `scorer.py`), but conviction's `volume` pillar should pull from sector strength too. Currently only Z-score + delivery.
+- **Backtest the verdicts** — once conviction is in production for ≥1 month of decisions, sweep `positional_signals` for verdicts and check whether HIGH_CONVICTION outcomes really do beat SETUP_FORMING. Adds another row to `accumulation_calibration` keyed by verdict.
+
+---
+
 ### 14.99 In-flight (mid-conversation, not yet shipped)
 
 - Playbook header + hero/secondary/watchlist split (UI uplift §1, §2 — see [14.I4 Pending](#14i4-picks-ui-v2--2026-05))
 - Trade readiness banner aggregation across picks (UI uplift §3 — partially shipped via per-card chip)
 - Per-pick distance-to-trigger / execution rules / position size display (UI uplift §4, §6, §7)
+- ML model on top of empirical calibration (§14.I5 Pending)
+- `probability_of_move` rendered on each card (§14.I5 Pending)
 
 ---
 

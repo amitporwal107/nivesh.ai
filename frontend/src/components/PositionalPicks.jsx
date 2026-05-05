@@ -60,6 +60,7 @@ const READINESS_STYLE = {
   NEAR:      "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
   WAIT:      "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   FAR:       "bg-slate-50 text-slate-500 dark:bg-slate-900 dark:text-slate-500",
+  LATE:      "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
   STOPPED:   "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
   UNKNOWN:   "bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-600",
 };
@@ -69,8 +70,24 @@ const READINESS_LABEL = {
   NEAR:      "🟡 NEAR",
   WAIT:      "WAIT",
   FAR:       "FAR",
+  LATE:      "⚠ LATE",
   STOPPED:   "🔴 STOPPED",
   UNKNOWN:   "—",
+};
+
+// Conviction verdicts — drives the v2 priority layout per the user's
+// "redefine confidence" spec. AVOID_LATE is hard-capped by readiness so
+// great-but-extended setups can't sneak into HIGH_CONVICTION.
+const VERDICT_STYLE = {
+  HIGH_CONVICTION: "bg-emerald-600 text-white dark:bg-emerald-700",
+  SETUP_FORMING:   "bg-amber-500 text-white dark:bg-amber-600",
+  AVOID_LATE:      "bg-rose-500 text-white dark:bg-rose-700",
+};
+
+const VERDICT_LABEL = {
+  HIGH_CONVICTION: "🟢 HIGH CONVICTION",
+  SETUP_FORMING:   "🟡 SETUP FORMING",
+  AVOID_LATE:      "🔴 AVOID / LATE",
 };
 
 // Pretty-print a Chartink scan_clause. Strips the outer `( {universe} ( … ) )`
@@ -132,6 +149,23 @@ const PickCard = ({ pick }) => {
         </div>
       </div>
 
+      {/* Conviction verdict — the v2 4-pillar verdict (HIGH/SETUP/AVOID).
+          Sits above the readiness chip so it's the first thing the user
+          sees on every card. Hard-capped by readiness — a stock 12%
+          past entry can't be HIGH_CONVICTION even with a clean setup. */}
+      {pick.conviction?.verdict && (
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md ${VERDICT_STYLE[pick.conviction.verdict] || ""}`}>
+            {VERDICT_LABEL[pick.conviction.verdict]}
+          </span>
+          {typeof pick.conviction.final_score === "number" && (
+            <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 tabular-nums">
+              {pick.conviction.final_score.toFixed(0)}/100
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Live readiness chip — only shown when LTP overlay is present */}
       {pick.readiness && pick.readiness !== "UNKNOWN" && (
         <div className="flex items-center justify-between gap-2 mb-3 text-[11px]">
@@ -142,7 +176,7 @@ const PickCard = ({ pick }) => {
             <span className="text-slate-500 dark:text-slate-400 tabular-nums">
               LTP {fmtINR(pick.live_price)}
               {pick.live_pct_from_entry !== null && pick.live_pct_from_entry !== undefined && (
-                <span className={`ml-1 ${pick.live_pct_from_entry >= 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                <span className={`ml-1 ${pick.live_pct_from_entry >= 8 ? "text-rose-600" : pick.live_pct_from_entry >= 0 ? "text-emerald-600" : "text-slate-400"}`}>
                   ({pick.live_pct_from_entry >= 0 ? "+" : ""}{pick.live_pct_from_entry.toFixed(1)}% vs entry)
                 </span>
               )}
@@ -221,6 +255,35 @@ const PickCard = ({ pick }) => {
           {sourceScans.length > 3 && (
             <span className="text-[10px] text-slate-400">+{sourceScans.length - 3}</span>
           )}
+        </div>
+      )}
+
+      {/* Pre-breakout signals — surfaces the "why this is interesting NOW"
+          context that the accumulation_detector found. Distinct visual
+          treatment (indigo) from source-scan chips (emerald) so users
+          can tell at a glance whether the pick is breakout-confirmed
+          or pre-breakout-loading. */}
+      {Array.isArray(pick.pre_breakout?.signals) && pick.pre_breakout.signals.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+          <div className="text-[9px] uppercase tracking-wide text-indigo-600 dark:text-indigo-400 font-semibold mb-1 flex items-center gap-1">
+            🔥 Smart-money signals
+            {typeof pick.pre_breakout.accumulation_score === "number" && (
+              <span className="text-slate-400 dark:text-slate-500 font-normal">
+                · {(pick.pre_breakout.accumulation_score * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {pick.pre_breakout.signals.slice(0, 4).map((s) => (
+              <span
+                key={s}
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                title={`Pre-breakout signal: ${s.replace(/_/g, " ")}`}
+              >
+                {s.replace(/_/g, " ")}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -652,6 +715,46 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const picks = useMemo(() => state.data?.picks || [], [state.data]);
+
+  // Conviction-driven rails (v2). The verdict from the backend's
+  // 4-pillar conviction layer is now the primary rail key — that's
+  // what the user trades on, not raw stage. Stage + accumulation_score
+  // still inform the verdict, but the rail flows from the verdict.
+  //
+  //   • highConviction — verdict=HIGH_CONVICTION  · trade now
+  //   • setupForming   — verdict=SETUP_FORMING    · watchlist
+  //   • avoid          — verdict=AVOID_LATE       · don't enter
+  //
+  // Within highConviction, we still surface "early" vs "active"
+  // sub-grouping for prep mode (Early = ACCUMULATION stage with
+  // strong pre-breakout signals, Active = trigger fired).
+  const rails = useMemo(() => {
+    const highConviction = [];
+    const early = [];          // sub-bucket of highConviction
+    const active = [];         // sub-bucket of highConviction
+    const setupForming = [];
+    const avoid = [];
+    for (const p of picks) {
+      const verdict = p.conviction?.verdict;
+      const stage = (p.stage || "").toUpperCase();
+      const accScore = p.pre_breakout?.accumulation_score ?? 0;
+      if (verdict === "AVOID_LATE") {
+        avoid.push(p);
+      } else if (verdict === "SETUP_FORMING") {
+        setupForming.push(p);
+      } else if (verdict === "HIGH_CONVICTION") {
+        highConviction.push(p);
+        if (stage === "ACCUMULATION" && accScore >= 0.55) early.push(p);
+        else active.push(p);
+      } else {
+        // Fallback (no conviction block — older picks pre-v2)
+        if (stage === "EXTENDED" || stage === "WEAK") avoid.push(p);
+        else if (stage === "ACCUMULATION" && accScore >= 0.55) early.push(p);
+        else active.push(p);
+      }
+    }
+    return { highConviction, early, active, setupForming, avoid };
+  }, [picks]);
   const signalDate = state.data?.signal_date;
 
   // Watchlist-mode gate (PR-D consolidation): when the parent passes
@@ -783,34 +886,93 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
       )}
 
       {!state.loading && !state.error && picks.length > 0 && viewMode === "cards" && (
-        <div
-          className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin"
-          data-testid="positional-picks-scroll"
-        >
-          {picks.map((p) => (
-            <PickCard key={`${p.nse_symbol}-${p.signal_date}`} pick={p} />
-          ))}
-          {/* "+" tile — bumps the limit, fetches more picks. Only shown
-              when we already have a full page of cards (i.e. there's
-              probably more behind). Stops at 100 to avoid hammering the
-              live-overlay yfinance batch. */}
-          {picks.length >= pickLimit && pickLimit < 100 && (
-            <button
-              type="button"
-              onClick={() => setPickLimit((n) => Math.min(100, n + 30))}
-              className="min-w-[120px] flex-shrink-0 flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors p-4"
-              data-testid="picks-load-more"
-              title={`Load up to ${Math.min(100, pickLimit + 30)} picks`}
-            >
-              <Plus className="w-5 h-5" />
-              <span className="text-[11px] font-semibold">Show more</span>
-              <span className="text-[10px] text-slate-400">{pickLimit} → {Math.min(100, pickLimit + 30)}</span>
-            </button>
-          )}
-          {!(picks.length >= pickLimit && pickLimit < 100) && (
-            <div className="min-w-[60px] flex-shrink-0 flex items-center justify-center text-slate-400">
-              <ChevronRight className="w-5 h-5" />
+        <div className="space-y-4" data-testid="positional-picks-rails">
+          {/* 🔥 Early Opportunities — pre-breakout, smart-money signals fired,
+              no trigger yet. The actual alpha rail. */}
+          {rails.early.length > 0 && (
+            <div data-testid="rail-early">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-indigo-700 dark:text-indigo-400 mb-2 flex items-center gap-1.5">
+                🔥 Early Opportunities
+                <span className="text-[10px] text-slate-400 font-normal">
+                  pre-breakout · smart-money loading · {rails.early.length} stocks
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+                {rails.early.map((p) => (
+                  <PickCard key={`early-${p.nse_symbol}-${p.signal_date}`} pick={p} />
+                ))}
+              </div>
             </div>
+          )}
+
+          {/* 🟢 High Conviction — verdict=HIGH_CONVICTION, trigger fired,
+              not extended. Execute the plan. */}
+          {rails.active.length > 0 && (
+            <div data-testid="rail-active">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 mb-2 flex items-center gap-1.5">
+                🟢 High Conviction
+                <span className="text-[10px] text-slate-400 font-normal">
+                  trigger fired · plan ready · {rails.active.length} stocks
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+                {rails.active.map((p) => (
+                  <PickCard key={`active-${p.nse_symbol}-${p.signal_date}`} pick={p} />
+                ))}
+                {picks.length >= pickLimit && pickLimit < 100 && (
+                  <button
+                    type="button"
+                    onClick={() => setPickLimit((n) => Math.min(100, n + 30))}
+                    className="min-w-[120px] flex-shrink-0 flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 text-slate-500 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors p-4"
+                    data-testid="picks-load-more"
+                    title={`Load up to ${Math.min(100, pickLimit + 30)} picks`}
+                  >
+                    <Plus className="w-5 h-5" />
+                    <span className="text-[11px] font-semibold">Show more</span>
+                    <span className="text-[10px] text-slate-400">{pickLimit} → {Math.min(100, pickLimit + 30)}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 🟡 Setup Forming — verdict=SETUP_FORMING. Quality setups
+              that haven't triggered yet, OR triggered but mildly extended.
+              Watchlist material. */}
+          {rails.setupForming.length > 0 && (
+            <div data-testid="rail-setup-forming">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+                🟡 Setup Forming
+                <span className="text-[10px] text-slate-400 font-normal">
+                  good structure · wait for confirmation · {rails.setupForming.length} stocks
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
+                {rails.setupForming.map((p) => (
+                  <PickCard key={`setup-${p.nse_symbol}-${p.signal_date}`} pick={p} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 🧊 Avoid Zone — verdict=AVOID_LATE. Already extended past
+              entry, or low-quality structure. Hard-capped — score
+              alone can't lift them out of here. Collapsed by default. */}
+          {rails.avoid.length > 0 && (
+            <details data-testid="rail-avoid" className="group">
+              <summary className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2 cursor-pointer flex items-center gap-1.5 list-none">
+                <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
+                🧊 Avoid Zone
+                <span className="text-[10px] text-slate-400 font-normal">
+                  extended / weak · don&apos;t enter · {rails.avoid.length} stocks
+                </span>
+              </summary>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin opacity-60">
+                {rails.avoid.map((p) => (
+                  <PickCard key={`avoid-${p.nse_symbol}-${p.signal_date}`} pick={p} />
+                ))}
+              </div>
+            </details>
           )}
         </div>
       )}
