@@ -17,6 +17,8 @@ from datetime import date
 import pytest
 
 from services.positional_engine import (
+    accumulation_detector,
+    backtest,
     chartink_api,
     chartink_loader,
     bhavcopy_ingester,
@@ -341,3 +343,230 @@ def test_portfolio_filter_drop_mode():
         symbol_to_sector={"INFY": "IT", "TCS": "IT"},
     )
     assert {s["nse_symbol"] for s in out} == {"TCS"}
+
+
+# ── Accumulation detector ────────────────────────────────────────────────
+def test_vol_divergence_fires_on_volume_z_with_flat_price():
+    """Volume Z = 1.5, price slope ~0 → vol_divergence should fire."""
+    feats = {"volume_z_20": 1.5, "slope_20_pct": 0.05}
+    fired, strength = accumulation_detector.detect_vol_divergence(feats)
+    assert fired is True
+    assert strength > 0.3
+
+
+def test_vol_divergence_skips_when_price_already_running():
+    """Volume Z high but slope > 0.1 means price is already moving — not pre-breakout."""
+    feats = {"volume_z_20": 2.5, "slope_20_pct": 0.5}
+    fired, _ = accumulation_detector.detect_vol_divergence(feats)
+    assert fired is False
+
+
+def test_vol_divergence_skips_when_volume_normal():
+    feats = {"volume_z_20": 0.3, "slope_20_pct": 0.05}
+    fired, _ = accumulation_detector.detect_vol_divergence(feats)
+    assert fired is False
+
+
+def test_delivery_spike_fires_on_rising_delivery():
+    feats = {"delivery_trend_pct": 25.0, "slope_20_pct": 0.1}
+    fired, strength = accumulation_detector.detect_delivery_spike(feats)
+    assert fired is True
+    assert strength >= 0.4
+
+
+def test_delivery_spike_skips_when_already_running():
+    feats = {"delivery_trend_pct": 25.0, "slope_20_pct": 0.5}
+    fired, _ = accumulation_detector.detect_delivery_spike(feats)
+    assert fired is False
+
+
+def test_bb_squeeze_fires_when_compressed():
+    feats = {"bb_width_20": 0.05, "atr_pct": 1.5}
+    fired, strength = accumulation_detector.detect_bb_squeeze(feats)
+    assert fired is True
+    assert strength >= 0.4
+
+
+def test_bb_squeeze_skips_when_loose():
+    feats = {"bb_width_20": 0.15, "atr_pct": 3.0}
+    fired, _ = accumulation_detector.detect_bb_squeeze(feats)
+    assert fired is False
+
+
+def test_sector_lag_fires_when_stock_lags_strong_bench():
+    """Bench up 10%, stock up only 2%, stock above SMA50 — catch-up setup."""
+    feats = {"return_20d_pct": 2.0, "close": 100, "sma_50": 95}
+    fired, strength = accumulation_detector.detect_sector_lag(feats, bench_ret_20d=10.0)
+    assert fired is True
+    assert strength >= 0.4
+
+
+def test_sector_lag_skips_when_bench_weak():
+    """No catch-up case if the bench itself is flat."""
+    feats = {"return_20d_pct": 1.0, "close": 100, "sma_50": 95}
+    fired, _ = accumulation_detector.detect_sector_lag(feats, bench_ret_20d=0.5)
+    assert fired is False
+
+
+def test_sector_lag_skips_when_stock_below_sma50():
+    """Stock weak → not 'lagging', it's broken."""
+    feats = {"return_20d_pct": 1.0, "close": 90, "sma_50": 100}
+    fired, _ = accumulation_detector.detect_sector_lag(feats, bench_ret_20d=10.0)
+    assert fired is False
+
+
+def test_detect_all_composite_zero_when_no_signals():
+    out = accumulation_detector.detect_all({})
+    assert out["accumulation_score"] == 0.0
+    assert out["signals"] == []
+    assert out["is_early_opportunity"] is False
+
+
+def test_detect_all_combines_multiple_signals():
+    """Volume divergence + BB squeeze should both fire and combine."""
+    feats = {
+        "volume_z_20": 2.0, "slope_20_pct": 0.05,
+        "bb_width_20": 0.06, "atr_pct": 1.8,
+        "delivery_trend_pct": 5.0,        # below threshold — won't fire
+    }
+    out = accumulation_detector.detect_all(feats)
+    assert "vol_divergence" in out["signals"]
+    assert "bb_squeeze" in out["signals"]
+    assert out["accumulation_score"] > 0
+
+
+def test_detect_all_count_multiplier_rewards_more_signals():
+    """A pick with 3 fired signals should outscore a pick with 1
+    fired signal of the same per-signal strength."""
+    weak3 = {
+        "volume_z_20": 1.5, "slope_20_pct": 0.05,
+        "bb_width_20": 0.06, "atr_pct": 1.8,
+        "delivery_trend_pct": 25.0,
+    }
+    strong1 = {
+        "volume_z_20": 5.0, "slope_20_pct": 0.05,   # very strong vol_div
+    }
+    out_weak3 = accumulation_detector.detect_all(weak3)
+    out_strong1 = accumulation_detector.detect_all(strong1)
+    assert len(out_weak3["signals"]) >= 3
+    assert len(out_strong1["signals"]) == 1
+    # The 3-signal-confirmation should win even though each signal is weaker
+    assert out_weak3["accumulation_score"] > out_strong1["accumulation_score"]
+
+
+# ── Backtest forward-outcome computation ─────────────────────────────────
+def test_forward_outcome_computes_max_return():
+    bars_after = [
+        {"high": 100, "low": 98},
+        {"high": 105, "low": 99},     # max 5% up here
+        {"high": 103, "low": 96},
+    ]
+    # v2: 3-tuple (max_ret, max_dd, broke_high)
+    max_ret, max_dd, broke = backtest._forward_outcome(bars_after, 100, 3)
+    assert max_ret == 5.0
+    assert max_dd == -4.0
+    assert broke is None     # no resistance arg → broke_high not computed
+
+
+def test_forward_outcome_with_resistance_flags_break():
+    """With a resistance arg, returns whether high crossed it."""
+    bars_after = [
+        {"high": 100, "low": 98},
+        {"high": 105, "low": 99},
+    ]
+    _, _, broke = backtest._forward_outcome(bars_after, 100, 2, resistance=103)
+    assert broke is True
+    _, _, no_broke = backtest._forward_outcome(bars_after, 100, 2, resistance=110)
+    assert no_broke is False
+
+
+def test_forward_outcome_returns_none_when_short():
+    """If we don't have enough forward bars, label is None."""
+    max_ret, max_dd, broke = backtest._forward_outcome([{"high": 100, "low": 100}], 100, 5)
+    assert max_ret is None and max_dd is None and broke is None
+
+
+def test_label_one_skips_when_too_little_history():
+    """label_one needs ≥60 bars before scan_date."""
+    bars = _bars_from_closes([100] * 30)
+    out = backtest.label_one(bars, bars[-1]["bar_date"])
+    assert out is None
+
+
+# ── Conviction framework ─────────────────────────────────────────────────
+from services.positional_engine import conviction
+
+
+def test_conviction_high_when_clean_setup_just_triggered():
+    """Strong pillars, no penalties, LTP just above entry → HIGH_CONVICTION."""
+    feats = {
+        "close": 100.0, "sma_50": 95.0, "sma_200": 90.0,
+        "slope_20_pct": 0.3, "rsi_14": 60,
+        "volume_z_20": 1.5, "delivery_trend_pct": 12,
+        "atr_pct": 1.5, "bb_width_20": 0.07,
+        "breakout_proximity_pct": 0.5,
+        "return_5d_pct": 3.0,
+    }
+    plan = {"entry": 100.0, "stoploss": 95.0, "target": 115.0, "risk_reward": 3.0}
+    out = conviction.classify_verdict(features=feats, trade_plan=plan,
+                                        live_ltp=101.0, scan_count=2)
+    assert out["verdict"] == "HIGH_CONVICTION"
+    assert out["final_score"] >= 65
+
+
+def test_conviction_capped_when_extended_8_to_15_pct():
+    """Same clean setup but LTP 12% past entry → SETUP_FORMING (hard cap)."""
+    feats = {
+        "close": 100.0, "sma_50": 95.0, "sma_200": 90.0,
+        "slope_20_pct": 0.3, "rsi_14": 60,
+        "volume_z_20": 1.5, "delivery_trend_pct": 12,
+        "atr_pct": 1.5, "bb_width_20": 0.07,
+        "breakout_proximity_pct": 0.5,
+    }
+    plan = {"entry": 100.0, "stoploss": 95.0, "target": 115.0, "risk_reward": 3.0}
+    out = conviction.classify_verdict(features=feats, trade_plan=plan,
+                                        live_ltp=112.0, scan_count=2)
+    # Hard-capped — even with great pillars, can't be HIGH_CONVICTION
+    assert out["verdict"] == "SETUP_FORMING"
+    # Penalty fired
+    assert any(p["name"].startswith("extended") for p in out["penalties"])
+
+
+def test_conviction_capped_when_extended_above_15_pct():
+    """LTP 20% past entry → AVOID_LATE no matter the setup."""
+    feats = {"close": 100, "sma_50": 95, "sma_200": 90, "rsi_14": 60,
+             "atr_pct": 1.5, "breakout_proximity_pct": 0.5}
+    plan = {"entry": 100.0, "stoploss": 95.0, "target": 115.0, "risk_reward": 3.0}
+    out = conviction.classify_verdict(features=feats, trade_plan=plan,
+                                        live_ltp=120.0, scan_count=3)
+    assert out["verdict"] == "AVOID_LATE"
+
+
+def test_conviction_avoid_when_pillars_weak():
+    """Weak pillars + no LTP overlay still produces AVOID_LATE."""
+    feats = {"close": 100, "sma_50": 110, "sma_200": 120,    # below DMAs
+             "rsi_14": 35, "atr_pct": 5.0}
+    plan = {"entry": 100.0, "stoploss": 99.0, "target": 102.0, "risk_reward": 1.5}
+    out = conviction.classify_verdict(features=feats, trade_plan=plan)
+    assert out["verdict"] == "AVOID_LATE"
+
+
+def test_conviction_overbought_rsi_penalised():
+    feats = {"close": 100, "sma_50": 95, "sma_200": 90, "rsi_14": 78,
+             "atr_pct": 2.0, "breakout_proximity_pct": 0.5}
+    plan = {"entry": 100.0, "stoploss": 95.0, "target": 110.0, "risk_reward": 2.0}
+    out = conviction.classify_verdict(features=feats, trade_plan=plan, live_ltp=100.5)
+    assert any(p["name"] == "overbought_rsi" for p in out["penalties"])
+
+
+def test_conviction_scan_bonus_lifts_borderline():
+    """A borderline pick should benefit from multi-scan confirmation."""
+    feats = {"close": 100, "sma_50": 99, "sma_200": 98, "rsi_14": 55,
+             "atr_pct": 2.5, "breakout_proximity_pct": -1.0,
+             "volume_z_20": 0.5, "delivery_trend_pct": 5}
+    plan = {"entry": 100.0, "stoploss": 96.0, "target": 108.0, "risk_reward": 2.0}
+    no_scans = conviction.classify_verdict(features=feats, trade_plan=plan,
+                                              live_ltp=100, scan_count=0)
+    many_scans = conviction.classify_verdict(features=feats, trade_plan=plan,
+                                                live_ltp=100, scan_count=4)
+    assert many_scans["final_score"] > no_scans["final_score"]
