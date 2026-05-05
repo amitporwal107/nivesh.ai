@@ -164,12 +164,20 @@ for svc in "${SVC_LIST[@]}"; do
     IMG="$AR_REPO/$svc:$TAG"
     JOB_NAME="nidp-${svc//_/-}"
 
+    # VPC connector required so Cloud Run jobs can reach the VM's
+    # internal IP (where Postgres + Kafka live). private-ranges-only
+    # routes only RFC1918 traffic via the connector; public egress
+    # (NSE, RBI archives) goes via Cloud NAT — faster + cheaper.
+    VPC_CONN="projects/$PROJECT/locations/$REGION/connectors/nidp-vpc"
+    VPC_FLAGS="--vpc-connector=$VPC_CONN --vpc-egress=private-ranges-only"
+
     if gcloud run jobs describe "$JOB_NAME" --region="$REGION" --project="$PROJECT" &>/dev/null; then
         # Update existing job
         maybe "gcloud run jobs update '$JOB_NAME' \
             --image='$IMG' \
             --region='$REGION' --project='$PROJECT' \
             --service-account='$SA_EMAIL' \
+            $VPC_FLAGS \
             --set-env-vars='${JOB_ENVS[common]}' \
             --set-secrets='${JOB_SECRETS[common]}' \
             --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
@@ -180,6 +188,7 @@ for svc in "${SVC_LIST[@]}"; do
             --image='$IMG' \
             --region='$REGION' --project='$PROJECT' \
             --service-account='$SA_EMAIL' \
+            $VPC_FLAGS \
             --set-env-vars='${JOB_ENVS[common]}' \
             --set-secrets='${JOB_SECRETS[common]}' \
             --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
