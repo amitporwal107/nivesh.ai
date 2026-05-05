@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "FredMacroV1",
+  "doc": "One FRED time-series observation. Topic: nidp.fred_macro.v1",
+  "fields": [
+    {"name": "as_of_date",   "type": "string"},
+    {"name": "series_id",    "type": "string", "doc": "FRED series ID, e.g. DGS10"},
+    {"name": "series_name",  "type": ["null", "string"], "default": null},
+    {"name": "value",        "type": ["null", "double"], "default": null},
+    {"name": "units",        "type": ["null", "string"], "default": null},
+    {"name": "frequency",    "type": ["null", "string"], "default": null},
+    {"name": "source",       "type": "string", "default": "FRED"},
+    {"name": "source_run_id","type": "string"}
+  ]
+}
