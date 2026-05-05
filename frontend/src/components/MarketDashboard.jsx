@@ -1,5 +1,6 @@
 import React from "react";
 import { Globe2, Sparkles } from "lucide-react";
+import MarketTodaysTake from "@/components/MarketTodaysTake";
 import MacroBar from "@/components/mfd/MacroBar";
 import TodayStrategyCard from "@/components/mfd/TodayStrategyCard";
 import SectorHeatmap from "@/components/mfd/SectorHeatmap";
@@ -8,87 +9,150 @@ import WhatChanged from "@/components/mfd/WhatChanged";
 import WeekendWatchlist from "@/components/mfd/WeekendWatchlist";
 import MondayGamePlan from "@/components/mfd/MondayGamePlan";
 import PositionalPicks from "@/components/PositionalPicks";
+import PositionalTopPicks from "@/components/PositionalTopPicks";
 
 /**
  * MarketDashboard — global, market-wide signals + actionable trade ideas.
  *
- * Distinct from the Advisor dashboard (which is per-client) and the
- * Client Portfolio (which is one client's holdings). This page answers:
- *
- *   "What is the market doing right now, and what should I trade?"
- *
- * Composed entirely of existing components — no new data fetches.
+ * Reorganised May 2026 for readability. Three layers, top to bottom:
  *
  *   ┌──────────────────────────────────────────────────────────────┐
- *   │ 🌍 Macro context  (regime + pre-open + values + confidence)   │
+ *   │ 🎯 Today's Take (sticky)                                      │
+ *   │   Bias · Top trade · Avoid                                    │
  *   ├──────────────────────────────────────────────────────────────┤
- *   │ 📊 Sector tilt heatmap                                        │
+ *   │ Section nav (sticky below Take)                               │
+ *   │   Macro · Strategy · Sectors · Trades                         │
  *   ├──────────────────────────────────────────────────────────────┤
- *   │ ⚡ Positional trade ideas (5–30d)                             │
+ *   │ §1  THE MARKET   — Macro regime + values                      │
+ *   │ §2  THE STRATEGY — bias + sizing + focus + avoid              │
+ *   │ §3  THE SECTORS  — heatmap + aligned picks + what changed     │
+ *   │ §4  THE TRADES   — top conviction + rails (Early/Active/...)  │
  *   └──────────────────────────────────────────────────────────────┘
+ *
+ * Container is max-w-5xl (was max-w-6xl) for shorter line lengths and
+ * better scannability on desktop. Each section now has a numbered
+ * header anchor so the nav can scroll to it.
  */
+
+// Numbered section header — consistent visual rhythm across the page.
+// Anchor id matches the nav link target so smooth-scroll works.
+const Section = ({ n, id, title, subtitle, children }) => (
+  <section id={id} className="scroll-mt-32">
+    <div className="flex items-baseline gap-3 mb-3">
+      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        §{n}
+      </span>
+      <div className="flex-1">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
+          {title}
+        </h2>
+        {subtitle && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+            {subtitle}
+          </p>
+        )}
+      </div>
+    </div>
+    <div className="space-y-3">
+      {children}
+    </div>
+  </section>
+);
+
+
+const SectionNav = () => (
+  <nav className="flex flex-wrap items-center gap-1 text-[11px] py-1" aria-label="Market sections">
+    {[
+      ["The Market",   "#section-market"],
+      ["The Strategy", "#section-strategy"],
+      ["The Sectors",  "#section-sectors"],
+      ["The Trades",   "#section-trades"],
+    ].map(([label, href]) => (
+      <a
+        key={href}
+        href={href}
+        className="px-2 py-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+      >
+        {label}
+      </a>
+    ))}
+  </nav>
+);
+
+
 export default function MarketDashboard() {
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-6xl mx-auto" data-testid="market-dashboard">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto" data-testid="market-dashboard">
+      {/* Sticky Today's Take strip — extends to page edges */}
+      <MarketTodaysTake />
+
+      {/* Section nav — sticks just below the Take strip */}
+      <div className="sticky top-[72px] z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-1 bg-white/85 dark:bg-slate-950/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/50">
+        <div className="max-w-5xl mx-auto">
+          <SectionNav />
+        </div>
+      </div>
+
       {/* Page header */}
-      <div className="flex items-start gap-3 pb-2">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center text-white">
-          <Globe2 className="w-6 h-6" strokeWidth={2} />
+      <div className="flex items-start gap-3 pt-4 pb-6">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 flex items-center justify-center text-white flex-shrink-0">
+          <Globe2 className="w-5 h-5" strokeWidth={2} />
         </div>
         <div className="flex-1">
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
             Market Dashboard
           </h1>
-          <p className="text-[12px] text-slate-500 mt-0.5">
+          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
             Macro regime, sector tilt, and positional trade ideas — refreshed daily after the 18:35 IST cron.
           </p>
         </div>
-        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">
+        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-emerald-100 text-emerald-700 border border-emerald-200 self-start">
           <Sparkles className="w-3 h-3" /> Macro v1
         </span>
       </div>
 
-      {/* 1. Macro context bar */}
-      <MacroBar />
+      {/* Sectioned content with consistent rhythm */}
+      <div className="space-y-8">
+        <Section
+          n="1"
+          id="section-market"
+          title="The Market"
+          subtitle="Today's regime — what the macro is doing"
+        >
+          <MacroBar />
+        </Section>
 
-      {/* 1b. Today's actionable strategy — converts macro state into a
-              "what should I do today?" answer. */}
-      <TodayStrategyCard />
+        <Section
+          n="2"
+          id="section-strategy"
+          title="The Strategy"
+          subtitle="Translated into bias, sizing, and the sectors to favour or avoid"
+        >
+          <TodayStrategyCard />
+        </Section>
 
-      {/* 2. Sector heatmap */}
-      <SectorHeatmap />
+        <Section
+          n="3"
+          id="section-sectors"
+          title="The Sectors"
+          subtitle="Macro tailwinds and headwinds with stock-level setups"
+        >
+          <SectorHeatmap />
+          <AlignedPicks />
+          <WhatChanged />
+          <MondayGamePlan />
+        </Section>
 
-      {/* 2b. Macro-aligned setups — preview of stocks in tailwind sectors. */}
-      <AlignedPicks />
-
-      {/* 2c. What changed since yesterday — diff vs prior trading day. */}
-      <WhatChanged />
-
-      {/* 2d. Monday game plan — synthesises macro + watchlist into a
-              single "what to do on Monday" card. Auto-hides on a regular
-              trading day; shows on weekends + Indian market holidays. */}
-      <MondayGamePlan />
-
-      {/* 3. Positional trade ideas — single umbrella for all positional
-              content. On a weekend / Indian market holiday this renders
-              the 4-bucket WeekendWatchlist (Friday's data). On a live
-              trading day with signals, it renders today's actionable
-              picks. PositionalPicks self-gates: it hides when there are
-              no actionable picks AND we're in weekend mode (so we don't
-              double up with WeekendWatchlist's empty bucket). */}
-      <div className="rounded-xl border border-slate-200 bg-white">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-            Positional trade ideas
-          </div>
-          <div className="text-[12px] text-slate-700">
-            5–30 day setups from the positional engine, scored against today&apos;s macro regime.
-          </div>
-        </div>
-        <div className="p-4 space-y-3">
+        <Section
+          n="4"
+          id="section-trades"
+          title="The Trades"
+          subtitle="Today's positional picks ranked by conviction · 5–30 day timeframe"
+        >
+          <PositionalTopPicks />
           <WeekendWatchlist />
           <PositionalPicks hideWhenWatchlistMode />
-        </div>
+        </Section>
       </div>
     </div>
   );
