@@ -9,6 +9,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ async def upsert_bulk_deals(rows: list[dict[str, Any]], run_id: uuid.UUID) -> in
                         source_run_id = EXCLUDED.source_run_id,
                         ingested_at = NOW()
                     """,
-                    r["as_of_date"], r["symbol"], r["client_name"], r["deal_type"],
+                    to_date(r["as_of_date"]), r["symbol"], r["client_name"], r["deal_type"],
                     r["quantity"], r["avg_price"], r["deal_seq"], r.get("remarks"),
                     SOURCE_NAME, run_id,
                 )

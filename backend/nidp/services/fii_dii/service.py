@@ -26,13 +26,16 @@ class FiiDiiIngester(BaseIngester):
     AVRO_SCHEMA = "fii_dii_v1"
 
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
-        if target_date is None:
-            raise ValueError("fii_dii requires --date")
-        url = fmt_url(FII_DII_URL, target_date)
+        # New endpoint is a rolling JSON API — no date param needed.
+        # The legacy XLS URL (with date) is preserved in config for
+        # historical backfill but the live source is the JSON endpoint.
+        url = FII_DII_URL
         with time_fetch(self.SOURCE_NAME):
             try:
                 body, status = await fetch_bytes(
-                    url, referer=f"{NSE_WWW}/reports/fii-dii",
+                    url,
+                    referer=f"{NSE_WWW}/reports/fii-dii",
+                    extra_headers={"Accept": "application/json"},
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
@@ -41,9 +44,10 @@ class FiiDiiIngester(BaseIngester):
                 raise
 
     def parse(self, body: bytes, target_date: Optional[date]) -> list[dict]:
-        if target_date is None:
-            return []
-        return parse_fii_dii(body, target_date.isoformat())
+        # Use today's date as fallback if response entries lack a date field.
+        from datetime import date as _date
+        fallback = (target_date or _date.today()).isoformat()
+        return parse_fii_dii(body, fallback)
 
     def validate(self, rows: list[dict]) -> tuple[list[dict], int]:
         kept, dropped = [], 0

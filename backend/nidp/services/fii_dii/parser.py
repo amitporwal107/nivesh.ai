@@ -50,12 +50,82 @@ def _detect_format(body: bytes) -> str:
         return "xlsx"
     if head[:4] == b"\xd0\xcf\x11\xe0":
         return "xls"
+    # JSON API (current NSE endpoint /api/fiidiiTradeReact)
+    stripped = body.lstrip()[:8]
+    if stripped[:1] in (b"[", b"{"):
+        return "json"
     if b"<html" in body[:512].lower() or b"<table" in body[:512].lower():
         return "html"
     raise NotImplementedError(
         f"unrecognised fii_stats body (first 8 bytes: {head!r}). "
         f"Add layout to fii_dii parser."
     )
+
+
+def _parse_json_api(body: bytes, fallback_date_iso: str) -> list[dict[str, Any]]:
+    """Parse the new NSE /api/fiidiiTradeReact JSON shape.
+
+    Response: array of objects with fields
+        category   ('FII' | 'DII')
+        date       ('05-May-2026')
+        buyValue, sellValue, netValue  (string-encoded Cr ₹)
+    Only cash segment is exposed via this endpoint.
+    """
+    import json
+    from datetime import datetime
+    payload = json.loads(body.decode("utf-8", errors="replace"))
+    if isinstance(payload, dict):
+        for k in ("data", "items", "rows"):
+            if isinstance(payload.get(k), list):
+                payload = payload[k]
+                break
+    if not isinstance(payload, list):
+        return []
+
+    def _f(s):
+        if s is None or s == "":
+            return None
+        try:
+            return float(str(s).replace(",", ""))
+        except ValueError:
+            return None
+
+    def _date(s):
+        if not s:
+            return fallback_date_iso
+        for fmt in ("%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(s.strip(), fmt).date().isoformat()
+            except ValueError:
+                continue
+        return fallback_date_iso
+
+    rows: list[dict[str, Any]] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        cat_raw = (entry.get("category") or "").strip().upper()
+        # NSE serves combined "FII/FPI" plus standalone "FII" / "FPI" — fold
+        # all into 'FII' for our schema. DII passes through.
+        if "FII" in cat_raw or "FPI" in cat_raw:
+            cat = "FII"
+        elif cat_raw == "DII":
+            cat = "DII"
+        else:
+            continue
+        rows.append({
+            "as_of_date":     _date(entry.get("date")),
+            "category":       cat,
+            "segment":        "EQUITY_CASH",
+            "buy_value_cr":   _f(entry.get("buyValue")),
+            "sell_value_cr":  _f(entry.get("sellValue")),
+            "net_value_cr":   _f(entry.get("netValue")),
+            "buy_contracts":  None,
+            "sell_contracts": None,
+            "net_contracts":  None,
+            "open_interest":  None,
+        })
+    return rows
 
 
 def _open_xlsx(body: bytes):
@@ -107,6 +177,10 @@ def parse_fii_dii(body: bytes, target_date_iso: str) -> list[dict[str, Any]]:
     """Return long-form rows. Failures raise loudly."""
     fmt = _detect_format(body)
     rows: list[dict[str, Any]] = []
+
+    # Current NSE endpoint returns JSON.
+    if fmt == "json":
+        return _parse_json_api(body, target_date_iso)
 
     if fmt == "html":
         # NSE occasionally serves an HTML table when the XLS is being
