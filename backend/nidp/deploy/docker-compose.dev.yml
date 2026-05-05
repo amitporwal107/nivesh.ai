@@ -63,7 +63,13 @@ services:
       - --overprovisioned
       - --node-id=0
       - --check=false
-      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      # Two listeners: PLAINTEXT (intra-docker) on 29092; PLAINTEXT_HOST
+      # (host-side / Cloud Run) on 9092. The advertised address per
+      # listener must match what each client population can reach.
+      # Note: bind ports MUST equal advertised ports — librdkafka
+      # follows the advertised address after bootstrap, so a "bound 9092
+      # / advertised 29092" config refuses connections on retry.
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
       - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,PLAINTEXT_HOST://localhost:9092
     ports:
       - "9092:9092"
