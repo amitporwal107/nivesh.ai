@@ -38,11 +38,16 @@ separator() {
 dump_job() {
     local job=$1
     separator "JOB: $job  (last $WINDOW)"
+    # NIDP services log structured JSON via JsonFormatter — those land
+    # in jsonPayload, not textPayload. We pull both so neither plain
+    # stdout (textPayload) nor structured logs (jsonPayload) are
+    # missed. jsonPayload.msg is our app's message; jsonPayload.exc is
+    # the Python traceback (set on logger.exception calls).
     gcloud logging read \
         "resource.type=cloud_run_job AND resource.labels.job_name=\"${job}\"" \
         --freshness="$WINDOW" \
         --limit=200 \
-        --format='value(timestamp,severity,textPayload)' \
+        --format='value(timestamp,severity,jsonPayload.msg,jsonPayload.exc,textPayload)' \
         --project="$PROJECT" \
         --order=desc 2>&1 || echo "(no logs)"
 }

@@ -5,6 +5,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ async def upsert_rbi_yields(rows: list[dict[str, Any]], run_id: uuid.UUID) -> in
     if not rows:
         return 0
     args = [
-        (r["as_of_date"], r["tenor"], r["yield_pct"], r.get("instrument"),
+        (to_date(r["as_of_date"]), r["tenor"], r["yield_pct"], r.get("instrument"),
          SOURCE_NAME, run_id)
         for r in rows
     ]

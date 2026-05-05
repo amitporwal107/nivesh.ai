@@ -5,6 +5,7 @@ import logging
 import uuid
 from typing import Any
 
+from nidp.shared._date_coerce import to_date
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ async def upsert_fii_dii(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
     args = [
-        (r["as_of_date"], r["category"], r["segment"],
+        (to_date(r["as_of_date"]), r["category"], r["segment"],
          r.get("buy_value_cr"), r.get("sell_value_cr"), r.get("net_value_cr"),
          r.get("buy_contracts"), r.get("sell_contracts"), r.get("net_contracts"),
          r.get("open_interest"),
