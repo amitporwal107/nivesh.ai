@@ -113,6 +113,50 @@ class S3Backend(StorageBackend):
             return False
 
 
+class GCSBackend(StorageBackend):
+    """Google Cloud Storage backend. Uses Application Default
+    Credentials (Cloud Run automatically provides these via the
+    runtime service account). Bucket name is read from
+    NIDP_S3_BUCKET (kept for env-var compat with the S3 backend)."""
+
+    def __init__(self, bucket: Optional[str] = None, prefix: Optional[str] = None) -> None:
+        self.bucket_name = bucket or os.environ.get("NIDP_S3_BUCKET")
+        if not self.bucket_name:
+            raise RuntimeError("NIDP_S3_BUCKET not set for GCS storage backend")
+        self.prefix = (prefix or os.environ.get("NIDP_S3_PREFIX") or "raw/").rstrip("/") + "/"
+        try:
+            from google.cloud import storage                        # type: ignore[import-not-found]
+        except ImportError as e:                                    # pragma: no cover
+            raise RuntimeError(
+                "GCS backend requires google-cloud-storage. "
+                "pip install google-cloud-storage."
+            ) from e
+        self._client = storage.Client()
+        self._bucket = self._client.bucket(self.bucket_name)
+
+    @property
+    def scheme(self) -> str:
+        return "gs"
+
+    def _full_key(self, key: str) -> str:
+        return f"{self.prefix}{key}"
+
+    def put(self, key: str, body: bytes, *, content_type: Optional[str] = None) -> str:
+        full = self._full_key(key)
+        blob = self._bucket.blob(full)
+        if content_type:
+            blob.content_type = content_type
+        blob.upload_from_string(body, content_type=content_type)
+        return f"gs://{self.bucket_name}/{full}"
+
+    def get(self, key: str) -> bytes:
+        full = self._full_key(key)
+        return self._bucket.blob(full).download_as_bytes()
+
+    def exists(self, key: str) -> bool:
+        return self._bucket.blob(self._full_key(key)).exists()
+
+
 _singleton: Optional[StorageBackend] = None
 
 
@@ -124,6 +168,9 @@ def get_backend() -> StorageBackend:
     if choice == "s3":
         _singleton = S3Backend()
         logger.info("Storage backend: S3 (bucket=%s)", _singleton.bucket)
+    elif choice == "gcs":
+        _singleton = GCSBackend()
+        logger.info("Storage backend: GCS (bucket=%s)", _singleton.bucket_name)
     else:
         _singleton = LocalDiskBackend()
         logger.info("Storage backend: local (root=%s)", _singleton.root)
