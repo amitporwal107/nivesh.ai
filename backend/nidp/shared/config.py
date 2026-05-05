@@ -93,13 +93,14 @@ FII_DII_URL: Final[str] = (
     f"{NSE_ARCHIVES}/content/fo/fii_stats_{{YYYYMMDD}}.xls"
 )
 
-# 6.1 Corporate actions — NSE publishes a rolling CSV of upcoming
-# actions, plus per-day archives. We use the rolling list as primary
-# (always fresh) and reconcile with date-archived files for backfill.
+# 6.1 Corporate actions — NSE moved this from CSV (now 404) to a
+# JSON API. The new endpoint returns an array of dicts with fields
+# symbol/series/subject/exDate/recDate/bcStartDate/bcEndDate/etc.
+# Parser detects JSON vs legacy CSV automatically.
 CORPORATE_ACTIONS_URL_ROLLING: Final[str] = (
-    f"{NSE_ARCHIVES}/content/equities/corp_actions.csv"
+    f"{NSE_WWW}/api/corporates-corporateActions?index=equities"
 )
-# Date-stamped archive (when present)
+# Date-stamped archive (when present — legacy)
 CORPORATE_ACTIONS_URL_DAILY: Final[str] = (
     f"{NSE_ARCHIVES}/content/corporate_actions/CA_{{YYYYMMDD}}.csv"
 )
