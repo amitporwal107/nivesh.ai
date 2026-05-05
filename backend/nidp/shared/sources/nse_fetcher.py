@@ -85,7 +85,10 @@ async def _get_session() -> aiohttp.ClientSession:
                         "User-Agent": DEFAULT_UA,
                         "Accept": "text/html,application/xhtml+xml,application/xml,*/*",
                         "Accept-Language": "en-US,en;q=0.9",
-                        "Accept-Encoding": "gzip, deflate, br",
+                        # Drop `br` — aiohttp's stdlib doesn't decode brotli
+                        # without the optional `Brotli` package. NSE happily
+                        # falls back to gzip when br isn't advertised.
+                        "Accept-Encoding": "gzip, deflate",
                     },
                 )
     return _session
