@@ -23,6 +23,7 @@ from services import pg_client
 
 from . import (
     ENGINE_VERSION,
+    accumulation_detector,
     chartink_loader,
     equity_universe,
     feature_calculator as fc,
@@ -96,12 +97,20 @@ def score_symbol(symbol: str,
         macro_multiplier=macro_multiplier, sector_modifier=sector_modifier,
     )
 
+    # Pre-breakout accumulation layer — runs alongside the stage classifier
+    # so a single symbol can be both "EARLY_OPPORTUNITY" (accumulation
+    # score high but no trigger yet) and "ACCUMULATION" (engine stage).
+    pre_breakout = accumulation_detector.detect_all(
+        feats, bench_ret_20d=bench_ret_20d,
+    )
+
     stage = s["stage"]
     if stage in ("WEAK", "EXTENDED"):
         return {
             "nse_symbol": symbol,
             "features": feats,
             "scores": s,
+            "pre_breakout": pre_breakout,
             "trade_plan": None,
             "actionable": False,
         }
@@ -114,15 +123,22 @@ def score_symbol(symbol: str,
             "nse_symbol": symbol,
             "features": feats,
             "scores": s,
+            "pre_breakout": pre_breakout,
             "trade_plan": None,
             "actionable": False,
         }
 
     why = trade_planner.reasons(feats, s["sub_scores"], list(scan_hits or ()), stage)
+    # Append pre-breakout signals to the human-readable reason list when
+    # they fired — gives the user the "why this is interesting NOW"
+    # context even before the breakout confirms.
+    if pre_breakout["signals"]:
+        why.append(f"Pre-breakout: {', '.join(pre_breakout['signals'])}")
     return {
         "nse_symbol": symbol,
         "features": feats,
         "scores": s,
+        "pre_breakout": pre_breakout,
         "trade_plan": plan,
         "reasons": why,
         "actionable": True,
@@ -154,6 +170,9 @@ async def _persist_features(pool, scan_date: date, scored: dict) -> None:
         "weights": s["weights"],
         "scan_hits": s["scan_hits"],
         "raw": _to_jsonable(f),
+        # Pre-breakout signals — persisted in the JSONB blob (not a column
+        # of its own) so we don't need a migration. UI reads from here.
+        "pre_breakout": _to_jsonable(scored.get("pre_breakout") or {}),
     }
     async with pool.acquire() as conn:
         await conn.execute(

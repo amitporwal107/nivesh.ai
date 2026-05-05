@@ -12,6 +12,7 @@ Admin:
 """
 from __future__ import annotations
 
+import json
 import logging
 import asyncio
 from datetime import date, datetime, timedelta
@@ -22,9 +23,11 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from deps import db, get_current_user, require_admin
 from services import pg_client
 from services.positional_engine import (
+    backtest,
     bhavcopy_ingester,
     chartink_api,
     chartink_loader,
+    conviction,
     pipeline,
     portfolio_filter,
     scan_config,
@@ -64,22 +67,29 @@ async def _fetch_picks(signal_date: date,
                         min_score: float,
                         stage: Optional[str],
                         limit: int) -> List[dict]:
+    """Fetch picks for a date. LEFT JOINs stock_technical_features so
+    callers can read the pre_breakout block (signals + accumulation_score)
+    without a second round-trip."""
     pool = await pg_client.get_pool()
     if pool is None:
         return []
     sql = (
-        "SELECT nse_symbol, signal_date, final_score, confidence, stage, "
-        "       timeframe_days_min, timeframe_days_max, "
-        "       entry_price, stoploss, target_price, risk_reward, "
-        "       source_scans, reasons "
-        "FROM positional_signals "
-        "WHERE signal_date = $1 AND final_score >= $2 "
+        "SELECT ps.nse_symbol, ps.signal_date, ps.final_score, ps.confidence, ps.stage, "
+        "       ps.timeframe_days_min, ps.timeframe_days_max, "
+        "       ps.entry_price, ps.stoploss, ps.target_price, ps.risk_reward, "
+        "       ps.source_scans, ps.reasons, "
+        "       stf.components->'pre_breakout' AS pre_breakout, "
+        "       stf.components->'raw' AS features_raw "
+        "FROM positional_signals ps "
+        "LEFT JOIN stock_technical_features stf "
+        "       ON stf.nse_symbol = ps.nse_symbol AND stf.as_of_date = ps.signal_date "
+        "WHERE ps.signal_date = $1 AND ps.final_score >= $2 "
     )
     params: list = [signal_date, min_score]
     if stage:
-        sql += "AND stage = $3 "
+        sql += "AND ps.stage = $3 "
         params.append(stage.upper())
-    sql += "ORDER BY final_score DESC, risk_reward DESC LIMIT $%d" % (len(params) + 1)
+    sql += "ORDER BY ps.final_score DESC, ps.risk_reward DESC LIMIT $%d" % (len(params) + 1)
     params.append(limit)
     try:
         async with pool.acquire() as conn:
@@ -87,7 +97,19 @@ async def _fetch_picks(signal_date: date,
     except Exception as e:  # noqa: BLE001
         logger.warning("positional: fetch_picks failed (%s); returning empty", e)
         return []
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        # asyncpg returns JSONB as string in some envs — coerce both blobs
+        for key in ("pre_breakout", "features_raw"):
+            v = d.get(key)
+            if isinstance(v, str):
+                try:
+                    d[key] = json.loads(v)
+                except (TypeError, ValueError):
+                    d[key] = None
+        out.append(d)
+    return out
 
 
 # ── Public endpoints ─────────────────────────────────────────────────────
@@ -356,17 +378,30 @@ async def get_watchlist(request: Request, limit: int = 30):
 def _readiness(ltp: Optional[float], entry: float, sl: float) -> str:
     """Classify a live LTP against an EOD-derived trade plan.
 
-    Used to flip the panel from "yesterday's signal frozen in time" to
-    "is this thing actionable right now?" — the core ask of real-time
-    mode. Bands are loose on purpose; a 5-30 day positional setup
-    doesn't need tick-level precision."""
+    "TRIGGERED" used to fire for any LTP ≥ entry — but that meant a
+    stock 30% past entry was still labelled "actionable" alongside one
+    just crossing. Real users (rightly) said: that's a chase, not a
+    trigger. Now bucketed:
+
+        LATE        LTP > entry × 1.08    — already moved >8%, skip
+        TRIGGERED   entry to entry × 1.08 — just crossed, actionable now
+        NEAR        -2% to entry          — within striking distance
+        WAIT        -5% to -2%            — wait for better entry
+        FAR         < -5%                 — too far below; not on watchlist
+        STOPPED     LTP ≤ SL              — invalidated
+        UNKNOWN     LTP not available
+    """
     if ltp is None:
+        return "UNKNOWN"
+    if entry <= 0:
         return "UNKNOWN"
     if ltp <= sl:
         return "STOPPED"
-    if ltp >= entry:
-        return "TRIGGERED"
     pct = (ltp - entry) / entry * 100.0
+    if pct > 8.0:
+        return "LATE"
+    if pct >= 0.0:
+        return "TRIGGERED"
     if pct >= -2.0:
         return "NEAR"
     if pct >= -5.0:
@@ -375,8 +410,9 @@ def _readiness(ltp: Optional[float], entry: float, sl: float) -> str:
 
 
 async def _enrich_with_live(picks: list) -> list:
-    """Overlay current LTP + readiness onto each pick. Best-effort —
-    a yfinance hiccup degrades to readiness=UNKNOWN, never breaks."""
+    """Overlay current LTP + readiness + 4-pillar conviction verdict onto
+    each pick. Best-effort — a yfinance hiccup degrades to UNKNOWN /
+    no-verdict, never breaks the response."""
     if not picks:
         return picks
     syms = [(p.get("nse_symbol") or "").upper() for p in picks if p.get("nse_symbol")]
@@ -392,7 +428,28 @@ async def _enrich_with_live(picks: list) -> list:
         ltp = prices.get(sym)
         entry = float(p.get("entry_price") or 0)
         sl = float(p.get("stoploss") or 0)
-        out.append({
+
+        # Conviction layer — 4 pillars + penalties + verdict
+        feats = p.get("features_raw") or {}
+        trade_plan = {
+            "entry": entry,
+            "stoploss": sl,
+            "target": float(p.get("target_price") or 0),
+            "risk_reward": float(p.get("risk_reward") or 0),
+        }
+        scan_count = len(p.get("source_scans") or [])
+        try:
+            verdict = conviction.classify_verdict(
+                features=feats,
+                trade_plan=trade_plan,
+                live_ltp=ltp,
+                scan_count=scan_count,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("conviction classify failed for %s: %s", sym, e)
+            verdict = None
+
+        enriched = {
             **p,
             "live_price": ltp,
             "live_pct_from_entry": (
@@ -400,7 +457,12 @@ async def _enrich_with_live(picks: list) -> list:
                 if (ltp is not None and entry > 0) else None
             ),
             "readiness": _readiness(ltp, entry, sl),
-        })
+            "conviction": verdict,
+        }
+        # Don't ship the bulky features_raw blob to the client — it was
+        # only fetched server-side to feed conviction.
+        enriched.pop("features_raw", None)
+        out.append(enriched)
     return out
 
 
@@ -776,6 +838,47 @@ async def admin_rotate_webhook_token(request: Request):
         "token": token,
         "warning": "Old token revoked. Update every Chartink alert with the new URL.",
     }
+
+
+@router.post("/backtest/label")
+async def admin_backtest_label(request: Request,
+                                max_symbols: Optional[int] = None,
+                                step_days: int = 1):
+    """Admin: sweep stock_ohlcv, replay accumulation detector at every
+    eligible (symbol, scan_date), persist labels with forward returns."""
+    await require_admin(request)
+    return await backtest.label_universe(max_symbols=max_symbols, step_days=step_days)
+
+
+@router.post("/backtest/calibrate")
+async def admin_backtest_calibrate(request: Request):
+    """Admin: rebuild accumulation_calibration from labelled rows."""
+    await require_admin(request)
+    return await backtest.calibrate()
+
+
+@router.get("/backtest/calibration")
+async def get_calibration(request: Request):
+    """Public (auth): returns the bucketed hit-rate table the UI uses
+    to convert accumulation_score → probability of move."""
+    await get_current_user(request)
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"buckets": [], "_reason": "no_pg_pool"}
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT metric, bucket_lo, bucket_hi, horizon_days,
+                       sample_count, moves_count, probability,
+                       avg_fwd_return, avg_fwd_drawdown
+                FROM accumulation_calibration
+                ORDER BY metric, horizon_days, bucket_lo
+                """
+            )
+        return {"buckets": [dict(r) for r in rows], "count": len(rows)}
+    except Exception as e:  # noqa: BLE001
+        return {"buckets": [], "_reason": str(e)[:200]}
 
 
 @router.get("/health")
