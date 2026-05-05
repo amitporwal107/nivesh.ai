@@ -156,6 +156,13 @@ class KafkaBus(EventBus):
         })
         self._key_ser = StringSerializer("utf_8")
         self._serializers: dict[str, Any] = {}
+        # Delivery errors collected via on_delivery; surfaced at flush().
+        # We do NOT block per-publish on the delivery future because
+        # confluent-kafka's callbacks only fire when poll() is called
+        # from Python, and a single poll(0) before await deadlocks the
+        # event loop until librdkafka decides to retry — which on a
+        # slow broker can be longer than a Cloud Run job timeout.
+        self._delivery_errors: list[str] = []
 
     def _get_serializer(self, schema_name: str):
         if schema_name in self._serializers:
@@ -197,31 +204,49 @@ class KafkaBus(EventBus):
             KAFKA_PUBLISH.labels(topic=topic, status="serialize_error").inc()
             raise
 
-        loop = asyncio.get_event_loop()
-        fut = loop.create_future()
-
         def _cb(err, msg):
             if err is not None:
-                loop.call_soon_threadsafe(fut.set_exception, RuntimeError(str(err)))
+                self._delivery_errors.append(str(err))
                 KAFKA_PUBLISH.labels(topic=topic, status="error").inc()
             else:
-                loop.call_soon_threadsafe(fut.set_result, None)
                 KAFKA_PUBLISH.labels(topic=topic, status="ok").inc()
 
-        self._producer.produce(
-            topic=topic,
-            key=key_bytes,
-            value=payload,
-            headers=kafka_headers,
-            on_delivery=_cb,
-        )
-        # Trigger event-loop poll without blocking
+        # Fire-and-forget produce. Backpressure is handled inside
+        # librdkafka (BufferError raised if local queue is full); the
+        # ack/error surfaces in flush() via _delivery_errors.
+        try:
+            self._producer.produce(
+                topic=topic,
+                key=key_bytes,
+                value=payload,
+                headers=kafka_headers,
+                on_delivery=_cb,
+            )
+        except BufferError:
+            # Local queue full — drain it and retry once.
+            self._producer.poll(1.0)
+            self._producer.produce(
+                topic=topic, key=key_bytes, value=payload,
+                headers=kafka_headers, on_delivery=_cb,
+            )
+        # Drain any callbacks for messages already acked.
         self._producer.poll(0)
-        await fut
 
     async def flush(self, timeout_s: float = 10.0) -> None:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._producer.flush, timeout_s)
+        remaining = await loop.run_in_executor(None, self._producer.flush, timeout_s)
+        if remaining and remaining > 0:
+            raise RuntimeError(
+                f"Kafka flush timed out: {remaining} message(s) unsent "
+                f"after {timeout_s}s"
+            )
+        if self._delivery_errors:
+            errs = self._delivery_errors[:]
+            self._delivery_errors.clear()
+            raise RuntimeError(
+                f"Kafka delivery failed for {len(errs)} message(s): "
+                f"{errs[:3]}"
+            )
 
     async def close(self) -> None:
         await self.flush(5.0)
