@@ -139,7 +139,9 @@ for svc in "${SVC_LIST[@]}"; do
 
     log "──── building $svc ────"
     # Build context = REPO_ROOT (Dockerfile copies backend/nidp/ in)
-    maybe "docker build -f '$DOCKERFILE' -t '$IMG' -t '$LATEST' '$REPO_ROOT'"
+    NOCACHE=""
+    [[ -n "${NIDP_DOCKER_NO_CACHE:-}" ]] && NOCACHE="--no-cache --pull"
+    maybe "docker build $NOCACHE -f '$DOCKERFILE' -t '$IMG' -t '$LATEST' '$REPO_ROOT'"
     maybe "docker push '$IMG'"
     maybe "docker push '$LATEST'"
     if ! $DRY; then
