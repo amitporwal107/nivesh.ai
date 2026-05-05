@@ -83,7 +83,86 @@ def _parse_date(s: Optional[str]) -> Optional[str]:
     return None
 
 
+def _normalize_dash(v: Optional[str]) -> Optional[str]:
+    """NSE uses '-' as the empty-cell sentinel. Coerce to None."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s in ("-", "—", "NA", "N.A."):
+        return None
+    return s
+
+
 def parse_corporate_actions(body: bytes) -> list[dict[str, Any]]:
+    """Parse NSE corporate-actions response.
+
+    NSE moved this endpoint from CSV
+    (archives.nseindia.com/content/equities/corp_actions.csv → 404)
+    to JSON
+    (www.nseindia.com/api/corporates-corporateActions?index=equities).
+    Response is now a JSON array of objects with these fields:
+        symbol, series, ind, faceVal, subject, exDate, recDate,
+        bcStartDate, bcEndDate, ndStartDate, ndEndDate, caBroadcastDate,
+        comp, isin
+
+    `subject` is the free-text purpose used for action-type classification
+    (same regex set as before).
+    """
+    import json
+    text = body.decode("utf-8-sig", errors="replace").lstrip()
+
+    # Backwards-compat: if NSE ever serves CSV again, detect and parse legacy.
+    if not text.startswith(("[", "{")):
+        return _parse_legacy_csv(body)
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"corporate_actions: invalid JSON ({e})") from e
+
+    # Some NSE endpoints wrap arrays in {"data": [...]}.
+    if isinstance(payload, dict):
+        for key in ("data", "items", "rows"):
+            if isinstance(payload.get(key), list):
+                payload = payload[key]
+                break
+    if not isinstance(payload, list):
+        raise ValueError(f"corporate_actions: expected JSON array, got {type(payload).__name__}")
+
+    out: list[dict[str, Any]] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        sym = (entry.get("symbol") or "").strip().upper()
+        ex_date = _parse_date(_normalize_dash(entry.get("exDate")))
+        if not (sym and ex_date):
+            continue
+
+        purpose = (entry.get("subject") or "").strip()
+        action_type, sub, extracted = _classify(purpose)
+
+        out.append({
+            "symbol":            sym,
+            "series":            (entry.get("series") or "").strip().upper() or None,
+            "action_type":       action_type,
+            "action_subtype":    sub,
+            "purpose":           purpose or None,
+            "ratio":             extracted.get("ratio"),
+            "face_value_pre":    extracted.get("face_value_pre"),
+            "face_value_post":   extracted.get("face_value_post"),
+            "dividend_amount":   extracted.get("dividend_amount"),
+            "record_date":       _parse_date(_normalize_dash(entry.get("recDate"))),
+            "ex_date":           ex_date,
+            "bc_start_date":     _parse_date(_normalize_dash(entry.get("bcStartDate"))),
+            "bc_end_date":       _parse_date(_normalize_dash(entry.get("bcEndDate"))),
+            "announcement_date": _parse_date(_normalize_dash(entry.get("caBroadcastDate"))),
+        })
+    return out
+
+
+def _parse_legacy_csv(body: bytes) -> list[dict[str, Any]]:
+    """Fallback for the old CSV format (now 404). Kept so historical
+    archives can still be parsed if NSE ever republishes them."""
     text = body.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
     headers = next(reader, None)
@@ -115,7 +194,6 @@ def parse_corporate_actions(body: bytes) -> list[dict[str, Any]]:
             continue
         if not (sym and ex_date):
             continue
-
         action_type, sub, extracted = _classify(purpose)
         out.append({
             "symbol":            sym,
