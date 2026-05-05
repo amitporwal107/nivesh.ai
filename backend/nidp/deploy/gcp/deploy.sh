@@ -151,7 +151,10 @@ done
 # Per-service env wiring. Cloud Run Job reads runtime config from
 # Secret Manager; image name is the only thing that changes per deploy.
 declare -A JOB_ENVS=(
-    [common]="NIDP_STORAGE_BACKEND=s3,NIDP_S3_BUCKET=nidp-raw-${PROJECT},NIDP_EVENT_BUS=kafka,GCP_PROJECT=${PROJECT},GCP_REGION=${REGION}"
+    # NIDP_STORAGE_BACKEND=gcs uses google-cloud-storage with the SA's
+    # Application Default Credentials (no AWS keys needed). The bucket
+    # is GCS, so s3 backend would fail with NoCredentialsError.
+    [common]="NIDP_STORAGE_BACKEND=gcs,NIDP_S3_BUCKET=nidp-raw-${PROJECT},NIDP_EVENT_BUS=kafka,GCP_PROJECT=${PROJECT},GCP_REGION=${REGION}"
 )
 declare -A JOB_SECRETS=(
     [common]="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest,NIDP_KAFKA_BROKERS=NIDP_KAFKA_BROKERS:latest,NIDP_SCHEMA_REGISTRY_URL=NIDP_SCHEMA_REGISTRY_URL:latest,NIDP_REDIS_URL=NIDP_REDIS_URL:latest"
