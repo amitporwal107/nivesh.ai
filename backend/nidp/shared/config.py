@@ -24,10 +24,10 @@ from pathlib import Path
 from typing import Final
 
 # ── Paths ───────────────────────────────────────────────────────────
-NIDP_ROOT: Final[Path] = Path(__file__).resolve().parent
+NIDP_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 NIDP_RAW_DIR: Final[Path] = Path(
     os.environ.get("NIDP_RAW_DIR")
-    or (NIDP_ROOT.parent.parent / "data" / "nidp_raw")
+    or (NIDP_ROOT.parent / "data" / "nidp_raw")
 )
 NIDP_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
