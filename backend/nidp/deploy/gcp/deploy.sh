@@ -44,6 +44,7 @@ ALL_SERVICES=(
     bulk_deals block_deals bhavcopy delivery
     index_close index_constituents fii_dii corporate_actions
     nse_calendar rbi_yields snapshot_builder
+    fred_macro yfinance_backfill
 )
 
 # ── Args ────────────────────────────────────────────────────────────
