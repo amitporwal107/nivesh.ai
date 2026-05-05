@@ -233,7 +233,7 @@ if should_run 3; then
             --project="$PROJECT" &>/dev/null; then
         maybe "gcloud compute firewall-rules create nidp-allow-internal \
             --network=default \
-            --allow=tcp:5432,tcp:9092,tcp:8081,tcp:6379,tcp:9090,tcp:3000 \
+            --allow=tcp:5432,tcp:5433,tcp:9092,tcp:8081,tcp:6379,tcp:6380,tcp:9090,tcp:3000 \
             --source-ranges=10.0.0.0/8 \
             --target-tags=nidp-stack \
             --project=$PROJECT --quiet"
@@ -334,13 +334,15 @@ if should_run 5; then
             --project=$PROJECT --format='value(networkInterfaces[0].networkIP)')
         log "  VM internal IP: $VM_IP"
 
-        echo -n "postgres://postgres:postgres@${VM_IP}:5432/nidp" | \
+        # docker-compose.dev.yml maps Postgres host:5433 -> container:5432
+        # and Redis host:6380 -> container:6379. Use the host-side ports.
+        echo -n "postgres://postgres:postgres@${VM_IP}:5433/nidp" | \
             gcloud secrets versions add NIDP_POSTGRES_URL --data-file=- --project=$PROJECT --quiet
         echo -n "${VM_IP}:9092" | \
             gcloud secrets versions add NIDP_KAFKA_BROKERS --data-file=- --project=$PROJECT --quiet
         echo -n "nidp-raw-${PROJECT}" | \
             gcloud secrets versions add NIDP_S3_BUCKET --data-file=- --project=$PROJECT --quiet
-        echo -n "redis://${VM_IP}:6379/0" | \
+        echo -n "redis://${VM_IP}:6380/0" | \
             gcloud secrets versions add NIDP_REDIS_URL --data-file=- --project=$PROJECT --quiet
         echo -n "http://${VM_IP}:8081" | \
             gcloud secrets versions add NIDP_SCHEMA_REGISTRY_URL --data-file=- --project=$PROJECT --quiet
