@@ -38,6 +38,10 @@ from nidp.shared.metrics import (
     INGESTER_ROWS, INGESTER_RUNS, time_ingester,
 )
 from nidp.shared.storage.job_log import JobRun
+from nidp.shared.storage.parsed_archive import (
+    store_parsed as _store_parsed,
+    upsert_feed_snapshot as _upsert_feed_snapshot,
+)
 from nidp.shared.storage.raw_archive import store as store_raw
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
@@ -120,6 +124,7 @@ class BaseIngester(abc.ABC):
                         metadata={"size": len(body)},
                     )
                     run.artifact_path = str(abs_path)
+                    raw_archive_id = archive_id
 
                     # 3. Parse
                     parsed_rows = self.parse(body, target_date)
@@ -148,6 +153,42 @@ class BaseIngester(abc.ABC):
                     INGESTER_ROWS.labels(
                         service=self.SERVICE_NAME, kind="inserted",
                     ).inc(rows_inserted)
+
+                    # 5b. Archive the parsed/normalized rows to storage
+                    # backend (gzipped JSONL) and snapshot them in DB
+                    # keyed by snapshot_date. Allows replay of any past
+                    # day without re-parsing or re-fetching.
+                    snapshot_date = target_date or date.today()
+                    try:
+                        parsed_id, parsed_uri, _ = await _store_parsed(
+                            ingester=self.SERVICE_NAME,
+                            snapshot_date=snapshot_date,
+                            target_date=target_date,
+                            job_run_id=run.run_id,
+                            rows=kept,
+                            raw_archive_id=raw_archive_id,
+                            schema_name=self.AVRO_SCHEMA or None,
+                            metadata={"source_url": source_url},
+                        )
+                        run.metadata["parsed_archive_uri"] = parsed_uri
+                        run.metadata["parsed_archive_id"] = str(parsed_id)
+                        await _upsert_feed_snapshot(
+                            ingester=self.SERVICE_NAME,
+                            snapshot_date=snapshot_date,
+                            target_date=target_date,
+                            job_run_id=run.run_id,
+                            rows=kept,
+                            raw_archive_id=raw_archive_id,
+                            parsed_archive_id=parsed_id,
+                        )
+                    except Exception:                                  # noqa: BLE001
+                        # Snapshot/archive is observability — never fail
+                        # an ingestion run because of it. The persisted
+                        # rows are the source of truth.
+                        logger.exception(
+                            "parsed_archive/feed_snapshot failed (run_id=%s) "
+                            "— continuing", run.run_id,
+                        )
 
                     # 6. Validate persisted facts (DQ engine)
                     validation = await _run_validation(

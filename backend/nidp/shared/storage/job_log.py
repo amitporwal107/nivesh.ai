@@ -92,6 +92,40 @@ class JobRun:
                 error_message, error_class, self.artifact_path,
                 _json_dumps(self.metadata),
             )
+            # Roll the per-feed dashboard fields on source_registry.
+            # Matches by ingester (one ingester may map to >1 source rows;
+            # we update them all so the registry stays consistent).
+            await conn.execute(
+                """
+                UPDATE nidp.source_registry
+                   SET last_run_at          = NOW(),
+                       last_run_id          = $2,
+                       last_run_status      = $3,
+                       last_run_duration_ms = $4,
+                       success_count        = success_count
+                                              + CASE WHEN $3 = 'OK' THEN 1 ELSE 0 END,
+                       partial_count        = partial_count
+                                              + CASE WHEN $3 = 'PARTIAL' THEN 1 ELSE 0 END,
+                       failure_count        = failure_count
+                                              + CASE WHEN $3 = 'FAILED' THEN 1 ELSE 0 END,
+                       last_success_at      = CASE WHEN $3 IN ('OK','PARTIAL')
+                                                   THEN NOW() ELSE last_success_at END,
+                       last_failure_at      = CASE WHEN $3 = 'FAILED'
+                                                   THEN NOW() ELSE last_failure_at END,
+                       consecutive_failures = CASE WHEN $3 = 'FAILED'
+                                                   THEN consecutive_failures + 1
+                                                   ELSE 0 END,
+                       next_run_at          = CASE expected_freq
+                           WHEN 'daily'     THEN NOW() + INTERVAL '1 day'
+                           WHEN 'monthly'   THEN NOW() + INTERVAL '1 month'
+                           WHEN 'quarterly' THEN NOW() + INTERVAL '3 months'
+                           ELSE next_run_at
+                       END,
+                       updated_at           = NOW()
+                 WHERE ingester = $1
+                """,
+                self.ingester, self.run_id, status, duration_ms,
+            )
         logger.info(
             "job_log[%s] %s status=%s fetched=%d inserted=%d skipped=%d duration=%dms",
             self.ingester, self.run_id, status,
