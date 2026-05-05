@@ -18,12 +18,12 @@ QTY_POSITIVE = CustomSQLRule(
     name="block_deals.quantity_positive",
     sql="""
         SELECT count(*) FROM nidp.block_deals
-         WHERE source_run_id = $2 AND quantity <= 0
+         WHERE source_run_id = $1 AND quantity <= 0
     """,
     message="block-deal rows with non-positive quantity",
     severity=Severity.ERROR,
     failure_class=FailureClass.FIX,
-    params_fn=lambda c: [c.target_date, c.job_run_id],
+    params_fn=lambda c: [c.job_run_id],
 )
 
 PRICE_RANGE = RangeRule(
@@ -38,12 +38,12 @@ DEAL_TYPE_VALID = CustomSQLRule(
     name="block_deals.deal_type_valid",
     sql="""
         SELECT count(*) FROM nidp.block_deals
-         WHERE source_run_id = $2 AND deal_type NOT IN ('BUY','SELL')
+         WHERE source_run_id = $1 AND deal_type NOT IN ('BUY','SELL')
     """,
     message="block-deal rows with deal_type outside {BUY,SELL}",
     severity=Severity.ERROR,
     failure_class=FailureClass.FIX,
-    params_fn=lambda c: [c.target_date, c.job_run_id],
+    params_fn=lambda c: [c.job_run_id],
 )
 
 register("block_deals", [

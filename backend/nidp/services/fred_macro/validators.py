@@ -11,12 +11,12 @@ COVERAGE_MIN = CustomSQLRule(
     name="fred_macro.series_coverage",
     sql="""
         SELECT count(DISTINCT series_id) < 6 FROM nidp.fred_macro
-         WHERE source_run_id = $2
+         WHERE source_run_id = $1
     """,
     message="fewer than 6 distinct FRED series ingested",
     severity=Severity.ERROR,
     failure_class=FailureClass.FIX,
-    params_fn=lambda c: [c.target_date, c.job_run_id],
+    params_fn=lambda c: [c.job_run_id],
 )
 
 # 10Y yield must be present — that's the most-load-bearing series.

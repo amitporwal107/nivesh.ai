@@ -88,8 +88,14 @@ INDEX_CONSTITUENT_URLS: Final[dict[str, str]] = {
     "Nifty IT":   f"{NSE_ARCHIVES}/content/indices/ind_niftyitlist.csv",
 }
 
-# 2.1 FII/DII cash daily
+# 2.1 FII/DII cash daily — NSE moved from XLS archive to JSON API.
+# Old: archives.nseindia.com/content/fo/fii_stats_{YYYYMMDD}.xls (404)
+# New: JSON array of {category, date, buyValue, sellValue, netValue}
 FII_DII_URL: Final[str] = (
+    f"{NSE_WWW}/api/fiidiiTradeReact"
+)
+# Legacy XLS archive (kept for parser auto-detect / historical backfill)
+FII_DII_URL_LEGACY: Final[str] = (
     f"{NSE_ARCHIVES}/content/fo/fii_stats_{{YYYYMMDD}}.xls"
 )
 
