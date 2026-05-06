@@ -1,0 +1,58 @@
+# Cloud Build pipeline for one NIDP service.
+# Parameterised — the GitHub trigger sets _SERVICE (e.g. "bhavcopy")
+# and _SERVICE_DASHED (e.g. "bhavcopy" or "nse-calendar"). The build
+# produces an image tagged with $SHORT_SHA and :latest, then bumps
+# the matching Cloud Run job to the new tag.
+#
+# Triggers using this config are created by setup_github_triggers.sh.
+
+steps:
+  # 1. Build the image
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/nidp/services/${_SERVICE}/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
+      - .
+
+  # 2. Push both tags to Artifact Registry (handled by `images:` below
+  #    after all steps succeed; no explicit push step needed)
+
+  # 3. Update the Cloud Run job to the new SHA tag (idempotent — if the
+  #    job doesn't exist yet, this step skips).
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        if gcloud run jobs describe nidp-${_SERVICE_DASHED} \
+              --region=${_REGION} --project=$PROJECT_ID &>/dev/null; then
+          gcloud run jobs update nidp-${_SERVICE_DASHED} \
+              --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA \
+              --region=${_REGION} --project=$PROJECT_ID --quiet
+          echo "✅ updated nidp-${_SERVICE_DASHED} to $SHORT_SHA"
+        else
+          echo "⚠ nidp-${_SERVICE_DASHED} doesn't exist yet — image pushed; run deploy.sh to create the job"
+        fi
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
+
+substitutions:
+  _SERVICE: ''           # e.g. "bhavcopy" — set per trigger
+  _SERVICE_DASHED: ''    # e.g. "nse-calendar" — set per trigger
+  _REGION: 'asia-south1'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 600s
