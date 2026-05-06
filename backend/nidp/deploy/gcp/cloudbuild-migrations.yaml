@@ -1,0 +1,60 @@
+# Cloud Build pipeline for NIDP DB migrations.
+# Triggered when files under backend/nidp/migrations/** change on
+# the nidp branch. Applies all .sql files (idempotent — each
+# migration uses CREATE TABLE IF NOT EXISTS / ON CONFLICT etc.) by
+# SSHing through IAP to the GCP VM and shelling docker exec psql.
+#
+# Cloud Build SA must have:
+#   roles/iap.tunnelResourceAccessor
+#   roles/compute.osAdminLogin             (on the VM)
+#   roles/compute.viewer                   (project-wide)
+# These are granted by setup_github_triggers.sh.
+
+steps:
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        VM_NAME="${_VM_NAME:-nidp-stack-vm}"
+        ZONE="${_ZONE:-asia-south1-a}"
+
+        # Push migrations to the VM (IAP tunnel — no public IP needed)
+        gcloud compute ssh "$VM_NAME" --tunnel-through-iap \
+            --zone=$ZONE --project=$PROJECT_ID --quiet \
+            --command='sudo mkdir -p /tmp/nidp_migrations && sudo chmod 777 /tmp/nidp_migrations'
+
+        gcloud compute scp --recurse --tunnel-through-iap \
+            backend/nidp/migrations/. \
+            ${VM_NAME}:/tmp/nidp_migrations/ \
+            --zone=$ZONE --project=$PROJECT_ID --quiet
+
+        # Apply each .sql in name order
+        gcloud compute ssh "$VM_NAME" --tunnel-through-iap \
+            --zone=$ZONE --project=$PROJECT_ID --quiet --command='
+              set -e
+              sudo docker exec nidp-postgres rm -rf /tmp/migrations
+              sudo docker exec nidp-postgres mkdir -p /tmp/migrations
+              sudo docker cp /tmp/nidp_migrations/. nidp-postgres:/tmp/migrations/
+              for f in $(ls /tmp/nidp_migrations/*.sql 2>/dev/null | sort); do
+                  name=$(basename "$f")
+                  echo "  applying $name..."
+                  sudo docker exec nidp-postgres psql -U postgres -d nidp \
+                      -v ON_ERROR_STOP=1 -f /tmp/migrations/"$name" >/dev/null
+                  echo "    ok"
+              done
+              echo "─── all migrations applied ───"
+              sudo docker exec nidp-postgres psql -U postgres -d nidp -c \
+                  "SELECT count(*) AS nidp_tables FROM information_schema.tables WHERE table_schema = '"'"'nidp'"'"';"
+            '
+
+substitutions:
+  _VM_NAME: 'nidp-stack-vm'
+  _ZONE:    'asia-south1-a'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 600s
