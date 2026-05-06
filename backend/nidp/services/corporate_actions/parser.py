@@ -22,8 +22,23 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-_DIV_RE = re.compile(r"DIV(IDEND)?[\s-]*(?P<sub>INTERIM|FINAL|SPECIAL)?[\s-]*(RS\.?|INR\.?|₹)?\s*(?P<amt>\d+(?:\.\d+)?)", re.I)
-_SPLIT_RE = re.compile(r"SPLIT.*?(?:RS\.?|INR\.?|₹)?\s*(?P<pre>\d+(?:\.\d+)?)\s*(?:TO|/)\s*(?:RS\.?|INR\.?|₹)?\s*(?P<post>\d+(?:\.\d+)?)", re.I)
+# INTERIM/FINAL/SPECIAL may sit on either side of DIVIDEND; "Re" (singular
+# rupee) appears alongside Rs/INR/₹; amount can follow a "- " separator.
+_DIV_RE = re.compile(
+    r"(?:(?P<sub_pre>INTERIM|FINAL|SPECIAL)\s+)?"
+    r"\bDIV(?:IDEND)?\b"
+    r"(?:[\s-]*(?P<sub_post>INTERIM|FINAL|SPECIAL)\b)?"
+    r"[\s-]*(?:RS\.?|INR\.?|RE\.?|₹)?\s*"
+    r"(?P<amt>\d+(?:\.\d+)?)",
+    re.I,
+)
+# Split FROM <pre> TO <post>, tolerating "/-" and "Per Share" between values
+# (e.g. "From Rs 10/- Per Share To Re 1/- Per Share").
+_SPLIT_RE = re.compile(
+    r"\bSPLIT\b[^0-9]*(?:RS\.?|INR\.?|RE\.?|₹)?\s*(?P<pre>\d+(?:\.\d+)?)"
+    r"[^0-9]*?(?:RS\.?|INR\.?|RE\.?|₹)?\s*(?P<post>\d+(?:\.\d+)?)",
+    re.I,
+)
 _BONUS_RE = re.compile(r"BONUS\s+(?P<num>\d+)\s*:\s*(?P<den>\d+)", re.I)
 _RIGHTS_RE = re.compile(r"RIGHTS\s+(?P<num>\d+)\s*:\s*(?P<den>\d+)", re.I)
 _BUYBACK_RE = re.compile(r"BUY[\s-]?BACK", re.I)
@@ -31,6 +46,10 @@ _MERGER_RE = re.compile(r"\bMERGER\b|\bAMALGAMATION\b", re.I)
 _DEMERGER_RE = re.compile(r"\bDEMERGER\b|\bSCHEME OF ARRANGEMENT\b", re.I)
 _AGM_RE = re.compile(r"\bAGM\b", re.I)
 _BOARD_RE = re.compile(r"BOARD MEETING|BOARD MTG", re.I)
+_INTEREST_RE = re.compile(r"\bINTEREST\s+PAYMENT\b|\bCOUPON\b", re.I)
+# REIT / InvIT cash payouts are filed as "Distribution - Rs X.XX Per Unit ...".
+_DISTRIBUTION_RE = re.compile(r"\b(?:INCOME\s+)?DISTRIBUTION\b", re.I)
+_AMOUNT_RE = re.compile(r"(?:RS\.?|INR\.?|RE\.?|₹)\s*(\d+(?:\.\d+)?)", re.I)
 
 
 def _classify(purpose: str) -> tuple[str, Optional[str], dict[str, Any]]:
@@ -53,8 +72,16 @@ def _classify(purpose: str) -> tuple[str, Optional[str], dict[str, Any]]:
     # ── Tier 1: structured regexes (with extraction) ────────────────
     m = _DIV_RE.search(p)
     if m:
-        return ("DIVIDEND", (m.group("sub") or "").upper() or None,
-                {"dividend_amount": float(m.group("amt"))})
+        sub = (m.group("sub_pre") or m.group("sub_post") or "").upper() or None
+        return "DIVIDEND", sub, {"dividend_amount": float(m.group("amt"))}
+
+    # InvIT/REIT cash payout — "Distribution - Rs 3.50 Per Unit ...". Capture
+    # the headline per-unit amount in dividend_amount so downstream cash-flow
+    # logic treats it like a dividend.
+    if _DISTRIBUTION_RE.search(p):
+        amt_m = _AMOUNT_RE.search(p)
+        extracted = {"dividend_amount": float(amt_m.group(1))} if amt_m else {}
+        return "DISTRIBUTION", None, extracted
 
     m = _SPLIT_RE.search(p)
     if m:
@@ -75,6 +102,7 @@ def _classify(purpose: str) -> tuple[str, Optional[str], dict[str, Any]]:
     # ── Tier 2: keyword fallbacks (type-only, no extraction) ────────
     up = p.upper()
 
+    if _INTEREST_RE.search(p):                                    return "INTEREST_PAYMENT", None, {}
     if _BUYBACK_RE.search(p):                                     return "BUYBACK",       None, {}
     if _DEMERGER_RE.search(p) or "SCHEME" in up:                  return "DEMERGER",      None, {}
     if _MERGER_RE.search(p):                                      return "MERGER",        None, {}

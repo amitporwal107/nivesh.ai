@@ -56,6 +56,9 @@ async def _fetch_one(
     p1: int,
     p2: int,
 ) -> tuple[Optional[bytes], int]:
+    """Fetch one symbol's OHLCV. Logs status/exception for the first few
+    failures (otherwise 504 silent failures + truncated "all N failed"
+    error_message gives no signal about cause)."""
     ticker = f"{nse_symbol}.NS"
     url = YF_CHART_URL.format(ticker=ticker, p1=p1, p2=p2)
     try:
@@ -64,10 +67,15 @@ async def _fetch_one(
                 body = await resp.read()
                 SOURCE_FETCH.labels(source=SOURCE_NAME, status=str(resp.status)).inc()
                 if resp.status != 200:
+                    logger.warning(
+                        "yf %s: HTTP %s, first 200 bytes: %r",
+                        ticker, resp.status, body[:200],
+                    )
                     return None, resp.status
                 return body, resp.status
-    except Exception:
+    except Exception as e:                                              # noqa: BLE001
         SOURCE_FETCH.labels(source=SOURCE_NAME, status="error").inc()
+        logger.warning("yf %s: %s: %s", ticker, type(e).__name__, e)
         return None, 0
 
 
