@@ -115,13 +115,13 @@ create_trigger() {
         return
     fi
 
-    local sub_args=""
-    for kv in "${subs[@]}"; do
-        sub_args="$sub_args --substitutions=${kv}"
-    done
+    # gcloud wants a single --substitutions flag with comma-separated
+    # KV pairs — repeating the flag drops all but the last value.
+    local sub_csv
+    sub_csv=$(IFS=,; echo "${subs[*]}")
 
     if [[ -n "$DRY" ]]; then
-        log "DRY-RUN  create $name (config=$cfg, included=$included)"
+        log "DRY-RUN  create $name (config=$cfg, included=$included, subs=$sub_csv)"
         return
     fi
 
@@ -131,19 +131,19 @@ create_trigger() {
             --branch-pattern="$BRANCH_PATTERN" \
             --included-files="$included" \
             --build-config="$cfg" \
-            $sub_args \
+            --substitutions="$sub_csv" \
             --project=$PROJECT --quiet >/dev/null 2>&1; then
         ok "$name"
     else
-        err "$name failed — verbose:"
+        err "$name failed — full error:"
         gcloud builds triggers create github \
             --name="$name" \
             --repo-owner="$GH_OWNER" --repo-name="$GH_REPO" \
             --branch-pattern="$BRANCH_PATTERN" \
             --included-files="$included" \
             --build-config="$cfg" \
-            $sub_args \
-            --project=$PROJECT 2>&1 | tail -10
+            --substitutions="$sub_csv" \
+            --project=$PROJECT 2>&1 | sed 's/^/    /'
     fi
 }
 
