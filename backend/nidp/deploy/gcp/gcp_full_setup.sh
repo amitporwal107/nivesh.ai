@@ -440,16 +440,38 @@ if should_run 9; then
             --location=$REGION --project=$PROJECT --quiet"
     }
 
+    # Daily NSE EOD ingesters — staggered around 19:00-19:30 IST
+    # (market closes 15:30 IST; archives publish ~18:00 IST + buffer).
     add_schedule nidp-bhavcopy           '0 19 * * 1-5'
-    add_schedule nidp-delivery           '30 10 * * 2-6'
     add_schedule nidp-index-close        '0 19 * * 1-5'
     add_schedule nidp-fii-dii            '30 19 * * 1-5'
     add_schedule nidp-bulk-deals         '30 19 * * 1-5'
     add_schedule nidp-block-deals        '30 19 * * 1-5'
+
+    # Delivery is T+1 — NSE re-publishes the bhavcopy with delivery
+    # numbers next morning. Fire after that's reliably available.
+    add_schedule nidp-delivery           '30 10 * * 2-6'
+
+    # Corporate actions — daily (covers weekend filings).
     add_schedule nidp-corporate-actions  '0 20 * * *'
+
+    # Rates — RBI WSS publishes weekly, but daily refresh costs
+    # nothing and catches mid-week revisions.
     add_schedule nidp-rbi-yields         '30 20 * * 1-5'
+
+    # FRED macro — daily refresh; FRED updates throughout the US day.
+    add_schedule nidp-fred-macro         '0 21 * * *'
+
+    # Monthly: NSE calendar + index constituents (NSE publishes
+    # constituent lists at month-start).
     add_schedule nidp-nse-calendar       '0 6 1 * *'
+    add_schedule nidp-index-constituents '30 6 1 * *'
+
+    # Snapshot builder runs after all daily ingesters complete.
     add_schedule nidp-snapshot-builder   '0 22 * * 1-5'
+
+    # yfinance_backfill is event-driven (manual /full-history run);
+    # not scheduled.
 fi
 
 # ────────────────────────────────────────────────────────────────────
