@@ -242,7 +242,240 @@ Decision needed: commit, refactor, or remove.
 
 ---
 
-## 6. End-to-end verification (one-liner)
+## 6. How we know an ingestion actually worked
+
+Every feed has explicit success criteria — three concentric checks, escalating in strictness. A run is OK only when **all three** pass.
+
+### 6a. The three checks
+
+```
+        ┌─────────────────────────────────────────────────┐
+        │  Check 1: HTTP / parse                          │
+        │  - upstream returned 200 + non-empty body       │
+        │  - parser produced ≥1 row                       │
+        │  → if 0 rows → status = SKIPPED                 │
+        │  → if exception → status = FAILED, error_class  │
+        │       = HTTP / PARSE                            │
+        └─────────────────────────────────────────────────┘
+                          ↓
+        ┌─────────────────────────────────────────────────┐
+        │  Check 2: persist                               │
+        │  - DB upsert completed without exception        │
+        │  → status = FAILED, error_class = DB on error   │
+        └─────────────────────────────────────────────────┘
+                          ↓
+        ┌─────────────────────────────────────────────────┐
+        │  Check 3: validation engine                     │
+        │  - per-feed rules run on the persisted rows     │
+        │  - BLOCK finding → status = FAILED, Kafka emit  │
+        │       suppressed (downstream consumers don't    │
+        │       see condemned data)                       │
+        │  - FIX finding → status = PARTIAL (rows persisted│
+        │       but flagged for triage)                   │
+        │  - WARN/INFO finding → logged, status stays OK  │
+        └─────────────────────────────────────────────────┘
+                          ↓
+                    status = OK
+```
+
+### 6b. Per-feed validation rules (what "good" looks like)
+
+| Feed | Rule | Severity | Class | What it checks |
+|------|------|----------|-------|----------------|
+| **bhavcopy** | `row_count_min` (≥1500) | CRITICAL | BLOCK | NSE EQ universe is ~2000; <1500 means we got a partial file |
+| | `required_fields_present` | ERROR | FIX | symbol/series/ohlc not null |
+| | `close_price_range` | ERROR | FIX | close ∈ (0, 1e7] |
+| | `ohlc_consistent` | ERROR | FIX | low ≤ open,close ≤ high |
+| | `symbol_series_unique` | CRITICAL | BLOCK | (symbol, series) unique within run |
+| **delivery** | `row_count_min` (≥1500) | CRITICAL | BLOCK | should match bhavcopy size |
+| | `deliv_pct_range` | ERROR | FIX | 0 ≤ pct ≤ 100 |
+| | `deliverable_le_traded` | ERROR | FIX | delivered qty ≤ traded qty |
+| | `cross_check_prices_eod_present` | WARN | FIX | symbol must exist in prices_eod for same date |
+| **index_close** | `row_count_min` (≥20) | ERROR | FIX | NSE publishes ~25 indices |
+| | `nifty50_present` | CRITICAL | BLOCK | Nifty 50 close MUST be there |
+| | `pct_change_in_range` | WARN | INFO | |day-over-day pct| < 20% |
+| **fii_dii** | `any_row_present` | CRITICAL | BLOCK | rolling JSON returned ≥1 row |
+| | `cash_rows_present` | CRITICAL | BLOCK | both FII and DII EQUITY_CASH rows present |
+| | `net_equals_buy_minus_sell` | ERROR | FIX | |net − (buy−sell)| < ₹1 cr |
+| **bulk_deals / block_deals** | `required_fields` | ERROR | FIX | symbol/qty/price not null |
+| | `quantity_positive` | ERROR | FIX | qty > 0 |
+| | `price_range` | ERROR | FIX | price ∈ (0, 1e6] |
+| | `deal_type_valid` | ERROR | FIX | deal_type ∈ {BUY, SELL} |
+| **corporate_actions** | `required_fields` | ERROR | FIX | symbol/ex_date not null |
+| | `split_has_face_values` | WARN | FIX | SPLIT rows must have face_value_pre/post |
+| | `bonus_has_ratio` | WARN | FIX | BONUS rows must have ratio |
+| | `dividend_has_amount` | WARN | FIX | DIVIDEND rows must have amount |
+| | `other_ratio_not_dominant` (≤30%) | ERROR | FIX | classifier sanity — too much in OTHER means parser broken |
+| **rbi_yields** | `10y_present` | CRITICAL | BLOCK | India 10Y G-Sec yield is the regime-engine input |
+| | `required_fields` | ERROR | FIX | yield_pct not null |
+| | `yield_in_sane_range` | ERROR | FIX | yield ∈ [0.5%, 20%] |
+| **fred_macro** | `series_coverage` | ERROR | FIX | all 8 SERIES_CATALOG ids returned data |
+| | `us10y_present` | CRITICAL | BLOCK | DGS10 must be there |
+| **yfinance_backfill** | `close_price_present` | WARN | INFO | yfinance is best-effort; never blocks |
+| | `close_price_range` | WARN | INFO | |
+| | `ohlc_consistent` | WARN | INFO | |
+| **nse_calendar** | (no validators — it's a static list) | — | — | Idempotent upsert; trust the source |
+| **index_constituents** | (no validators — quarterly snapshot) | — | — | Trust the source |
+
+### 6c. Where to see failures (4 places, same data, different lens)
+
+```
+                 raw failure                           triaged failure
+                       ↓                                       ↓
+        ┌───────────────────────┐               ┌──────────────────────┐
+   1.   │ Cloud Run logs        │          3.   │ nidp.validation_     │
+        │ Full python traceback │               │ findings             │
+        │ (stderr from job)     │               │ One row per BLOCK/   │
+        │                       │               │ FIX/WARN, with       │
+        │ gcloud logging read   │               │ rule_name + sample   │
+        │ ...job_name=nidp-X    │               │ rows for triage      │
+        └───────────────────────┘               └──────────────────────┘
+                  ↓                                       ↑
+        ┌───────────────────────┐               ┌──────────────────────┐
+   2.   │ nidp.job_log          │          4.   │ nidp.v_feed_status   │
+        │ One row per run:      │               │ View: latest run +   │
+        │ status, duration,     │ ───────►      │ counters per feed.   │
+        │ rows_*, error_message │               │ Single-pane          │
+        │                       │               │ ops dashboard        │
+        └───────────────────────┘               └──────────────────────┘
+```
+
+#### 1) Cloud Run logs — for full Python tracebacks
+
+```bash
+# From your laptop (logging.viewer required; nidp-sa lacks it)
+gcloud logging read 'resource.labels.job_name="nidp-<svc>" severity>=ERROR' \
+    --project=niveshdataintelligence --limit=10 --order=desc \
+    --format='value(timestamp,textPayload,jsonPayload.msg)'
+```
+
+#### 2) `nidp.job_log` — every run's outcome at a glance
+
+```bash
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
+SELECT ingester, target_date, status, duration_ms,
+       rows_fetched, rows_inserted, rows_skipped,
+       error_class, left(error_message, 80) AS error_msg
+  FROM nidp.job_log
+ WHERE started_at > NOW() - INTERVAL '24 hours'
+ ORDER BY started_at DESC LIMIT 30;
+SQL
+```
+
+`error_class` is one of: `HTTP` (fetch failed), `PARSE` (parser crashed), `VALIDATE` (BLOCK finding), `DB` (persist failed), `KAFKA` (publish failed).
+
+#### 3) `nidp.validation_findings` — what specifically is wrong
+
+```bash
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
+SELECT ingester, rule_name, severity, failure_class,
+       left(message, 80) AS message,
+       actual,
+       detected_at::timestamp(0)
+  FROM nidp.validation_findings
+ WHERE detected_at > NOW() - INTERVAL '24 hours'
+ ORDER BY detected_at DESC LIMIT 20;
+
+-- Just the BLOCKers (these prevent downstream consumption)
+SELECT ingester, rule_name, message, actual
+  FROM nidp.validation_findings
+ WHERE failure_class = 'BLOCK'
+   AND detected_at > NOW() - INTERVAL '7 days'
+ ORDER BY detected_at DESC;
+
+-- Sample rows attached to a FIX finding (for triage)
+SELECT rule_name, message, sample_rows
+  FROM nidp.validation_findings
+ WHERE finding_id = '<paste-id>';
+SQL
+```
+
+#### 4) `nidp.v_feed_status` — single-row-per-feed, the ops dashboard
+
+```bash
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
+SELECT ingester, last_run_status,
+       success_count        AS oks,
+       failure_count        AS fails,
+       partial_count        AS partials,
+       consecutive_failures AS streak,
+       last_run_at::timestamp(0)  AS last_run,
+       next_run_at::timestamp(0)  AS next_run
+  FROM nidp.v_feed_status
+ ORDER BY consecutive_failures DESC, ingester;
+SQL
+```
+
+`consecutive_failures` is the most useful column — anything > 0 needs attention.
+
+### 6d. Triage flowchart
+
+```
+A feed shows last_run_status != OK in v_feed_status.
+                       ↓
+         ┌──────  status = FAILED  ──────┐
+         │                                │
+ error_class = HTTP                error_class = PARSE
+   - upstream is down                - parser bug; see Cloud Run
+   - or schema changed / 4xx           traceback for line number
+   - or DNS / NSE IP-block             - check raw_archive_files for
+   - check raw_archive_files             the bytes
+     for last successful fetch         - run parser locally on those
+                                         bytes to repro
+         │                                │
+ error_class = DB                  error_class = VALIDATE
+   - DB connection / disk full        - see validation_findings
+   - or unique-violation (writer        WHERE failure_class='BLOCK'
+     not idempotent)                  - rule_name tells you which
+   - check job_log.error_message        check failed; sample_rows
+                                         shows offending data
+         ↓
+status = PARTIAL — rows landed but FIX-class findings flagged.
+   Run still counted as data-on-disk; not consumed downstream
+   until the finding is resolved.
+         ↓
+status = SKIPPED — fetch OK, parse returned 0 rows.
+   Usually legit (weekend, holiday, no events that day).
+   But if it persists 3+ days for a daily feed, parser is
+   probably failing silently on a schema change.
+```
+
+### 6e. The "is everything actually working today" command
+
+If you run only one query, run this:
+
+```bash
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
+WITH today AS (
+  SELECT (NOW() AT TIME ZONE 'Asia/Kolkata')::date AS d
+)
+SELECT
+    s.ingester,
+    s.last_run_status,
+    s.consecutive_failures AS streak,
+    f.findings,
+    f.blocks,
+    s.last_run_at::timestamp(0)  AS last_run
+  FROM nidp.v_feed_status s
+  LEFT JOIN LATERAL (
+      SELECT count(*)                                 AS findings,
+             count(*) FILTER (WHERE failure_class='BLOCK') AS blocks
+        FROM nidp.validation_findings
+       WHERE ingester = s.ingester
+         AND detected_at > NOW() - INTERVAL '24 hours'
+  ) f ON TRUE
+ ORDER BY
+    CASE WHEN s.last_run_status='OK' THEN 1 ELSE 0 END,
+    s.consecutive_failures DESC,
+    s.ingester;
+SQL
+```
+
+Healthy feeds appear at the bottom (status=OK, streak=0, blocks=0). Anything at the top of the list is what needs attention.
+
+---
+
+## 7. End-to-end verification (one-liner)
 
 For a fresh-eyes "is this whole thing actually working?" check, run on the VM:
 
