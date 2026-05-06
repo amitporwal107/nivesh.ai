@@ -60,8 +60,16 @@ gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" --quiet --command='
     sudo docker exec nidp-postgres psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='\''nidp'\''" \
         | grep -q 1 || sudo docker exec nidp-postgres psql -U postgres -c "CREATE DATABASE nidp"
 
-    # Copy migrations dir into the container
-    sudo docker cp /tmp/nidp_migrations nidp-postgres:/tmp/migrations
+    # Copy migrations into the container.
+    # Trailing /. on the source forces "copy CONTENTS of src into dst"
+    # rather than "copy src as a subdir of dst". Without it, when
+    # /tmp/migrations already exists from a prior run, docker cp
+    # silently puts new files at /tmp/migrations/nidp_migrations/
+    # — and the loop below looks for them at /tmp/migrations/<name>,
+    # so newer .sql files like 008, 022 fail with "No such file".
+    sudo docker exec nidp-postgres rm -rf /tmp/migrations
+    sudo docker exec nidp-postgres mkdir -p /tmp/migrations
+    sudo docker cp /tmp/nidp_migrations/. nidp-postgres:/tmp/migrations/
 
     # Apply in name order
     APPLIED=0
