@@ -17,8 +17,8 @@ def _parse_date(s: str) -> date:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--date", type=_parse_date, required=True,
-                   help="Trading date (yyyy-mm-dd) to ingest.")
+    p.add_argument("--date", type=_parse_date, default=date.today(),
+                   help="Trading date (yyyy-mm-dd). Defaults to today.")
     p.add_argument("--metrics", action="store_true")
     args = p.parse_args()
 

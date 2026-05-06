@@ -13,7 +13,7 @@ def _d(s: str) -> date:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--date", type=_d, required=True)
+    p.add_argument("--date", type=_d, default=date.today())
     p.add_argument("--metrics", action="store_true")
     a = p.parse_args()
     setup_logging(service="delivery")
