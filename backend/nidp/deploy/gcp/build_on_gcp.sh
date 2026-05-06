@@ -8,11 +8,18 @@
 # no caching surprises, no "stale image" mysteries.
 #
 # Usage:
-#   ./build_on_gcp.sh                       # build all 13, update jobs
+#   ./build_on_gcp.sh                       # build all 13, migrate, update jobs
 #   ./build_on_gcp.sh --service=bhavcopy    # one service only
 #   ./build_on_gcp.sh --tag=mytag           # custom tag (default: timestamp)
 #   ./build_on_gcp.sh --no-update           # just build, don't update Cloud Run
 #   ./build_on_gcp.sh --no-cache            # force --no-cache in Docker build
+#   ./build_on_gcp.sh --no-migrations       # skip schema-migration step
+#
+# Order: build → migrate → update Cloud Run. Migrations run BEFORE
+# the new image starts so freshly-deployed code never reads a stale
+# schema. Build failures abort before migrations; migration failures
+# abort before Cloud Run update so old code keeps running against
+# the old schema.
 #
 # Cost: free up to 120 build-minutes/day on Cloud Build's default
 # tier. Each NIDP image takes ~2-3 min, so building all 13 = ~30-40
@@ -43,15 +50,17 @@ ALL_SERVICES=(
 SERVICE_FILTER=""
 NO_UPDATE=""
 NO_CACHE=""
+NO_MIGRATIONS=""
 TAG="$(date -u +%Y%m%d-%H%M%S)"
 
 for arg in "$@"; do
     case "$arg" in
-        --service=*)  SERVICE_FILTER="${arg#*=}" ;;
-        --tag=*)      TAG="${arg#*=}" ;;
-        --no-update)  NO_UPDATE=1 ;;
-        --no-cache)   NO_CACHE=1 ;;
-        -h|--help)    sed -n '2,20p' "$0"; exit 0 ;;
+        --service=*)     SERVICE_FILTER="${arg#*=}" ;;
+        --tag=*)         TAG="${arg#*=}" ;;
+        --no-update)     NO_UPDATE=1 ;;
+        --no-cache)      NO_CACHE=1 ;;
+        --no-migrations) NO_MIGRATIONS=1 ;;
+        -h|--help)       sed -n '2,26p' "$0"; exit 0 ;;
     esac
 done
 
@@ -159,6 +168,27 @@ for svc in "${SERVICES[@]}"; do
         tail -20 "$TMPDIR/build-${svc}.log" | sed 's/^/     /'
     fi
 done
+
+# ── Apply pending DB migrations ─────────────────────────────────────
+# Runs AFTER builds succeed but BEFORE Cloud Run update. If the
+# migration fails, we abort before flipping any image tags so the
+# old code keeps running against the old schema.
+if [[ -z "$NO_MIGRATIONS" && -z "$NO_UPDATE" && ${#FAILED[@]} -eq 0 && ${#SUCCEEDED[@]} -gt 0 ]]; then
+    echo
+    log "applying NIDP migrations (phase6_robust.sh)..."
+    if [[ -x "$SCRIPT_DIR/phase6_robust.sh" ]]; then
+        if "$SCRIPT_DIR/phase6_robust.sh"; then
+            ok "migrations applied"
+        else
+            err "migration step failed — aborting Cloud Run update"
+            err "  fix the migration, then re-run with --no-cache to retry"
+            exit 1
+        fi
+    else
+        warn "phase6_robust.sh not found or not executable — skipping migrations"
+        warn "  re-add it under $SCRIPT_DIR/ or pass --no-migrations to silence"
+    fi
+fi
 
 # ── Update Cloud Run Jobs to the new tag ────────────────────────────
 if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
