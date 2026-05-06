@@ -62,7 +62,10 @@ def _i(s: Optional[str]) -> Optional[int]:
 
 def _detect_format(headers: list[str]) -> str:
     h = {x.strip() for x in headers}
-    if "TckrSymb" in h and "ClsgPric" in h:
+    # Format B (post-2024 unified CM file). NSE renamed the close column
+    # mid-2025 from `ClsgPric` → `ClsPric` (dropped the 'g') but kept
+    # `PrvsClsgPric` for previous close — accept either.
+    if "TckrSymb" in h and ({"ClsPric", "ClsgPric"} & h):
         return "B"
     if "SYMBOL" in h and "CLOSE" in h:
         return "A"
@@ -140,11 +143,11 @@ def _parse_post2024(rows: list[list[str]], headers: list[str]) -> list[dict[str,
             "symbol":      symbol,
             "series":      series,
             "isin":        (get("ISIN") or "").strip() or None,
-            "prev_close":  _f(get("PrvsClsgPric")),
+            "prev_close":  _f(get("PrvsClsgPric") or get("PrvsClsPric")),
             "open_price":  _f(get("OpnPric")),
             "high_price":  _f(get("HghPric")),
             "low_price":   _f(get("LwPric")),
-            "close_price": _f(get("ClsgPric")),
+            "close_price": _f(get("ClsPric") or get("ClsgPric")),
             "last_price":  _f(get("LastPric")),
             "avg_price":   None,
             "volume":      _i(get("TtlTradgVol")),
