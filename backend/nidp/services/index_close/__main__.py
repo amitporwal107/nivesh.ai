@@ -4,6 +4,7 @@ import argparse, asyncio
 from datetime import date, datetime
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.metrics import start_metrics_server
+from nidp.shared.trading_day import default_target_date
 from .service import run
 
 
@@ -13,7 +14,7 @@ def _d(s: str) -> date:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--date", type=_d, default=date.today())
+    p.add_argument("--date", type=_d, default=default_target_date())
     p.add_argument("--metrics", action="store_true")
     a = p.parse_args()
     setup_logging(service="index_close")
