@@ -1,0 +1,29 @@
+# NIDP Cloud Build upload filter.
+#
+# The Dockerfile only COPYs `backend/nidp/` into the image, so
+# everything else in the repo is dead weight on the upload tarball.
+# Default gcloudignore (which mirrors .gitignore) was uploading
+# ~50 MiB and timing out from slow links. This file pushes the
+# tarball under ~5 MiB.
+
+# Exclude everything by default, then re-include the NIDP tree.
+*
+
+# Re-include only what Dockerfile needs.
+!backend/
+backend/*
+!backend/nidp/
+!backend/nidp/**
+
+# Drop noisy NIDP internals that don't need to ship.
+backend/nidp/**/__pycache__/
+backend/nidp/**/*.pyc
+backend/nidp/data/
+backend/nidp/.gh-token
+backend/nidp/local-out/
+
+# Standard hygiene.
+.git/
+.github/
+*.log
+.DS_Store
