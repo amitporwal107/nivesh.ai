@@ -20,8 +20,22 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
       - .
 
-  # 2. Push both tags to Artifact Registry (handled by `images:` below
-  #    after all steps succeed; no explicit push step needed)
+  # 2. Push both tags to Artifact Registry EXPLICITLY before deploy.
+  #    The `images:` directive at the bottom of this yaml *also*
+  #    pushes them — but only after every step finishes. The deploy
+  #    step below needs the SHA tag to already be in AR, so we push
+  #    here first. Without this, deploy fails with
+  #    'gcloud.run.jobs.update: Image ...:<sha> not found'.
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
 
   # 3. Update the Cloud Run job to the new SHA tag (idempotent — if the
   #    job doesn't exist yet, this step skips).
