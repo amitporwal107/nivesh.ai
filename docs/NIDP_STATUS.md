@@ -247,7 +247,7 @@ Decision needed: commit, refactor, or remove.
 For a fresh-eyes "is this whole thing actually working?" check, run on the VM:
 
 ```bash
-sudo docker exec nidp-postgres psql -U postgres -d nidp <<'SQL'
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
 \echo === FEED HEALTH ===
 SELECT ingester, last_run_status, success_count AS oks, failure_count AS fails,
        last_run_at::timestamp(0) AS last_run
