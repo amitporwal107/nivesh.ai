@@ -57,6 +57,12 @@ class BhavcopyIngester(BaseIngester):
     SOURCE_NAME = SOURCE_NAME
     KAFKA_TOPIC = "nidp.bhavcopy.v1"
     AVRO_SCHEMA = "bhavcopy_v1"
+    # Bhavcopy is the authoritative "trading day is fully closed and
+    # published" signal. A successful run bumps
+    # nidp.market_session_state.last_close_date so downstream ingesters
+    # (delivery T+1, snapshot_builder, etc.) and ad-hoc consumers can
+    # read a single canonical answer.
+    BUMPS_MARKET_SESSION = True
 
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
         if target_date is None:

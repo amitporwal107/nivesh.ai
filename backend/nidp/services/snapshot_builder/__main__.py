@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.metrics import start_metrics_server
-from nidp.shared.trading_day import default_target_date
+from nidp.shared.trading_day import last_market_close_date
 
 from .service import run, status
 
@@ -21,7 +21,7 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=False)
 
     p.add_argument("--date", type=_d, default=None,
-                   help="Build snapshot for this date. Defaults to yesterday IST.")
+                   help="Build snapshot for this date. Defaults to last NSE close.")
     p.add_argument("--force", action="store_true",
                    help="Build even if preflight fails (use with care).")
     p.add_argument("--metrics", action="store_true")
@@ -44,8 +44,10 @@ def main() -> None:
         asyncio.run(_show())
         return
 
-    target = a.date or default_target_date()
-    asyncio.run(run(target, force=a.force))
+    async def _build():
+        target = a.date or await last_market_close_date()
+        await run(target, force=a.force)
+    asyncio.run(_build())
 
 
 if __name__ == "__main__":

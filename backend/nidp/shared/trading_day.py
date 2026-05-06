@@ -1,34 +1,112 @@
-"""Helpers for picking the right "as-of" trading date.
+"""Helpers for the canonical "last NSE market close" date.
 
-Indian market data sources (NSE bhavcopy, delivery, index closes,
-fii_dii, etc.) publish their EOD files after market close, around
-18:00 IST. A job run at any time before that will 404 on "today's"
-file because it doesn't exist yet — and on weekends/holidays there
-is no file at all.
+Source of truth: nidp.v_market_session in the DB. Computed from
+nidp.nse_holidays + an 18:30 IST cutoff. See migration 023.
 
-`default_target_date()` returns the safest "yesterday IST" date —
-always already published, never inflight. Callers that explicitly
-want today (e.g. a scheduled 19:00 IST run) should pass `--date`.
+Two helpers:
 
-The helper does NOT walk through weekends/holidays; it just goes
-back one calendar day. The ingester layer is expected to handle
-404 / empty file gracefully (BaseIngester already does — finalizes
-as FAILED with error_class=HTTP and a clean job_log row).
+    last_market_close_date(market='NSE_EQ') — async, reads the DB.
+        Use this from inside async ingester / service code where a
+        DB pool already exists. Falls back to the in-process cutoff
+        heuristic if the DB call fails.
+
+    default_target_date() — sync, no DB. Pure-python cutoff fallback
+        for tests, bootstrap, or argparse defaults where async isn't
+        available. Does NOT respect holidays — returns last weekday
+        on or before the boundary.
+
+For ingester entrypoints, the recommended pattern is:
+
+    p.add_argument("--date", type=_d, default=None)
+    a = p.parse_args()
+    asyncio.run(_main_async(a))
+
+    async def _main_async(args):
+        target = args.date or await last_market_close_date()
+        await run(target)
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
+from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
-def default_target_date() -> date:
-    """Yesterday in IST. Used as the default for any ingester whose
-    upstream publishes after Indian market close."""
-    return (datetime.now(IST) - timedelta(days=1)).date()
-
-
 def today_ist() -> date:
-    """Today in IST (rarely the right default — most NSE files lag).
-    Use this only for jobs scheduled to run after 18:00 IST."""
     return datetime.now(IST).date()
+
+
+def default_target_date() -> date:
+    """Sync fallback: cutoff-aware "last close" without DB / holidays.
+
+    Logic: if now is past 18:30 IST, today; else yesterday.
+    Walks back to most recent weekday so Mondays don't return Sunday.
+    """
+    now_ist = datetime.now(IST)
+    cutoff = now_ist.replace(hour=18, minute=30, second=0, microsecond=0)
+    boundary = now_ist.date() if now_ist >= cutoff else (now_ist - timedelta(days=1)).date()
+    # Walk back to a weekday (Mon=0 .. Sun=6).
+    while boundary.weekday() >= 5:
+        boundary -= timedelta(days=1)
+    return boundary
+
+
+async def last_market_close_date(market: str = "NSE_EQ") -> date:
+    """Reads nidp.v_market_session — single DB-backed source of truth.
+
+    Falls back to default_target_date() if the DB call fails (e.g.
+    fresh deployment before nse_calendar has run).
+    """
+    try:
+        # Local import: keep this module importable from sync contexts
+        # (tests, scripts) without dragging asyncpg into the import graph.
+        from nidp.shared.storage.pg import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            d = await conn.fetchval(
+                "SELECT last_close_date FROM nidp.v_market_session WHERE market = $1",
+                market,
+            )
+            if d:
+                return d
+            logger.warning("v_market_session has no row for market=%s", market)
+    except Exception as e:                                          # noqa: BLE001
+        logger.warning(
+            "last_market_close_date DB lookup failed: %s — falling back to "
+            "in-process cutoff heuristic", e,
+        )
+    return default_target_date()
+
+
+async def bump_market_session(target_date: date, market: str = "NSE_EQ") -> None:
+    """Update nidp.market_session_state to reflect a successfully-
+    ingested target_date. Idempotent: only writes if the new date is
+    >= stored last_close_date (we never go backwards).
+    """
+    try:
+        from nidp.shared.storage.pg import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO nidp.market_session_state
+                    (market, last_close_date, last_close_observed_at, updated_at)
+                VALUES ($1, $2, NOW(), NOW())
+                ON CONFLICT (market) DO UPDATE SET
+                    last_close_date        = GREATEST(market_session_state.last_close_date,
+                                                      EXCLUDED.last_close_date),
+                    last_close_observed_at = CASE
+                        WHEN EXCLUDED.last_close_date >= market_session_state.last_close_date
+                            THEN NOW()
+                        ELSE market_session_state.last_close_observed_at
+                    END,
+                    updated_at             = NOW()
+                """,
+                market, target_date,
+            )
+    except Exception:                                              # noqa: BLE001
+        logger.exception("bump_market_session failed (target=%s)", target_date)
