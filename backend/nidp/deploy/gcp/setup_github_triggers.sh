@@ -23,8 +23,11 @@ set -uo pipefail
 
 PROJECT="${GCP_PROJECT:-niveshdataintelligence}"
 REGION="${GCP_REGION:-asia-south1}"
-GH_OWNER="${GH_OWNER:-amitporwal107}"
-GH_REPO="${GH_REPO:-nivesh.ai}"
+# 2nd-gen Cloud Build "host connection" + linked repository.
+# These names come from the Cloud Build Console → Repositories page.
+# Override via env if your connection has different names.
+CB_CONNECTION="${CB_CONNECTION:-nivesh}"
+CB_REPOSITORY="${CB_REPOSITORY:-amitporwal107-nivesh.ai}"
 BRANCH_PATTERN='^nidp$'
 
 DRY=""
@@ -61,21 +64,22 @@ else
 fi
 
 # ── Pre-flight ──────────────────────────────────────────────────────
-log "project=$PROJECT region=$REGION repo=$GH_OWNER/$GH_REPO ${DRY:+(dry-run)} ${REPLACE:+(replace)}"
+REPO_RESOURCE="projects/$PROJECT/locations/$REGION/connections/$CB_CONNECTION/repositories/$CB_REPOSITORY"
+log "project=$PROJECT region=$REGION ${DRY:+(dry-run)} ${REPLACE:+(replace)}"
+log "repo:    $REPO_RESOURCE"
 
-# Verify GitHub repo connection. List connected repos; if ours isn't
-# there, point the user at the Console.
-if ! gcloud builds repositories list --connection=projects/$PROJECT/locations/$REGION/connections/* \
-        --project=$PROJECT --format='value(name)' 2>/dev/null | grep -q "$GH_REPO"; then
-    if ! gcloud builds triggers list --project=$PROJECT --format='value(github.name)' 2>/dev/null \
-            | grep -q "$GH_REPO"; then
-        warn "GitHub repo not detected as connected to Cloud Build."
-        warn "  Open: https://console.cloud.google.com/cloud-build/repositories?project=$PROJECT"
-        warn "  Click 'Connect Repository' → GitHub → $GH_OWNER/$GH_REPO"
-        warn "  Then re-run this script."
-        # Continue anyway — gcloud will fail with a clearer error if truly missing.
-    fi
+# Verify the connection + repository exist (2nd-gen).
+if ! gcloud builds repositories describe "$CB_REPOSITORY" \
+        --connection="$CB_CONNECTION" --region="$REGION" \
+        --project="$PROJECT" &>/dev/null; then
+    err "Cloud Build connection '$CB_CONNECTION' or repository '$CB_REPOSITORY' not found in $REGION."
+    err "  Available connections + repos:"
+    gcloud builds connections list --region="$REGION" --project="$PROJECT" \
+        --format='table(name.basename())' 2>&1 | sed 's/^/      /'
+    err "  Override via env: CB_CONNECTION=... CB_REPOSITORY=... ./setup_github_triggers.sh"
+    exit 1
 fi
+ok "connection + repo verified"
 
 # Cloud Build's default SA — needed for IAP tunnel (migration trigger).
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)' 2>/dev/null)
@@ -101,16 +105,17 @@ create_trigger() {
     local subs=("$@")
 
     if [[ -n "$REPLACE" ]] && gcloud builds triggers describe "$name" \
-            --project=$PROJECT &>/dev/null; then
+            --region="$REGION" --project=$PROJECT &>/dev/null; then
         if [[ -n "$DRY" ]]; then
             log "DRY-RUN  delete trigger $name"
         else
-            gcloud builds triggers delete "$name" --project=$PROJECT --quiet >/dev/null 2>&1 || true
+            gcloud builds triggers delete "$name" \
+                --region="$REGION" --project=$PROJECT --quiet >/dev/null 2>&1 || true
             log "deleted $name"
         fi
     fi
 
-    if gcloud builds triggers describe "$name" --project=$PROJECT &>/dev/null; then
+    if gcloud builds triggers describe "$name" --region="$REGION" --project=$PROJECT &>/dev/null; then
         ok "$name  (already exists)"
         return
     fi
@@ -125,24 +130,30 @@ create_trigger() {
         return
     fi
 
+    # 2nd-gen syntax: --repository=<full resource name>; the
+    # `gcloud builds triggers create github` subcommand still works
+    # for 2nd-gen as long as you pass --repository instead of
+    # --repo-owner/--repo-name.
     if gcloud builds triggers create github \
             --name="$name" \
-            --repo-owner="$GH_OWNER" --repo-name="$GH_REPO" \
+            --repository="$REPO_RESOURCE" \
             --branch-pattern="$BRANCH_PATTERN" \
             --included-files="$included" \
             --build-config="$cfg" \
             --substitutions="$sub_csv" \
+            --region="$REGION" \
             --project=$PROJECT --quiet >/dev/null 2>&1; then
         ok "$name"
     else
         err "$name failed — full error:"
         gcloud builds triggers create github \
             --name="$name" \
-            --repo-owner="$GH_OWNER" --repo-name="$GH_REPO" \
+            --repository="$REPO_RESOURCE" \
             --branch-pattern="$BRANCH_PATTERN" \
             --included-files="$included" \
             --build-config="$cfg" \
             --substitutions="$sub_csv" \
+            --region="$REGION" \
             --project=$PROJECT 2>&1 | sed 's/^/    /'
     fi
 }
@@ -177,4 +188,4 @@ fi
 
 echo
 log "done. List triggers:"
-log "  gcloud builds triggers list --project=$PROJECT --format='table(name,filename,github.push.branch)' | grep nidp-"
+log "  gcloud builds triggers list --region=$REGION --project=$PROJECT --format='table(name,filename)' | grep nidp-"
