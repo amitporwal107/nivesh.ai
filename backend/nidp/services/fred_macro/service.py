@@ -1,20 +1,26 @@
 """FRED macro ingester.
 
-Iterates SERIES_CATALOG and fetches each series' CSV from FRED.
-Multi-URL ingester pattern (similar to index_constituents): one
-JobRun spans all series; per-series failures are isolated.
+Iterates SERIES_CATALOG and fetches each series from the authenticated
+FRED API. Multi-URL ingester pattern (similar to index_constituents):
+one JobRun spans all series; per-series failures are isolated.
 
-FRED's fredgraph.csv endpoint:
-    https://fred.stlouisfed.org/graph/fredgraph.csv?id={SERIES_ID}
-returns full history (no date params). We persist all of it
-(append-only, ON CONFLICT no-op for already-stored dates).
+Endpoint:
+    https://api.stlouisfed.org/fred/series/observations
+        ?series_id={SERIES_ID}&api_key={KEY}&file_type=json
+
+We previously hit the unauthenticated `fredgraph.csv` graph-download
+endpoint — FRED started returning HTML/302 to cloud-IP egress, so
+every series failed and the validation "all 8 FRED series failed"
+fired (job_log 2026-05-06 13:15:01 + 02:36:02). The supported API
+endpoint requires an API key but is stable for programmatic use.
 
 Suitable for both initial backfill (one shot) and daily refresh
-(re-fetches but only new dates change).
+(re-fetches but only changed values write — ON CONFLICT in writer).
 """
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from datetime import date
 from typing import Optional
@@ -28,32 +34,52 @@ from nidp.shared.metrics import (
 )
 from nidp.shared.storage.job_log import JobRun
 
-from .parser import SERIES_CATALOG, parse_fred_csv
+from .parser import SERIES_CATALOG, parse_fred_observations
 from .writer import SOURCE_NAME, upsert_fred
 
 logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "fred_macro"
-FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+FRED_API_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 
-async def _fetch_series(session: aiohttp.ClientSession, series_id: str) -> tuple[Optional[bytes], int]:
-    url = FRED_CSV_URL.format(series_id=series_id)
+async def _fetch_series(
+    session: aiohttp.ClientSession, series_id: str, api_key: str,
+) -> tuple[Optional[bytes], int]:
+    """Fetch one series. Returns (body, status). On exception, body=None and
+    status=0; the exception is logged so failures are debuggable (we used
+    to swallow them silently and surface only "all N failed")."""
+    params = {"series_id": series_id, "api_key": api_key, "file_type": "json"}
     try:
         with time_fetch(SOURCE_NAME):
-            async with session.get(url) as resp:
+            async with session.get(FRED_API_URL, params=params) as resp:
                 body = await resp.read()
                 SOURCE_FETCH.labels(source=SOURCE_NAME, status=str(resp.status)).inc()
                 if resp.status != 200:
+                    logger.warning(
+                        "FRED %s: HTTP %s, first 200 bytes: %r",
+                        series_id, resp.status, body[:200],
+                    )
                     return None, resp.status
                 return body, resp.status
-    except Exception:
+    except Exception as e:                                              # noqa: BLE001
         SOURCE_FETCH.labels(source=SOURCE_NAME, status="error").inc()
+        logger.warning("FRED %s: %s: %s", series_id, type(e).__name__, e)
         return None, 0
 
 
 async def run(target_date: Optional[date] = None) -> uuid.UUID:
     bind_context(service=SERVICE_NAME)
+    api_key = os.environ.get("FRED_API_KEY", "").strip()
+    if not api_key:
+        # Fail fast — JobRun.__aexit__ records this as FAILED with the
+        # exception message, which is far more actionable than "all N failed".
+        raise RuntimeError(
+            "FRED_API_KEY env var is required. Get a free key at "
+            "https://fredaccount.stlouisfed.org/apikeys and store it in "
+            "Secret Manager as FRED_API_KEY (mounted by deploy.sh)."
+        )
+
     series_ids = list(SERIES_CATALOG.keys())
 
     async with JobRun(ingester=SERVICE_NAME, target_date=target_date) as run_:
@@ -64,22 +90,22 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
-                headers={"User-Agent": DEFAULT_UA, "Accept": "text/csv"},
+                headers={"User-Agent": DEFAULT_UA, "Accept": "application/json"},
             ) as session:
                 for sid in series_ids:
-                    body, status = await _fetch_series(session, sid)
+                    body, status = await _fetch_series(session, sid, api_key)
                     if not body:
-                        logger.warning("FRED series %s: status=%s, skipping", sid, status)
                         total_failed += 1
                         continue
                     try:
-                        rows = parse_fred_csv(body, series_id=sid)
+                        rows = parse_fred_observations(body, series_id=sid)
                     except Exception as e:                                  # noqa: BLE001
-                        logger.warning("FRED series %s parse failed: %s", sid, e)
+                        logger.warning("FRED %s parse failed: %s: %s",
+                                       sid, type(e).__name__, e)
                         total_failed += 1
                         continue
                     if not rows:
-                        logger.info("FRED series %s: no rows", sid)
+                        logger.info("FRED %s: no rows", sid)
                         continue
                     inserted = await upsert_fred(rows, run_.run_id)
                     total_inserted += inserted

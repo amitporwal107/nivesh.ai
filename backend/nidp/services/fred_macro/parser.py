@@ -1,20 +1,23 @@
-"""FRED CSV parser.
+"""FRED observations parser.
 
-The fredgraph.csv endpoint returns a 2-column CSV:
+The api.stlouisfed.org/fred/series/observations endpoint (file_type=json)
+returns:
 
-    DATE,DGS10
-    1962-01-02,4.06
-    1962-01-03,4.03
-    1962-01-04,.
-    ...
+    {
+      "observations": [
+        {"date": "1962-01-02", "value": "4.06", ...},
+        {"date": "1962-01-03", "value": "4.03", ...},
+        {"date": "1962-01-04", "value": ".",    ...},  # missing
+        ...
+      ]
+    }
 
 Note: '.' (a literal period) is FRED's missing-value sentinel. We
 coerce to None — downstream queries treat NULL as "not observed."
 """
 from __future__ import annotations
 
-import csv
-import io
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -51,29 +54,38 @@ def _parse_date_iso(s: str) -> Optional[str]:
     return None
 
 
-def parse_fred_csv(body: bytes, *, series_id: str) -> list[dict[str, Any]]:
-    """Parse FRED's 2-column CSV into rows for nidp.fred_macro."""
+def parse_fred_observations(body: bytes, *, series_id: str) -> list[dict[str, Any]]:
+    """Parse FRED's JSON observations response into rows for nidp.fred_macro."""
     text = body.decode("utf-8-sig", errors="replace")
-    reader = csv.reader(io.StringIO(text))
-    headers = next(reader, None)
-    if not headers or len(headers) < 2:
-        return []
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"FRED {series_id}: invalid JSON ({e})") from e
+
+    if isinstance(payload, dict) and payload.get("error_code"):
+        raise ValueError(
+            f"FRED {series_id}: API error "
+            f"{payload.get('error_code')}: {payload.get('error_message')}"
+        )
+
+    observations = (payload or {}).get("observations") or []
+    if not isinstance(observations, list):
+        raise ValueError(f"FRED {series_id}: expected list of observations")
 
     name, units, frequency = SERIES_CATALOG.get(series_id, (series_id, None, None))
 
     rows: list[dict[str, Any]] = []
-    for raw in reader:
-        if not raw or len(raw) < 2:
+    for obs in observations:
+        if not isinstance(obs, dict):
             continue
-        d = _parse_date_iso(raw[0])
+        d = _parse_date_iso(str(obs.get("date") or ""))
         if not d:
             continue
-        v = _to_float(raw[1])
         rows.append({
             "as_of_date":  d,
             "series_id":   series_id,
             "series_name": name,
-            "value":       v,
+            "value":       _to_float(str(obs.get("value") or "")),
             "units":       units,
             "frequency":   frequency,
         })

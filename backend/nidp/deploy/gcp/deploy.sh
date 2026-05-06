@@ -161,6 +161,10 @@ declare -A JOB_ENVS=(
 )
 declare -A JOB_SECRETS=(
     [common]="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest,NIDP_KAFKA_BROKERS=NIDP_KAFKA_BROKERS:latest,NIDP_SCHEMA_REGISTRY_URL=NIDP_SCHEMA_REGISTRY_URL:latest,NIDP_REDIS_URL=NIDP_REDIS_URL:latest"
+    # fred_macro additionally needs FRED_API_KEY (api.stlouisfed.org auth).
+    # Create the secret once: `printf "%s" "<key>" | gcloud secrets create
+    # FRED_API_KEY --data-file=- --replication-policy=automatic`.
+    [fred_macro]="FRED_API_KEY=FRED_API_KEY:latest"
 )
 
 for svc in "${SVC_LIST[@]}"; do
@@ -169,6 +173,8 @@ for svc in "${SVC_LIST[@]}"; do
 
     IMG="$AR_REPO/$svc:$TAG"
     JOB_NAME="nidp-${svc//_/-}"
+    SECRETS_FOR_SVC="${JOB_SECRETS[common]}"
+    [[ -n "${JOB_SECRETS[$svc]:-}" ]] && SECRETS_FOR_SVC="$SECRETS_FOR_SVC,${JOB_SECRETS[$svc]}"
 
     # VPC connector required so Cloud Run jobs can reach the VM's
     # internal IP (where Postgres + Kafka live). private-ranges-only
@@ -185,7 +191,7 @@ for svc in "${SVC_LIST[@]}"; do
             --service-account='$SA_EMAIL' \
             $VPC_FLAGS \
             --set-env-vars='${JOB_ENVS[common]}' \
-            --set-secrets='${JOB_SECRETS[common]}' \
+            --set-secrets='${SECRETS_FOR_SVC}' \
             --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
             --quiet"
         log "  ✓ updated Cloud Run Job: $JOB_NAME"
@@ -196,7 +202,7 @@ for svc in "${SVC_LIST[@]}"; do
             --service-account='$SA_EMAIL' \
             $VPC_FLAGS \
             --set-env-vars='${JOB_ENVS[common]}' \
-            --set-secrets='${JOB_SECRETS[common]}' \
+            --set-secrets='${SECRETS_FOR_SVC}' \
             --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
             --quiet"
         if ! $DRY; then
