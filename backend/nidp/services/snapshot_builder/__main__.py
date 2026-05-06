@@ -19,7 +19,8 @@ def main() -> None:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=False)
 
-    p.add_argument("--date", type=_d, help="Build snapshot for this date.")
+    p.add_argument("--date", type=_d, default=None,
+                   help="Build snapshot for this date. Defaults to today.")
     p.add_argument("--force", action="store_true",
                    help="Build even if preflight fails (use with care).")
     p.add_argument("--metrics", action="store_true")
@@ -42,10 +43,8 @@ def main() -> None:
         asyncio.run(_show())
         return
 
-    if not a.date:
-        p.error("--date is required (unless using --status)")
-
-    asyncio.run(run(a.date, force=a.force))
+    target = a.date or date.today()
+    asyncio.run(run(target, force=a.force))
 
 
 if __name__ == "__main__":
