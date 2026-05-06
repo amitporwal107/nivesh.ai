@@ -43,6 +43,7 @@ from nidp.shared.storage.parsed_archive import (
     upsert_feed_snapshot as _upsert_feed_snapshot,
 )
 from nidp.shared.storage.raw_archive import store as store_raw
+from nidp.shared.trading_day import bump_market_session as _bump_market_session
 from nidp.shared.validation import run_validation as _run_validation
 from nidp.shared.validation.rules import FailureClass
 
@@ -56,6 +57,12 @@ class BaseIngester(abc.ABC):
     AVRO_SCHEMA: str = ""                # filename stem under contracts/
     INGESTION_COMPLETED_TOPIC: str = "nidp.ingestion_completed.v1"
     INGESTION_COMPLETED_SCHEMA: str = "ingestion_completed_v1"
+    # Set to True on the canonical "this trading day is closed" feed
+    # (bhavcopy). Successful runs of that feed bump
+    # nidp.market_session_state, which other ingesters read for their
+    # default target_date. Other feeds shouldn't bump it because their
+    # publish lag varies (e.g. delivery is T+1).
+    BUMPS_MARKET_SESSION: bool = False
 
     # ── Hooks subclasses implement ──────────────────────────────────
     @abc.abstractmethod
@@ -225,6 +232,21 @@ class BaseIngester(abc.ABC):
                             "event SUPPRESSED (run_id=%s)",
                             self.SERVICE_NAME, run.run_id,
                         )
+
+                    # 7b. Bump the canonical market-session marker when
+                    # the authoritative "trading day closed" feed
+                    # (bhavcopy) lands a non-BLOCK run with a target_date.
+                    # Other feeds read this in their default-date logic.
+                    if (self.BUMPS_MARKET_SESSION
+                            and target_date is not None
+                            and not validation.has_block):
+                        try:
+                            await _bump_market_session(target_date)
+                        except Exception:                              # noqa: BLE001
+                            logger.exception(
+                                "bump_market_session failed (target=%s) "
+                                "— continuing", target_date,
+                            )
 
                     # 8. Final status reflects both ingestion + validation
                     if validation.has_block:
