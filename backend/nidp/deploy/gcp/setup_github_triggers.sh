@@ -99,6 +99,11 @@ if [[ -n "$PROJECT_NUMBER" ]]; then
 fi
 
 # ── Helper to create / replace one trigger ──────────────────────────
+# 2nd-gen Cloud Build triggers are declarative — the cleanest API is
+# `gcloud builds triggers import` reading a YAML file. Subcommand
+# `triggers create github` historically only accepts 1st-gen flags;
+# even with --repository it rejects 2nd-gen field shapes with
+# generic INVALID_ARGUMENT.
 create_trigger() {
     local name=$1 cfg=$2 included=$3
     shift 3
@@ -120,42 +125,60 @@ create_trigger() {
         return
     fi
 
-    # gcloud wants a single --substitutions flag with comma-separated
-    # KV pairs — repeating the flag drops all but the last value.
-    local sub_csv
-    sub_csv=$(IFS=,; echo "${subs[*]}")
+    # Build YAML body. Includes:
+    #   filename                — cloudbuild yaml path inside repo
+    #   includedFiles           — push paths that fire this trigger
+    #   substitutions           — kv pairs (must start with _)
+    #   repositoryEventConfig   — 2nd-gen repo + push event spec
+    local tmp_yaml
+    tmp_yaml=$(mktemp -t nidp-trigger.XXXXXX.yaml)
+
+    {
+        echo "name: $name"
+        echo "filename: $cfg"
+        echo "includedFiles:"
+        local IFS=','
+        for g in $included; do echo "  - $g"; done
+        unset IFS
+        if [[ ${#subs[@]} -gt 0 ]]; then
+            echo "substitutions:"
+            for kv in "${subs[@]}"; do
+                local k="${kv%%=*}" v="${kv#*=}"
+                echo "  $k: \"$v\""
+            done
+        fi
+        echo "repositoryEventConfig:"
+        echo "  repository: $REPO_RESOURCE"
+        echo "  push:"
+        # Strip the ^...$ anchors — the 2nd-gen API treats `branch` as a regex.
+        echo "    branch: ${BRANCH_PATTERN#^}"
+    } > "$tmp_yaml"
+    # Trim trailing $ if BRANCH_PATTERN had it
+    sed -i.bak -E 's/(branch: [^$]+)\$/\1/' "$tmp_yaml" 2>/dev/null || true
+    rm -f "$tmp_yaml.bak" 2>/dev/null
 
     if [[ -n "$DRY" ]]; then
-        log "DRY-RUN  create $name (config=$cfg, included=$included, subs=$sub_csv)"
+        log "DRY-RUN  import $name"
+        sed 's/^/    /' "$tmp_yaml"
+        rm -f "$tmp_yaml"
         return
     fi
 
-    # 2nd-gen syntax: --repository=<full resource name>; the
-    # `gcloud builds triggers create github` subcommand still works
-    # for 2nd-gen as long as you pass --repository instead of
-    # --repo-owner/--repo-name.
-    if gcloud builds triggers create github \
-            --name="$name" \
-            --repository="$REPO_RESOURCE" \
-            --branch-pattern="$BRANCH_PATTERN" \
-            --included-files="$included" \
-            --build-config="$cfg" \
-            --substitutions="$sub_csv" \
+    if gcloud builds triggers import \
+            --source="$tmp_yaml" \
             --region="$REGION" \
             --project=$PROJECT --quiet >/dev/null 2>&1; then
         ok "$name"
     else
-        err "$name failed — full error:"
-        gcloud builds triggers create github \
-            --name="$name" \
-            --repository="$REPO_RESOURCE" \
-            --branch-pattern="$BRANCH_PATTERN" \
-            --included-files="$included" \
-            --build-config="$cfg" \
-            --substitutions="$sub_csv" \
+        err "$name failed — YAML being submitted:"
+        sed 's/^/    /' "$tmp_yaml"
+        err "  full gcloud error:"
+        gcloud builds triggers import \
+            --source="$tmp_yaml" \
             --region="$REGION" \
             --project=$PROJECT 2>&1 | sed 's/^/    /'
     fi
+    rm -f "$tmp_yaml"
 }
 
 # ── Per-service triggers ────────────────────────────────────────────
