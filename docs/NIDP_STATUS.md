@@ -151,7 +151,7 @@ SELECT 'stock_daily_snapshot',
 -- BLOCK / FIX findings open right now
 SELECT failure_class, count(*)
   FROM nidp.validation_findings
- WHERE created_at > NOW() - INTERVAL '7 days'
+ WHERE detected_at > NOW() - INTERVAL '7 days'
  GROUP BY failure_class
  ORDER BY count(*) DESC;
 "
@@ -276,7 +276,7 @@ SELECT * FROM nidp.v_market_session;
 \echo === RECENT VALIDATION FINDINGS ===
 SELECT failure_class, severity, count(*)
   FROM nidp.validation_findings
- WHERE created_at > NOW() - INTERVAL '7 days'
+ WHERE detected_at > NOW() - INTERVAL '7 days'
  GROUP BY 1, 2 ORDER BY 1, 2;
 SQL
 ```
