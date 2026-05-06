@@ -130,8 +130,9 @@ create_trigger() {
     #   includedFiles           — push paths that fire this trigger
     #   substitutions           — kv pairs (must start with _)
     #   repositoryEventConfig   — 2nd-gen repo + push event spec
-    local tmp_yaml
-    tmp_yaml=$(mktemp -t nidp-trigger.XXXXXX.yaml)
+    #
+    # Use a deterministic path so the user can inspect / hand-import.
+    local tmp_yaml="/tmp/nidp-trigger-${name}.yaml"
 
     {
         echo "name: $name"
@@ -158,9 +159,7 @@ create_trigger() {
     rm -f "$tmp_yaml.bak" 2>/dev/null
 
     if [[ -n "$DRY" ]]; then
-        log "DRY-RUN  import $name"
-        sed 's/^/    /' "$tmp_yaml"
-        rm -f "$tmp_yaml"
+        log "DRY-RUN  YAML written to $tmp_yaml"
         return
     fi
 
@@ -169,16 +168,19 @@ create_trigger() {
             --region="$REGION" \
             --project=$PROJECT --quiet >/dev/null 2>&1; then
         ok "$name"
+        rm -f "$tmp_yaml"
     else
         err "$name failed — YAML being submitted:"
         sed 's/^/    /' "$tmp_yaml"
-        err "  full gcloud error:"
+        err "  re-running with --verbosity=debug to surface the field error:"
         gcloud builds triggers import \
             --source="$tmp_yaml" \
             --region="$REGION" \
-            --project=$PROJECT 2>&1 | sed 's/^/    /'
+            --project=$PROJECT --verbosity=debug 2>&1 | \
+            grep -E 'fieldViolations|description|message|@type|reason|metadata|field' | \
+            sed 's/^/    /' | head -40
+        warn "  YAML kept at $tmp_yaml for hand inspection / retry"
     fi
-    rm -f "$tmp_yaml"
 }
 
 # ── Per-service triggers ────────────────────────────────────────────
