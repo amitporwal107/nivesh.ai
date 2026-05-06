@@ -134,9 +134,25 @@ create_trigger() {
     # Use a deterministic path so the user can inspect / hand-import.
     local tmp_yaml="/tmp/nidp-trigger-${name}.yaml"
 
+    # Schema observed via `triggers describe` on a known-good trigger:
+    #
+    #   filename: ...
+    #   includedFiles: [...]
+    #   substitutions: {...}
+    #   serviceAccount: projects/<P>/serviceAccounts/<N>-compute@developer.gserviceaccount.com
+    #   repositoryEventConfig:
+    #     repositoryType: GITHUB
+    #     repository: <full resource name>
+    #     push:
+    #       branch: ^nidp$         (regex; KEEP the ^...$ anchors)
+    #
+    # serviceAccount must be set; the API rejects 2nd-gen triggers
+    # without it. Compute default SA is what the Console picks too.
+    local SA_PATH="projects/$PROJECT/serviceAccounts/${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
     {
         echo "name: $name"
         echo "filename: $cfg"
+        echo "serviceAccount: $SA_PATH"
         echo "includedFiles:"
         local IFS=','
         for g in $included; do echo "  - $g"; done
@@ -149,14 +165,11 @@ create_trigger() {
             done
         fi
         echo "repositoryEventConfig:"
+        echo "  repositoryType: GITHUB"
         echo "  repository: $REPO_RESOURCE"
         echo "  push:"
-        # Strip the ^...$ anchors — the 2nd-gen API treats `branch` as a regex.
-        echo "    branch: ${BRANCH_PATTERN#^}"
+        echo "    branch: $BRANCH_PATTERN"
     } > "$tmp_yaml"
-    # Trim trailing $ if BRANCH_PATTERN had it
-    sed -i.bak -E 's/(branch: [^$]+)\$/\1/' "$tmp_yaml" 2>/dev/null || true
-    rm -f "$tmp_yaml.bak" 2>/dev/null
 
     if [[ -n "$DRY" ]]; then
         log "DRY-RUN  YAML written to $tmp_yaml"
