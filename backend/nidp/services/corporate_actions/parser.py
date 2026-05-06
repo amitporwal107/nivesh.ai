@@ -34,11 +34,23 @@ _BOARD_RE = re.compile(r"BOARD MEETING|BOARD MTG", re.I)
 
 
 def _classify(purpose: str) -> tuple[str, Optional[str], dict[str, Any]]:
-    """Returns (action_type, action_subtype, extracted_fields)."""
+    """Returns (action_type, action_subtype, extracted_fields).
+
+    Two-tier match: try the *structured* regexes first (they extract
+    numeric fields like dividend amount, split ratio). If none match,
+    fall through to keyword detection (type only, no extraction).
+    Anything still unrecognised becomes OTHER.
+
+    Without the keyword tier, NSE strings like 'Dividend' (no amount),
+    'Annual General Meeting' (vs 'AGM'), 'Postal Ballot', 'EGM',
+    'Open Offer' all fell to OTHER and tripped the
+    other_ratio_not_dominant validation.
+    """
     if not purpose:
         return "OTHER", None, {}
     p = purpose.strip()
 
+    # ── Tier 1: structured regexes (with extraction) ────────────────
     m = _DIV_RE.search(p)
     if m:
         return ("DIVIDEND", (m.group("sub") or "").upper() or None,
@@ -60,11 +72,30 @@ def _classify(purpose: str) -> tuple[str, Optional[str], dict[str, Any]]:
     if m:
         return "RIGHTS", None, {"ratio": f"{m.group('num')}:{m.group('den')}"}
 
-    if _BUYBACK_RE.search(p):  return "BUYBACK", None, {}
-    if _DEMERGER_RE.search(p): return "DEMERGER", None, {}
-    if _MERGER_RE.search(p):   return "MERGER", None, {}
-    if _AGM_RE.search(p):      return "AGM", None, {}
-    if _BOARD_RE.search(p):    return "BOARD_MEETING", None, {}
+    # ── Tier 2: keyword fallbacks (type-only, no extraction) ────────
+    up = p.upper()
+
+    if _BUYBACK_RE.search(p):                                     return "BUYBACK",       None, {}
+    if _DEMERGER_RE.search(p) or "SCHEME" in up:                  return "DEMERGER",      None, {}
+    if _MERGER_RE.search(p):                                      return "MERGER",        None, {}
+    if "OPEN OFFER" in up or "TENDER OFFER" in up:                return "OPEN_OFFER",    None, {}
+    if "DELIST" in up:                                            return "DELISTING",     None, {}
+    if "CAPITAL REDUCTION" in up or "REDUCTION OF CAPITAL" in up: return "CAPITAL_REDUCTION", None, {}
+    if "SPIN" in up and "OFF" in up:                              return "SPIN_OFF",      None, {}
+    if "ESOP" in up or "EMPLOYEE STOCK" in up:                    return "ESOP",          None, {}
+
+    # Bare-keyword DIVIDEND/BONUS/RIGHTS/SPLIT (no amount/ratio in text)
+    if "DIVIDEND" in up or up.startswith("DIV"):                  return "DIVIDEND",      None, {}
+    if "BONUS" in up:                                             return "BONUS",         None, {}
+    if "RIGHTS" in up:                                            return "RIGHTS",        None, {}
+    if "SPLIT" in up or "SUB-DIVISION" in up:                     return "SPLIT",         None, {}
+
+    # Meetings (AGM/EGM/Postal Ballot)
+    if _AGM_RE.search(p) or "ANNUAL GENERAL MEETING" in up:       return "AGM",           None, {}
+    if "EGM" in up or "EXTRA-ORDINARY GENERAL MEETING" in up \
+            or "EXTRAORDINARY GENERAL MEETING" in up:             return "EGM",           None, {}
+    if "POSTAL BALLOT" in up:                                     return "POSTAL_BALLOT", None, {}
+    if _BOARD_RE.search(p):                                       return "BOARD_MEETING", None, {}
 
     return "OTHER", None, {}
 
