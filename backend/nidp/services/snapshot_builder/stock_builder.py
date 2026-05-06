@@ -71,10 +71,17 @@ ca_upcoming AS (
      WHERE ex_date > $1::date AND ex_date <= ($1::date + INTERVAL '7 days')
      GROUP BY symbol
 ),
-n50 AS (SELECT symbol FROM cons_eff WHERE index_name ILIKE 'Nifty 50%'),
-n100 AS (SELECT symbol FROM cons_eff WHERE index_name ILIKE 'Nifty 100%'),
-n500 AS (SELECT symbol FROM cons_eff WHERE index_name ILIKE 'Nifty 500%'),
-ind500 AS (SELECT DISTINCT symbol, industry FROM cons_eff WHERE index_name ILIKE 'Nifty 500%')
+-- Exact match (not ILIKE 'Nifty 50%') because the % wildcard would
+-- also match 'Nifty 500', causing a symbol in BOTH Nifty 50 and
+-- Nifty 500 to appear twice in n50 — which fans out the join and
+-- breaks the (symbol, as_of_date, series) PK on insert.
+n50  AS (SELECT DISTINCT symbol FROM cons_eff WHERE index_name = 'Nifty 50'),
+n100 AS (SELECT DISTINCT symbol FROM cons_eff WHERE index_name = 'Nifty 100'),
+n500 AS (SELECT DISTINCT symbol FROM cons_eff WHERE index_name = 'Nifty 500'),
+-- DISTINCT ON (symbol) handles the case where the same symbol has
+-- two industry values in the constituent file (data error upstream).
+ind500 AS (SELECT DISTINCT ON (symbol) symbol, industry
+             FROM cons_eff WHERE index_name = 'Nifty 500')
 INSERT INTO nidp.stock_daily_snapshot (
     symbol, as_of_date, series, isin,
     open_price, high_price, low_price, close_price, prev_close,
