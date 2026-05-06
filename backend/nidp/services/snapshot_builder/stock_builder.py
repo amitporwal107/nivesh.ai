@@ -118,10 +118,20 @@ SELECT
     $2,                                                     -- build_run_id
     NOW()
   FROM nidp.prices_eod p
-  LEFT JOIN nidp.delivery_data d
-    ON d.as_of_date = p.as_of_date
-   AND d.symbol = p.symbol
-   AND d.series = p.series
+  -- delivery_data PK is (date, symbol, series, source). Without
+  -- filtering by source the join fans out if any past run wrote
+  -- under a different source name (or some other feed ever
+  -- populated this table) — producing duplicate (symbol,
+  -- as_of_date, series) on insert. Pin to the canonical source.
+  LEFT JOIN LATERAL (
+      SELECT deliverable_qty, deliverable_pct, as_of_date
+        FROM nidp.delivery_data dd
+       WHERE dd.as_of_date = p.as_of_date
+         AND dd.symbol     = p.symbol
+         AND dd.series     = p.series
+         AND dd.source     = 'NSE_SEC_BHAVDATA'
+       LIMIT 1
+  ) d ON TRUE
   LEFT JOIN n50    ON n50.symbol  = p.symbol
   LEFT JOIN n100   ON n100.symbol = p.symbol
   LEFT JOIN n500   ON n500.symbol = p.symbol
@@ -132,6 +142,36 @@ SELECT
  WHERE p.as_of_date = $1::date
    AND p.series IN ('EQ','BE','BZ','SM')
    AND p.source = 'NSE_BHAVCOPY'
+ON CONFLICT (symbol, as_of_date, series) DO UPDATE SET
+    isin               = EXCLUDED.isin,
+    open_price         = EXCLUDED.open_price,
+    high_price         = EXCLUDED.high_price,
+    low_price          = EXCLUDED.low_price,
+    close_price        = EXCLUDED.close_price,
+    prev_close         = EXCLUDED.prev_close,
+    volume             = EXCLUDED.volume,
+    turnover           = EXCLUDED.turnover,
+    trades             = EXCLUDED.trades,
+    return_1d_pct      = EXCLUDED.return_1d_pct,
+    deliv_qty          = EXCLUDED.deliv_qty,
+    deliv_pct          = EXCLUDED.deliv_pct,
+    in_nifty50         = EXCLUDED.in_nifty50,
+    in_nifty100        = EXCLUDED.in_nifty100,
+    in_nifty500        = EXCLUDED.in_nifty500,
+    industry           = EXCLUDED.industry,
+    bulk_deal_count    = EXCLUDED.bulk_deal_count,
+    bulk_buy_qty       = EXCLUDED.bulk_buy_qty,
+    bulk_sell_qty      = EXCLUDED.bulk_sell_qty,
+    block_deal_count   = EXCLUDED.block_deal_count,
+    block_buy_qty      = EXCLUDED.block_buy_qty,
+    block_sell_qty     = EXCLUDED.block_sell_qty,
+    has_upcoming_ca    = EXCLUDED.has_upcoming_ca,
+    upcoming_ca_types  = EXCLUDED.upcoming_ca_types,
+    prices_as_of       = EXCLUDED.prices_as_of,
+    delivery_as_of     = EXCLUDED.delivery_as_of,
+    constituents_as_of = EXCLUDED.constituents_as_of,
+    build_run_id       = EXCLUDED.build_run_id,
+    built_at           = EXCLUDED.built_at
 """
 
 
@@ -142,11 +182,10 @@ async def build_stocks(
 ) -> StockBuildResult:
     res = StockBuildResult()
 
+    # Pure UPSERT — no DELETE+INSERT. Same target row is overwritten
+    # if it already exists, so retries are idempotent and a stray
+    # join-fan-out can't crash the whole batch.
     async with conn.transaction():
-        await conn.execute(
-            "DELETE FROM nidp.stock_daily_snapshot WHERE as_of_date = $1::date",
-            target_date,
-        )
         result = await conn.execute(_BUILD_SQL, target_date, build_run_id)
 
     # asyncpg returns "INSERT 0 N" on bulk insert
