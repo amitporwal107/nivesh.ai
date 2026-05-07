@@ -35,6 +35,7 @@ from routes.admin_datastores import router as admin_datastores_router
 from routes.admin_rules import router as admin_rules_router
 from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
+from routes.admin_nidp import router as admin_nidp_router  # NIDP one-click diagnostic dump
 from routes.copilot_prompts import router as copilot_prompts_router
 from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
 from routes.gmail import router as gmail_router
@@ -62,6 +63,7 @@ from routes.cas_transactions import router as cas_transactions_router  # SIP det
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
 from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
 from routes.positional import router as positional_router  # Positional Trading Engine (technical, 5-30d)
+from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -79,6 +81,7 @@ app.include_router(admin_v3_stock_router)
 app.include_router(admin_datastores_router)
 app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
+app.include_router(admin_nidp_router)
 app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
 app.include_router(gmail_router)
@@ -108,6 +111,7 @@ app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
 app.include_router(positional_router)              # Positional Trading Engine
+app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 
 
 # Root endpoint
