@@ -111,5 +111,10 @@ async def get_feed_runs(ingester: str, limit: int = 20) -> Dict[str, Any]:
                           params={"limit": limit})
 
 
+async def get_feed_calendar(ingester: str, days: int = 7) -> Dict[str, Any]:
+    return await _request("GET", f"/feeds/{ingester}/calendar",
+                          params={"days": days})
+
+
 async def get_validation(limit: int = 50) -> Dict[str, Any]:
     return await _request("GET", "/validation", params={"limit": limit})

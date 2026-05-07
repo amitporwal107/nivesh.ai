@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import {
   PlayCircle, RefreshCw, Loader2, ChevronDown, ChevronRight,
-  CheckCircle2, XCircle, AlertTriangle, Clock, FileText,
+  CheckCircle2, XCircle, AlertTriangle, Clock, FileText, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -80,11 +80,19 @@ export default function NidpJobsPanel() {
   const loadRuns = useCallback(async (ingester) => {
     setActing(s => ({ ...s, [ingester]: "runs" }));
     try {
-      const r = await axios.get(
-        `${API}/api/admin/nidp/jobs/${ingester}/runs?limit=10`,
-        { withCredentials: true },
-      );
-      setExpanded(s => ({ ...s, [ingester]: { ...(s[ingester] || {}), runs: r.data?.runs || [] } }));
+      const [runsR, calR] = await Promise.all([
+        axios.get(`${API}/api/admin/nidp/jobs/${ingester}/runs?limit=20`, { withCredentials: true }),
+        axios.get(`${API}/api/admin/nidp/jobs/${ingester}/calendar?days=7`, { withCredentials: true }),
+      ]);
+      setExpanded(s => ({
+        ...s,
+        [ingester]: {
+          ...(s[ingester] || {}),
+          runs:     runsR.data?.runs || [],
+          job_name: runsR.data?.job_name,
+          calendar: calR.data?.calendar || [],
+        },
+      }));
     } catch (e) {
       toast.error(`Runs fetch failed: ${e?.response?.data?.detail || e.message}`);
     } finally {
@@ -170,11 +178,12 @@ export default function NidpJobsPanel() {
                   <th className="px-2 py-2 w-6"></th>
                   <th className="px-2 py-2">Ingester</th>
                   <th className="px-2 py-2">Cadence</th>
+                  <th className="px-2 py-2">Schedule</th>
                   <th className="px-2 py-2">Status</th>
                   <th className="px-2 py-2">Streak</th>
                   <th className="px-2 py-2">Last run</th>
+                  <th className="px-2 py-2">Last success</th>
                   <th className="px-2 py-2">Rows in</th>
-                  <th className="px-2 py-2">Image</th>
                   <th className="px-2 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -198,7 +207,10 @@ export default function NidpJobsPanel() {
                           </button>
                         </td>
                         <td className="px-2 py-2 font-mono text-slate-900 dark:text-slate-100">{j.ingester}</td>
-                        <td className="px-2 py-2 text-slate-500">{j.cadence}</td>
+                        <td className="px-2 py-2 text-slate-500">{j.expected_freq || j.cadence}</td>
+                        <td className="px-2 py-2 font-mono text-[10px] text-slate-500" title={j.schedule_cron || ""}>
+                          {j.schedule_cron || "—"}
+                        </td>
                         <td className="px-2 py-2">
                           <span className="inline-flex items-center gap-1.5">
                             <span className={`inline-block w-2 h-2 rounded-full ${style.dot}`} />
@@ -211,10 +223,10 @@ export default function NidpJobsPanel() {
                         <td className="px-2 py-2 text-slate-500" title={j.last_run_at || ""}>
                           {relTime(j.last_run_at)}
                         </td>
-                        <td className="px-2 py-2 text-slate-500">{j.last_rows_inserted ?? "—"}</td>
-                        <td className="px-2 py-2 text-[10px] text-slate-400 max-w-[200px] truncate" title={j.image || ""}>
-                          {j.image ? j.image.split("/").pop() : "—"}
+                        <td className="px-2 py-2 text-slate-500" title={j.last_success_at || ""}>
+                          {relTime(j.last_success_at)}
                         </td>
+                        <td className="px-2 py-2 text-slate-500">{j.last_rows_inserted ?? "—"}</td>
                         <td className="px-2 py-2 text-right">
                           <button
                             type="button"
@@ -230,7 +242,7 @@ export default function NidpJobsPanel() {
 
                       {isOpen && (
                         <tr className="bg-slate-50/60 dark:bg-slate-900/40">
-                          <td colSpan={9} className="px-2 py-3">
+                          <td colSpan={10} className="px-2 py-3">
                             <ExpandedRow
                               ingester={j.ingester}
                               data={expanded[j.ingester] || {}}
@@ -238,6 +250,8 @@ export default function NidpJobsPanel() {
                               onLoadLogs={() => loadLogs(j.ingester)}
                               onReloadRuns={() => loadRuns(j.ingester)}
                               lastError={j.last_error_message}
+                              lastErrorLogsUrl={j.cloud_logs_url}
+                              recentLogsUrl={j.cloud_logs_url_24h}
                             />
                           </td>
                         </tr>
@@ -254,27 +268,102 @@ export default function NidpJobsPanel() {
   );
 }
 
-function ExpandedRow({ ingester, data, acting, onLoadLogs, onReloadRuns, lastError }) {
+const CAL_STYLES = {
+  OK:      "bg-emerald-500",
+  GREEN:   "bg-emerald-500",
+  PARTIAL: "bg-amber-500",
+  FAILED:  "bg-red-500",
+  SKIPPED: "bg-slate-300 dark:bg-slate-600",
+};
+
+function CalendarStrip({ calendar }) {
+  if (!calendar || calendar.length === 0) {
+    return <div className="text-[11px] text-slate-400 italic">No history.</div>;
+  }
+  // Render oldest → newest left → right (calendar is desc; reverse).
+  const cells = [...calendar].reverse();
+  return (
+    <div className="flex items-center gap-1">
+      {cells.map(c => {
+        const cls = c.status ? CAL_STYLES[c.status] : "bg-slate-200 dark:bg-slate-700";
+        const tip = c.status
+          ? `${c.date} · ${c.status} · ${c.run_count} run(s) · ${c.rows_total ?? 0} rows`
+          : `${c.date} · no run`;
+        return (
+          <div
+            key={c.date}
+            title={tip}
+            className={`h-5 flex-1 rounded ${cls}`}
+            style={{ minWidth: "20px" }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ExpandedRow({ ingester, data, acting, onLoadLogs, onReloadRuns, lastError, lastErrorLogsUrl, recentLogsUrl }) {
   const runs = data.runs || [];
   const logs = data.logs;
+  const calendar = data.calendar || [];
 
   return (
     <div className="space-y-3 pl-7 pr-2">
+      {/* 7-day calendar strip */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Last 7 days
+          </div>
+          <div className="text-[10px] text-slate-400">oldest → today (hover for details)</div>
+        </div>
+        <CalendarStrip calendar={calendar} />
+      </div>
+
+      {/* Last-error banner with direct Cloud Logs deep-link */}
       {lastError && (
-        <div className="rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-[11px] text-red-700 dark:text-red-300 font-mono break-all">
-          <strong className="font-sans">Last error:</strong> {lastError}
+        <div className="rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-[11px] text-red-700 dark:text-red-300 font-mono break-words whitespace-pre-wrap">
+          <div className="font-sans font-semibold mb-1 flex items-center justify-between">
+            <span>Last error</span>
+            {lastErrorLogsUrl && (
+              <a
+                href={lastErrorLogsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-red-700 dark:text-red-300 hover:underline text-[11px]"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Open in Cloud Console
+              </a>
+            )}
+          </div>
+          {lastError}
         </div>
       )}
 
+      {/* Recent runs table — Cloud Logs link per row */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Recent runs (nidp.job_log)
           </div>
-          <button onClick={onReloadRuns} disabled={acting === "runs"} className="text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">
-            {acting === "runs" ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-            reload
-          </button>
+          <div className="flex items-center gap-3">
+            {recentLogsUrl && (
+              <a
+                href={recentLogsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
+              >
+                <ExternalLink className="w-3 h-3" />
+                last 24h logs
+              </a>
+            )}
+            <button onClick={onReloadRuns} disabled={acting === "runs"} className="text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">
+              {acting === "runs" ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              reload
+            </button>
+          </div>
         </div>
         {runs.length === 0 && (
           <div className="text-[11px] text-slate-400 italic">No runs found in job_log.</div>
@@ -288,33 +377,53 @@ function ExpandedRow({ ingester, data, acting, onLoadLogs, onReloadRuns, lastErr
                 <th className="py-1">Duration</th>
                 <th className="py-1">Rows in / skip</th>
                 <th className="py-1">Error</th>
+                <th className="py-1 text-right">Logs</th>
               </tr>
             </thead>
             <tbody>
-              {runs.map(r => (
-                <tr key={r.run_id} className="border-t border-slate-200 dark:border-slate-700">
-                  <td className="py-1 text-slate-600 dark:text-slate-300">{r.started_at?.replace("T", " ").slice(0, 19) || "—"}</td>
-                  <td className="py-1">
-                    <span className={(STATUS_STYLES[r.status] || STATUS_STYLES.null).text + " font-medium"}>
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="py-1 text-slate-500">{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : "—"}</td>
-                  <td className="py-1 text-slate-500">{r.rows_inserted ?? "—"} / {r.rows_skipped ?? "—"}</td>
-                  <td className="py-1 text-red-600 dark:text-red-400 max-w-md truncate" title={r.error_message || ""}>
-                    {r.error_class ? `[${r.error_class}] ` : ""}{r.error_message || ""}
-                  </td>
-                </tr>
-              ))}
+              {runs.map(r => {
+                const isFailed = r.status === "FAILED" || r.status === "PARTIAL";
+                return (
+                  <tr key={r.run_id} className="border-t border-slate-200 dark:border-slate-700 align-top">
+                    <td className="py-1 text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.started_at?.replace("T", " ").slice(0, 19) || "—"}</td>
+                    <td className="py-1">
+                      <span className={(STATUS_STYLES[r.status] || STATUS_STYLES.null).text + " font-medium"}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="py-1 text-slate-500 whitespace-nowrap">{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : "—"}</td>
+                    <td className="py-1 text-slate-500 whitespace-nowrap">{r.rows_inserted ?? "—"} / {r.rows_skipped ?? "—"}</td>
+                    <td className={"py-1 max-w-xl break-words whitespace-pre-wrap " + (isFailed ? "text-red-600 dark:text-red-400" : "text-slate-500")}>
+                      {r.error_class ? <span className="font-mono text-[10px]">[{r.error_class}] </span> : null}
+                      {r.error_message || ""}
+                    </td>
+                    <td className="py-1 text-right">
+                      {r.cloud_logs_url ? (
+                        <a
+                          href={r.cloud_logs_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap"
+                          title="Open Cloud Logs filtered to this run window"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          GCP
+                        </a>
+                      ) : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
 
+      {/* Inline tail (existing /logs endpoint) */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Cloud Run logs (last 4h)
+            Cloud Run logs (inline tail · last 4h)
           </div>
           <button onClick={onLoadLogs} disabled={acting === "logs"} className="text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">
             {acting === "logs" ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
