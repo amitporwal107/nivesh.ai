@@ -32,3 +32,12 @@ lxml>=5,<6
 
 # pandas read_html fallback for fii_dii html variant
 pandas>=2,<3
+
+# ── S5 document_parser ──
+# pypdf for text extraction from NSE/BSE filing PDFs (text-PDFs only;
+# scanned PDFs fall through to parse_status='skipped_non_text').
+pypdf>=4,<6
+
+# ── S4 announcement_classifier ──
+# Anthropic SDK for Haiku-based event/impact/sentiment classification.
+anthropic>=0.40,<1

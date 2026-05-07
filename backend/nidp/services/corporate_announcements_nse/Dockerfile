@@ -3,9 +3,21 @@
 # is pinned at the ENTRYPOINT so Cloud Scheduler can fire each job
 # independently without needing to pass arguments.
 FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    NIDP_METRICS_PORT=9115
+
 WORKDIR /app
-COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/nidp/deploy/requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
+
 COPY backend/nidp /app/nidp
-ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
-ENTRYPOINT ["python", "-m", "nidp.services.corporate_announcements", "--source", "nse"]
+
+ENV PYTHONPATH=/app
+
+EXPOSE 9115
+
+ENTRYPOINT ["python", "-m", "nidp.services.corporate_announcements", "--source", "nse", "--metrics"]
