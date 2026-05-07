@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt anthropic>=0.40
+COPY backend/nidp /app/nidp
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
+ENTRYPOINT ["python", "-m", "nidp.services.announcement_classifier"]
