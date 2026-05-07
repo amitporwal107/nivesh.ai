@@ -181,7 +181,7 @@ async def subscribe(body: SubscriptionIn, user_id: str = Depends(current_user_id
     )
 
 
-@router.delete("/subscriptions/{feed_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/subscriptions/{feed_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def unsubscribe(feed_id: str, user_id: str = Depends(current_user_id)) -> None:
     if get_pool is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "DB unavailable")
@@ -193,7 +193,7 @@ async def unsubscribe(feed_id: str, user_id: str = Depends(current_user_id)) -> 
         )
 
 
-@router.post("/subscriptions/{feed_id}/pause", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/subscriptions/{feed_id}/pause", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def pause(feed_id: str, user_id: str = Depends(current_user_id)) -> None:
     if get_pool is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "DB unavailable")
@@ -206,7 +206,7 @@ async def pause(feed_id: str, user_id: str = Depends(current_user_id)) -> None:
         )
 
 
-@router.post("/subscriptions/{feed_id}/resume", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/subscriptions/{feed_id}/resume", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def resume(feed_id: str, user_id: str = Depends(current_user_id)) -> None:
     if get_pool is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "DB unavailable")
