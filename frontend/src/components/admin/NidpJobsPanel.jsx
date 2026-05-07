@@ -201,6 +201,23 @@ export default function NidpJobsPanel() {
           <div className="text-[11px] text-slate-400 mb-2">
             project: <code>{data.project}</code> · region: <code>{data.region}</code>
           </div>
+          {data.drift && (data.drift.missing_from_db?.length > 0 || data.drift.unregistered_in_canonical?.length > 0) && (
+            <div className="mb-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200 space-y-1">
+              <div className="font-semibold">Feed registration drift</div>
+              {data.drift.missing_from_db?.length > 0 && (
+                <div>
+                  <span className="font-semibold">Not in v_feed_status ({data.drift.missing_from_db.length}):</span>{" "}
+                  {data.drift.missing_from_db.join(", ")} — these jobs are deployed but their <code>nidp.source_registry</code> row is missing or never ran. Trigger them once or seed the registry.
+                </div>
+              )}
+              {data.drift.unregistered_in_canonical?.length > 0 && (
+                <div>
+                  <span className="font-semibold">In DB, not in canonical list ({data.drift.unregistered_in_canonical.length}):</span>{" "}
+                  {data.drift.unregistered_in_canonical.join(", ")} — these run but the Console doesn't know about them. Add to <code>NIDP_INGESTERS</code> in <code>admin_nidp.py</code>.
+                </div>
+              )}
+            </div>
+          )}
           {data.db_error && (
             <div className="mb-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
               <strong>v_feed_status unavailable:</strong> <code>{data.db_error}</code>
@@ -245,7 +262,17 @@ export default function NidpJobsPanel() {
                             {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                           </button>
                         </td>
-                        <td className="px-2 py-2 font-mono text-slate-900 dark:text-slate-100">{j.ingester}</td>
+                        <td className="px-2 py-2 font-mono text-slate-900 dark:text-slate-100">
+                          {j.ingester}
+                          {j.registered_in_db === false && (
+                            <span
+                              className="ml-2 align-middle inline-block px-1 py-0 rounded text-[9px] font-sans font-semibold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                              title="Job is deployed but has no row in nidp.source_registry — has it ever run?"
+                            >
+                              not in DB
+                            </span>
+                          )}
+                        </td>
                         <td className="px-2 py-2 text-slate-500">{j.expected_freq || j.cadence}</td>
                         <td className="px-2 py-2">
                           <WeekStrip days={j.last_7_days || []} />

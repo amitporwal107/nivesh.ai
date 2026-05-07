@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Smart-Money Accumulation",
+  "description": "Pre-breakout pattern: tight range, rising delivery%, volume divergence, sector lag. Catches setups before the trigger.",
+  "universe": { "type": "index", "ref": "NIFTY500" },
+  "entry": {
+    "all_of": [
+      { "feature": "accumulation_score", "op": ">=", "value": 0.55 },
+      { "feature": "deliv_trend10",      "op": ">",  "value": 0 },
+      { "feature": "bb_width",           "op": "<",  "value": 0.15 },
+      { "feature": "atr_pct",            "op": "<",  "value": 4.5 },
+      { "feature": "close",              "op": ">",  "compare_to": "sma200" }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":  5,
+    "target_rr":     3.0,
+    "max_hold_days": 45
+  },
+  "ranking": { "by": "accumulation_score", "limit": 10, "order": "desc" },
+  "rebalance": "daily"
+}

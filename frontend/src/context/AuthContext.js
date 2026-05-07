@@ -12,13 +12,23 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
-  const [googleClientId, setGoogleClientId] = useState(null);
+  // Seed from build-time env so the Google button renders even if the
+  // /auth/google-client-id endpoint is slow, blocked, or unreachable.
+  const [googleClientId, setGoogleClientId] = useState(
+    process.env.REACT_APP_GOOGLE_CLIENT_ID || null
+  );
 
-  // Fetch Google Client ID from backend on mount
+  // Fetch Google Client ID from backend on mount (overrides env if it differs)
   useEffect(() => {
-    axios.get(`${API}/auth/google-client-id`)
-      .then(res => setGoogleClientId(res.data.client_id))
-      .catch(() => {});
+    let cancelled = false;
+    axios.get(`${API}/auth/google-client-id`, { timeout: 8000 })
+      .then(res => { if (!cancelled && res.data?.client_id) setGoogleClientId(res.data.client_id); })
+      .catch(err => {
+        // Visible warning so we can diagnose; we still have the env fallback
+        // eslint-disable-next-line no-console
+        console.warn("[auth] google-client-id fetch failed:", err?.message || err);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const checkAuth = useCallback(async () => {

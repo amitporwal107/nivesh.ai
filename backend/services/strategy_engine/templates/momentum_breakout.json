@@ -1,0 +1,25 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Momentum Breakout",
+  "description": "Breaks above 20-day swing high with above-average volume; trending above 50/200 DMA. 5–30 day positional.",
+  "universe": { "type": "index", "ref": "NIFTY500" },
+  "entry": {
+    "all_of": [
+      { "feature": "pivot_breakout_flag", "op": "=",  "value": 1 },
+      { "feature": "vol_z20",             "op": ">",  "value": 1.5 },
+      { "feature": "rsi14",               "op": ">",  "value": 55 },
+      { "feature": "rsi14",               "op": "<",  "value": 75 },
+      { "feature": "close",               "op": ">",  "compare_to": "sma50" },
+      { "feature": "sma50",               "op": ">",  "compare_to": "sma200" }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":      6,
+    "target_rr":         2.5,
+    "max_hold_days":     30,
+    "trailing_atr_mult": 2.5
+  },
+  "ranking": { "by": "vol_z20", "limit": 10, "order": "desc" },
+  "rebalance": "daily"
+}

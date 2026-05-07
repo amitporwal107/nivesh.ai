@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Mean Reversion (Quality Pullback)",
+  "description": "Oversold RSI on a stock still trading above its 200-DMA. Bounce-trade in established uptrends.",
+  "universe": { "type": "index", "ref": "NIFTY200" },
+  "entry": {
+    "all_of": [
+      { "feature": "rsi14",            "op": "<",  "value": 32 },
+      { "feature": "close",            "op": ">",  "compare_to": "sma200" },
+      { "feature": "dist_200dma_pct",  "op": ">",  "value": 0 },
+      { "feature": "dist_200dma_pct",  "op": "<",  "value": 12 },
+      { "feature": "atr_pct",          "op": "<",  "value": 6 }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":  4,
+    "target_rr":     2.0,
+    "max_hold_days": 15
+  },
+  "ranking": { "by": "rsi14", "limit": 10, "order": "asc" },
+  "rebalance": "daily"
+}
