@@ -199,7 +199,7 @@ export default function NidpCatalogPanel() {
                     <th className="px-2 py-1.5 w-6"></th>
                     <th className="px-2 py-1.5">Domain</th>
                     <th className="px-2 py-1.5">Table</th>
-                    <th className="px-2 py-1.5">Date col</th>
+                    <th className="px-2 py-1.5">What it stores</th>
                     <th className="px-2 py-1.5 text-right">Rows</th>
                     <th className="px-2 py-1.5">Earliest</th>
                     <th className="px-2 py-1.5">Latest</th>
@@ -221,26 +221,32 @@ export default function NidpCatalogPanel() {
                             {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                           </td>
                           <td className="px-2 py-1 text-slate-500">{t.domain}</td>
-                          <td className="px-2 py-1 font-mono text-slate-900 dark:text-slate-100">nidp.{t.table}</td>
-                          <td className="px-2 py-1 text-slate-400 font-mono text-[10px]">{t.date_col || "—"}</td>
-                          <td className="px-2 py-1 text-right text-slate-700 dark:text-slate-200 font-medium">
+                          <td className="px-2 py-1 font-mono text-slate-900 dark:text-slate-100 align-top">nidp.{t.table}</td>
+                          <td className="px-2 py-1 text-slate-600 dark:text-slate-300 max-w-md">
+                            {t.description?.stores
+                              ? <span className="text-[11px] leading-snug">{t.description.stores}</span>
+                              : <span className="text-slate-400 italic text-[10px]">no description</span>}
+                          </td>
+                          <td className="px-2 py-1 text-right text-slate-700 dark:text-slate-200 font-medium align-top">
                             {t.error
                               ? <span className="text-red-600 text-[10px]" title={t.error}>err</span>
                               : fmtNum(t.rows)}
                           </td>
-                          <td className="px-2 py-1 text-slate-500">{fmtDate(t.first_at)}</td>
-                          <td className="px-2 py-1 text-slate-500">{fmtDate(t.last_at)}</td>
+                          <td className="px-2 py-1 text-slate-500 align-top">{fmtDate(t.first_at)}</td>
+                          <td className="px-2 py-1 text-slate-500 align-top">{fmtDate(t.last_at)}</td>
                         </tr>
                         {isOpen && t.description && (
                           <tr className="bg-slate-50/60 dark:bg-slate-900/40">
                             <td colSpan={7} className="px-2 py-3">
-                              <div className="ml-6 grid grid-cols-1 md:grid-cols-[80px,1fr] gap-x-4 gap-y-1.5 text-[11px] text-slate-700 dark:text-slate-300 max-w-4xl">
+                              <div className="ml-6 grid grid-cols-1 md:grid-cols-[80px,1fr] gap-x-4 gap-y-2 text-[11px] text-slate-700 dark:text-slate-300 max-w-4xl">
                                 <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Source</div>
                                 <div>{t.description.source}</div>
                                 <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Stores</div>
                                 <div>{t.description.stores}</div>
                                 <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Use</div>
                                 <div>{t.description.use}</div>
+                                <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Date col</div>
+                                <div className="font-mono text-[10px] text-slate-500">{t.date_col || "(none)"}</div>
                               </div>
                             </td>
                           </tr>

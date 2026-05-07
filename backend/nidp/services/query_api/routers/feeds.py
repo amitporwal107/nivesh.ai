@@ -67,28 +67,103 @@ def _cloud_logs_url_recent(job_name: str, hours: int = 24) -> str:
 
 @router.get("/feeds")
 async def feeds() -> Dict[str, Any]:
+    """Per-ingester health view. Three enhancements over a plain
+    v_feed_status read:
+
+      1. effective_last_success_at = COALESCE(source_registry, max(job_log.started_at)
+         WHERE status='OK'). The ingester upsert doesn't always update
+         source_registry.last_success_at, so falling back to job_log
+         keeps the column populated.
+      2. last_7_days = [{date, status}] for the trailing week, derived
+         from job_log. Drives the dashboard's mini week-strip widget.
+      3. Sort by last_run_at DESC NULLS LAST — most-active feeds at top,
+         dormant/never-run feeds at the bottom.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
+        # Single query: v_feed_status + last_success_at fallback in one
+        # round-trip via LATERAL/CTE.
         try:
             rows = await conn.fetch("""
-                SELECT ingester, source_class, expected_freq, schedule_cron,
-                       confidence, is_primary,
-                       last_run_status, consecutive_failures,
-                       last_run_at, last_success_at, last_failure_at,
-                       last_target_date, last_rows_inserted,
-                       last_run_duration_ms,
-                       success_count, failure_count, partial_count,
-                       last_error_message
-                  FROM nidp.v_feed_status
-                 ORDER BY ingester
+                WITH last_ok AS (
+                    SELECT DISTINCT ON (ingester)
+                        ingester, started_at AS log_last_success_at
+                      FROM nidp.job_log
+                     WHERE status IN ('OK', 'GREEN')
+                     ORDER BY ingester, started_at DESC
+                )
+                SELECT v.ingester, v.source_class, v.expected_freq, v.schedule_cron,
+                       v.confidence, v.is_primary,
+                       v.last_run_status, v.consecutive_failures,
+                       v.last_run_at,
+                       COALESCE(v.last_success_at, l.log_last_success_at)
+                                                       AS last_success_at,
+                       v.last_failure_at,
+                       v.last_target_date, v.last_rows_inserted,
+                       v.last_run_duration_ms,
+                       v.success_count, v.failure_count, v.partial_count,
+                       v.last_error_message
+                  FROM nidp.v_feed_status v
+                  LEFT JOIN last_ok l USING (ingester)
+                 ORDER BY
+                    CASE WHEN v.last_run_at IS NULL THEN 1 ELSE 0 END,
+                    v.last_run_at DESC,
+                    v.ingester
             """)
         except Exception as e:                                        # noqa: BLE001
             logger.warning("feeds: v_feed_status query failed: %s", e)
             return {"feeds": [], "error": str(e)[:200]}
 
+        # Trailing-week per-day status, all ingesters in one query.
+        try:
+            cal_rows = await conn.fetch("""
+                SELECT ingester,
+                       COALESCE(target_date, started_at::date) AS day,
+                       bool_or(status IN ('OK', 'GREEN')) AS any_ok,
+                       bool_or(status = 'PARTIAL')        AS any_partial,
+                       bool_or(status = 'FAILED')         AS any_failed,
+                       bool_or(status = 'SKIPPED')        AS any_skipped,
+                       count(*)                           AS run_count
+                  FROM nidp.job_log
+                 WHERE started_at >= NOW() - INTERVAL '7 days'
+                 GROUP BY ingester, day
+            """)
+        except Exception as e:                                        # noqa: BLE001
+            logger.warning("feeds: 7-day calendar query failed: %s", e)
+            cal_rows = []
+
+    cal_by_ing: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for r in cal_rows:
+        if r["any_failed"]:
+            status = "FAILED"
+        elif r["any_partial"]:
+            status = "PARTIAL"
+        elif r["any_ok"]:
+            status = "OK"
+        elif r["any_skipped"]:
+            status = "SKIPPED"
+        else:
+            status = None
+        cal_by_ing.setdefault(r["ingester"], {})[r["day"].isoformat()] = {
+            "status":    status,
+            "run_count": r["run_count"],
+        }
+
+    today = datetime.utcnow().date()
+    seven_days = [(today - timedelta(days=i)).isoformat()
+                  for i in reversed(range(7))]    # oldest → newest
+
     feeds_out: List[Dict[str, Any]] = []
     for r in rows:
         job_name = _job_name(r["ingester"])
+        last_7 = [
+            {
+                "date":       d,
+                "is_today":   d == today.isoformat(),
+                **(cal_by_ing.get(r["ingester"], {}).get(d) or {"status": None, "run_count": 0}),
+            }
+            for d in seven_days
+        ]
         feeds_out.append({
             "ingester":             r["ingester"],
             "job_name":             job_name,
@@ -108,9 +183,10 @@ async def feeds() -> Dict[str, Any]:
             "success_count":        r["success_count"],
             "failure_count":        r["failure_count"],
             "partial_count":        r["partial_count"],
-            "last_error_message":   r["last_error_message"],     # full text — UI truncates if needed
+            "last_error_message":   r["last_error_message"],
             "cloud_logs_url":       _cloud_logs_url(job_name, r["last_run_at"], None),
             "cloud_logs_url_24h":   _cloud_logs_url_recent(job_name, hours=24),
+            "last_7_days":          last_7,
         })
     return {"feeds": feeds_out, "error": None}
 
