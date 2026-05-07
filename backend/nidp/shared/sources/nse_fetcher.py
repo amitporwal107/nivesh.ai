@@ -53,6 +53,21 @@ _session: Optional[aiohttp.ClientSession] = None
 _session_lock = asyncio.Lock()
 _primed = False
 
+
+class _TerminalHttpError(aiohttp.ClientError):
+    """Non-retryable HTTP error (terminal 4xx, etc).
+
+    Subclasses ClientError so ingester `except` blocks that catch
+    network errors still see it, but is recognised by `fetch_bytes`'s
+    own retry loop as a stop signal — retrying the same URL won't
+    change the upstream's answer.
+    """
+
+    def __init__(self, message: str, *, status: int, url: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.url = url
+
 # Hosts that need the cookie-prime dance.
 _NSE_HOSTS = (
     "nseindia.com",
@@ -165,13 +180,18 @@ async def fetch_bytes(
                 if resp.status in (429, 500, 502, 503, 504):
                     last_err = f"HTTP {resp.status}"
                 else:
+                    # Terminal 4xx (e.g. 404 — bhavcopy not yet published,
+                    # or wrong URL). Retrying won't help. Raise straight
+                    # out of the loop with a non-retryable wrapper so the
+                    # outer except can't accidentally catch and re-loop.
                     body_preview = (await resp.read())[:200]
-                    raise aiohttp.ClientResponseError(
-                        request_info=resp.request_info,
-                        history=resp.history,
+                    raise _TerminalHttpError(
+                        f"HTTP {resp.status}: {body_preview!r}",
                         status=resp.status,
-                        message=f"HTTP {resp.status}: {body_preview!r}",
+                        url=url,
                     )
+        except _TerminalHttpError:
+            raise
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             last_err = type(e).__name__ + ": " + str(e)[:120]
 
