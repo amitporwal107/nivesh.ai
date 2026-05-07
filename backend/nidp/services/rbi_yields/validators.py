@@ -10,9 +10,15 @@ from nidp.shared.validation.rules import (
 # depends on most. Anything else is a bonus.
 TENY_PRESENT = CountAtLeastRule(
     name="rbi_yields.10y_present",
+    # CountAtLeastRule.check() always binds (target_date, job_run_id) as
+    # ($1, $2). For rolling ingesters target_date is NULL, but asyncpg
+    # still requires every parameter to be referenced so it can type-
+    # infer; the trailing `($1::date IS NULL OR ...)` tautology fulfills
+    # that without filtering rows.
     sql="""
         SELECT count(*) FROM nidp.rbi_yields
          WHERE source_run_id = $2 AND tenor = '10Y'
+           AND ($1::date IS NULL OR $1::date IS NOT NULL)
     """,
     min_count=1,
     severity=Severity.CRITICAL,

@@ -20,11 +20,15 @@ COVERAGE_MIN = CustomSQLRule(
 )
 
 # 10Y yield must be present — that's the most-load-bearing series.
+# CountAtLeastRule binds ($1=target_date, $2=run_id); $1 must be referenced
+# even for rolling ingesters or asyncpg can't type-infer (raises
+# IndeterminateDatatypeError). Tautology preserves "always include all rows".
 TENY_PRESENT = CountAtLeastRule(
     name="fred_macro.us10y_present",
     sql="""
         SELECT count(*) FROM nidp.fred_macro
          WHERE source_run_id = $2 AND series_id = 'DGS10' AND value IS NOT NULL
+           AND ($1::date IS NULL OR $1::date IS NOT NULL)
     """,
     min_count=1,
     severity=Severity.CRITICAL,
