@@ -173,10 +173,10 @@ export default function NidpJobsPanel() {
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-            NIDP Ingestion Jobs
+            NIDP Ingestion Jobs {data ? <span className="text-slate-400 font-normal">({(data.jobs || []).length})</span> : null}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-            All 13 NIDP Cloud Run jobs (11 ingesters + snapshot_builder + yfinance_backfill).
+            All NIDP Cloud Run jobs registered in <code>NIDP_INGESTERS</code> (admin_nidp.py).
             Status comes from <code>nidp.v_feed_status</code>; Trigger fires <code>gcloud run jobs execute</code>.
             Expand a row to see recent runs and tail logs.
           </p>
