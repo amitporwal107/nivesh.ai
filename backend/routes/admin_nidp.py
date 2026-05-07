@@ -292,15 +292,12 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
     db_error: Optional[str] = None
     try:
         feeds_resp = await _nq.get_feeds()
+        # Pass-through every field the query API returns so the React
+        # panel sees last_success_at, schedule_cron, last_7_days,
+        # cloud_logs_url, etc. Strip 'ingester' since it's the dict key.
         for f in feeds_resp.get("feeds", []):
-            db_status[f["ingester"]] = {
-                "last_run_status":      f.get("last_run_status"),
-                "consecutive_failures": f.get("consecutive_failures"),
-                "last_run_at":          f.get("last_run_at"),
-                "last_run_duration_ms": f.get("last_run_duration_ms"),
-                "last_rows_inserted":   f.get("last_rows_inserted"),
-                "last_error_message":   f.get("last_error_message"),
-            }
+            ing = f["ingester"]
+            db_status[ing] = {k: v for k, v in f.items() if k != "ingester"}
         # Surface server-side error (e.g. v_feed_status missing on the
         # remote DB) rather than silently returning empty status.
         if feeds_resp.get("error"):
