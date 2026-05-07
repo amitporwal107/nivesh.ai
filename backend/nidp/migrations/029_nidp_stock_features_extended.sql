@@ -17,41 +17,62 @@
 SET search_path TO nidp, public;
 
 -- ── ALTER stock_features_daily ──────────────────────────────────────
-ALTER TABLE nidp.stock_features_daily
-    ADD COLUMN IF NOT EXISTS pe_ttm                    NUMERIC(14,4),
-    ADD COLUMN IF NOT EXISTS pb                        NUMERIC(14,4),
-    ADD COLUMN IF NOT EXISTS roe_pct                   NUMERIC(10,4),
-    ADD COLUMN IF NOT EXISTS debt_to_equity            NUMERIC(10,4),
-    ADD COLUMN IF NOT EXISTS revenue_growth_yoy_pct    NUMERIC(10,4),
-    ADD COLUMN IF NOT EXISTS pat_growth_yoy_pct        NUMERIC(10,4),
-    ADD COLUMN IF NOT EXISTS eps_growth_yoy_pct        NUMERIC(10,4),
-    ADD COLUMN IF NOT EXISTS latest_quarter_end        DATE,
+-- Gated on the parent table's existence: the table is created by
+-- migration 021 (Strategy Builder feature snapshotter). 021 has lived
+-- in working-tree limbo while 024–029 are committed. To keep the
+-- migration chain robust to either ordering, this block defers the
+-- ALTER + indexes + view if 021 hasn't applied yet — re-running
+-- phase6_robust.sh after 021 lands picks them up.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+         WHERE table_schema = 'nidp' AND table_name = 'stock_features_daily'
+    ) THEN
+        RAISE NOTICE
+            '029 deferred: nidp.stock_features_daily not yet present '
+            '(depends on migration 021). Re-run phase6_robust.sh '
+            'after 021 lands to apply the ALTER + view.';
+        RETURN;
+    END IF;
 
-    ADD COLUMN IF NOT EXISTS promoter_pct              NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS fii_pct                   NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS dii_pct                   NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS mf_pct                    NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS promoter_pledged_pct      NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS fii_pct_change_qoq        NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS dii_pct_change_qoq        NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS promoter_pct_change_qoq   NUMERIC(8,4),
-    ADD COLUMN IF NOT EXISTS shareholding_period_end   DATE,
+    EXECUTE $ddl$
+        ALTER TABLE nidp.stock_features_daily
+            ADD COLUMN IF NOT EXISTS pe_ttm                    NUMERIC(14,4),
+            ADD COLUMN IF NOT EXISTS pb                        NUMERIC(14,4),
+            ADD COLUMN IF NOT EXISTS roe_pct                   NUMERIC(10,4),
+            ADD COLUMN IF NOT EXISTS debt_to_equity            NUMERIC(10,4),
+            ADD COLUMN IF NOT EXISTS revenue_growth_yoy_pct    NUMERIC(10,4),
+            ADD COLUMN IF NOT EXISTS pat_growth_yoy_pct        NUMERIC(10,4),
+            ADD COLUMN IF NOT EXISTS eps_growth_yoy_pct        NUMERIC(10,4),
+            ADD COLUMN IF NOT EXISTS latest_quarter_end        DATE,
+            ADD COLUMN IF NOT EXISTS promoter_pct              NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS fii_pct                   NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS dii_pct                   NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS mf_pct                    NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS promoter_pledged_pct      NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS fii_pct_change_qoq        NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS dii_pct_change_qoq        NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS promoter_pct_change_qoq   NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS shareholding_period_end   DATE,
+            ADD COLUMN IF NOT EXISTS sector                    TEXT,
+            ADD COLUMN IF NOT EXISTS industry                  TEXT,
+            ADD COLUMN IF NOT EXISTS cumulative_adj_factor     NUMERIC(14,8),
+            ADD COLUMN IF NOT EXISTS adj_close                 NUMERIC(14,6),
+            ADD COLUMN IF NOT EXISTS options_pcr               NUMERIC(8,4),
+            ADD COLUMN IF NOT EXISTS options_total_oi          BIGINT,
+            ADD COLUMN IF NOT EXISTS options_oi_change_pct     NUMERIC(10,4)
+    $ddl$;
 
-    ADD COLUMN IF NOT EXISTS sector                    TEXT,
-    ADD COLUMN IF NOT EXISTS industry                  TEXT,
-
-    ADD COLUMN IF NOT EXISTS cumulative_adj_factor     NUMERIC(14,8),
-    ADD COLUMN IF NOT EXISTS adj_close                 NUMERIC(14,6),
-
-    -- Options (per-day aggregate, not per-strike)
-    ADD COLUMN IF NOT EXISTS options_pcr               NUMERIC(8,4),    -- PE_OI / CE_OI for nearest expiry
-    ADD COLUMN IF NOT EXISTS options_total_oi          BIGINT,
-    ADD COLUMN IF NOT EXISTS options_oi_change_pct     NUMERIC(10,4);
-
-CREATE INDEX IF NOT EXISTS idx_features_sector_date
-    ON nidp.stock_features_daily(sector, as_of_date DESC) WHERE sector IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_features_pe
-    ON nidp.stock_features_daily(pe_ttm, as_of_date DESC) WHERE pe_ttm IS NOT NULL;
+    EXECUTE $ddl$
+        CREATE INDEX IF NOT EXISTS idx_features_sector_date
+            ON nidp.stock_features_daily(sector, as_of_date DESC) WHERE sector IS NOT NULL
+    $ddl$;
+    EXECUTE $ddl$
+        CREATE INDEX IF NOT EXISTS idx_features_pe
+            ON nidp.stock_features_daily(pe_ttm, as_of_date DESC) WHERE pe_ttm IS NOT NULL
+    $ddl$;
+END $$;
 
 
 -- ── populate function ──────────────────────────────────────────────
@@ -158,6 +179,20 @@ $$ LANGUAGE plpgsql;
 -- need but didn't promote into stock_features_daily. Use this for
 -- ad-hoc queries; promote a column to the table if it shows up in
 -- a hot strategy filter.
+--
+-- Same gate as the ALTER above: skip if the parent table isn't
+-- present yet (migration 021 dependency).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+         WHERE table_schema = 'nidp' AND table_name = 'stock_features_daily'
+    ) THEN
+        RAISE NOTICE
+            '029 view deferred: stock_features_daily not yet present.';
+        RETURN;
+    END IF;
+    EXECUTE $ddl$
 CREATE OR REPLACE VIEW nidp.v_stock_features_full AS
 SELECT
     f.*,
@@ -181,7 +216,9 @@ SELECT
   LEFT JOIN nidp.v_shareholding_latest shp
          ON shp.symbol = f.symbol
   LEFT JOIN nidp.sector_master sm
-         ON sm.symbol = f.symbol;
+         ON sm.symbol = f.symbol
+    $ddl$;
+END $$;
 
 
 INSERT INTO nidp.schema_migrations(filename) VALUES ('029_nidp_stock_features_extended.sql')
