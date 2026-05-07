@@ -49,6 +49,13 @@ ALL_SERVICES=(
     # Phase 1B — financials + shareholding + adjusted close + sector + F&O
     nse_financials nse_shareholding price_adjuster
     nse_equity_master fno_bhavcopy
+    # Phase 1B — corporate announcements (S4) + classifier + document parser (S5)
+    # Two ann jobs share the same Python package via thin Dockerfile shims;
+    # split for Cloud Scheduler isolation (one source's outage doesn't mask
+    # the other's). Classifier needs ANTHROPIC_API_KEY; document_parser
+    # needs more memory for PDFs — wired below.
+    corporate_announcements_nse corporate_announcements_bse
+    announcement_classifier document_parser
 )
 
 SERVICE_FILTER=""
@@ -221,7 +228,10 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
         # Per-service secret extension (matches deploy.sh's JOB_SECRETS map).
         secrets_for_svc="$COMMON_SECRETS"
         case "$svc" in
-            fred_macro) secrets_for_svc="$secrets_for_svc,FRED_API_KEY=FRED_API_KEY:latest" ;;
+            fred_macro)
+                secrets_for_svc="$secrets_for_svc,FRED_API_KEY=FRED_API_KEY:latest" ;;
+            announcement_classifier)
+                secrets_for_svc="$secrets_for_svc,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" ;;
         esac
 
         if gcloud run jobs describe "$job_name" --region="$REGION" \

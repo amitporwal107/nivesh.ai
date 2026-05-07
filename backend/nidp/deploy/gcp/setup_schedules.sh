@@ -121,6 +121,30 @@ add_schedule nidp-price-adjuster     '30 22 * * 1-5'  'split/bonus adjusted clos
 # ── End-of-day snapshot (after all daily ingesters) ────────────────
 add_schedule nidp-snapshot-builder   '0 22 * * 1-5'   'snapshot builder'
 
+# ── S4: corporate announcements (NSE + BSE) ────────────────────────
+# Filings stream all day with peaks around results season + post-close
+# 17:00-22:00 IST when board-meeting outcomes land. Every 10 min from
+# 09:00-23:50 IST captures pre-open + intraday + post-close windows.
+# Upserts on (announcement_id, source) make over-fetching cheap.
+add_schedule nidp-corporate-announcements-nse  '*/10 9-23 * * 1-5'  'NSE announcements feed'
+add_schedule nidp-corporate-announcements-bse  '*/10 9-23 * * 1-5'  'BSE announcements feed'
+
+# ── S4: Haiku classifier (event taxonomy + impact + sentiment) ─────
+# Reads unclassified rows from corporate_announcements, calls Haiku 4.5,
+# UPDATEs in place. Every 30 min handles the ~500/day NSE+BSE volume
+# with comfortable headroom (Haiku at ~4s/row sequential = ~33 min/day
+# total compute, spread across 48 daily firings). Runs all week to
+# clean up any stragglers; idempotent on classifier_version.
+add_schedule nidp-announcement-classifier  '*/30 * * * *'  'Haiku event/impact classifier'
+
+# ── S5: document parser (download PDFs, extract, chunk, write) ─────
+# Two-phase loop on every fire: discover (register pending) + parse
+# (download/extract/chunk a batch of 50). Every 15 min all day every
+# day — off-hours fires are cheap no-ops when no new attachments are
+# pending. Single schedule because add_schedule derives the Cloud Run
+# job URI from its first arg, so two schedules need two trigger funcs.
+add_schedule nidp-document-parser  '*/15 * * * *'  'PDF parser + chunker (S5)'
+
 echo
 log "done. List triggers:  ./list_schedules.sh"
 log "yfinance_backfill is event-driven (manual run only) — not scheduled."
