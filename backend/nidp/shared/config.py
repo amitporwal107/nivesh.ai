@@ -129,6 +129,39 @@ NSE_HOLIDAY_URL: Final[str] = (
     f"{NSE_WWW}/api/holiday-master?type=trading"
 )
 
+# 11.1 NSE financial results — rolling list endpoint per filing period.
+# Each list entry carries an `xbrl` URL pointing at the filing
+# document; the ingester fetches each XBRL doc separately.
+NSE_FINANCIALS_LIST_URL_QUARTERLY: Final[str] = (
+    f"{NSE_WWW}/api/corporates-financial-results?index=equities&period=Quarterly"
+)
+NSE_FINANCIALS_LIST_URL_ANNUAL: Final[str] = (
+    f"{NSE_WWW}/api/corporates-financial-results?index=equities&period=Annual"
+)
+
+# 11.2 NSE shareholding pattern — rolling list endpoint per filing period.
+# Same shape as financial results: list returns manifests with XBRL
+# URLs; ingester deep-fetches each XBRL.
+NSE_SHAREHOLDING_LIST_URL: Final[str] = (
+    f"{NSE_WWW}/api/corporate-share-holdings-master?index=equities"
+)
+
+# 11.3 NSE Equity Master — sector / industry classification CSV.
+NSE_EQUITY_MASTER_URL: Final[str] = (
+    f"{NSE_NSEARCHIVES}/content/equities/EQUITY_L.csv"
+)
+
+# 11.4 NSE FO bhavcopy — EOD options + futures by trading day.
+# Post-Jul-2024 unified format: BhavCopy_NSE_FO_*.csv.zip
+NSE_FO_BHAVCOPY_URL_NEW: Final[str] = (
+    f"{NSE_NSEARCHIVES}/content/fo/BhavCopy_NSE_FO_0_0_0_{{YYYYMMDD}}_F_0000.csv.zip"
+)
+# Pre-cutover (legacy fo_bhavcopy)
+NSE_FO_BHAVCOPY_URL_OLD: Final[str] = (
+    f"{NSE_ARCHIVES}/content/historical/DERIVATIVES/{{YYYY}}/{{MMM}}/fo{{DDMMMYYYY}}bhav.csv.zip"
+)
+NSE_FO_BHAVCOPY_FORMAT_CUTOVER_DATE: Final[str] = "2024-07-08"
+
 # ── Per-ingester source-class metadata (mirrors schema seed) ────────
 SOURCE_REGISTRY: Final[list[dict]] = [
     # name, ingester, url-pattern, class, confidence, freq
@@ -142,6 +175,10 @@ SOURCE_REGISTRY: Final[list[dict]] = [
     ("NSE_BLOCK",           "block_deals",         BLOCK_DEALS_URL,             "A", 0.95, "daily"),
     ("RBI_REF_RATE",        "rbi_yields",          RBI_REF_RATE_URL,            "B", 0.85, "daily"),
     ("NSE_HOLIDAY_MASTER",  "nse_calendar",        NSE_HOLIDAY_URL,             "B", 0.90, "annual"),
+    ("NSE_FIN",             "nse_financials",      NSE_FINANCIALS_LIST_URL_QUARTERLY, "B", 0.85, "daily"),
+    ("NSE_SHP",             "nse_shareholding",    NSE_SHAREHOLDING_LIST_URL,   "B", 0.85, "daily"),
+    ("NSE_EQUITY_MASTER",   "nse_equity_master",   NSE_EQUITY_MASTER_URL,       "A", 0.95, "weekly"),
+    ("NSE_FO_BHAVCOPY",     "fno_bhavcopy",        NSE_FO_BHAVCOPY_URL_NEW,     "A", 0.95, "daily"),
 ]
 
 

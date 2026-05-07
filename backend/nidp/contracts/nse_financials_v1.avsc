@@ -1,0 +1,54 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "NseFinancialsV1",
+  "doc": "One company-period financial filing from NSE XBRL. Topic: nidp.nse_financials.v1",
+  "fields": [
+    {"name": "symbol",                  "type": "string"},
+    {"name": "period_end",              "type": "string"},
+    {"name": "period_start",            "type": ["null", "string"], "default": null},
+    {"name": "period_type",             "type": {"type": "enum", "name": "PeriodType",
+                                                  "symbols": ["QUARTERLY","HALF_YEARLY","NINE_MONTHS","ANNUAL","UNKNOWN"],
+                                                  "default": "UNKNOWN"}},
+    {"name": "consolidated",            "type": "boolean"},
+    {"name": "audited",                 "type": ["null", "boolean"], "default": null},
+
+    {"name": "revenue_from_ops_cr",     "type": ["null", "double"], "default": null},
+    {"name": "other_income_cr",         "type": ["null", "double"], "default": null},
+    {"name": "total_income_cr",         "type": ["null", "double"], "default": null},
+    {"name": "total_expenses_cr",       "type": ["null", "double"], "default": null},
+    {"name": "ebitda_cr",               "type": ["null", "double"], "default": null},
+    {"name": "finance_costs_cr",        "type": ["null", "double"], "default": null},
+    {"name": "depreciation_cr",         "type": ["null", "double"], "default": null},
+    {"name": "pbt_before_exc_cr",       "type": ["null", "double"], "default": null},
+    {"name": "exceptional_items_cr",    "type": ["null", "double"], "default": null},
+    {"name": "pbt_cr",                  "type": ["null", "double"], "default": null},
+    {"name": "tax_expense_cr",          "type": ["null", "double"], "default": null},
+    {"name": "pat_continuing_cr",       "type": ["null", "double"], "default": null},
+    {"name": "pat_discontinuing_cr",    "type": ["null", "double"], "default": null},
+    {"name": "pat_cr",                  "type": ["null", "double"], "default": null},
+    {"name": "pat_attrib_owners_cr",    "type": ["null", "double"], "default": null},
+    {"name": "pat_attrib_minority_cr",  "type": ["null", "double"], "default": null},
+
+    {"name": "eps_basic",               "type": ["null", "double"], "default": null},
+    {"name": "eps_diluted",             "type": ["null", "double"], "default": null},
+    {"name": "face_value",              "type": ["null", "double"], "default": null},
+
+    {"name": "equity_share_capital_cr", "type": ["null", "double"], "default": null},
+    {"name": "other_equity_cr",         "type": ["null", "double"], "default": null},
+    {"name": "total_equity_cr",         "type": ["null", "double"], "default": null},
+    {"name": "long_term_debt_cr",       "type": ["null", "double"], "default": null},
+    {"name": "short_term_debt_cr",      "type": ["null", "double"], "default": null},
+    {"name": "cash_and_equiv_cr",       "type": ["null", "double"], "default": null},
+
+    {"name": "interest_earned_cr",      "type": ["null", "double"], "default": null},
+    {"name": "interest_expended_cr",    "type": ["null", "double"], "default": null},
+    {"name": "nim_pct",                 "type": ["null", "double"], "default": null},
+
+    {"name": "filing_id",               "type": ["null", "string"], "default": null},
+    {"name": "xbrl_url",                "type": ["null", "string"], "default": null},
+    {"name": "broadcast_at",            "type": ["null", "string"], "default": null},
+    {"name": "source",                  "type": "string", "default": "NSE_FIN"},
+    {"name": "source_run_id",           "type": "string"}
+  ]
+}
