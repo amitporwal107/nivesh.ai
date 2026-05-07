@@ -18,8 +18,10 @@ steps:
       - -c
       - |
         set -euo pipefail
-        VM_NAME="${_VM_NAME:-nidp-stack-vm}"
-        ZONE="${_ZONE:-asia-south1-a}"
+        # Cloud Build resolves these at submit time from the
+        # substitutions: block below (or --substitutions flag).
+        VM_NAME="${_VM_NAME}"
+        ZONE="${_ZONE}"
 
         # Push migrations to the VM (IAP tunnel — no public IP needed)
         gcloud compute ssh "$VM_NAME" --tunnel-through-iap \
@@ -28,7 +30,7 @@ steps:
 
         gcloud compute scp --recurse --tunnel-through-iap \
             backend/nidp/migrations/. \
-            ${VM_NAME}:/tmp/nidp_migrations/ \
+            "$VM_NAME":/tmp/nidp_migrations/ \
             --zone=$ZONE --project=$PROJECT_ID --quiet
 
         # Apply each .sql in name order

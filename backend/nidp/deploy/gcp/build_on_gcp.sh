@@ -73,7 +73,15 @@ if ! command -v gcloud >/dev/null; then
     err "gcloud not found"; exit 1
 fi
 ACTIVE=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -1)
-[[ -z "$ACTIVE" ]] && { err "no active gcloud account — run: gcloud auth login"; exit 1; }
+# Accept CLOUDSDK_AUTH_ACCESS_TOKEN env-var auth too (Path B handshake;
+# scripts/gcp.sh sets it from /app/.gcp-token). Verify by hitting a
+# trivial readonly endpoint that requires auth.
+if [[ -z "$ACTIVE" && -n "${CLOUDSDK_AUTH_ACCESS_TOKEN:-}" ]]; then
+    if gcloud projects describe "$PROJECT" --format='value(projectId)' &>/dev/null; then
+        ACTIVE="(env-token, project=$PROJECT)"
+    fi
+fi
+[[ -z "$ACTIVE" ]] && { err "no active gcloud account — run: gcloud auth login (or export CLOUDSDK_AUTH_ACCESS_TOKEN)"; exit 1; }
 ok "authenticated as: $ACTIVE"
 
 if ! gcloud artifacts repositories describe nidp \
