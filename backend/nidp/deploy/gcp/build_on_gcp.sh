@@ -194,24 +194,53 @@ if [[ -z "$NO_MIGRATIONS" && -z "$NO_UPDATE" && ${#FAILED[@]} -eq 0 && ${#SUCCEE
     fi
 fi
 
-# ── Update Cloud Run Jobs to the new tag ────────────────────────────
+# ── Update / Create Cloud Run Jobs ──────────────────────────────────
+# When the job already exists, we just bump the image tag.
+# When it doesn't, we CREATE it with the same VPC + secrets + SA wiring
+# that deploy.sh applies, using the image we just pushed. Lets a single
+# `build_on_gcp.sh` invocation onboard a brand-new service end to end.
 if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
     echo
-    log "updating Cloud Run Jobs to image tag $TAG..."
+    log "updating / creating Cloud Run Jobs for image tag $TAG..."
+    SA_EMAIL="nidp-sa@${PROJECT}.iam.gserviceaccount.com"
+    VPC_CONN="projects/$PROJECT/locations/$REGION/connectors/nidp-vpc"
+    VPC_FLAGS="--vpc-connector=$VPC_CONN --vpc-egress=private-ranges-only"
+    COMMON_ENV="NIDP_STORAGE_BACKEND=gcs,NIDP_S3_BUCKET=nidp-raw-${PROJECT},NIDP_EVENT_BUS=kafka,GCP_PROJECT=${PROJECT},GCP_REGION=${REGION}"
+    COMMON_SECRETS="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest,NIDP_KAFKA_BROKERS=NIDP_KAFKA_BROKERS:latest,NIDP_SCHEMA_REGISTRY_URL=NIDP_SCHEMA_REGISTRY_URL:latest,NIDP_REDIS_URL=NIDP_REDIS_URL:latest"
+
     for svc in "${SUCCEEDED[@]}"; do
         job_name="nidp-${svc//_/-}"
+        # Per-service secret extension (matches deploy.sh's JOB_SECRETS map).
+        secrets_for_svc="$COMMON_SECRETS"
+        case "$svc" in
+            fred_macro) secrets_for_svc="$secrets_for_svc,FRED_API_KEY=FRED_API_KEY:latest" ;;
+        esac
+
         if gcloud run jobs describe "$job_name" --region="$REGION" \
                 --project="$PROJECT" &>/dev/null; then
             if gcloud run jobs update "$job_name" \
                     --image="${AR_REPO}/${svc}:${TAG}" \
                     --region="$REGION" --project="$PROJECT" \
                     --quiet >/dev/null 2>&1; then
-                ok "  $job_name → $TAG"
+                ok "  $job_name updated → $TAG"
             else
                 err "  $job_name update failed"
             fi
         else
-            warn "  $job_name does not exist — bootstrap.sh / deploy.sh first"
+            log "  $job_name does not exist — creating..."
+            if gcloud run jobs create "$job_name" \
+                    --image="${AR_REPO}/${svc}:${TAG}" \
+                    --region="$REGION" --project="$PROJECT" \
+                    --service-account="$SA_EMAIL" \
+                    $VPC_FLAGS \
+                    --set-env-vars="$COMMON_ENV" \
+                    --set-secrets="$secrets_for_svc" \
+                    --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
+                    --quiet >/dev/null 2>&1; then
+                ok "  $job_name CREATED → $TAG"
+            else
+                err "  $job_name create failed (see: gcloud run jobs create $job_name --region=$REGION ...)"
+            fi
         fi
     done
 fi
