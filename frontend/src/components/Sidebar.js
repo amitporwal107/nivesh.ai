@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Users,
-  Sparkles, Menu, X, ArrowLeft, User, Globe2,
+  Sparkles, Menu, X, ArrowLeft, User, Globe2, FlaskConical,
 } from "lucide-react";
 
 /**
@@ -27,28 +27,31 @@ import {
 
 // Retail (non-MFD) primary nav.
 const RETAIL_NAV = [
-  { id: "overview",   label: "Dashboard",  icon: LayoutDashboard },
-  { id: "market",     label: "Market",     icon: Globe2, badge: "NEW" },
-  { id: "plan_board", label: "Plan Board", icon: TrendingUp, badge: "V2"  },
-  { id: "portfolio",  label: "Portfolio",  icon: Briefcase },
-  { id: "insights",   label: "Insights",   icon: Lightbulb },
-  { id: "goals",      label: "Goals",      icon: Target },
+  { id: "overview",         label: "Dashboard",       icon: LayoutDashboard },
+  { id: "market",           label: "Market",          icon: Globe2, badge: "NEW" },
+  { id: "strategy_builder", label: "Strategy Builder", icon: FlaskConical, badge: "BETA" },
+  { id: "plan_board",       label: "Plan Board",      icon: TrendingUp, badge: "V2"  },
+  { id: "portfolio",        label: "Portfolio",       icon: Briefcase },
+  { id: "insights",         label: "Insights",        icon: Lightbulb },
+  { id: "goals",            label: "Goals",           icon: Target },
 ];
 
 // Tabs shown inside a client context (once the MFD has impersonated).
 const CLIENT_NAV = [
-  { id: "snapshot",   label: "Client 360", icon: Sparkles, badge: "NEW" },
-  { id: "market",     label: "Market",     icon: Globe2 },
-  { id: "plan_board", label: "Plan Board", icon: TrendingUp },
-  { id: "portfolio",  label: "Portfolio",  icon: Briefcase },
-  { id: "insights",   label: "Insights",   icon: Lightbulb },
-  { id: "goals",      label: "Goals",      icon: Target },
+  { id: "snapshot",         label: "Client 360",       icon: Sparkles, badge: "NEW" },
+  { id: "market",           label: "Market",           icon: Globe2 },
+  { id: "strategy_builder", label: "Strategy Builder", icon: FlaskConical, badge: "BETA" },
+  { id: "plan_board",       label: "Plan Board",       icon: TrendingUp },
+  { id: "portfolio",        label: "Portfolio",        icon: Briefcase },
+  { id: "insights",         label: "Insights",         icon: Lightbulb },
+  { id: "goals",            label: "Goals",            icon: Target },
 ];
 
 // Advisor-only nav (no client selected).
 const ADVISOR_NAV = [
-  { id: "advisor",    label: "Advisor",    icon: Users, badge: "MFD" },
-  { id: "market",     label: "Market",     icon: Globe2, badge: "NEW" },
+  { id: "advisor",          label: "Advisor",          icon: Users, badge: "MFD" },
+  { id: "market",           label: "Market",           icon: Globe2, badge: "NEW" },
+  { id: "strategy_builder", label: "Strategy Builder", icon: FlaskConical, badge: "BETA" },
 ];
 
 const Sidebar = ({

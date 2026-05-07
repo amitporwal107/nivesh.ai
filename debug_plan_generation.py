@@ -6,7 +6,7 @@ import requests
 import json
 
 # Test credentials
-base_url = "https://wealth-advisor-96.preview.emergentagent.com"
+base_url = "https://wealth-advisor-india-1.preview.emergentagent.com"
 session_token = "370eff71-fda1-46d8-b506-b81b894d634f"
 headers = {
     'Content-Type': 'application/json',

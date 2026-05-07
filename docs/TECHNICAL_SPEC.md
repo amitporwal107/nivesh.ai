@@ -402,7 +402,7 @@ and are hydrated at startup.
 
 ### 10.2 Frontend `.env` (protected)
 ```
-REACT_APP_BACKEND_URL=https://wealth-advisor-96.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://wealth-advisor-india-1.preview.emergentagent.com
 ```
 
 ### 10.3 Supervisor services
