@@ -348,6 +348,8 @@ frontend/node_modules/.cache/default-development/45.pack
 
 # GitHub PAT (NIDP push) — never commit
 .gh-token
+.gcp-token
+.gcp-actions.log
 .gh/
 -e 
 # Environment and credential files
