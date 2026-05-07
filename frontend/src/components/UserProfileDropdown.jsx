@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Link } from "react-router-dom";
 import {
-  Users, Shield, ShieldCheck, LogOut, Moon, Sun, ChevronDown, ChevronUp,
+  Users, Shield, ShieldCheck, Server, LogOut, Moon, Sun, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 /**
@@ -127,6 +128,21 @@ const UserProfileDropdown = ({ user, activeTab, setActiveTab }) => {
               );
             })}
           </div>
+
+          {/* Cross-page admin tools */}
+          {user?.is_admin && (
+            <div className="border-t border-slate-100 dark:border-slate-800 py-1.5">
+              <Link
+                to="/nidp"
+                onClick={() => setOpen(false)}
+                data-testid="user-menu-nidp"
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <Server className="w-4 h-4" strokeWidth={1.5} />
+                <span>NIDP Console</span>
+              </Link>
+            </div>
+          )}
 
           {/* Theme toggle */}
           <div className="border-t border-slate-100 dark:border-slate-800 py-1.5">

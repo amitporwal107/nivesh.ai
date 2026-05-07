@@ -40,20 +40,39 @@ function relTime(iso) {
  * (`/api/admin/nidp/catalog`) — no per-row drill-down.
  */
 export default function NidpCatalogPanel() {
-  const [data, setData] = useState(null);
+  const [data,    setData]    = useState(null);
+  const [error,   setError]   = useState(null);
+  const [diag,    setDiag]    = useState(null);
+  const [diagLoad,setDiagLoad]= useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const r = await axios.get(`${API}/api/admin/nidp/catalog`, {
         withCredentials: true,
       });
       setData(r.data);
     } catch (e) {
-      toast.error(`Failed to load catalog: ${e?.response?.data?.detail || e.message}`);
+      const msg = e?.response?.data?.detail || e.message;
+      setError(msg);
+      setData(null);
+      toast.error(`Failed to load catalog: ${msg}`);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const runDiag = useCallback(async () => {
+    setDiagLoad(true);
+    try {
+      const r = await axios.get(`${API}/api/admin/nidp/diag`, { withCredentials: true });
+      setDiag(r.data);
+    } catch (e) {
+      toast.error(`Diag failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setDiagLoad(false);
     }
   }, []);
 
@@ -88,6 +107,52 @@ export default function NidpCatalogPanel() {
 
       {!data && loading && (
         <div className="text-xs text-slate-500 py-4">Loading catalog…</div>
+      )}
+
+      {error && !loading && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 mb-4">
+          <div className="text-xs font-semibold text-red-800 dark:text-red-300 mb-1">
+            Catalog unavailable
+          </div>
+          <div className="text-[11px] text-red-700 dark:text-red-300 font-mono break-words mb-2">
+            {error}
+          </div>
+          <button
+            type="button"
+            onClick={runDiag}
+            disabled={diagLoad}
+            className="inline-flex items-center gap-1 rounded border border-red-300 dark:border-red-700 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-700 dark:text-red-300 text-[11px] px-2 py-1 disabled:opacity-50"
+          >
+            {diagLoad ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+            Run connection diagnostics
+          </button>
+
+          {diag && (
+            <div className="mt-3 space-y-2 text-[11px] text-slate-700 dark:text-slate-200">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div>NIDP_POSTGRES_URL set:</div>
+                <div className={diag.env.NIDP_POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
+                  {diag.env.NIDP_POSTGRES_URL_set ? "yes" : "no"}
+                </div>
+                <div>POSTGRES_URL set:</div>
+                <div className={diag.env.POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
+                  {diag.env.POSTGRES_URL_set ? "yes" : "no"}
+                </div>
+                <div>Resolved URL (NIDP):</div>
+                <div className="font-mono break-all">{diag.env.resolved_for_nidp || "—"}</div>
+                <div>NIDP pool connect:</div>
+                <div className={diag.nidp_pool.ok ? "text-emerald-600" : "text-red-600"}>
+                  {diag.nidp_pool.ok ? "ok" : (diag.nidp_pool.error || "fail")}
+                </div>
+                <div>App pool connect:</div>
+                <div className={diag.app_pool.ok ? "text-emerald-600" : "text-red-600"}>
+                  {diag.app_pool.ok ? "ok" : (diag.app_pool.error || "fail")}
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-500 italic mt-2">{diag.hint}</div>
+            </div>
+          )}
+        </div>
       )}
 
       {data && (

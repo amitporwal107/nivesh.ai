@@ -8,6 +8,7 @@ import { NumberFormatProvider } from "@/context/NumberFormatContext";
 import { Toaster } from "@/components/ui/sonner";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
+import NidpConsole from "@/pages/NidpConsole";
 import CasCallback from "@/pages/CasCallback";
 import CasConnect from "@/pages/CasConnect";
 import Privacy from "@/pages/Privacy";
@@ -33,6 +34,7 @@ function AppRouter() {
       <Route path="/cas-callback" element={<CasCallback />} />
       <Route path="/cas-connect/:token" element={<CasConnect />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -34,12 +34,40 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import require_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp"])
+
+
+_NIDP_POOL_ERROR: Optional[str] = None
+
+
+async def _nidp_pool() -> Optional[asyncpg.Pool]:
+    """Return the NIDP warehouse pool (NIDP_POSTGRES_URL → POSTGRES_URL
+    fallback). The NIDP module raises on connect failure; we swallow,
+    record the message in _NIDP_POOL_ERROR for callers to surface, and
+    return None — matching services.pg_client.get_pool() semantics."""
+    global _NIDP_POOL_ERROR
+    try:
+        from nidp.shared.storage.pg import get_pool as _nidp_get_pool
+        pool = await _nidp_get_pool()
+        _NIDP_POOL_ERROR = None
+        return pool
+    except Exception as e:                                            # noqa: BLE001
+        _NIDP_POOL_ERROR = f"{type(e).__name__}: {str(e)[:400]}"
+        logger.warning("admin/nidp: NIDP pool unavailable: %s", _NIDP_POOL_ERROR)
+        return None
+
+
+def _mask_pg_url(url: Optional[str]) -> Optional[str]:
+    """Strip credentials from a Postgres URL for safe display."""
+    if not url:
+        return None
+    return re.sub(r"://[^@]+@", "://***@", url)
 
 # Canonical list of NIDP ingesters (mirrors backend/nidp/deploy/gcp/deploy.sh).
 # `cadence` is informational; the actual cadence is enforced by Cloud Scheduler.
@@ -101,6 +129,60 @@ SCRIPT_PATH = _REPO_ROOT / "backend" / "nidp" / "deploy" / "gcp" / "dump_for_cla
 DUMP_TIMEOUT_S = 180   # 3 min hard cap; script normally finishes in 30-90s
 
 _GIST_RE = re.compile(r"https://gist\.github\.com/[A-Za-z0-9_/-]+")
+
+
+@router.get("/diag")
+async def diag(request: Request) -> Dict[str, Any]:
+    """Connection diagnostics — what URL admin_nidp is trying, whether
+    NIDP and app pools connect, the underlying error if not. Used to
+    debug the common preview-env case where NIDP_POSTGRES_URL points to
+    a private GCP VM IP that the API service can't reach."""
+    await require_admin(request)
+
+    nidp_url = os.environ.get("NIDP_POSTGRES_URL")
+    app_url  = os.environ.get("POSTGRES_URL")
+
+    nidp_resolved = nidp_url or app_url or "postgresql://postgres:postgres@localhost:5432/nivesh"
+
+    nidp_ok, nidp_err = False, None
+    try:
+        from nidp.shared.storage.pg import get_pool as _nidp_get_pool
+        pool = await _nidp_get_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        nidp_ok = True
+    except Exception as e:                                            # noqa: BLE001
+        nidp_err = f"{type(e).__name__}: {str(e)[:400]}"
+
+    app_ok, app_err = False, None
+    try:
+        from services import pg_client as _appc
+        pool = await _appc.get_pool()
+        if pool is None:
+            app_err = "pg_client returned None (POSTGRES_URL missing or connect failed)"
+        else:
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            app_ok = True
+    except Exception as e:                                            # noqa: BLE001
+        app_err = f"{type(e).__name__}: {str(e)[:400]}"
+
+    return {
+        "env": {
+            "NIDP_POSTGRES_URL_set": bool(nidp_url),
+            "POSTGRES_URL_set":      bool(app_url),
+            "NIDP_POSTGRES_URL":     _mask_pg_url(nidp_url),
+            "POSTGRES_URL":          _mask_pg_url(app_url),
+            "resolved_for_nidp":     _mask_pg_url(nidp_resolved),
+        },
+        "nidp_pool": {"ok": nidp_ok, "error": nidp_err},
+        "app_pool":  {"ok": app_ok,  "error": app_err},
+        "hint": (
+            "If NIDP_POSTGRES_URL is set but nidp_pool.error mentions a "
+            "10.x or private host, the API service needs a Cloud Run VPC "
+            "connector to reach the GCP VM (Cloud Run jobs already have it)."
+        ),
+    }
 
 
 @router.get("/script")
@@ -204,12 +286,11 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
     # Wrapped because v_feed_status may not exist on every env (created
     # by migration 022). A missing view should degrade to "no DB status"
     # rather than 500 the whole admin panel.
-    from services import pg_client
-    pool = await pg_client.get_pool()
+    pool = await _nidp_pool()
     db_status: Dict[str, Dict[str, Any]] = {}
     db_error: Optional[str] = None
     if pool is None:
-        db_error = "postgres pool unavailable"
+        db_error = _NIDP_POOL_ERROR or "NIDP postgres pool unavailable"
     else:
         try:
             async with pool.acquire() as conn:
@@ -307,8 +388,7 @@ async def job_runs(
     await require_admin(request)
     _ingester_or_404(ingester)
 
-    from services import pg_client
-    pool = await pg_client.get_pool()
+    pool = await _nidp_pool()
     if pool is None:
         return {"ingester": ingester, "runs": []}
 
@@ -423,10 +503,15 @@ async def catalog(request: Request) -> Dict[str, Any]:
     on one table does not blank out the entire catalog."""
     await require_admin(request)
 
-    from services import pg_client
-    pool = await pg_client.get_pool()
+    pool = await _nidp_pool()
     if pool is None:
-        raise HTTPException(status_code=503, detail="postgres pool unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"NIDP postgres unreachable: {_NIDP_POOL_ERROR or 'unknown'}. "
+                "Hit /api/admin/nidp/diag for env diagnostics."
+            ),
+        )
 
     async with pool.acquire() as conn:
         tables_out: List[Dict[str, Any]] = []
