@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import {
-  Database, RefreshCw, Loader2, CheckCircle2, XCircle,
+  Database, RefreshCw, Loader2, CheckCircle2, XCircle, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,6 +45,7 @@ export default function NidpCatalogPanel() {
   const [diag,    setDiag]    = useState(null);
   const [diagLoad,setDiagLoad]= useState(false);
   const [loading, setLoading] = useState(true);
+  const [expandedTable, setExpandedTable] = useState(null);   // table name or null
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,19 +162,27 @@ export default function NidpCatalogPanel() {
 
       {data && (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {data.by_domain.map(d => (
               <div
                 key={d.domain}
-                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 px-3 py-2"
+                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 p-3"
               >
-                <div className="text-[10px] uppercase tracking-wide text-slate-500">{d.domain}</div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                  {fmtNum(d.rows)}{" "}
-                  <span className="text-[10px] font-normal text-slate-500">rows</span>
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
+                    {d.domain}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {d.tables} tables · {fmtNum(d.rows)} rows
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  {d.tables} tables · {fmtDate(d.earliest)} → {fmtDate(d.latest)}
+                {d.description && (
+                  <div className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+                    {d.description}
+                  </div>
+                )}
+                <div className="text-[10px] text-slate-500 mt-1.5">
+                  {fmtDate(d.earliest)} → {fmtDate(d.latest)}
                 </div>
               </div>
             ))}
@@ -187,6 +196,7 @@ export default function NidpCatalogPanel() {
               <table className="min-w-full text-xs">
                 <thead>
                   <tr className="text-left border-b border-slate-200 dark:border-slate-700 text-slate-500">
+                    <th className="px-2 py-1.5 w-6"></th>
                     <th className="px-2 py-1.5">Domain</th>
                     <th className="px-2 py-1.5">Table</th>
                     <th className="px-2 py-1.5">Date col</th>
@@ -196,26 +206,48 @@ export default function NidpCatalogPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.tables.map(t => (
-                    <tr
-                      key={t.table}
-                      className={
-                        "border-b border-slate-100 dark:border-slate-700 " +
-                        (t.error ? "bg-red-50 dark:bg-red-900/20" : "")
-                      }
-                    >
-                      <td className="px-2 py-1 text-slate-500">{t.domain}</td>
-                      <td className="px-2 py-1 font-mono text-slate-900 dark:text-slate-100">nidp.{t.table}</td>
-                      <td className="px-2 py-1 text-slate-400 font-mono text-[10px]">{t.date_col || "—"}</td>
-                      <td className="px-2 py-1 text-right text-slate-700 dark:text-slate-200 font-medium">
-                        {t.error
-                          ? <span className="text-red-600 text-[10px]" title={t.error}>err</span>
-                          : fmtNum(t.rows)}
-                      </td>
-                      <td className="px-2 py-1 text-slate-500">{fmtDate(t.first_at)}</td>
-                      <td className="px-2 py-1 text-slate-500">{fmtDate(t.last_at)}</td>
-                    </tr>
-                  ))}
+                  {data.tables.map(t => {
+                    const isOpen = expandedTable === t.table;
+                    return (
+                      <React.Fragment key={t.table}>
+                        <tr
+                          onClick={() => setExpandedTable(isOpen ? null : t.table)}
+                          className={
+                            "border-b border-slate-100 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40 " +
+                            (t.error ? "bg-red-50 dark:bg-red-900/20" : "")
+                          }
+                        >
+                          <td className="px-2 py-1 text-slate-400">
+                            {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                          </td>
+                          <td className="px-2 py-1 text-slate-500">{t.domain}</td>
+                          <td className="px-2 py-1 font-mono text-slate-900 dark:text-slate-100">nidp.{t.table}</td>
+                          <td className="px-2 py-1 text-slate-400 font-mono text-[10px]">{t.date_col || "—"}</td>
+                          <td className="px-2 py-1 text-right text-slate-700 dark:text-slate-200 font-medium">
+                            {t.error
+                              ? <span className="text-red-600 text-[10px]" title={t.error}>err</span>
+                              : fmtNum(t.rows)}
+                          </td>
+                          <td className="px-2 py-1 text-slate-500">{fmtDate(t.first_at)}</td>
+                          <td className="px-2 py-1 text-slate-500">{fmtDate(t.last_at)}</td>
+                        </tr>
+                        {isOpen && t.description && (
+                          <tr className="bg-slate-50/60 dark:bg-slate-900/40">
+                            <td colSpan={7} className="px-2 py-3">
+                              <div className="ml-6 grid grid-cols-1 md:grid-cols-[80px,1fr] gap-x-4 gap-y-1.5 text-[11px] text-slate-700 dark:text-slate-300 max-w-4xl">
+                                <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Source</div>
+                                <div>{t.description.source}</div>
+                                <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Stores</div>
+                                <div>{t.description.stores}</div>
+                                <div className="text-slate-500 uppercase tracking-wide text-[10px] font-semibold">Use</div>
+                                <div>{t.description.use}</div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

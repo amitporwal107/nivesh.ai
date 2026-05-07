@@ -359,6 +359,24 @@ async def execute_job(ingester: str, request: Request) -> Dict[str, Any]:
     }
 
 
+@router.get("/jobs/{ingester}/calendar")
+async def job_calendar(
+    ingester: str,
+    request: Request,
+    days: int = Query(7, ge=1, le=30),
+) -> Dict[str, Any]:
+    """Per-day status strip for the last N days (default 7). Used by the
+    Console's week-view widget. Pass-through to the NIDP Query API."""
+    await require_admin(request)
+    _ingester_or_404(ingester)
+
+    try:
+        return await _nq.get_feed_calendar(ingester, days=days)
+    except _nq.NidpQueryClientError as e:
+        logger.warning("admin/nidp/jobs/%s/calendar: query api error: %s", ingester, e.detail)
+        return {"ingester": ingester, "days": days, "calendar": [], "error": e.detail}
+
+
 @router.get("/jobs/{ingester}/runs")
 async def job_runs(
     ingester: str,
