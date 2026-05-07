@@ -200,10 +200,12 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
     if symbols:
         args.append(symbols)
         where.append(f"symbol = ANY(${len(args)}::text[])")
+    # nidp.prices_eod uses `volume` (not `traded_volume`); alias for
+    # consistency with our internal dict shape.
     sql = f"""
         SELECT symbol, as_of_date,
                open_price, high_price, low_price, close_price,
-               traded_volume
+               volume AS traded_volume
           FROM nidp.prices_eod
          WHERE {' AND '.join(where)}
     """
