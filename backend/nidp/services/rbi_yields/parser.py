@@ -1,25 +1,30 @@
 """RBI G-Sec / T-Bill yield page parser.
 
-Three layouts are accepted (auto-detected per-table):
+Four layouts are accepted (auto-detected per-page):
 
 (1) Daily-rows: "Date | T-Bill 91D | T-Bill 364D | G-Sec 10Y | …"
     One row per date, one column per tenor.
 
-(2) Weekly-columns (RBI WSS / Weekly Statistical Supplement layout):
-    First column carries the tenor label, subsequent column headers
-    are dates. Picks the most-recent column for each tenor.
+(2) Weekly-columns: first column carries the tenor label, subsequent
+    column headers are full dates. Most-recent column wins per tenor.
         |  Item              | 26-Apr-2026 | 19-Apr-2026 | …
         |  91-Day T-Bill     | 6.45        | 6.42
         |  10-Year G-Sec     | 7.10        | 7.08
 
-(3) ReferenceRateArchive.aspx — same daily-rows shape after POST
-    rendering; same path as (1).
+(3) ReferenceRateArchive.aspx — same shape as (1).
 
-Detection: count cells in the first row vs first column that parse
-as dates. Whichever side wins decides orientation.
+(4) NSDP / "National Summary Data" multi-row header (BS_NSDPDisplay.aspx
+    ?param=4 — what RBI is currently serving as of 2026-05). The date
+    is split across two rows: an upper row with year ("Item/Week Ended
+    | 2025 | 2026"), a lower row with month-day ("Apr. 25 | Mar. 27 |
+    Apr. 3 | Apr. 10 | Apr. 17 | Apr. 24"). Tenor rows follow with
+    one numeric per date column. We pick the rightmost (most recent)
+    numeric per tenor and emit the latest header date as as_of_date.
 
-Depends on lxml/beautifulsoup4. We extract the most-recent dated
-value per tenor across all tables on the page.
+Detection runs (4) first because that's RBI's current default; falls
+back to (1)/(2) per-table for older snapshots.
+
+Depends on lxml/beautifulsoup4.
 """
 from __future__ import annotations
 
@@ -163,6 +168,82 @@ def _parse_weekly_cols(
     return best
 
 
+_MONTH_DAY_RE = re.compile(r"^([A-Z][a-z]{2})\.?\s+(\d{1,2})$")
+_YEAR_RE = re.compile(r"^\d{4}$")
+
+
+def _parse_nsdp_layout(soup) -> dict[str, tuple[str, float]]:
+    """RBI BS_NSDPDisplay.aspx?param=4 layout — multi-row header where
+    year sits on one row and 'Mon. dd' on the next.
+
+    Strategy: find the rightmost (= most recent) full date by combining
+    a 'Mon. dd' cell with the maximum year from the prior 1-3 rows.
+    Then for each tenor row, take the rightmost numeric cell — that
+    corresponds to the most-recent column.
+    """
+    all_trs = soup.find_all("tr")
+
+    # Pass 1: find the latest as_of_date by scanning month-day rows.
+    max_date: Optional[str] = None
+    for i, tr in enumerate(all_trs):
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"], recursive=False)]
+        if not cells:
+            continue
+        md_matches = [_MONTH_DAY_RE.match(c.strip()) for c in cells]
+        if not any(md_matches):
+            continue
+        # Pull years from up to 3 prior rows (closest year-only row wins).
+        years: list[int] = []
+        for back in range(1, 4):
+            if i - back < 0:
+                break
+            prior = [c.get_text(" ", strip=True) for c in all_trs[i - back].find_all(["th", "td"], recursive=False)]
+            yrs = [int(c) for c in prior if _YEAR_RE.match(c.strip())]
+            if yrs:
+                years = yrs
+                break
+        if not years:
+            continue
+        max_year = max(years)
+        # Rightmost month-day combined with the latest year.
+        for j in range(len(cells) - 1, -1, -1):
+            m = md_matches[j]
+            if not m:
+                continue
+            try:
+                iso = datetime.strptime(
+                    f"{m.group(2)} {m.group(1)} {max_year}", "%d %b %Y"
+                ).date().isoformat()
+            except ValueError:
+                continue
+            if max_date is None or iso > max_date:
+                max_date = iso
+            break
+
+    if not max_date:
+        return {}
+
+    # Pass 2: tenor rows → rightmost numeric value.
+    best: dict[str, tuple[str, float]] = {}
+    for tr in all_trs:
+        cells = [c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"], recursive=False)]
+        if len(cells) < 2:
+            continue
+        cls = _classify_header(cells[0])
+        if not cls:
+            continue
+        tenor, _ = cls
+        for c in reversed(cells[1:]):
+            v = _to_float(c)
+            if v is None:
+                continue
+            cur = best.get(tenor)
+            if cur is None or max_date > cur[0]:
+                best[tenor] = (max_date, v)
+            break
+    return best
+
+
 def parse_rbi_yields(body: bytes) -> list[dict[str, Any]]:
     try:
         from bs4 import BeautifulSoup                              # type: ignore[import-not-found]
@@ -172,6 +253,25 @@ def parse_rbi_yields(body: bytes) -> list[dict[str, Any]]:
     soup = BeautifulSoup(body, "lxml" if _has_lxml() else "html.parser")
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
+
+    # Layout (4) first — RBI's NSDP page (current default). If we get
+    # tenors out of it, emit and return; otherwise fall through to the
+    # per-table daily-rows / weekly-cols logic for older snapshots.
+    nsdp_best = _parse_nsdp_layout(soup)
+    for tenor, (d_iso, val) in nsdp_best.items():
+        key = (d_iso, tenor)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "as_of_date": d_iso,
+            "tenor":      tenor,
+            "yield_pct":  val,
+            "instrument": _instr_for(tenor),
+        })
+    if rows:
+        logger.debug("rbi_yields parsed %d tenors via NSDP layout", len(rows))
+        return rows
 
     for table in soup.find_all("table"):
         head_cells: list[str] = []
