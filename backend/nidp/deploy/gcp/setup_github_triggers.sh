@@ -59,6 +59,12 @@ ALL_SERVICES=(
     # Phase 1B
     nse_financials nse_shareholding price_adjuster
     nse_equity_master fno_bhavcopy
+    # Phase 1B — corporate announcements (S4) + document intelligence (S5).
+    # The two corporate_announcements_* shims are thin Dockerfile wrappers
+    # around the shared corporate_announcements/ package; they exist to
+    # give Cloud Scheduler one job per source for failure isolation.
+    corporate_announcements_nse corporate_announcements_bse
+    announcement_classifier document_parser
 )
 
 if [[ -n "$SERVICE_FILTER" ]]; then
@@ -207,6 +213,15 @@ SHARED_GLOBS='backend/nidp/shared/**,backend/nidp/contracts/**,backend/nidp/depl
 for svc in "${SERVICES[@]}"; do
     svc_dashed="${svc//_/-}"
     included="backend/nidp/services/${svc}/**,${SHARED_GLOBS}"
+    # The corporate_announcements_{nse,bse} shims are thin Dockerfile-only
+    # wrappers around the shared corporate_announcements/ package. Without
+    # this, a code change in the shared package wouldn't fire the shim's
+    # rebuild trigger.
+    case "$svc" in
+        corporate_announcements_nse|corporate_announcements_bse)
+            included="${included},backend/nidp/services/corporate_announcements/**"
+            ;;
+    esac
     create_trigger \
         "nidp-${svc_dashed}-on-push" \
         "backend/nidp/deploy/gcp/cloudbuild-service.yaml" \

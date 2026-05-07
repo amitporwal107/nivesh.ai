@@ -50,6 +50,12 @@ ALL_SERVICES=(
     # price_adjuster, equity_master, fno_bhavcopy)
     nse_financials nse_shareholding price_adjuster
     nse_equity_master fno_bhavcopy
+    # Phase 1B — corporate announcements (S4) + document intelligence (S5).
+    # corporate_announcements_{nse,bse} are thin Dockerfile shims sharing
+    # the corporate_announcements/ Python package; split for Cloud Scheduler
+    # failure isolation.
+    corporate_announcements_nse corporate_announcements_bse
+    announcement_classifier document_parser
 )
 
 # ── Args ────────────────────────────────────────────────────────────
@@ -170,6 +176,10 @@ declare -A JOB_SECRETS=(
     # Create the secret once: `printf "%s" "<key>" | gcloud secrets create
     # FRED_API_KEY --data-file=- --replication-policy=automatic`.
     [fred_macro]="FRED_API_KEY=FRED_API_KEY:latest"
+    # announcement_classifier needs ANTHROPIC_API_KEY for Haiku calls.
+    # Create the secret once: `printf "%s" "sk-ant-..." | gcloud secrets create
+    # ANTHROPIC_API_KEY --data-file=- --replication-policy=automatic`.
+    [announcement_classifier]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest"
 )
 
 for svc in "${SVC_LIST[@]}"; do
