@@ -56,7 +56,15 @@ ALL_SERVICES=(
     # needs more memory for PDFs — wired below.
     corporate_announcements_nse corporate_announcements_bse
     announcement_classifier document_parser
+    # NIDP Query API — read-only HTTPS surface over the warehouse for
+    # the wealth-advisor admin console. Cloud Run *service* (not job)
+    # — see the deploy branch below.
+    query_api
 )
+
+# Services that deploy as Cloud Run *services* instead of jobs.
+# Long-running, listen on $PORT, get a public URL.
+SERVICE_TYPE_SERVICES=(query_api)
 
 SERVICE_FILTER=""
 NO_UPDATE=""
@@ -145,12 +153,22 @@ timeout: 600s
 EOF
 done
 
-# ── Submit builds (parallel) ────────────────────────────────────────
+# ── Submit builds (parallel, capped) ────────────────────────────────
+# Each `gcloud builds submit` polls Cloud Build's GET API ~1/sec while
+# the build runs. Cloud Build's GetRequestsPerMinutePerProject quota
+# is 300/min — fanning out 13 services × ~60 polls/min = 780 hits the
+# quota and aborts the laggards. Cap concurrency to keep polls < 300/min.
+BUILD_PARALLELISM="${BUILD_PARALLELISM:-4}"
 echo
-log "submitting ${#SERVICES[@]} builds to Cloud Build (parallel)..."
+log "submitting ${#SERVICES[@]} builds to Cloud Build (parallelism=${BUILD_PARALLELISM})..."
 declare -A BUILD_PIDS
+running=0
 for svc in "${SERVICES[@]}"; do
     [[ ! -f "$TMPDIR/build-${svc}.yaml" ]] && continue
+    if (( running >= BUILD_PARALLELISM )); then
+        wait -n          # block until any one of the running builds returns
+        running=$((running - 1))
+    fi
     {
         if gcloud builds submit \
                 --project="$PROJECT" \
@@ -162,13 +180,14 @@ for svc in "${SERVICES[@]}"; do
         fi
     } &
     BUILD_PIDS[$svc]=$!
+    running=$((running + 1))
     echo "  → $svc (pid ${BUILD_PIDS[$svc]})"
 done
 
-# Track progress
-log "waiting for builds to finish (Cloud Build runs in parallel; total ≤ 5 min if all succeed)..."
+# Drain any stragglers
+log "waiting for remaining builds to finish..."
 for svc in "${!BUILD_PIDS[@]}"; do
-    wait "${BUILD_PIDS[$svc]}"
+    wait "${BUILD_PIDS[$svc]}" 2>/dev/null || true
 done
 
 # ── Report build results ────────────────────────────────────────────
@@ -223,8 +242,16 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
     COMMON_ENV="NIDP_STORAGE_BACKEND=gcs,NIDP_S3_BUCKET=nidp-raw-${PROJECT},NIDP_EVENT_BUS=kafka,GCP_PROJECT=${PROJECT},GCP_REGION=${REGION}"
     COMMON_SECRETS="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest,NIDP_KAFKA_BROKERS=NIDP_KAFKA_BROKERS:latest,NIDP_SCHEMA_REGISTRY_URL=NIDP_SCHEMA_REGISTRY_URL:latest,NIDP_REDIS_URL=NIDP_REDIS_URL:latest"
 
+    # Helper: is a service type "service" (long-running HTTP) vs "job"?
+    _is_service_type() {
+        local s="$1"
+        for t in "${SERVICE_TYPE_SERVICES[@]}"; do [[ "$t" == "$s" ]] && return 0; done
+        return 1
+    }
+
+    declare -A SERVICE_URLS=()
+
     for svc in "${SUCCEEDED[@]}"; do
-        job_name="nidp-${svc//_/-}"
         # Per-service secret extension (matches deploy.sh's JOB_SECRETS map).
         secrets_for_svc="$COMMON_SECRETS"
         case "$svc" in
@@ -232,32 +259,76 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
                 secrets_for_svc="$secrets_for_svc,FRED_API_KEY=FRED_API_KEY:latest" ;;
             announcement_classifier)
                 secrets_for_svc="$secrets_for_svc,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" ;;
+            query_api)
+                secrets_for_svc="$secrets_for_svc,NIDP_QUERY_API_TOKEN=NIDP_QUERY_API_TOKEN:latest" ;;
         esac
 
-        if gcloud run jobs describe "$job_name" --region="$REGION" \
-                --project="$PROJECT" &>/dev/null; then
-            if gcloud run jobs update "$job_name" \
-                    --image="${AR_REPO}/${svc}:${TAG}" \
-                    --region="$REGION" --project="$PROJECT" \
-                    --quiet >/dev/null 2>&1; then
-                ok "  $job_name updated → $TAG"
+        if _is_service_type "$svc"; then
+            # ── Cloud Run *service* (long-running HTTP, public URL) ─
+            svc_name="nidp-${svc//_/-}"
+            if gcloud run services describe "$svc_name" --region="$REGION" \
+                    --project="$PROJECT" &>/dev/null; then
+                if gcloud run services update "$svc_name" \
+                        --image="${AR_REPO}/${svc}:${TAG}" \
+                        --region="$REGION" --project="$PROJECT" \
+                        --quiet >/dev/null 2>&1; then
+                    ok "  $svc_name (service) updated → $TAG"
+                else
+                    err "  $svc_name (service) update failed"
+                fi
             else
-                err "  $job_name update failed"
+                log "  $svc_name (service) does not exist — creating..."
+                if gcloud run deploy "$svc_name" \
+                        --image="${AR_REPO}/${svc}:${TAG}" \
+                        --region="$REGION" --project="$PROJECT" \
+                        --service-account="$SA_EMAIL" \
+                        $VPC_FLAGS \
+                        --set-env-vars="$COMMON_ENV" \
+                        --set-secrets="$secrets_for_svc" \
+                        --port=8080 --memory=512Mi --cpu=1 \
+                        --min-instances=0 --max-instances=2 \
+                        --allow-unauthenticated \
+                        --ingress=all \
+                        --quiet >/dev/null 2>&1; then
+                    ok "  $svc_name (service) CREATED → $TAG"
+                else
+                    err "  $svc_name (service) create failed"
+                fi
             fi
-        else
-            log "  $job_name does not exist — creating..."
-            if gcloud run jobs create "$job_name" \
-                    --image="${AR_REPO}/${svc}:${TAG}" \
+
+            # Capture the URL for the final summary banner.
+            url=$(gcloud run services describe "$svc_name" \
                     --region="$REGION" --project="$PROJECT" \
-                    --service-account="$SA_EMAIL" \
-                    $VPC_FLAGS \
-                    --set-env-vars="$COMMON_ENV" \
-                    --set-secrets="$secrets_for_svc" \
-                    --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
-                    --quiet >/dev/null 2>&1; then
-                ok "  $job_name CREATED → $TAG"
+                    --format='value(status.url)' 2>/dev/null || true)
+            [[ -n "$url" ]] && SERVICE_URLS[$svc_name]="$url"
+        else
+            # ── Cloud Run *job* (default — most NIDP ingesters) ─────
+            job_name="nidp-${svc//_/-}"
+            if gcloud run jobs describe "$job_name" --region="$REGION" \
+                    --project="$PROJECT" &>/dev/null; then
+                if gcloud run jobs update "$job_name" \
+                        --image="${AR_REPO}/${svc}:${TAG}" \
+                        --region="$REGION" --project="$PROJECT" \
+                        --quiet >/dev/null 2>&1; then
+                    ok "  $job_name updated → $TAG"
+                else
+                    err "  $job_name update failed"
+                fi
             else
-                err "  $job_name create failed (see: gcloud run jobs create $job_name --region=$REGION ...)"
+                log "  $job_name does not exist — creating..."
+                if gcloud run jobs create "$job_name" \
+                        --image="${AR_REPO}/${svc}:${TAG}" \
+                        --region="$REGION" --project="$PROJECT" \
+                        --service-account="$SA_EMAIL" \
+                        $VPC_FLAGS \
+                        --set-env-vars="$COMMON_ENV" \
+                        --set-secrets="$secrets_for_svc" \
+                        --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
+                        --quiet >/dev/null 2>&1; then
+                    ok "  $job_name CREATED → $TAG"
+                else
+                    err "  $job_name create failed (see: gcloud run jobs create $job_name --region=$REGION ...)"
+                fi
             fi
         fi
     done
@@ -269,6 +340,17 @@ echo -e "═══════════════════════�
 echo -e "${GREEN}BUILT${RESET} (${#SUCCEEDED[@]}): ${SUCCEEDED[*]:-(none)}"
 [[ ${#FAILED[@]} -gt 0 ]] && echo -e "${RED}FAILED${RESET} (${#FAILED[@]}): ${FAILED[*]}"
 echo -e "Tag: ${TAG}"
+
+# Print URLs of any Cloud Run *services* deployed in this run (notably
+# nidp-query-api). These are the values you paste into the wealth-advisor
+# environment as NIDP_QUERY_API_URL.
+if [[ ${#SERVICE_URLS[@]} -gt 0 ]]; then
+    echo -e "────────────────────────────────────────────────────────────"
+    echo -e "${GREEN}Cloud Run service URLs${RESET}:"
+    for svc_name in "${!SERVICE_URLS[@]}"; do
+        printf "  %-22s %s\n" "$svc_name" "${SERVICE_URLS[$svc_name]}"
+    done
+fi
 echo -e "════════════════════════════════════════════════════════════"
 
 if [[ ${#FAILED[@]} -eq 0 && -z "$NO_UPDATE" ]]; then

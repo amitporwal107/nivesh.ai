@@ -5,6 +5,10 @@
 aiohttp>=3.9,<4
 asyncpg>=0.29,<0.30
 
+# ── HTTP API (only services/query_api uses these; harmless for the rest) ──
+fastapi>=0.110,<0.116
+uvicorn[standard]>=0.27,<0.32
+
 # ── Observability ──
 prometheus-client>=0.19,<0.21
 
