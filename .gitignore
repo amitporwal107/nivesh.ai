@@ -350,6 +350,7 @@ frontend/node_modules/.cache/default-development/45.pack
 .gh-token
 .gcp-token
 .gcp-actions.log
+.fred-token
 .gh/
 -e 
 # Environment and credential files
