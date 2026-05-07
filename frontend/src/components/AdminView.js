@@ -17,6 +17,7 @@ import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PipelineRunner from "@/components/admin/PipelineRunner";
 import NidpDumpRunner from "@/components/admin/NidpDumpRunner";
+import NidpJobsPanel from "@/components/admin/NidpJobsPanel";
 import PromptsSection from "@/components/admin/PromptsSection";
 import CasConfigSection from "@/components/admin/CasConfigSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
@@ -285,6 +286,7 @@ const AdminView = () => {
           <CasConfigSection />
           <DatastoreSection />
           <PipelineRunner />
+          <NidpJobsPanel />
           <NidpDumpRunner />
           <DataPipelineMonitor />
           <MFDataSection />
