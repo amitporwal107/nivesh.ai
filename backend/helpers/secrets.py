@@ -60,6 +60,18 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": "redis",
         "category": "data",
     },
+    "NIDP_QUERY_API_URL": {
+        "display_name": "NIDP Query API URL",
+        "description": "Base URL of the nidp-query-api Cloud Run service. Printed by build_on_gcp.sh as 'Cloud Run service URLs:'. Format: https://nidp-query-api-<hash>.<region>.run.app",
+        "test_fn": None,
+        "category": "data",
+    },
+    "NIDP_QUERY_API_TOKEN": {
+        "display_name": "NIDP Query API Token",
+        "description": "Bearer token used by the wealth-advisor backend to authenticate to the NIDP Query API. Same value stored in the GCP Secret Manager secret of the same name.",
+        "test_fn": None,
+        "category": "data",
+    },
     "GOOGLE_DOCAI_CREDENTIALS_JSON": {
         "display_name": "Google Document AI · Service Account JSON",
         "description": "Full contents of the GCP service-account key.json (paste verbatim). Required when CAS Parser Provider = nivesh_cas_parser. Create one at Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.",

@@ -34,40 +34,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import require_admin
+from services import nidp_query_client as _nq
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp"])
-
-
-_NIDP_POOL_ERROR: Optional[str] = None
-
-
-async def _nidp_pool() -> Optional[asyncpg.Pool]:
-    """Return the NIDP warehouse pool (NIDP_POSTGRES_URL → POSTGRES_URL
-    fallback). The NIDP module raises on connect failure; we swallow,
-    record the message in _NIDP_POOL_ERROR for callers to surface, and
-    return None — matching services.pg_client.get_pool() semantics."""
-    global _NIDP_POOL_ERROR
-    try:
-        from nidp.shared.storage.pg import get_pool as _nidp_get_pool
-        pool = await _nidp_get_pool()
-        _NIDP_POOL_ERROR = None
-        return pool
-    except Exception as e:                                            # noqa: BLE001
-        _NIDP_POOL_ERROR = f"{type(e).__name__}: {str(e)[:400]}"
-        logger.warning("admin/nidp: NIDP pool unavailable: %s", _NIDP_POOL_ERROR)
-        return None
-
-
-def _mask_pg_url(url: Optional[str]) -> Optional[str]:
-    """Strip credentials from a Postgres URL for safe display."""
-    if not url:
-        return None
-    return re.sub(r"://[^@]+@", "://***@", url)
 
 # Canonical list of NIDP ingesters (mirrors backend/nidp/deploy/gcp/deploy.sh).
 # `cadence` is informational; the actual cadence is enforced by Cloud Scheduler.
@@ -134,26 +107,34 @@ _GIST_RE = re.compile(r"https://gist\.github\.com/[A-Za-z0-9_/-]+")
 @router.get("/diag")
 async def diag(request: Request) -> Dict[str, Any]:
     """Connection diagnostics — what URL admin_nidp is trying, whether
-    NIDP and app pools connect, the underlying error if not. Used to
-    debug the common preview-env case where NIDP_POSTGRES_URL points to
-    a private GCP VM IP that the API service can't reach."""
+    NIDP Query API is reachable + authenticated, plus whether the local
+    app Postgres pool connects. The first row tells you whether the
+    admin console can talk to the GCP-side warehouse at all."""
     await require_admin(request)
 
-    nidp_url = os.environ.get("NIDP_POSTGRES_URL")
-    app_url  = os.environ.get("POSTGRES_URL")
+    cfg = _nq.config_summary()
 
-    nidp_resolved = nidp_url or app_url or "postgresql://postgres:postgres@localhost:5432/nivesh"
-
-    nidp_ok, nidp_err = False, None
+    # ── NIDP Query API reachability ─────────────────────────────────
+    nidp_health, nidp_err = None, None
     try:
-        from nidp.shared.storage.pg import get_pool as _nidp_get_pool
-        pool = await _nidp_get_pool()
-        async with pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
-        nidp_ok = True
+        nidp_health = await _nq.get_health()
+    except _nq.NidpQueryClientError as e:
+        nidp_err = e.detail
     except Exception as e:                                            # noqa: BLE001
-        nidp_err = f"{type(e).__name__}: {str(e)[:400]}"
+        nidp_err = f"{type(e).__name__}: {str(e)[:300]}"
 
+    # Gate the auth check on health succeeding — running /catalog on a
+    # broken /health is just noise.
+    nidp_auth_ok, nidp_auth_err = False, None
+    if nidp_health is not None:
+        try:
+            await _nq.get_feeds()
+            nidp_auth_ok = True
+        except _nq.NidpQueryClientError as e:
+            nidp_auth_err = e.detail
+
+    # ── App Postgres pool (unchanged probe) ─────────────────────────
+    app_url  = os.environ.get("POSTGRES_URL")
     app_ok, app_err = False, None
     try:
         from services import pg_client as _appc
@@ -165,22 +146,29 @@ async def diag(request: Request) -> Dict[str, Any]:
                 await conn.fetchval("SELECT 1")
             app_ok = True
     except Exception as e:                                            # noqa: BLE001
-        app_err = f"{type(e).__name__}: {str(e)[:400]}"
+        app_err = f"{type(e).__name__}: {str(e)[:300]}"
 
     return {
         "env": {
-            "NIDP_POSTGRES_URL_set": bool(nidp_url),
-            "POSTGRES_URL_set":      bool(app_url),
-            "NIDP_POSTGRES_URL":     _mask_pg_url(nidp_url),
-            "POSTGRES_URL":          _mask_pg_url(app_url),
-            "resolved_for_nidp":     _mask_pg_url(nidp_resolved),
+            "NIDP_QUERY_API_URL_set":   cfg["url_set"],
+            "NIDP_QUERY_API_TOKEN_set": cfg["token_set"],
+            "NIDP_QUERY_API_URL":       cfg["url"],
+            "POSTGRES_URL_set":         bool(app_url),
         },
-        "nidp_pool": {"ok": nidp_ok, "error": nidp_err},
-        "app_pool":  {"ok": app_ok,  "error": app_err},
+        "nidp_query_api": {
+            "reachable":    nidp_health is not None,
+            "health":       nidp_health,
+            "reach_error":  nidp_err,
+            "auth_ok":      nidp_auth_ok,
+            "auth_error":   nidp_auth_err,
+        },
+        "app_pool":  {"ok": app_ok, "error": app_err},
         "hint": (
-            "If NIDP_POSTGRES_URL is set but nidp_pool.error mentions a "
-            "10.x or private host, the API service needs a Cloud Run VPC "
-            "connector to reach the GCP VM (Cloud Run jobs already have it)."
+            "Set NIDP_QUERY_API_URL + NIDP_QUERY_API_TOKEN secrets if "
+            "url_set/token_set are false. If reachable=false, the API "
+            "service can't egress to Cloud Run — check Emergent platform "
+            "egress / firewall. If auth_ok=false, the token doesn't "
+            "match the one stored in GCP Secret Manager."
         ),
     }
 
@@ -282,36 +270,29 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
     """
     await require_admin(request)
 
-    # ── DB: latest feed status, joined with last_error_message ─────
-    # Wrapped because v_feed_status may not exist on every env (created
-    # by migration 022). A missing view should degrade to "no DB status"
-    # rather than 500 the whole admin panel.
-    pool = await _nidp_pool()
+    # ── Feed status from the NIDP Query API ─────────────────────────
+    # Was an in-process v_feed_status query; now proxied because the
+    # API service can't reach the GCP-private NIDP Postgres directly.
     db_status: Dict[str, Dict[str, Any]] = {}
     db_error: Optional[str] = None
-    if pool is None:
-        db_error = _NIDP_POOL_ERROR or "NIDP postgres pool unavailable"
-    else:
-        try:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch("""
-                    SELECT ingester, last_run_status, consecutive_failures,
-                           last_run_at, last_run_duration_ms,
-                           last_rows_inserted, last_error_message
-                      FROM nidp.v_feed_status
-                """)
-                for r in rows:
-                    db_status[r["ingester"]] = {
-                        "last_run_status":      r["last_run_status"],
-                        "consecutive_failures": r["consecutive_failures"],
-                        "last_run_at":          r["last_run_at"].isoformat() if r["last_run_at"] else None,
-                        "last_run_duration_ms": r["last_run_duration_ms"],
-                        "last_rows_inserted":   r["last_rows_inserted"],
-                        "last_error_message":   (r["last_error_message"] or "")[:200] if r["last_error_message"] else None,
-                    }
-        except Exception as e:                                        # noqa: BLE001
-            db_error = f"{type(e).__name__}: {str(e)[:300]}"
-            logger.warning("admin/nidp/jobs: v_feed_status query failed: %s", db_error)
+    try:
+        feeds_resp = await _nq.get_feeds()
+        for f in feeds_resp.get("feeds", []):
+            db_status[f["ingester"]] = {
+                "last_run_status":      f.get("last_run_status"),
+                "consecutive_failures": f.get("consecutive_failures"),
+                "last_run_at":          f.get("last_run_at"),
+                "last_run_duration_ms": f.get("last_run_duration_ms"),
+                "last_rows_inserted":   f.get("last_rows_inserted"),
+                "last_error_message":   f.get("last_error_message"),
+            }
+        # Surface server-side error (e.g. v_feed_status missing on the
+        # remote DB) rather than silently returning empty status.
+        if feeds_resp.get("error"):
+            db_error = feeds_resp["error"]
+    except _nq.NidpQueryClientError as e:
+        db_error = e.detail
+        logger.warning("admin/nidp/jobs: query api unavailable: %s", db_error)
 
     # ── gcloud: image tag per Cloud Run job (parallel) ─────────────
     async def _image_for(ingester: str) -> tuple[str, Optional[str]]:
@@ -384,45 +365,16 @@ async def job_runs(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
 ) -> Dict[str, Any]:
-    """Last N rows from nidp.job_log for this ingester."""
+    """Last N rows from nidp.job_log for this ingester (proxied through
+    the NIDP Query API, which already shapes the response)."""
     await require_admin(request)
     _ingester_or_404(ingester)
 
-    pool = await _nidp_pool()
-    if pool is None:
-        return {"ingester": ingester, "runs": []}
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT run_id, target_date, status,
-                   started_at, finished_at, duration_ms,
-                   rows_fetched, rows_inserted, rows_skipped,
-                   error_class, error_message
-              FROM nidp.job_log
-             WHERE ingester = $1
-             ORDER BY started_at DESC
-             LIMIT $2
-        """, ingester, limit)
-
-    return {
-        "ingester": ingester,
-        "runs": [
-            {
-                "run_id":        str(r["run_id"]),
-                "target_date":   r["target_date"].isoformat() if r["target_date"] else None,
-                "status":        r["status"],
-                "started_at":    r["started_at"].isoformat() if r["started_at"] else None,
-                "finished_at":   r["finished_at"].isoformat() if r["finished_at"] else None,
-                "duration_ms":   r["duration_ms"],
-                "rows_fetched":  r["rows_fetched"],
-                "rows_inserted": r["rows_inserted"],
-                "rows_skipped":  r["rows_skipped"],
-                "error_class":   r["error_class"],
-                "error_message": (r["error_message"] or "")[:500] if r["error_message"] else None,
-            }
-            for r in rows
-        ],
-    }
+    try:
+        return await _nq.get_feed_runs(ingester, limit=limit)
+    except _nq.NidpQueryClientError as e:
+        logger.warning("admin/nidp/jobs/%s/runs: query api error: %s", ingester, e.detail)
+        return {"ingester": ingester, "runs": [], "error": e.detail}
 
 
 @router.get("/jobs/{ingester}/logs")
@@ -462,177 +414,65 @@ async def job_logs(
 
 
 # ────────────────────────────────────────────────────────────────────
-# Catalog — feed inventory + per-table coverage + validation findings
+# Catalog — proxied through the NIDP Query API. The canonical
+# _CATALOG_TABLES list now lives in
+# backend/nidp/services/query_api/routers/catalog.py.
 # ────────────────────────────────────────────────────────────────────
-
-# (table, date_col_or_None, domain). sector_master + document_chunks
-# have no row-level ingestion date worth surfacing — treated as count-only.
-_CATALOG_TABLES: List[tuple[str, Optional[str], str]] = [
-    ("prices_eod",                "as_of_date",   "Market data"),
-    ("prices_eod_adjusted",       "as_of_date",   "Market data"),
-    ("delivery_data",             "as_of_date",   "Market data"),
-    ("index_eod",                 "as_of_date",   "Market data"),
-    ("fno_bhavcopy",              "as_of_date",   "Market data"),
-    ("fii_dii_flows",             "as_of_date",   "Flows & events"),
-    ("bulk_deals",                "as_of_date",   "Flows & events"),
-    ("block_deals",               "as_of_date",   "Flows & events"),
-    ("corporate_actions",         "ex_date",      "Flows & events"),
-    ("index_constituents",        "as_of_date",   "Reference"),
-    ("nse_holidays",              "holiday_date", "Reference"),
-    ("sector_master",             None,           "Reference"),
-    ("nse_financials_quarterly",  "period_end",   "Fundamentals"),
-    ("shareholding_pattern",      "as_of_date",   "Fundamentals"),
-    ("rbi_yields",                "as_of_date",   "Macro"),
-    ("fred_macro",                "as_of_date",   "Macro"),
-    ("corporate_announcements",   "filed_at",     "Disclosure"),
-    ("documents",                 "ingested_at",  "Disclosure"),
-    ("document_chunks",           None,           "Disclosure"),
-    ("stock_features_daily",      "as_of_date",   "Derived"),
-    ("market_daily_snapshot",     "as_of_date",   "Derived"),
-    ("stock_daily_snapshot",      "as_of_date",   "Derived"),
-]
 
 
 @router.get("/catalog")
 async def catalog(request: Request) -> Dict[str, Any]:
-    """Holistic NIDP data catalog — every domain/table with row counts
-    and freshness, every feed's last-run health, and the most recent
-    validation runs. One round-trip the admin UI binds to.
-
-    Per-table queries are wrapped individually so a missing migration
-    on one table does not blank out the entire catalog."""
+    """Holistic NIDP data catalog — proxies three NIDP Query API calls
+    in parallel and merges into the single payload the React panel binds
+    to. Tables/by_domain come from /catalog, feeds from /feeds, and
+    validation runs from /validation. Each is independent: a failure in
+    one section returns a partial catalog rather than a 500."""
     await require_admin(request)
 
-    pool = await _nidp_pool()
-    if pool is None:
+    if not _nq.is_configured():
         raise HTTPException(
             status_code=503,
             detail=(
-                f"NIDP postgres unreachable: {_NIDP_POOL_ERROR or 'unknown'}. "
-                "Hit /api/admin/nidp/diag for env diagnostics."
+                "NIDP Query API not configured — set NIDP_QUERY_API_URL "
+                "and NIDP_QUERY_API_TOKEN secrets. Hit "
+                "/api/admin/nidp/diag for full env state."
             ),
         )
 
-    async with pool.acquire() as conn:
-        tables_out: List[Dict[str, Any]] = []
-        for tbl, datecol, domain in _CATALOG_TABLES:
-            try:
-                if datecol:
-                    row = await conn.fetchrow(
-                        f"SELECT count(*) AS rows, "
-                        f"min({datecol})::text AS first_at, "
-                        f"max({datecol})::text AS last_at "
-                        f"FROM nidp.{tbl}"
-                    )
-                else:
-                    row = await conn.fetchrow(
-                        f"SELECT count(*) AS rows, NULL::text AS first_at, "
-                        f"NULL::text AS last_at FROM nidp.{tbl}"
-                    )
-                tables_out.append({
-                    "table":    tbl,
-                    "domain":   domain,
-                    "date_col": datecol,
-                    "rows":     row["rows"],
-                    "first_at": row["first_at"],
-                    "last_at":  row["last_at"],
-                    "error":    None,
-                })
-            except Exception as e:                                    # noqa: BLE001
-                tables_out.append({
-                    "table":    tbl,
-                    "domain":   domain,
-                    "date_col": datecol,
-                    "rows":     None,
-                    "first_at": None,
-                    "last_at":  None,
-                    "error":    str(e)[:200],
-                })
+    catalog_r, feeds_r, val_r = await asyncio.gather(
+        _nq.get_catalog(),
+        _nq.get_feeds(),
+        _nq.get_validation(limit=50),
+        return_exceptions=True,
+    )
 
-        try:
-            feed_rows = await conn.fetch("""
-                SELECT ingester, source_class, expected_freq, schedule_cron,
-                       confidence, is_primary,
-                       last_run_status, consecutive_failures,
-                       last_run_at, last_success_at, last_failure_at,
-                       last_target_date, last_rows_inserted,
-                       last_run_duration_ms,
-                       success_count, failure_count, partial_count,
-                       last_error_message
-                  FROM nidp.v_feed_status
-                 ORDER BY ingester
-            """)
-            feeds = [
-                {
-                    "ingester":             r["ingester"],
-                    "source_class":         r["source_class"],
-                    "expected_freq":        r["expected_freq"],
-                    "schedule_cron":        r["schedule_cron"],
-                    "confidence":           float(r["confidence"]) if r["confidence"] is not None else None,
-                    "is_primary":           r["is_primary"],
-                    "last_run_status":      r["last_run_status"],
-                    "consecutive_failures": r["consecutive_failures"],
-                    "last_run_at":          r["last_run_at"].isoformat() if r["last_run_at"] else None,
-                    "last_success_at":      r["last_success_at"].isoformat() if r["last_success_at"] else None,
-                    "last_failure_at":      r["last_failure_at"].isoformat() if r["last_failure_at"] else None,
-                    "last_target_date":     r["last_target_date"].isoformat() if r["last_target_date"] else None,
-                    "last_rows_inserted":   r["last_rows_inserted"],
-                    "last_run_duration_ms": r["last_run_duration_ms"],
-                    "success_count":        r["success_count"],
-                    "failure_count":        r["failure_count"],
-                    "partial_count":        r["partial_count"],
-                    "last_error_message":   (r["last_error_message"] or "")[:200] if r["last_error_message"] else None,
-                }
-                for r in feed_rows
-            ]
-        except Exception as e:                                        # noqa: BLE001
-            logger.warning("catalog: v_feed_status query failed: %s", e)
-            feeds = []
+    # Catalog is the load-bearing call — if it failed, no point rendering
+    # the page; surface the error as 502 so the panel's red error card
+    # shows a precise reason.
+    if isinstance(catalog_r, Exception):
+        detail = (catalog_r.detail
+                  if isinstance(catalog_r, _nq.NidpQueryClientError)
+                  else f"{type(catalog_r).__name__}: {catalog_r}")
+        raise HTTPException(status_code=502,
+                            detail=f"NIDP Query API /catalog failed: {detail}")
 
-        try:
-            val_rows = await conn.fetch("""
-                SELECT ingester, target_date, status,
-                       rules_run, rules_failed, findings_count, started_at
-                  FROM nidp.v_latest_validation
-                 ORDER BY started_at DESC
-                 LIMIT 50
-            """)
-            validation = [
-                {
-                    "ingester":       r["ingester"],
-                    "target_date":    r["target_date"].isoformat() if r["target_date"] else None,
-                    "status":         r["status"],
-                    "rules_run":      r["rules_run"],
-                    "rules_failed":   r["rules_failed"],
-                    "findings_count": r["findings_count"],
-                    "started_at":     r["started_at"].isoformat() if r["started_at"] else None,
-                }
-                for r in val_rows
-            ]
-        except Exception as e:                                        # noqa: BLE001
-            logger.warning("catalog: v_latest_validation query failed: %s", e)
-            validation = []
+    feeds = feeds_r.get("feeds", []) if isinstance(feeds_r, dict) else []
+    if isinstance(feeds_r, Exception):
+        logger.warning("catalog: feeds proxy failed: %s", feeds_r)
 
-    by_domain: Dict[str, Dict[str, Any]] = {}
-    for t in tables_out:
-        d = t["domain"]
-        agg = by_domain.setdefault(d, {
-            "domain": d, "tables": 0, "rows": 0,
-            "earliest": None, "latest": None,
-        })
-        agg["tables"] += 1
-        if t["rows"] is not None:
-            agg["rows"] += t["rows"]
-        if t["first_at"]:
-            agg["earliest"] = t["first_at"] if agg["earliest"] is None else min(agg["earliest"], t["first_at"])
-        if t["last_at"]:
-            agg["latest"]   = t["last_at"]  if agg["latest"]   is None else max(agg["latest"],   t["last_at"])
+    validation = val_r.get("validation", []) if isinstance(val_r, dict) else []
+    if isinstance(val_r, Exception):
+        logger.warning("catalog: validation proxy failed: %s", val_r)
+
+    # /catalog reports its own table count; we add feed count locally.
+    totals = dict(catalog_r.get("totals") or {})
+    totals["feeds"] = len(feeds)
 
     return {
-        "as_of":      datetime.utcnow().isoformat() + "Z",
-        "totals":     {"tables": len(tables_out), "feeds": len(feeds)},
-        "by_domain":  list(by_domain.values()),
-        "tables":     tables_out,
+        "as_of":      catalog_r.get("as_of") or (datetime.utcnow().isoformat() + "Z"),
+        "totals":     totals,
+        "by_domain":  catalog_r.get("by_domain", []),
+        "tables":     catalog_r.get("tables", []),
         "feeds":      feeds,
         "validation": validation,
     }

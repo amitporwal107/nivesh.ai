@@ -66,9 +66,10 @@ export default function NidpDiagnosticsPanel() {
             Connection Diagnostics
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
-            Confirms which Postgres this API service can reach. NIDP ingesters write
-            to <code>NIDP_POSTGRES_URL</code>; the warehouse data only shows up here if
-            the API service can connect to that host (often requires VPC connector on GCP).
+            Probes whether this API service can reach the NIDP Query API
+            (Cloud Run, GCP), and whether the bearer token is accepted.
+            All admin/nidp data reads go through that service — direct
+            access to the NIDP Postgres VM isn't possible from here.
           </p>
         </div>
         <button
@@ -88,33 +89,60 @@ export default function NidpDiagnosticsPanel() {
 
       {data && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Pool label="NIDP pool (NIDP_POSTGRES_URL → POSTGRES_URL)" status={data.nidp_pool} />
-            <Pool label="App pool (POSTGRES_URL)" status={data.app_pool} />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Pool
+              label="NIDP Query API · reachable"
+              status={{
+                ok:    data.nidp_query_api?.reachable,
+                error: data.nidp_query_api?.reach_error,
+              }}
+            />
+            <Pool
+              label="NIDP Query API · auth"
+              status={{
+                ok:    data.nidp_query_api?.auth_ok,
+                error: data.nidp_query_api?.auth_error,
+              }}
+            />
+            <Pool label="App Postgres pool" status={data.app_pool} />
           </div>
+
+          {data.nidp_query_api?.health && (
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-2">
+                Query API · /health
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[200px,1fr] gap-x-4 gap-y-1 text-[11px]">
+                <div className="text-slate-500">DB connection (remote)</div>
+                <div className={data.nidp_query_api.health.db_ok ? "text-emerald-600" : "text-red-600"}>
+                  {data.nidp_query_api.health.db_ok ? "ok" : (data.nidp_query_api.health.error || "fail")}
+                </div>
+                <div className="text-slate-500">DB latency</div>
+                <div className="font-mono text-slate-700 dark:text-slate-200">
+                  {data.nidp_query_api.health.db_latency_ms ?? "—"} ms
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
             <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-2">Environment</div>
-            <div className="grid grid-cols-1 md:grid-cols-[200px,1fr] gap-x-4 gap-y-1 text-[11px]">
-              <div className="text-slate-500">NIDP_POSTGRES_URL set</div>
-              <div className={data.env.NIDP_POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
-                {data.env.NIDP_POSTGRES_URL_set ? "yes" : "no"}
+            <div className="grid grid-cols-1 md:grid-cols-[220px,1fr] gap-x-4 gap-y-1 text-[11px]">
+              <div className="text-slate-500">NIDP_QUERY_API_URL set</div>
+              <div className={data.env.NIDP_QUERY_API_URL_set ? "text-emerald-600" : "text-red-600"}>
+                {data.env.NIDP_QUERY_API_URL_set ? "yes" : "no"}
               </div>
-              <div className="text-slate-500">POSTGRES_URL set</div>
+              <div className="text-slate-500">NIDP_QUERY_API_TOKEN set</div>
+              <div className={data.env.NIDP_QUERY_API_TOKEN_set ? "text-emerald-600" : "text-red-600"}>
+                {data.env.NIDP_QUERY_API_TOKEN_set ? "yes" : "no"}
+              </div>
+              <div className="text-slate-500">URL</div>
+              <div className="font-mono text-slate-700 dark:text-slate-200 break-all">
+                {data.env.NIDP_QUERY_API_URL || "—"}
+              </div>
+              <div className="text-slate-500">App POSTGRES_URL set</div>
               <div className={data.env.POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
                 {data.env.POSTGRES_URL_set ? "yes" : "no"}
-              </div>
-              <div className="text-slate-500">NIDP_POSTGRES_URL value</div>
-              <div className="font-mono text-slate-700 dark:text-slate-200 break-all">
-                {data.env.NIDP_POSTGRES_URL || "—"}
-              </div>
-              <div className="text-slate-500">POSTGRES_URL value</div>
-              <div className="font-mono text-slate-700 dark:text-slate-200 break-all">
-                {data.env.POSTGRES_URL || "—"}
-              </div>
-              <div className="text-slate-500">Resolved for NIDP pool</div>
-              <div className="font-mono text-slate-700 dark:text-slate-200 break-all">
-                {data.env.resolved_for_nidp || "—"}
               </div>
             </div>
           </div>

@@ -130,23 +130,27 @@ export default function NidpCatalogPanel() {
           {diag && (
             <div className="mt-3 space-y-2 text-[11px] text-slate-700 dark:text-slate-200">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <div>NIDP_POSTGRES_URL set:</div>
-                <div className={diag.env.NIDP_POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
-                  {diag.env.NIDP_POSTGRES_URL_set ? "yes" : "no"}
+                <div>NIDP_QUERY_API_URL set:</div>
+                <div className={diag.env?.NIDP_QUERY_API_URL_set ? "text-emerald-600" : "text-red-600"}>
+                  {diag.env?.NIDP_QUERY_API_URL_set ? "yes" : "no"}
                 </div>
-                <div>POSTGRES_URL set:</div>
-                <div className={diag.env.POSTGRES_URL_set ? "text-emerald-600" : "text-red-600"}>
-                  {diag.env.POSTGRES_URL_set ? "yes" : "no"}
+                <div>NIDP_QUERY_API_TOKEN set:</div>
+                <div className={diag.env?.NIDP_QUERY_API_TOKEN_set ? "text-emerald-600" : "text-red-600"}>
+                  {diag.env?.NIDP_QUERY_API_TOKEN_set ? "yes" : "no"}
                 </div>
-                <div>Resolved URL (NIDP):</div>
-                <div className="font-mono break-all">{diag.env.resolved_for_nidp || "—"}</div>
-                <div>NIDP pool connect:</div>
-                <div className={diag.nidp_pool.ok ? "text-emerald-600" : "text-red-600"}>
-                  {diag.nidp_pool.ok ? "ok" : (diag.nidp_pool.error || "fail")}
+                <div>URL:</div>
+                <div className="font-mono break-all">{diag.env?.NIDP_QUERY_API_URL || "—"}</div>
+                <div>Query API reachable:</div>
+                <div className={diag.nidp_query_api?.reachable ? "text-emerald-600" : "text-red-600"}>
+                  {diag.nidp_query_api?.reachable ? "ok" : (diag.nidp_query_api?.reach_error || "fail")}
+                </div>
+                <div>Auth (bearer token):</div>
+                <div className={diag.nidp_query_api?.auth_ok ? "text-emerald-600" : "text-red-600"}>
+                  {diag.nidp_query_api?.auth_ok ? "ok" : (diag.nidp_query_api?.auth_error || "fail")}
                 </div>
                 <div>App pool connect:</div>
-                <div className={diag.app_pool.ok ? "text-emerald-600" : "text-red-600"}>
-                  {diag.app_pool.ok ? "ok" : (diag.app_pool.error || "fail")}
+                <div className={diag.app_pool?.ok ? "text-emerald-600" : "text-red-600"}>
+                  {diag.app_pool?.ok ? "ok" : (diag.app_pool?.error || "fail")}
                 </div>
               </div>
               <div className="text-[10px] text-slate-500 italic mt-2">{diag.hint}</div>
