@@ -8,12 +8,14 @@
 # no caching surprises, no "stale image" mysteries.
 #
 # Usage:
-#   ./build_on_gcp.sh                       # build all 13, migrate, update jobs
-#   ./build_on_gcp.sh --service=bhavcopy    # one service only
-#   ./build_on_gcp.sh --tag=mytag           # custom tag (default: timestamp)
-#   ./build_on_gcp.sh --no-update           # just build, don't update Cloud Run
-#   ./build_on_gcp.sh --no-cache            # force --no-cache in Docker build
-#   ./build_on_gcp.sh --no-migrations       # skip schema-migration step
+#   ./build_on_gcp.sh                                 # build all, migrate, update jobs
+#   ./build_on_gcp.sh --service=bhavcopy              # one service
+#   ./build_on_gcp.sh --service=bhavcopy,delivery     # comma-separated list
+#   NIDP_SERVICES=bhavcopy,delivery ./build_on_gcp.sh # same via env var
+#   ./build_on_gcp.sh --tag=mytag                     # custom tag (default: timestamp)
+#   ./build_on_gcp.sh --no-update                     # just build, don't update Cloud Run
+#   ./build_on_gcp.sh --no-cache                      # force --no-cache in Docker build
+#   ./build_on_gcp.sh --no-migrations                 # skip schema-migration step
 #
 # Order: build → migrate → update Cloud Run. Migrations run BEFORE
 # the new image starts so freshly-deployed code never reads a stale
@@ -66,7 +68,10 @@ ALL_SERVICES=(
 # Long-running, listen on $PORT, get a public URL.
 SERVICE_TYPE_SERVICES=(query_api)
 
-SERVICE_FILTER=""
+# Service selection: --service=a,b,c  OR  NIDP_SERVICES=a,b,c env var.
+# Both accept a single name or a comma-separated list. CLI flag wins
+# over env var when both are provided.
+SERVICE_FILTER="${NIDP_SERVICES:-}"
 NO_UPDATE=""
 NO_CACHE=""
 NO_MIGRATIONS=""
@@ -75,11 +80,12 @@ TAG="$(date -u +%Y%m%d-%H%M%S)"
 for arg in "$@"; do
     case "$arg" in
         --service=*)     SERVICE_FILTER="${arg#*=}" ;;
+        --services=*)    SERVICE_FILTER="${arg#*=}" ;;   # alias, plural form
         --tag=*)         TAG="${arg#*=}" ;;
         --no-update)     NO_UPDATE=1 ;;
         --no-cache)      NO_CACHE=1 ;;
         --no-migrations) NO_MIGRATIONS=1 ;;
-        -h|--help)       sed -n '2,26p' "$0"; exit 0 ;;
+        -h|--help)       sed -n '2,28p' "$0"; exit 0 ;;
     esac
 done
 
@@ -115,8 +121,27 @@ fi
 ok "cloudbuild API enabled"
 
 # ── Determine services to build ─────────────────────────────────────
+# SERVICE_FILTER may be a single name ("bhavcopy") or comma-separated
+# ("bhavcopy,corporate_actions,snapshot_builder"). Split on commas.
 if [[ -n "$SERVICE_FILTER" ]]; then
-    SERVICES=("$SERVICE_FILTER")
+    IFS=',' read -ra SERVICES <<< "$SERVICE_FILTER"
+    # Trim whitespace from each entry so "a, b , c" works.
+    for i in "${!SERVICES[@]}"; do
+        SERVICES[$i]="$(echo "${SERVICES[$i]}" | tr -d '[:space:]')"
+    done
+    # Validate every name exists in ALL_SERVICES — typos here used to
+    # silently skip the build and fall through to "nothing happened".
+    for s in "${SERVICES[@]}"; do
+        found=0
+        for known in "${ALL_SERVICES[@]}"; do
+            [[ "$s" == "$known" ]] && { found=1; break; }
+        done
+        if [[ $found -eq 0 ]]; then
+            err "unknown service: '$s' (not in ALL_SERVICES)"
+            err "  known services: ${ALL_SERVICES[*]}"
+            exit 1
+        fi
+    done
 else
     SERVICES=("${ALL_SERVICES[@]}")
 fi
