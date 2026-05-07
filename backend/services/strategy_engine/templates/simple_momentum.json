@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Simple Momentum (Phase-1 friendly)",
+  "description": "Short-history-friendly: rising 20-DMA above 50-DMA, RSI in trend zone, recent month positive. Works with as little as 60 days of bar history — the right template to start with.",
+  "universe": { "type": "index", "ref": "NIFTY100" },
+  "entry": {
+    "all_of": [
+      { "feature": "close",          "op": ">",  "compare_to": "sma20" },
+      { "feature": "close",          "op": ">",  "compare_to": "sma50" },
+      { "feature": "sma20",          "op": ">",  "compare_to": "sma50" },
+      { "feature": "sma50_slope",    "op": ">",  "value": 0 },
+      { "feature": "rsi14",          "op": ">",  "value": 55 },
+      { "feature": "rsi14",          "op": "<",  "value": 80 },
+      { "feature": "return_20d_pct", "op": ">",  "value": 2 }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":  5,
+    "target_rr":     2.0,
+    "max_hold_days": 20,
+    "trailing_atr_mult": 2.0
+  },
+  "ranking": { "by": "return_20d_pct", "limit": 10, "order": "desc" },
+  "rebalance": "daily"
+}

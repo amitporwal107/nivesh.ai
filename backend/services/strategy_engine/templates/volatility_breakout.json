@@ -1,0 +1,23 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Volatility Squeeze Breakout",
+  "description": "Bollinger band squeeze (low volatility regime) followed by an expansion bar with volume confirmation.",
+  "universe": { "type": "index", "ref": "NIFTY500" },
+  "entry": {
+    "all_of": [
+      { "feature": "bb_width",  "op": "<",  "value": 0.10 },
+      { "feature": "bb_pos",    "op": ">",  "value": 0.85 },
+      { "feature": "vol_z20",   "op": ">",  "value": 2.0 },
+      { "feature": "close",     "op": ">",  "compare_to": "sma50" }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":      5,
+    "target_rr":         2.0,
+    "max_hold_days":     20,
+    "trailing_atr_mult": 2.0
+  },
+  "ranking": { "by": "vol_z20", "limit": 8, "order": "desc" },
+  "rebalance": "daily"
+}
