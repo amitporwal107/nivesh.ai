@@ -27,7 +27,7 @@
     "/app/backend/tests/test_nivesh_cas_provider.py (created)"
   ],
   "success_rate": {"backend": "100%", "frontend": "code-inspection-only (component file verified, live click not executed due to SPA auth gating)"},
-  "test_credentials": "aporwal107@gmail.com session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b worked for all admin API calls.",
+  "test_credentials": "aporwal107@gmail.com session_token=wealth-advisor-india-1 worked for all admin API calls.",
   "seed_data_creation": "None. Provider was switched to nivesh_cas_parser then back to casparser_api during tests; final state restored to casparser_api as requested.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

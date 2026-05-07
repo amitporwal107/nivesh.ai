@@ -1,0 +1,78 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "StockFeaturesDailyV1",
+  "doc": "Per-stock daily technical feature pack. Topic: nidp.stock_features_daily.v1",
+  "fields": [
+    {"name": "as_of_date",            "type": "string"},
+    {"name": "symbol",                "type": "string"},
+
+    {"name": "close",                 "type": ["null", "double"], "default": null},
+
+    {"name": "sma20",                 "type": ["null", "double"], "default": null},
+    {"name": "sma50",                 "type": ["null", "double"], "default": null},
+    {"name": "sma100",                "type": ["null", "double"], "default": null},
+    {"name": "sma200",                "type": ["null", "double"], "default": null},
+    {"name": "sma50_slope",           "type": ["null", "double"], "default": null},
+    {"name": "dist_200dma_pct",       "type": ["null", "double"], "default": null},
+    {"name": "dist_52w_high_pct",     "type": ["null", "double"], "default": null},
+    {"name": "dist_52w_low_pct",      "type": ["null", "double"], "default": null},
+
+    {"name": "rsi14",                 "type": ["null", "double"], "default": null},
+    {"name": "macd",                  "type": ["null", "double"], "default": null},
+    {"name": "macd_signal",           "type": ["null", "double"], "default": null},
+    {"name": "macd_hist",             "type": ["null", "double"], "default": null},
+    {"name": "return_5d_pct",         "type": ["null", "double"], "default": null},
+    {"name": "return_20d_pct",        "type": ["null", "double"], "default": null},
+    {"name": "return_60d_pct",        "type": ["null", "double"], "default": null},
+
+    {"name": "atr14",                 "type": ["null", "double"], "default": null},
+    {"name": "atr_pct",               "type": ["null", "double"], "default": null},
+    {"name": "bb_width",              "type": ["null", "double"], "default": null},
+    {"name": "bb_pos",                "type": ["null", "double"], "default": null},
+
+    {"name": "avg_volume_20",         "type": ["null", "long"],   "default": null},
+    {"name": "vol_z20",               "type": ["null", "double"], "default": null},
+    {"name": "deliv_pct_avg_20",      "type": ["null", "double"], "default": null},
+    {"name": "deliv_trend10",         "type": ["null", "double"], "default": null},
+
+    {"name": "swing_high_20",         "type": ["null", "double"], "default": null},
+    {"name": "swing_low_20",          "type": ["null", "double"], "default": null},
+    {"name": "pivot_breakout_flag",   "type": ["null", "boolean"], "default": null},
+
+    {"name": "accumulation_score",    "type": ["null", "double"], "default": null},
+    {"name": "accumulation_signals",  "type": {"type": "array", "items": "string"}, "default": []},
+
+    {"name": "pe_ttm",                 "type": ["null", "double"], "default": null},
+    {"name": "pb",                     "type": ["null", "double"], "default": null},
+    {"name": "roe_pct",                "type": ["null", "double"], "default": null},
+    {"name": "debt_to_equity",         "type": ["null", "double"], "default": null},
+    {"name": "revenue_growth_yoy_pct", "type": ["null", "double"], "default": null},
+    {"name": "pat_growth_yoy_pct",     "type": ["null", "double"], "default": null},
+    {"name": "eps_growth_yoy_pct",     "type": ["null", "double"], "default": null},
+    {"name": "latest_quarter_end",     "type": ["null", "string"], "default": null},
+
+    {"name": "promoter_pct",            "type": ["null", "double"], "default": null},
+    {"name": "fii_pct",                 "type": ["null", "double"], "default": null},
+    {"name": "dii_pct",                 "type": ["null", "double"], "default": null},
+    {"name": "mf_pct",                  "type": ["null", "double"], "default": null},
+    {"name": "promoter_pledged_pct",    "type": ["null", "double"], "default": null},
+    {"name": "fii_pct_change_qoq",      "type": ["null", "double"], "default": null},
+    {"name": "dii_pct_change_qoq",      "type": ["null", "double"], "default": null},
+    {"name": "promoter_pct_change_qoq", "type": ["null", "double"], "default": null},
+    {"name": "shareholding_period_end", "type": ["null", "string"], "default": null},
+
+    {"name": "sector",                  "type": ["null", "string"], "default": null},
+    {"name": "industry",                "type": ["null", "string"], "default": null},
+
+    {"name": "cumulative_adj_factor",   "type": ["null", "double"], "default": null},
+    {"name": "adj_close",               "type": ["null", "double"], "default": null},
+
+    {"name": "options_pcr",             "type": ["null", "double"], "default": null},
+    {"name": "options_total_oi",        "type": ["null", "long"], "default": null},
+    {"name": "options_oi_change_pct",   "type": ["null", "double"], "default": null},
+
+    {"name": "source",                "type": "string", "default": "NIDP_FEATURE_SNAPSHOTTER"},
+    {"name": "source_run_id",         "type": "string"}
+  ]
+}

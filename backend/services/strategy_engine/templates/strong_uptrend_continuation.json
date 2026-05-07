@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "asset_class": "STOCK",
+  "name": "Strong Uptrend Continuation",
+  "description": "Stocks in the strongest 20% of momentum: above all DMAs, near 52-week high, with delivery support. Trade pullbacks to 20-DMA.",
+  "universe": { "type": "index", "ref": "NIFTY500" },
+  "entry": {
+    "all_of": [
+      { "feature": "close",              "op": ">",  "compare_to": "sma20" },
+      { "feature": "close",              "op": ">",  "compare_to": "sma50" },
+      { "feature": "sma50",              "op": ">",  "compare_to": "sma200" },
+      { "feature": "sma50_slope",        "op": ">",  "value": 0 },
+      { "feature": "dist_52w_high_pct",  "op": ">",  "value": -10 },
+      { "feature": "return_60d_pct",     "op": ">",  "value": 8 },
+      { "feature": "deliv_pct_avg_20",   "op": ">",  "value": 35 }
+    ]
+  },
+  "exit": {
+    "stoploss_pct":      5,
+    "target_rr":         2.5,
+    "max_hold_days":     30,
+    "trailing_atr_mult": 2.5
+  },
+  "ranking": { "by": "return_20d_pct", "limit": 10, "order": "desc" },
+  "rebalance": "weekly"
+}

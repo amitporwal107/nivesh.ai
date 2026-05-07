@@ -3,7 +3,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://wealth-advisor-96.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://wealth-advisor-india-1.preview.emergentagent.com").rstrip("/")
 SESSION_TOKEN = "370eff71-fda1-46d8-b506-b81b894d634f"
 ALLOWED_ACTIONS = {"ADD", "HOLD", "TRIM", "SWITCH", "EXIT", "REVIEW", "UNKNOWN"}
 ACTION_PRIORITY = {"EXIT": 0, "SWITCH": 1, "TRIM": 2, "REVIEW": 3, "HOLD": 4, "ADD": 5, "UNKNOWN": 6}

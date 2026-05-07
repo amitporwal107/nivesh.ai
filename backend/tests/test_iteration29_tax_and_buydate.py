@@ -12,7 +12,7 @@ import pytest
 import requests
 from datetime import date, datetime, timedelta
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://wealth-advisor-96.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://wealth-advisor-india-1.preview.emergentagent.com").rstrip("/")
 SESSION = "370eff71-fda1-46d8-b506-b81b894d634f"
 
 

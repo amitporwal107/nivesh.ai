@@ -19,6 +19,7 @@ import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
 import MfdDashboard from "@/components/mfd/MfdDashboard";
 import MarketDashboard from "@/components/MarketDashboard";
+import StrategyBuilder from "@/pages/StrategyBuilder";
 import ClientCasUpload from "@/components/mfd/ClientCasUpload";
 import MfdOnboardingWizard from "@/components/mfd/MfdOnboardingWizard";
 import ClientSnapshot from "@/components/mfd/ClientSnapshot";
@@ -259,6 +260,10 @@ const Dashboard = () => {
         // Does not consume per-client data, so it works regardless of
         // workspace mode or impersonation state.
         return <MarketDashboard />;
+      case "strategy_builder":
+        // Strategy Builder — multi-step wizard (Universe → Strategy → Screen
+        // → Backtest → Execute). Phase-1: stock-only, technicals.
+        return <StrategyBuilder />;
       case "admin":
         return user?.is_admin ? <AdminView /> : null;
       default:

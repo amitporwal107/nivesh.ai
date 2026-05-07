@@ -55,6 +55,10 @@ const _isMarketOpenIST = () => {
   return utcMins >= 225 && utcMins <= 600;
 };
 
+// "LTP" while market is open, "Close" when closed — the price field is
+// always populated (live overlay always fires) but the meaning shifts.
+const _priceLabel = () => (_isMarketOpenIST() ? "LTP" : "Close");
+
 const READINESS_STYLE = {
   TRIGGERED: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
   NEAR:      "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
@@ -90,6 +94,25 @@ const VERDICT_LABEL = {
   AVOID_LATE:      "🔴 AVOID / LATE",
 };
 
+// Compact tile uses 2-letter codes so the verdict + score fit on the
+// same row as the symbol. Long labels still appear on hover via title=.
+const VERDICT_SHORT = {
+  HIGH_CONVICTION: "HC",
+  SETUP_FORMING:   "SF",
+  AVOID_LATE:      "AL",
+};
+
+// Compact readiness — drops the emoji + word and keeps the colour-coded
+// 1-letter dot to free horizontal space on the tile's stage row.
+const READINESS_SHORT = {
+  TRIGGERED: "TRIG",
+  NEAR:      "NEAR",
+  WAIT:      "WAIT",
+  FAR:       "FAR",
+  LATE:      "LATE",
+  STOPPED:   "STOP",
+};
+
 // Pretty-print a Chartink scan_clause. Strips the outer `( {universe} ( … ) )`
 // wrapper and splits on top-level ` and ` so each condition reads as a bullet.
 // Best-effort — the clause grammar can nest, but the scans we save in
@@ -114,176 +137,192 @@ const _isToday = (iso) => {
 };
 
 
+// Compact tile (≈240px wide × ≈140px tall collapsed). Optimised for
+// horizontal-rail density: the rail used to fit ~3 cards on a 1280px
+// viewport and now fits ~5. Reasons / signals / scans / warnings are
+// hidden behind an expand toggle so the visible card carries only the
+// data needed to act: symbol, verdict, stage, readiness, LTP, plan.
 const PickCard = ({ pick }) => {
   const stage = pick.stage || "—";
-  const conf = (pick.confidence || "LOW").toUpperCase();
   const reasons = Array.isArray(pick.reasons) ? pick.reasons : [];
   const warnings = Array.isArray(pick.portfolio_warning) ? pick.portfolio_warning : [];
   const sourceScans = Array.isArray(pick.source_scans) ? pick.source_scans : [];
+  const sigs = Array.isArray(pick.pre_breakout?.signals) ? pick.pre_breakout.signals : [];
+  const verdict = pick.conviction?.verdict;
+  const score = typeof pick.conviction?.final_score === "number"
+    ? pick.conviction.final_score
+    : (Number(pick.final_score || 0) * 100);
+  const hasDetails = reasons.length > 0 || sigs.length > 0 || sourceScans.length > 0 || warnings.length > 0;
+  const [open, setOpen] = useState(false);
+
+  const deltaPct = pick.live_pct_from_entry;
+  const deltaTone =
+    deltaPct == null ? "text-slate-400"
+    : deltaPct >= 8 ? "text-rose-600 dark:text-rose-400"
+    : deltaPct >= 0 ? "text-emerald-600 dark:text-emerald-400"
+    : "text-slate-400";
 
   return (
     <div
       data-testid={`pick-${pick.nse_symbol}`}
-      className="min-w-[300px] max-w-[320px] flex-shrink-0 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow"
+      className="min-w-[240px] max-w-[260px] flex-shrink-0 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl p-2.5 shadow-sm hover:shadow-md transition-shadow"
     >
-      {/* Header: symbol + score */}
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <div className="font-semibold text-slate-900 dark:text-white text-base">
-            {pick.nse_symbol}
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wide ${STAGE_STYLE[stage] || STAGE_STYLE.WEAK}`}>
-              {stage.replace("_", " ")}
-            </span>
-            <span className={`text-[10px] font-medium ${CONFIDENCE_STYLE[conf]}`}>
-              {conf}
-            </span>
-          </div>
+      {/* Row 1 — symbol + verdict + score */}
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="font-semibold text-slate-900 dark:text-white text-sm truncate">
+          {pick.nse_symbol}
+          {warnings.length > 0 && (
+            <AlertTriangle
+              className="inline-block w-3 h-3 ml-1 text-amber-500 -mt-0.5"
+              title={warnings[0]}
+            />
+          )}
         </div>
-        <div className="text-right">
-          <div className="text-xl font-medium text-slate-900 dark:text-white tabular-nums">
-            {fmtPct(pick.final_score)}
-          </div>
-          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Score</div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {verdict && (
+            <span
+              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${VERDICT_STYLE[verdict] || ""}`}
+              title={VERDICT_LABEL[verdict]}
+            >
+              {VERDICT_SHORT[verdict] || ""}
+            </span>
+          )}
+          <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 tabular-nums" title="Conviction score / 100">
+            {score.toFixed(0)}
+          </span>
         </div>
       </div>
 
-      {/* Conviction verdict — the v2 4-pillar verdict (HIGH/SETUP/AVOID).
-          Sits above the readiness chip so it's the first thing the user
-          sees on every card. Hard-capped by readiness — a stock 12%
-          past entry can't be HIGH_CONVICTION even with a clean setup. */}
-      {pick.conviction?.verdict && (
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md ${VERDICT_STYLE[pick.conviction.verdict] || ""}`}>
-            {VERDICT_LABEL[pick.conviction.verdict]}
+      {/* Row 2 — stage chip + readiness chip + LTP/Δ inline */}
+      <div className="flex items-center gap-1 text-[10px] mb-2">
+        <span
+          className={`px-1.5 py-0.5 rounded uppercase tracking-wide ${STAGE_STYLE[stage] || STAGE_STYLE.WEAK}`}
+          title={`Stage: ${stage.replace("_", " ")}`}
+        >
+          {stage.replace("_", " ")}
+        </span>
+        {pick.readiness && pick.readiness !== "UNKNOWN" && (
+          <span
+            className={`px-1.5 py-0.5 rounded font-semibold ${READINESS_STYLE[pick.readiness] || READINESS_STYLE.UNKNOWN}`}
+            title={`Readiness: ${pick.readiness}`}
+          >
+            {READINESS_SHORT[pick.readiness] || pick.readiness}
           </span>
-          {typeof pick.conviction.final_score === "number" && (
-            <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 tabular-nums">
-              {pick.conviction.final_score.toFixed(0)}/100
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Live readiness chip — only shown when LTP overlay is present */}
-      {pick.readiness && pick.readiness !== "UNKNOWN" && (
-        <div className="flex items-center justify-between gap-2 mb-3 text-[11px]">
-          <span className={`font-semibold px-2 py-0.5 rounded-md ${READINESS_STYLE[pick.readiness] || READINESS_STYLE.UNKNOWN}`}>
-            {READINESS_LABEL[pick.readiness] || pick.readiness}
+        )}
+        {pick.live_price != null && (
+          <span className="ml-auto tabular-nums text-slate-500 dark:text-slate-400 truncate" title={`${_priceLabel()} ${fmtINR(pick.live_price)}`}>
+            {fmtINR(pick.live_price)}
+            {deltaPct != null && (
+              <span className={`ml-1 ${deltaTone}`}>
+                {deltaPct >= 0 ? "+" : ""}{deltaPct.toFixed(1)}%
+              </span>
+            )}
           </span>
-          {pick.live_price !== null && pick.live_price !== undefined && (
-            <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-              LTP {fmtINR(pick.live_price)}
-              {pick.live_pct_from_entry !== null && pick.live_pct_from_entry !== undefined && (
-                <span className={`ml-1 ${pick.live_pct_from_entry >= 8 ? "text-rose-600" : pick.live_pct_from_entry >= 0 ? "text-emerald-600" : "text-slate-400"}`}>
-                  ({pick.live_pct_from_entry >= 0 ? "+" : ""}{pick.live_pct_from_entry.toFixed(1)}% vs entry)
-                </span>
-              )}
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Trade plan grid */}
-      <div className="grid grid-cols-3 gap-2 mb-3 text-center">
-        <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-2">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wide">Entry</div>
-          <div className="text-sm font-medium text-slate-900 dark:text-white tabular-nums">
+      {/* Row 3 — trade plan inline (no card backgrounds, just colour) */}
+      <div className="grid grid-cols-3 gap-1 text-center mb-1.5">
+        <div>
+          <div className="text-[9px] text-slate-400 uppercase tracking-wide leading-none">Entry</div>
+          <div className="text-[12px] font-medium text-slate-900 dark:text-white tabular-nums leading-tight">
             {fmtINR(pick.entry_price)}
           </div>
         </div>
-        <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
-          <div className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-wide">SL</div>
-          <div className="text-sm font-medium text-red-700 dark:text-red-300 tabular-nums">
+        <div>
+          <div className="text-[9px] text-rose-500 uppercase tracking-wide leading-none">SL</div>
+          <div className="text-[12px] font-medium text-rose-600 dark:text-rose-300 tabular-nums leading-tight">
             {fmtINR(pick.stoploss)}
           </div>
         </div>
-        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-2">
-          <div className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Target</div>
-          <div className="text-sm font-medium text-emerald-700 dark:text-emerald-300 tabular-nums">
+        <div>
+          <div className="text-[9px] text-emerald-600 uppercase tracking-wide leading-none">Tgt</div>
+          <div className="text-[12px] font-medium text-emerald-700 dark:text-emerald-300 tabular-nums leading-tight">
             {fmtINR(pick.target_price)}
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-3">
-        <span>RR <strong className="text-slate-700 dark:text-slate-300">1:{Number(pick.risk_reward || 0).toFixed(1)}</strong></span>
-        <span>{pick.timeframe_days_min}–{pick.timeframe_days_max} days</span>
-      </div>
-
-      {/* Why this trade */}
-      {reasons.length > 0 && (
-        <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
-          <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
-            <Info className="w-3 h-3" /> Why this trade
-          </div>
-          <ul className="space-y-1">
-            {reasons.slice(0, 4).map((r) => (
-              <li key={r} className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                · {r}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Portfolio warning (if user already overlaps) */}
-      {warnings.length > 0 && (
-        <div className="mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg p-2">
-          <div className="flex items-start gap-1.5">
-            <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <div className="text-[10px] text-amber-700 dark:text-amber-300 leading-relaxed">
-              {warnings[0]}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {sourceScans.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {sourceScans.slice(0, 3).map((s) => (
-            <span
-              key={s}
-              className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 inline-flex items-center gap-1"
-              title="Triggered by this Chartink scan"
-            >
-              <Filter className="w-2.5 h-2.5" />
-              {s}
-            </span>
-          ))}
-          {sourceScans.length > 3 && (
-            <span className="text-[10px] text-slate-400">+{sourceScans.length - 3}</span>
-          )}
-        </div>
-      )}
-
-      {/* Pre-breakout signals — surfaces the "why this is interesting NOW"
-          context that the accumulation_detector found. Distinct visual
-          treatment (indigo) from source-scan chips (emerald) so users
-          can tell at a glance whether the pick is breakout-confirmed
-          or pre-breakout-loading. */}
-      {Array.isArray(pick.pre_breakout?.signals) && pick.pre_breakout.signals.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-          <div className="text-[9px] uppercase tracking-wide text-indigo-600 dark:text-indigo-400 font-semibold mb-1 flex items-center gap-1">
-            🔥 Smart-money signals
-            {typeof pick.pre_breakout.accumulation_score === "number" && (
-              <span className="text-slate-400 dark:text-slate-500 font-normal">
-                · {(pick.pre_breakout.accumulation_score * 100).toFixed(0)}%
+      {/* Row 4 — RR + timeframe + signal/scan count + expand toggle */}
+      <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+        <span>
+          RR <strong className="text-slate-700 dark:text-slate-300">1:{Number(pick.risk_reward || 0).toFixed(1)}</strong>
+          <span className="text-slate-300 dark:text-slate-600 mx-1">·</span>
+          {pick.timeframe_days_min}–{pick.timeframe_days_max}d
+        </span>
+        {hasDetails && (
+          <button
+            type="button"
+            onClick={() => setOpen((s) => !s)}
+            className="inline-flex items-center gap-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+            data-testid={`pick-expand-${pick.nse_symbol}`}
+            title="Show reasons / scans / signals"
+          >
+            {sigs.length > 0 && (
+              <span className="text-indigo-500 dark:text-indigo-400" title={`${sigs.length} smart-money signal${sigs.length === 1 ? "" : "s"}`}>
+                🔥{sigs.length}
               </span>
             )}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {pick.pre_breakout.signals.slice(0, 4).map((s) => (
-              <span
-                key={s}
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
-                title={`Pre-breakout signal: ${s.replace(/_/g, " ")}`}
-              >
-                {s.replace(/_/g, " ")}
+            {sourceScans.length > 0 && (
+              <span title={`${sourceScans.length} Chartink scan${sourceScans.length === 1 ? "" : "s"}`}>
+                <Filter className="w-2.5 h-2.5 inline -mt-0.5" />{sourceScans.length}
               </span>
-            ))}
-          </div>
+            )}
+            {reasons.length > 0 && (
+              <span title={`${reasons.length} reason${reasons.length === 1 ? "" : "s"}`}>
+                <Info className="w-2.5 h-2.5 inline -mt-0.5" />{reasons.length}
+              </span>
+            )}
+            <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+        )}
+      </div>
+
+      {/* Expandable details — reasons + signals + scans + warning copy */}
+      {open && hasDetails && (
+        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5">
+          {warnings.length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded p-1.5 text-[10px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
+              <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+              <span>{warnings[0]}</span>
+            </div>
+          )}
+          {reasons.length > 0 && (
+            <ul className="space-y-0.5 text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+              {reasons.slice(0, 4).map((r) => (
+                <li key={r}>· {r}</li>
+              ))}
+            </ul>
+          )}
+          {sigs.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {sigs.slice(0, 4).map((s) => (
+                <span
+                  key={s}
+                  className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                  title={`Pre-breakout signal: ${s.replace(/_/g, " ")}`}
+                >
+                  {s.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
+          )}
+          {sourceScans.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {sourceScans.slice(0, 3).map((s) => (
+                <span
+                  key={s}
+                  className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                  title={`Triggered by Chartink scan: ${s}`}
+                >
+                  {s.split(".").pop()}
+                </span>
+              ))}
+              {sourceScans.length > 3 && (
+                <span className="text-[9px] text-slate-400">+{sourceScans.length - 3}</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -297,7 +336,8 @@ const PickCard = ({ pick }) => {
 // picks and what those screeners actually check.
 const ScanCriteriaPanel = () => {
   const [scans, setScans] = useState([]);
-  const [expanded, setExpanded] = useState(null);   // scan name or null
+  const [selected, setSelected] = useState(null);   // scan name or null — which one's conds shown
+  const [panelOpen, setPanelOpen] = useState(false); // whole panel collapsed by default
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -318,52 +358,68 @@ const ScanCriteriaPanel = () => {
     );
   }
 
+  // The chips row + the conditions panel live OUTSIDE the chip wrapper —
+  // each chip is an inline button that toggles `selected`, and the
+  // selected scan's conditions render once below the row. This stops
+  // every chip from getting its own line (the original w-full bug) and
+  // keeps the visual at "one strip + maybe one panel" instead of "11
+  // accordions stacked".
+  const selectedScan = selected ? scans.find((s) => s.name === selected) : null;
+  const selectedConds = selectedScan ? prettyConditions(selectedScan.clause) : [];
+
   return (
     <div className="mb-3" data-testid="scan-criteria-panel">
-      <div className="text-[10px] text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => setPanelOpen((s) => !s)}
+        className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+        data-testid="scan-criteria-toggle"
+      >
+        {panelOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         <Filter className="w-3 h-3" />
         {scans.length} screener{scans.length > 1 ? "s" : ""} gating today&apos;s picks
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {scans.map((s) => {
-          const isOpen = expanded === s.name;
-          const conds = prettyConditions(s.clause);
-          return (
-            <div key={s.name} className="w-full">
-              <button
-                type="button"
-                onClick={() => setExpanded(isOpen ? null : s.name)}
-                disabled={!s.enabled}
-                className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-colors ${
-                  isOpen
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-                    : s.enabled
-                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
-                      : "bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-600 line-through"
-                }`}
-                data-testid={`scan-chip-${s.name}`}
-              >
-                {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                {s.name}
-                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">
-                  ({conds.length} cond{conds.length === 1 ? "" : "s"})
-                </span>
-              </button>
-              {isOpen && (
-                <div className="mt-1.5 ml-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
-                  <ol className="space-y-1 list-decimal list-inside">
-                    {conds.map((c) => (
-                      <li key={`${s.name}::${c}`} className="text-[11px] text-slate-700 dark:text-slate-300 font-mono leading-relaxed">
-                        {c}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+      </button>
+      {panelOpen && (
+        <div className="mt-2">
+          <div className="flex flex-wrap gap-1.5">
+            {scans.map((s) => {
+              const isSelected = selected === s.name;
+              return (
+                <button
+                  key={s.name}
+                  type="button"
+                  onClick={() => setSelected(isSelected ? null : s.name)}
+                  disabled={!s.enabled}
+                  className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md transition-colors ${
+                    isSelected
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                      : s.enabled
+                        ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                        : "bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-600 line-through"
+                  }`}
+                  data-testid={`scan-chip-${s.name}`}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+          {selectedScan && (
+            <div className="mt-2 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                {selectedScan.name} · {selectedConds.length} condition{selectedConds.length === 1 ? "" : "s"}
+              </div>
+              <ol className="space-y-0.5 list-decimal list-inside">
+                {selectedConds.map((c) => (
+                  <li key={`${selectedScan.name}::${c}`} className="text-[11px] text-slate-700 dark:text-slate-300 font-mono leading-relaxed">
+                    {c}
+                  </li>
+                ))}
+              </ol>
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -536,7 +592,7 @@ const PickTable = ({ picks }) => {
               <th className="p-2 font-semibold text-right">SL</th>
               <th className="p-2 font-semibold text-right">Target</th>
               <th className="p-2 font-semibold text-right">RR</th>
-              <th className="p-2 font-semibold text-right">LTP</th>
+              <th className="p-2 font-semibold text-right">{_priceLabel()}</th>
               <th className="p-2 font-semibold text-right">Δ vs entry</th>
               <th className="p-2 font-semibold">Scans</th>
             </tr>
@@ -644,6 +700,11 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
   // pickLimit: starts at 12 to keep the cards row tight; expands to 30/60/100
   // when the user clicks the "+" / "Show more" button.
   const [pickLimit, setPickLimit] = useState(12);
+  // Separate state for Tomorrow's Watch — different fetch (lower floor +
+  // bigger limit) so pre-breakout setups below the actionable threshold
+  // still surface. Keeping it separate from `state` means the actionable
+  // rails (12 picks) don't get polluted with watch-only candidates.
+  const [tomorrowPicks, setTomorrowPicks] = useState([]);
 
   // Live mode is on while the IST market is open — adds current LTP +
   // readiness label per pick so users can see "is this thing actionable
@@ -653,10 +714,15 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
       setState((s) => ({ ...s, loading: true, error: null }));
     }
     try {
-      const live = _isMarketOpenIST();
+      // Always pass live=true. yfinance returns the latest available
+      // close when the market is closed — that's still the LTP we want
+      // to show (just labelled "Close" instead of "LTP" downstream).
+      // Gating this on market hours meant readiness, LTP and conviction
+      // were all blank pre-market and post-market — exactly when users
+      // are *most* likely to be reviewing trades.
       const r = await axios.get(`${API}/positional/picks/mine`, {
         withCredentials: true,
-        params: { min_score: 0.45, limit, live },
+        params: { min_score: 0.45, limit, live: true },
       });
       setState({ loading: false, error: null, data: r.data });
     } catch (err) {
@@ -665,6 +731,23 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
         error: err?.response?.data?.detail || err.message || "Failed to load picks",
         data: null,
       });
+    }
+  };
+
+  // Tomorrow's Watch — broader fetch so pre-breakout candidates don't
+  // get cut by the actionable-rail floor. min_score 0.20 is permissive
+  // because watch candidates are by design lower-scoring (they haven't
+  // moved yet); the rail's own filter (signals + verdict + readiness)
+  // does the actual quality gate.
+  const loadTomorrow = async () => {
+    try {
+      const r = await axios.get(`${API}/positional/picks/mine`, {
+        withCredentials: true,
+        params: { min_score: 0.20, limit: 60, live: true },
+      });
+      setTomorrowPicks(r.data?.picks || []);
+    } catch {
+      // Soft failure — Tomorrow's Watch hides if it can't load
     }
   };
 
@@ -697,7 +780,7 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
     }
   };
 
-  useEffect(() => { load(); }, [pickLimit]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); loadTomorrow(); }, [pickLimit]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Real-time mode: while the IST market is open, refresh in the
   // background every 60s so the readiness chips track the live tape.
@@ -707,7 +790,7 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
     let cancelled = false;
     const tick = async () => {
       if (cancelled) return;
-      await load({ background: true });
+      await Promise.all([load({ background: true }), loadTomorrow()]);
     };
     const intervalMs = _isMarketOpenIST() ? 60_000 : 300_000;
     const id = setInterval(tick, intervalMs);
@@ -729,9 +812,34 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
   // sub-grouping for prep mode (Early = ACCUMULATION stage with
   // strong pre-breakout signals, Active = trigger fired).
   const rails = useMemo(() => {
+    // 🌅 Tomorrow's Watch — built from a separate broader fetch so
+    // pre-breakout candidates below the 0.45 floor still surface.
+    const tomorrow = [];
+    for (const p of tomorrowPicks) {
+      const verdict = p.conviction?.verdict;
+      const sigs = p.pre_breakout?.signals || [];
+      const rd = (p.readiness || "").toUpperCase();
+      if (verdict === "AVOID_LATE") continue;
+      if (rd === "TRIGGERED" || rd === "LATE" || rd === "STOPPED") continue;
+      const isWatch =
+        sigs.length > 0
+        || (verdict === "HIGH_CONVICTION" && (rd === "NEAR" || rd === "WAIT"));
+      if (isWatch) tomorrow.push(p);
+    }
+    tomorrow.sort((a, b) => {
+      const sigsA = (a.pre_breakout?.signals || []).length;
+      const sigsB = (b.pre_breakout?.signals || []).length;
+      if (sigsA !== sigsB) return sigsB - sigsA;
+      const accA = a.pre_breakout?.accumulation_score || 0;
+      const accB = b.pre_breakout?.accumulation_score || 0;
+      if (accA !== accB) return accB - accA;
+      return (b.conviction?.final_score || 0) - (a.conviction?.final_score || 0);
+    });
+
+    // The other four rails — drawn from the actionable set (`picks`).
     const highConviction = [];
-    const early = [];          // sub-bucket of highConviction
-    const active = [];         // sub-bucket of highConviction
+    const early = [];          // sub-bucket of highConviction (legacy)
+    const active = [];
     const setupForming = [];
     const avoid = [];
     for (const p of picks) {
@@ -747,14 +855,13 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
         if (stage === "ACCUMULATION" && accScore >= 0.55) early.push(p);
         else active.push(p);
       } else {
-        // Fallback (no conviction block — older picks pre-v2)
         if (stage === "EXTENDED" || stage === "WEAK") avoid.push(p);
         else if (stage === "ACCUMULATION" && accScore >= 0.55) early.push(p);
         else active.push(p);
       }
     }
-    return { highConviction, early, active, setupForming, avoid };
-  }, [picks]);
+    return { tomorrow, highConviction, early, active, setupForming, avoid };
+  }, [picks, tomorrowPicks]);
   const signalDate = state.data?.signal_date;
 
   // Watchlist-mode gate (PR-D consolidation): when the parent passes
@@ -887,6 +994,28 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
 
       {!state.loading && !state.error && picks.length > 0 && viewMode === "cards" && (
         <div className="space-y-4" data-testid="positional-picks-rails">
+          {/* 🌅 Tomorrow's Watch — pre-breakout setups + near-trigger
+              high-conviction picks. Set GTT orders tonight, catch the
+              move at the open. This is the "early signals for tomorrow"
+              rail — answers "what should I queue up?" The other rails
+              answer "what triggered today?" or "what to avoid?" */}
+          {rails.tomorrow.length > 0 && (
+            <div data-testid="rail-tomorrow"
+                  className="bg-gradient-to-br from-amber-50/60 to-rose-50/30 dark:from-amber-900/10 dark:to-rose-900/5 border border-amber-200/60 dark:border-amber-800/30 rounded-2xl p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+                🌅 Tomorrow&apos;s Watch
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                  pre-breakout · set GTT tonight · {rails.tomorrow.length} stock{rails.tomorrow.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-thin">
+                {rails.tomorrow.map((p) => (
+                  <PickCard key={`tomorrow-${p.nse_symbol}-${p.signal_date}`} pick={p} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 🔥 Early Opportunities — pre-breakout, smart-money signals fired,
               no trigger yet. The actual alpha rail. */}
           {rails.early.length > 0 && (

@@ -22,7 +22,7 @@ import requests
 
 BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "https://wealth-advisor-96.preview.emergentagent.com",
+    "https://wealth-advisor-india-1.preview.emergentagent.com",
 ).rstrip("/")
 ADMIN_TOKEN = os.environ["NIVESH_TEST_ADMIN_TOKEN"]
 USER_TOKEN = os.environ["NIVESH_TEST_USER_TOKEN"]
