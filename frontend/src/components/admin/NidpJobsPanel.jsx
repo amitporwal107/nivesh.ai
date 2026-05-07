@@ -30,6 +30,45 @@ function relTime(iso) {
   return `${Math.round(diff / 86400)}d ago`;
 }
 
+// Per-day cell color in the inline week strip + the expanded calendar.
+const CAL_BG = {
+  OK:      "bg-emerald-500",
+  GREEN:   "bg-emerald-500",
+  PARTIAL: "bg-amber-500",
+  FAILED:  "bg-red-500",
+  SKIPPED: "bg-slate-300 dark:bg-slate-600",
+};
+
+// Compact 7-day strip for the main row. Each cell is one day; today
+// gets an indigo ring. Letters above are the day-of-week initial
+// (S M T W T F S) in browser locale.
+function WeekStrip({ days }) {
+  if (!days || days.length === 0) {
+    return <span className="text-slate-400 text-[10px]">—</span>;
+  }
+  return (
+    <div className="flex gap-0.5 items-end">
+      {days.map(d => {
+        const dt = new Date(d.date + "T00:00:00");
+        const letter = dt.toLocaleDateString(undefined, { weekday: "narrow" });
+        const bg = d.status ? CAL_BG[d.status] : "bg-slate-200 dark:bg-slate-700";
+        const ring = d.is_today ? "ring-2 ring-indigo-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-800" : "";
+        const tip = d.status
+          ? `${d.date}${d.is_today ? " (today)" : ""} · ${d.status} · ${d.run_count || 0} run(s)`
+          : `${d.date}${d.is_today ? " (today)" : ""} · no run`;
+        return (
+          <div key={d.date} className="flex flex-col items-center" title={tip}>
+            <div className={`w-3.5 h-3.5 rounded-sm ${bg} ${ring}`} />
+            <div className={"text-[8px] mt-0.5 " + (d.is_today ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-slate-400")}>
+              {letter}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Admin → Infra & Data → NIDP Jobs
  *
@@ -178,7 +217,7 @@ export default function NidpJobsPanel() {
                   <th className="px-2 py-2 w-6"></th>
                   <th className="px-2 py-2">Ingester</th>
                   <th className="px-2 py-2">Cadence</th>
-                  <th className="px-2 py-2">Schedule</th>
+                  <th className="px-2 py-2">This week</th>
                   <th className="px-2 py-2">Status</th>
                   <th className="px-2 py-2">Streak</th>
                   <th className="px-2 py-2">Last run</th>
@@ -208,8 +247,13 @@ export default function NidpJobsPanel() {
                         </td>
                         <td className="px-2 py-2 font-mono text-slate-900 dark:text-slate-100">{j.ingester}</td>
                         <td className="px-2 py-2 text-slate-500">{j.expected_freq || j.cadence}</td>
-                        <td className="px-2 py-2 font-mono text-[10px] text-slate-500" title={j.schedule_cron || ""}>
-                          {j.schedule_cron || "—"}
+                        <td className="px-2 py-2">
+                          <WeekStrip days={j.last_7_days || []} />
+                          {j.schedule_cron && (
+                            <div className="text-[9px] text-slate-400 font-mono mt-0.5" title={j.schedule_cron}>
+                              {j.schedule_cron}
+                            </div>
+                          )}
                         </td>
                         <td className="px-2 py-2">
                           <span className="inline-flex items-center gap-1.5">
@@ -268,14 +312,6 @@ export default function NidpJobsPanel() {
   );
 }
 
-const CAL_STYLES = {
-  OK:      "bg-emerald-500",
-  GREEN:   "bg-emerald-500",
-  PARTIAL: "bg-amber-500",
-  FAILED:  "bg-red-500",
-  SKIPPED: "bg-slate-300 dark:bg-slate-600",
-};
-
 function CalendarStrip({ calendar }) {
   if (!calendar || calendar.length === 0) {
     return <div className="text-[11px] text-slate-400 italic">No history.</div>;
@@ -285,7 +321,7 @@ function CalendarStrip({ calendar }) {
   return (
     <div className="flex items-center gap-1">
       {cells.map(c => {
-        const cls = c.status ? CAL_STYLES[c.status] : "bg-slate-200 dark:bg-slate-700";
+        const cls = c.status ? CAL_BG[c.status] : "bg-slate-200 dark:bg-slate-700";
         const tip = c.status
           ? `${c.date} · ${c.status} · ${c.run_count} run(s) · ${c.rows_total ?? 0} rows`
           : `${c.date} · no run`;
