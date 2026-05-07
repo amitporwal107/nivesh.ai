@@ -1,0 +1,32 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "ShareholdingPatternV1",
+  "doc": "One quarterly shareholding-pattern filing from NSE XBRL. Topic: nidp.shareholding_pattern.v1",
+  "fields": [
+    {"name": "symbol",                      "type": "string"},
+    {"name": "period_end",                  "type": "string"},
+    {"name": "promoter_pct",                "type": ["null", "double"], "default": null},
+    {"name": "promoter_pledged_pct",        "type": ["null", "double"], "default": null},
+    {"name": "promoter_pledged_to_total_pct", "type": ["null", "double"], "default": null},
+    {"name": "fii_pct",                     "type": ["null", "double"], "default": null},
+    {"name": "dii_pct",                     "type": ["null", "double"], "default": null},
+    {"name": "mf_pct",                      "type": ["null", "double"], "default": null},
+    {"name": "insurance_pct",               "type": ["null", "double"], "default": null},
+    {"name": "bank_fi_pct",                 "type": ["null", "double"], "default": null},
+    {"name": "govt_holding_pct",            "type": ["null", "double"], "default": null},
+    {"name": "public_pct",                  "type": ["null", "double"], "default": null},
+    {"name": "individual_pct",              "type": ["null", "double"], "default": null},
+    {"name": "nri_pct",                     "type": ["null", "double"], "default": null},
+    {"name": "bodies_corporate_pct",        "type": ["null", "double"], "default": null},
+    {"name": "total_shares",                "type": ["null", "long"], "default": null},
+    {"name": "promoter_shares",             "type": ["null", "long"], "default": null},
+    {"name": "public_shares",               "type": ["null", "long"], "default": null},
+    {"name": "pledged_shares",              "type": ["null", "long"], "default": null},
+    {"name": "filing_id",                   "type": ["null", "string"], "default": null},
+    {"name": "xbrl_url",                    "type": ["null", "string"], "default": null},
+    {"name": "broadcast_at",                "type": ["null", "string"], "default": null},
+    {"name": "source",                      "type": "string", "default": "NSE_SHP"},
+    {"name": "source_run_id",               "type": "string"}
+  ]
+}
