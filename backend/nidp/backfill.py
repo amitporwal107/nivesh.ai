@@ -218,8 +218,24 @@ async def run_backfill(
     # Phase B — daily, per service per day. Per-service inner loop so a
     # single source's rate limit doesn't starve the others.
     if daily:
-        days = await trading_days(start, end)
-        logger.info("backfill: %d trading day(s) from %s to %s", len(days), start, end)
+        # Cap end at the last published NSE close. Without this, a
+        # backfill ending "today" runs before NSE publishes bhavcopy
+        # (~18:00 IST) and burns 4xx retries against URLs that don't
+        # yet exist. last_market_close_date() reads
+        # nidp.v_market_session — the canonical "what's published?"
+        # source — and falls back to the in-process 18:30 IST cutoff
+        # heuristic if the DB lookup fails.
+        from nidp.shared.trading_day import last_market_close_date
+        last_close = await last_market_close_date()
+        effective_end = min(end, last_close)
+        if effective_end < end:
+            logger.info(
+                "backfill: clamping end %s → %s (last published NSE close)",
+                end, effective_end,
+            )
+        days = await trading_days(start, effective_end)
+        logger.info("backfill: %d trading day(s) from %s to %s",
+                    len(days), start, effective_end)
         for spec in daily:
             for d in days:
                 await _run_one(spec, d, skip_existing=skip_existing, report=report)
