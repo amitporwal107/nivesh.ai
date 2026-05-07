@@ -41,10 +41,15 @@ MANIFEST="$SCRIPT_DIR/gcp_resources.jsonl"
 
 # All services that have a Dockerfile.
 ALL_SERVICES=(
+    # Phase 1A
     bulk_deals block_deals bhavcopy delivery
     index_close index_constituents fii_dii corporate_actions
     nse_calendar rbi_yields snapshot_builder
     fred_macro yfinance_backfill
+    # Phase 1B (added in commit a07dfc9 — financials, shareholding,
+    # price_adjuster, equity_master, fno_bhavcopy)
+    nse_financials nse_shareholding price_adjuster
+    nse_equity_master fno_bhavcopy
 )
 
 # ── Args ────────────────────────────────────────────────────────────

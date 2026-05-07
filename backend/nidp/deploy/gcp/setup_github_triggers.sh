@@ -51,10 +51,14 @@ warn() { echo -e "${YEL}[triggers] ⚠${RESET}  $*"; }
 err()  { echo -e "${RED}[triggers] ❌${RESET} $*"; }
 
 ALL_SERVICES=(
+    # Phase 1A
     bulk_deals block_deals bhavcopy delivery
     index_close index_constituents fii_dii corporate_actions
     nse_calendar rbi_yields snapshot_builder
     fred_macro yfinance_backfill
+    # Phase 1B
+    nse_financials nse_shareholding price_adjuster
+    nse_equity_master fno_bhavcopy
 )
 
 if [[ -n "$SERVICE_FILTER" ]]; then

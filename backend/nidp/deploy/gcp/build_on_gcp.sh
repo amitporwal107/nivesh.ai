@@ -41,10 +41,14 @@ REPO_ROOT="$(cd "$NIDP_ROOT/../.." && pwd)"
 AR_REPO="${REGION}-docker.pkg.dev/${PROJECT}/nidp"
 
 ALL_SERVICES=(
+    # Phase 1A — core market data + reference + macro
     bulk_deals block_deals bhavcopy delivery
     index_close index_constituents fii_dii corporate_actions
     nse_calendar rbi_yields snapshot_builder
     fred_macro yfinance_backfill
+    # Phase 1B — financials + shareholding + adjusted close + sector + F&O
+    nse_financials nse_shareholding price_adjuster
+    nse_equity_master fno_bhavcopy
 )
 
 SERVICE_FILTER=""
