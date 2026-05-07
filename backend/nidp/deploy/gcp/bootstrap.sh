@@ -128,7 +128,7 @@ else
 fi
 
 # 4. Secret Manager — placeholder values; operator overrides via console.
-SECRETS=(NIDP_POSTGRES_URL NIDP_KAFKA_BROKERS NIDP_S3_BUCKET NIDP_REDIS_URL NIDP_SCHEMA_REGISTRY_URL)
+SECRETS=(NIDP_POSTGRES_URL NIDP_KAFKA_BROKERS NIDP_S3_BUCKET NIDP_REDIS_URL NIDP_SCHEMA_REGISTRY_URL NIDP_QUERY_API_TOKEN)
 for s in "${SECRETS[@]}"; do
     if ! gcloud secrets describe "$s" --project="$PROJECT" &>/dev/null; then
         maybe_run "echo -n 'SET_ME' | gcloud secrets create $s --replication-policy=automatic \
