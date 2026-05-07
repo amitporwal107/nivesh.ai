@@ -99,6 +99,25 @@ add_schedule nidp-fred-macro         '0 21 * * *'     'FRED macro series'
 add_schedule nidp-nse-calendar       '0 6 1 * *'      'NSE holiday master'
 add_schedule nidp-index-constituents '30 6 1 * *'     'NSE index constituents'
 
+# ── Phase 1B daily — NSE rolling-list ingesters ────────────────────
+# fno_bhavcopy: same window as cash bhavcopy (post-close, ~18:00 IST
+#   actually publishes; we run at 19:30 to give NSE buffer time).
+# nse_financials / nse_shareholding: rolling-list endpoints, low-cost
+#   to re-run; pinned to 20:30 so the heavy XBRL fan-out doesn't
+#   collide with cash-bhavcopy fetch traffic.
+add_schedule nidp-fno-bhavcopy       '30 19 * * 1-5'  'NSE F&O EOD bhavcopy'
+add_schedule nidp-nse-financials     '30 20 * * *'    'NSE financial-results XBRL'
+add_schedule nidp-nse-shareholding   '0 21 * * *'     'NSE shareholding-pattern XBRL'
+
+# ── Phase 1B weekly + derivation ───────────────────────────────────
+# nse_equity_master: listing universe drifts slowly; weekly Sunday is
+#   plenty.
+# price_adjuster: derivation, run AFTER bhavcopy + corporate_actions
+#   land for the day. 22:30 (post-snapshot) gives both upstream feeds
+#   time to settle.
+add_schedule nidp-nse-equity-master  '0 7 * * 0'      'NSE equity master (weekly)'
+add_schedule nidp-price-adjuster     '30 22 * * 1-5'  'split/bonus adjusted close (post-bhavcopy)'
+
 # ── End-of-day snapshot (after all daily ingesters) ────────────────
 add_schedule nidp-snapshot-builder   '0 22 * * 1-5'   'snapshot builder'
 
