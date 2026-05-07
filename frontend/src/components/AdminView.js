@@ -16,9 +16,8 @@ import DatastoreSection from "@/components/admin/DatastoreSection";
 import RulesConfigSection from "@/components/admin/RulesConfigSection";
 import DataPipelineMonitor from "@/components/admin/DataPipelineMonitor";
 import PipelineRunner from "@/components/admin/PipelineRunner";
-import NidpDumpRunner from "@/components/admin/NidpDumpRunner";
-import NidpJobsPanel from "@/components/admin/NidpJobsPanel";
-import NidpCatalogPanel from "@/components/admin/NidpCatalogPanel";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import PromptsSection from "@/components/admin/PromptsSection";
 import CasConfigSection from "@/components/admin/CasConfigSection";
 import V3EngineOverviewSection from "@/components/admin/V3EngineOverviewSection";
@@ -287,9 +286,30 @@ const AdminView = () => {
           <CasConfigSection />
           <DatastoreSection />
           <PipelineRunner />
-          <NidpCatalogPanel />
-          <NidpJobsPanel />
-          <NidpDumpRunner />
+
+          <Link
+            to="/nidp"
+            data-testid="admin-open-nidp-console"
+            className="block rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-gradient-to-r from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-800 p-5 hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="rounded-xl bg-indigo-100 dark:bg-indigo-900/40 p-2.5 shrink-0">
+                  <Server className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                    NIDP Console
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Data catalog, Cloud Run job control, validation, connection diagnostics — moved to its own page.
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            </div>
+          </Link>
+
           <DataPipelineMonitor />
           <MFDataSection />
         </div>
