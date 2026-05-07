@@ -66,27 +66,27 @@ CREATE INDEX IF NOT EXISTS idx_ann_attachments
     WHERE attachment_url IS NOT NULL;
 
 -- ── v_announcements_recent ──────────────────────────────────────────
--- Last 7 days of announcements joined to the equity master so consumers
--- get a canonical ticker/sector even when the feed reports only ISIN.
+-- Last 7 days of announcements. Ticker enrichment for BSE-only rows is
+-- done at query time by the consumer (the original draft of this view
+-- joined to a non-existent nidp.nse_equity_master).
 CREATE OR REPLACE VIEW nidp.v_announcements_recent AS
 SELECT
-    a.announcement_id,
-    a.source,
-    COALESCE(a.ticker_symbol, em.ticker_symbol) AS ticker_symbol,
-    a.isin,
-    a.company_name,
-    a.filed_at,
-    a.subject,
-    a.raw_category,
-    a.event_category,
-    a.impact_score,
-    a.sentiment,
-    a.attachment_url
-FROM nidp.corporate_announcements a
-LEFT JOIN nidp.nse_equity_master em
-       ON em.isin = a.isin
-WHERE a.filed_at >= NOW() - INTERVAL '7 days'
-ORDER BY a.filed_at DESC;
+    announcement_id,
+    source,
+    ticker_symbol,
+    isin,
+    scrip_code,
+    company_name,
+    filed_at,
+    subject,
+    raw_category,
+    event_category,
+    impact_score,
+    sentiment,
+    attachment_url
+  FROM nidp.corporate_announcements
+ WHERE filed_at >= NOW() - INTERVAL '7 days'
+ ORDER BY filed_at DESC;
 
 -- ── v_announcements_high_impact_today ───────────────────────────────
 -- Drives the alert/copilot proactive trigger surface.
