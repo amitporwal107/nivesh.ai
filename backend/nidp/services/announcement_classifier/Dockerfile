@@ -1,7 +1,19 @@
 FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    NIDP_METRICS_PORT=9117
+
 WORKDIR /app
-COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt anthropic>=0.40
+
+COPY backend/nidp/deploy/requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
+
 COPY backend/nidp /app/nidp
-ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
-ENTRYPOINT ["python", "-m", "nidp.services.announcement_classifier"]
+
+ENV PYTHONPATH=/app
+
+EXPOSE 9117
+
+ENTRYPOINT ["python", "-m", "nidp.services.announcement_classifier", "--metrics"]
