@@ -275,6 +275,25 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
     }
 
     declare -A SERVICE_URLS=()
+    DEPLOY_FAILED=()
+
+    # Capture stderr from a gcloud invocation, print it on failure so the
+    # operator sees the real reason instead of a silent "create failed".
+    _run_gcloud() {
+        local label="$1"; shift
+        local errfile
+        errfile=$(mktemp)
+        if "$@" --quiet >/dev/null 2>"$errfile"; then
+            rm -f "$errfile"
+            return 0
+        else
+            local rc=$?
+            err "  $label failed (rc=$rc):"
+            sed 's/^/      /' "$errfile" >&2
+            rm -f "$errfile"
+            return $rc
+        fi
+    }
 
     for svc in "${SUCCEEDED[@]}"; do
         # Per-service secret extension (matches deploy.sh's JOB_SECRETS map).
@@ -293,35 +312,36 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
             svc_name="nidp-${svc//_/-}"
             if gcloud run services describe "$svc_name" --region="$REGION" \
                     --project="$PROJECT" &>/dev/null; then
-                if gcloud run services update "$svc_name" \
-                        --image="${AR_REPO}/${svc}:${TAG}" \
-                        --region="$REGION" --project="$PROJECT" \
-                        --quiet >/dev/null 2>&1; then
+                if _run_gcloud "$svc_name (service) update" \
+                        gcloud run services update "$svc_name" \
+                            --image="${AR_REPO}/${svc}:${TAG}" \
+                            --region="$REGION" --project="$PROJECT"; then
                     ok "  $svc_name (service) updated → $TAG"
                 else
-                    err "  $svc_name (service) update failed"
+                    DEPLOY_FAILED+=("$svc_name")
                 fi
             else
                 log "  $svc_name (service) does not exist — creating..."
-                if gcloud run deploy "$svc_name" \
-                        --image="${AR_REPO}/${svc}:${TAG}" \
-                        --region="$REGION" --project="$PROJECT" \
-                        --service-account="$SA_EMAIL" \
-                        $VPC_FLAGS \
-                        --set-env-vars="$COMMON_ENV" \
-                        --set-secrets="$secrets_for_svc" \
-                        --port=8080 --memory=512Mi --cpu=1 \
-                        --min-instances=0 --max-instances=2 \
-                        --allow-unauthenticated \
-                        --ingress=all \
-                        --quiet >/dev/null 2>&1; then
+                if _run_gcloud "$svc_name (service) create" \
+                        gcloud run deploy "$svc_name" \
+                            --image="${AR_REPO}/${svc}:${TAG}" \
+                            --region="$REGION" --project="$PROJECT" \
+                            --service-account="$SA_EMAIL" \
+                            $VPC_FLAGS \
+                            --set-env-vars="$COMMON_ENV" \
+                            --set-secrets="$secrets_for_svc" \
+                            --port=8080 --memory=512Mi --cpu=1 \
+                            --min-instances=0 --max-instances=2 \
+                            --allow-unauthenticated \
+                            --ingress=all; then
                     ok "  $svc_name (service) CREATED → $TAG"
                 else
-                    err "  $svc_name (service) create failed"
+                    DEPLOY_FAILED+=("$svc_name")
                 fi
             fi
 
-            # Capture the URL for the final summary banner.
+            # Capture the URL for the final summary banner (only meaningful
+            # if the deploy actually succeeded).
             url=$(gcloud run services describe "$svc_name" \
                     --region="$REGION" --project="$PROJECT" \
                     --format='value(status.url)' 2>/dev/null || true)
@@ -331,28 +351,28 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
             job_name="nidp-${svc//_/-}"
             if gcloud run jobs describe "$job_name" --region="$REGION" \
                     --project="$PROJECT" &>/dev/null; then
-                if gcloud run jobs update "$job_name" \
-                        --image="${AR_REPO}/${svc}:${TAG}" \
-                        --region="$REGION" --project="$PROJECT" \
-                        --quiet >/dev/null 2>&1; then
+                if _run_gcloud "$job_name update" \
+                        gcloud run jobs update "$job_name" \
+                            --image="${AR_REPO}/${svc}:${TAG}" \
+                            --region="$REGION" --project="$PROJECT"; then
                     ok "  $job_name updated → $TAG"
                 else
-                    err "  $job_name update failed"
+                    DEPLOY_FAILED+=("$job_name")
                 fi
             else
                 log "  $job_name does not exist — creating..."
-                if gcloud run jobs create "$job_name" \
-                        --image="${AR_REPO}/${svc}:${TAG}" \
-                        --region="$REGION" --project="$PROJECT" \
-                        --service-account="$SA_EMAIL" \
-                        $VPC_FLAGS \
-                        --set-env-vars="$COMMON_ENV" \
-                        --set-secrets="$secrets_for_svc" \
-                        --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1 \
-                        --quiet >/dev/null 2>&1; then
+                if _run_gcloud "$job_name create" \
+                        gcloud run jobs create "$job_name" \
+                            --image="${AR_REPO}/${svc}:${TAG}" \
+                            --region="$REGION" --project="$PROJECT" \
+                            --service-account="$SA_EMAIL" \
+                            $VPC_FLAGS \
+                            --set-env-vars="$COMMON_ENV" \
+                            --set-secrets="$secrets_for_svc" \
+                            --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1; then
                     ok "  $job_name CREATED → $TAG"
                 else
-                    err "  $job_name create failed (see: gcloud run jobs create $job_name --region=$REGION ...)"
+                    DEPLOY_FAILED+=("$job_name")
                 fi
             fi
         fi
@@ -363,7 +383,8 @@ fi
 echo
 echo -e "════════════════════════════════════════════════════════════"
 echo -e "${GREEN}BUILT${RESET} (${#SUCCEEDED[@]}): ${SUCCEEDED[*]:-(none)}"
-[[ ${#FAILED[@]} -gt 0 ]] && echo -e "${RED}FAILED${RESET} (${#FAILED[@]}): ${FAILED[*]}"
+[[ ${#FAILED[@]} -gt 0 ]] && echo -e "${RED}BUILD FAILED${RESET} (${#FAILED[@]}): ${FAILED[*]}"
+[[ ${#DEPLOY_FAILED[@]:-0} -gt 0 ]] && echo -e "${RED}DEPLOY FAILED${RESET} (${#DEPLOY_FAILED[@]}): ${DEPLOY_FAILED[*]}"
 echo -e "Tag: ${TAG}"
 
 # Print URLs of any Cloud Run *services* deployed in this run (notably
@@ -378,7 +399,7 @@ if [[ ${#SERVICE_URLS[@]} -gt 0 ]]; then
 fi
 echo -e "════════════════════════════════════════════════════════════"
 
-if [[ ${#FAILED[@]} -eq 0 && -z "$NO_UPDATE" ]]; then
+if [[ ${#FAILED[@]} -eq 0 && ${#DEPLOY_FAILED[@]:-0} -eq 0 && -z "$NO_UPDATE" ]]; then
     cat <<EOF
 
 ✅ All builds + Cloud Run updates succeeded.
@@ -394,5 +415,9 @@ Verify deployed image is on the new tag:
 EOF
 elif [[ ${#FAILED[@]} -gt 0 ]]; then
     err "Some builds failed. Logs in $TMPDIR/build-<svc>.log"
+    exit 1
+elif [[ ${#DEPLOY_FAILED[@]:-0} -gt 0 ]]; then
+    err "Build succeeded but Cloud Run deploy failed for: ${DEPLOY_FAILED[*]}"
+    err "Re-run the failing gcloud commands above with stderr visible to debug."
     exit 1
 fi
