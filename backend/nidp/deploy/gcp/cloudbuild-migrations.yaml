@@ -18,7 +18,7 @@ steps:
       - -f
       - backend/nidp/deploy/gcp/Dockerfile.migrate
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$BUILD_ID
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
       - .
@@ -27,7 +27,7 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$BUILD_ID
 
   - id: push-latest
     name: gcr.io/cloud-builders/docker
