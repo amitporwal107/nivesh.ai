@@ -157,7 +157,7 @@ if $USE_VPC; then
         VPC_FLAGS=""
     else
         log "  ✓ VPC connector exists: $VPC_CONN"
-        VPC_FLAGS="--vpc-connector=$VPC_CONN_FULL --vpc-egress=private-ranges-only"
+        VPC_FLAGS="--vpc-connector=$VPC_CONN_FULL --vpc-egress=all-traffic"
     fi
 fi
 
@@ -191,8 +191,10 @@ if gcloud run jobs describe "$MIGRATE_JOB" \
         --service-account="$SA_EMAIL" \
         --set-secrets="$_SECRETS" \
         --set-env-vars="$_ENV_VARS" \
-        $VPC_FLAGS \
-        --args="python,-m,nidp.cli,migrate" \
+        --vpc-connector="$VPC_CONN_FULL" \
+        --vpc-egress=all-traffic \
+        --command=python \
+        --args="-m,nidp.cli,migrate" \
         --max-retries=1 --quiet
 else
     maybe gcloud run jobs create "$MIGRATE_JOB" \
@@ -201,8 +203,10 @@ else
         --service-account="$SA_EMAIL" \
         --set-secrets="$_SECRETS" \
         --set-env-vars="$_ENV_VARS" \
-        $VPC_FLAGS \
-        --args="python,-m,nidp.cli,migrate" \
+        --vpc-connector="$VPC_CONN_FULL" \
+        --vpc-egress=all-traffic \
+        --command=python \
+        --args="-m,nidp.cli,migrate" \
         --max-retries=1 --quiet
 fi
 maybe gcloud run jobs execute "$MIGRATE_JOB" \
