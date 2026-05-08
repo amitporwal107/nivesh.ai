@@ -38,8 +38,9 @@ logger = logging.getLogger(__name__)
 
 # Service registry — maps CLI name → module path.
 SERVICES: dict[str, str] = {
-    "bulk_deals":          "nidp.services.bulk_deals.service",
-    "block_deals":         "nidp.services.block_deals.service",
+    "bulk_deals":               "nidp.services.bulk_deals.service",
+    "block_deals":              "nidp.services.block_deals.service",
+    "corporate_announcements":  "nidp.services.corporate_announcements.service",
     "bhavcopy":            "nidp.services.bhavcopy.service",
     "delivery":            "nidp.services.delivery.service",
     "index_close":         "nidp.services.index_close.service",
@@ -122,13 +123,25 @@ async def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Service '{args.service}' requires --date")
         return 2
 
-    mod = importlib.import_module(SERVICES[args.service])
-    run_fn = getattr(mod, "run")
+    mod    = importlib.import_module(SERVICES[args.service])
+    intraday = getattr(args, "intraday", False)
 
-    if args.service in DATE_REQUIRED:
-        await run_fn(args.date)
+    if intraday:
+        run_fn = getattr(mod, "run_intraday", None)
+        if run_fn is None:
+            print(f"Service '{args.service}' does not support --intraday")
+            return 2
+        result = await run_fn(args.date)
+        if isinstance(result, dict) and result.get("skipped"):
+            print(f"  ↷ skipped: {result['skipped']}")
+        else:
+            print(f"  ✓ intraday done: {result}")
     else:
-        await run_fn(args.date)  # most services accept Optional[date]
+        run_fn = getattr(mod, "run")
+        if args.service in DATE_REQUIRED:
+            await run_fn(args.date)
+        else:
+            await run_fn(args.date)  # most services accept Optional[date]
     return 0
 
 
@@ -321,6 +334,10 @@ def main() -> None:
     p_ing = sub.add_parser("ingest", help="Run an ingester.")
     p_ing.add_argument("service", help="Service name (see list-services).")
     p_ing.add_argument("--date", type=_parse_date, default=None)
+    p_ing.add_argument("--intraday", action="store_true",
+                       help="Run in 1-min intraday mode: market hours guard + "
+                            "classifier trigger. Supported by: bulk_deals, "
+                            "corporate_announcements.")
 
     sub.add_parser("list-services", help="Show available services.")
     sub.add_parser("health",        help="Connectivity + schema check.")
