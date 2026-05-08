@@ -15,6 +15,7 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
+from nidp.shared.feature_flags import is_enabled
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool, get_pool
 
@@ -95,6 +96,11 @@ async def _get_new_announcements(conn, since: date) -> list[dict]:
 
 async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) -> None:
     setup_logging(service="event_analyzer")
+
+    if not await is_enabled("event_processing"):
+        logger.info("event_analyzer: event_processing flag is OFF — skipping")
+        return
+
     since = target_date or (date.today() - timedelta(days=1))
 
     pool = await get_pool()
