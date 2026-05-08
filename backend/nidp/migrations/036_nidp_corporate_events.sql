@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS nidp.corporate_event_signals (
                                       --  data_used{}}
 
     -- Source data snapshot used for analysis
-    financials_id   BIGINT REFERENCES nidp.nse_financials_quarterly(id),
+    financials_id   BIGINT,               -- soft ref to nse_financials_quarterly; no FK (composite PK)
     announcement_id BIGINT,           -- ref to nidp.announcements if applicable
 
     model_used      TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
