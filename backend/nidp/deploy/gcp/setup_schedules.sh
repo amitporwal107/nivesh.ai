@@ -145,6 +145,38 @@ add_schedule nidp-announcement-classifier  '*/30 * * * *'  'Haiku event/impact c
 # job URI from its first arg, so two schedules need two trigger funcs.
 add_schedule nidp-document-parser  '*/15 * * * *'  'PDF parser + chunker (S5)'
 
+# ── Mutual fund data feeds (MF phase) ─────────────────────────────
+#
+# amfi_nav:
+#   AMFI publishes NAVAll.txt by ~18:30 IST each trading day.
+#   Run at 20:00 IST Mon-Fri to give AMFI a comfortable buffer.
+#   Idempotent: ON CONFLICT UPDATE, so a re-run is harmless.
+#
+# amfi_circulars:
+#   AMFI posts scheme-lifecycle notices (mergers, renames, regulatory
+#   changes) asynchronously throughout the day. Daily morning fetch
+#   ensures yesterday's circulars are captured by 09:00 IST.
+#
+# mf_disclosure_snapshot:
+#   SEBI mandates TER + risk-o-meter publication by the 10th of each
+#   month. We run on the 12th at 10:00 IST to give a two-day buffer
+#   for late filers; the diff engine fires automatically to emit
+#   mf_scheme_events for any TER/risk changes.
+#
+# mf_holdings:
+#   SEBI mandates monthly portfolio disclosure by the 10th of each
+#   month. Run on the 12th at 11:00 IST (one hour after snapshot so
+#   scheme_master is fully populated). Staggered from snapshot to
+#   avoid concurrent DB write contention.
+#
+# amfi_nav_history (backfill) is NOT scheduled — run manually once
+#   via:  gcloud run jobs execute nidp-amfi-nav-history --region=...
+add_schedule nidp-amfi-nav           '0 20 * * 1-5'   'AMFI NAVAll daily (all schemes)'
+add_schedule nidp-amfi-circulars     '0 9 * * *'      'AMFI scheme circulars'
+add_schedule nidp-mf-disclosure-snapshot '0 10 12 * *' 'MF TER + risk-o-meter snapshot (12th)'
+add_schedule nidp-mf-holdings        '0 11 12 * *'    'MF monthly portfolio holdings (12th)'
+
 echo
 log "done. List triggers:  ./list_schedules.sh"
 log "yfinance_backfill is event-driven (manual run only) — not scheduled."
+log "amfi_nav_history is a one-time backfill — not scheduled (run manually)."

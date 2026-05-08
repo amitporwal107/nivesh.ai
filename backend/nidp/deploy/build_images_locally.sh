@@ -33,6 +33,9 @@ ALL_SERVICES=(
     index_close index_constituents fii_dii corporate_actions
     nse_calendar rbi_yields snapshot_builder
     fred_macro yfinance_backfill
+    # MF data feeds
+    amfi_nav amfi_nav_history amfi_circulars
+    mf_disclosure_snapshot mf_holdings
 )
 
 SERVICE_FILTER=""
