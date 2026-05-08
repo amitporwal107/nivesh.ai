@@ -114,6 +114,73 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "broker",
     },
+    # ── Native broker app credentials (Nivesh SPC, OpenAlgo-free path) ──
+    # Each broker requires the operator to register a developer app with
+    # the broker (their partner/dev portal) once, copy the resulting
+    # api_key/api_secret here, and register Nivesh's `/api/broker/native/
+    # callback?broker=<slug>` URL as the redirect URI on the broker side.
+    "BROKER_ZERODHA_API_KEY": {
+        "display_name": "Zerodha (Kite Connect) · API Key",
+        "description": "Kite Connect partner-app key. Register the Nivesh native broker connect URL `<host>/api/broker/native/callback?broker=zerodha` as the redirect URI on Zerodha's developer portal.",
+        "test_fn": None, "category": "broker",
+    },
+    "BROKER_ZERODHA_API_SECRET": {
+        "display_name": "Zerodha (Kite Connect) · API Secret",
+        "description": "Companion secret to BROKER_ZERODHA_API_KEY. Used in the SHA-256 checksum during `generate_session`.",
+        "test_fn": None, "category": "broker",
+    },
+    "BROKER_UPSTOX_API_KEY": {
+        "display_name": "Upstox · API Key", "category": "broker", "test_fn": None,
+        "description": "Upstox v2 app key. Register at https://account.upstox.com/developer/apps with redirect URI `<host>/api/broker/native/callback?broker=upstox`.",
+    },
+    "BROKER_UPSTOX_API_SECRET": {
+        "display_name": "Upstox · API Secret", "category": "broker", "test_fn": None,
+        "description": "Companion to BROKER_UPSTOX_API_KEY for the OAuth code-exchange POST.",
+    },
+    "BROKER_ANGEL_API_KEY": {
+        "display_name": "Angel One (SmartAPI) · API Key", "category": "broker", "test_fn": None,
+        "description": "SmartAPI key. Register at https://smartapi.angelbroking.com/. Form-auth — user enters client_code + password + TOTP in the Nivesh credential form.",
+    },
+    "BROKER_ANGEL_API_SECRET": {
+        "display_name": "Angel One (SmartAPI) · API Secret", "category": "broker", "test_fn": None,
+        "description": "Companion to BROKER_ANGEL_API_KEY.",
+    },
+    "BROKER_FYERS_API_KEY": {
+        "display_name": "Fyers · API Key", "category": "broker", "test_fn": None,
+        "description": "Fyers v3 app id (`<id>-<suffix>`). Register at https://myapi.fyers.in/dashboard/ with redirect URI `<host>/api/broker/native/callback?broker=fyers`.",
+    },
+    "BROKER_FYERS_API_SECRET": {
+        "display_name": "Fyers · API Secret", "category": "broker", "test_fn": None,
+        "description": "Companion to BROKER_FYERS_API_KEY for sha256(api_key:api_secret) checksum.",
+    },
+    "BROKER_DHAN_API_KEY": {
+        "display_name": "Dhan · API Key (optional placeholder)", "category": "broker", "test_fn": None,
+        "description": "Dhan uses long-lived per-user access tokens, not OAuth. End-users paste their Dhan trader-portal access_token + client_id directly into the Nivesh credential form.",
+    },
+    "BROKER_FIVEPAISA_API_KEY": {
+        "display_name": "5paisa · API Key (App Name)", "category": "broker", "test_fn": None,
+        "description": "Register at https://www.5paisa.com/developerapi/. Form-auth.",
+    },
+    "BROKER_FIVEPAISA_API_SECRET": {
+        "display_name": "5paisa · API Secret (App Source)", "category": "broker", "test_fn": None,
+        "description": "Companion to BROKER_FIVEPAISA_API_KEY.",
+    },
+    "BROKER_FIVEPAISA_USER_KEY": {
+        "display_name": "5paisa · User Encryption Key", "category": "broker", "test_fn": None,
+        "description": "Encryption key from 5paisa partner portal. Used as USER_KEY + ENCRYPTION_KEY.",
+    },
+    "BROKER_FIVEPAISA_USER_ID": {
+        "display_name": "5paisa · User ID", "category": "broker", "test_fn": None,
+        "description": "Partner portal user ID for 5paisa.",
+    },
+    "BROKER_ALICEBLUE_API_KEY": {
+        "display_name": "AliceBlue · App Code", "category": "broker", "test_fn": None,
+        "description": "Register at https://ant.aliceblueonline.com/. Used as `appcode` in OAuth URL.",
+    },
+    "BROKER_ALICEBLUE_API_SECRET": {
+        "display_name": "AliceBlue · API Secret", "category": "broker", "test_fn": None,
+        "description": "Companion to BROKER_ALICEBLUE_API_KEY for sha256(userId+authCode+secret) checksum.",
+    },
 }
 
 # Module-level cache: DB overrides for the CURRENT running environment.

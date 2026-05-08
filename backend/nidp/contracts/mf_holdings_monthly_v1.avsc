@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "MfHoldingsMonthlyV1",
+  "doc": "One scheme-holding row for a monthly disclosure. Topic: nidp.mf_holdings_monthly.v1",
+  "fields": [
+    {"name": "scheme_code",      "type": "string"},
+    {"name": "as_of_month",      "type": "string"},
+    {"name": "security_isin",    "type": ["null", "string"], "default": null},
+    {"name": "security_name",    "type": "string"},
+    {"name": "instrument_type",  "type": ["null", "string"], "default": null},
+    {"name": "sector",           "type": ["null", "string"], "default": null},
+    {"name": "rating",           "type": ["null", "string"], "default": null},
+    {"name": "quantity",         "type": ["null", "double"], "default": null},
+    {"name": "market_value_inr", "type": ["null", "double"], "default": null},
+    {"name": "weight_pct",       "type": ["null", "double"], "default": null},
+    {"name": "source",           "type": "string"},
+    {"name": "source_url",       "type": ["null", "string"], "default": null},
+    {"name": "source_run_id",    "type": "string"}
+  ]
+}

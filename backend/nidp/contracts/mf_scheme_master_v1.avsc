@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "MfSchemeMasterV1",
+  "doc": "One scheme master upsert. Topic: nidp.mf_scheme_master.v1",
+  "fields": [
+    {"name": "scheme_code",     "type": "string"},
+    {"name": "scheme_name",     "type": "string"},
+    {"name": "amc_id",          "type": ["null", "string"], "default": null},
+    {"name": "amc_name_raw",    "type": ["null", "string"], "default": null},
+    {"name": "isin_growth",     "type": ["null", "string"], "default": null},
+    {"name": "isin_idcw",       "type": ["null", "string"], "default": null},
+    {"name": "scheme_type",     "type": ["null", "string"], "default": null},
+    {"name": "scheme_category", "type": ["null", "string"], "default": null},
+    {"name": "source",          "type": "string", "default": "AMFI_NAVALL"},
+    {"name": "source_run_id",   "type": "string"}
+  ]
+}

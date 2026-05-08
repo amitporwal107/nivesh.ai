@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "MfAmfiCircularV1",
+  "doc": "One AMFI notice/circular/addendum. Topic: nidp.mf_amfi_circulars.v1",
+  "fields": [
+    {"name": "circular_id",   "type": "string"},
+    {"name": "published_at",  "type": ["null", "string"], "default": null},
+    {"name": "title",         "type": "string"},
+    {"name": "url",           "type": "string"},
+    {"name": "kind",          "type": ["null", "string"], "default": null},
+    {"name": "body_text",     "type": ["null", "string"], "default": null},
+    {"name": "source",        "type": "string", "default": "AMFI_CIRCULARS"},
+    {"name": "source_run_id", "type": "string"}
+  ]
+}

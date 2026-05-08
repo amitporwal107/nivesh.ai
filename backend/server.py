@@ -66,6 +66,7 @@ from routes.positional import router as positional_router  # Positional Trading 
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
+from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 
 # Logging
@@ -117,6 +118,7 @@ app.include_router(positional_router)              # Positional Trading Engine
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
 app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
+app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 
 

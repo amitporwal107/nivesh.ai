@@ -1,0 +1,22 @@
+Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date
+
+Open Ended Schemes(Equity Scheme - Large Cap Fund)
+
+Aditya Birla Sun Life Mutual Fund
+119551;INF209K01YM2;INF209K01YN0;Aditya Birla Sun Life Frontline Equity Fund - Growth;520.4500;07-May-2026
+119552;INF209K01YO8;INF209K01YP5;Aditya Birla Sun Life Frontline Equity Fund - IDCW;100.1234;07-May-2026
+
+SBI Mutual Fund
+112345;INF200K01TM5;-;SBI Bluechip Fund - Direct Plan - Growth;78.9100;07-May-2026
+112346;-;-;SBI Bluechip Fund - Regular Plan - Growth;75.5500;07-May-2026
+
+Open Ended Schemes(Equity Scheme - Mid Cap Fund)
+
+HDFC Mutual Fund
+113333;INF179K01XX1;INF179K01XX9;HDFC Mid-Cap Opportunities Fund - Growth;145.7800;07-May-2026
+
+Open Ended Schemes(Debt Scheme - Liquid Fund)
+
+ICICI Prudential Mutual Fund
+114444;INF109K01ZZ0;INF109K01ZZ8;ICICI Prudential Liquid Fund - Direct Plan - Growth;381.1234;07-May-2026
+114445;INF109K01YY7;-;ICICI Prudential Liquid Fund - Regular Plan - Growth;N.A.;07-May-2026
