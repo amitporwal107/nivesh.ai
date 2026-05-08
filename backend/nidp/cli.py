@@ -12,6 +12,9 @@ Usage:
     python -m nidp.cli daas-keygen --owner E --name N --plan free|standard|pro
     python -m nidp.cli daas-keys list
     python -m nidp.cli daas-keys revoke --key-id <uuid>
+    python -m nidp.cli feature-flags list
+    python -m nidp.cli feature-flags set event_processing off
+    python -m nidp.cli feature-flags set telegram_alerts on
 
 Per-service entrypoint also works directly:
     python -m nidp.services.bulk_deals --date 2026-05-04
@@ -55,6 +58,9 @@ SERVICES: dict[str, str] = {
     "event_calendar":         "nidp.services.event_calendar.service",
     "nse_financials":         "nidp.services.nse_financials.service",
     "event_analyzer":         "nidp.services.event_analyzer.service",
+    "d1_prep":                "nidp.services.d1_prep.service",
+    "intelligence":           "nidp.services.intelligence.service",
+    "event_day_poller":       "nidp.services.event_day_poller.service",
 }
 
 DATE_REQUIRED: set[str] = {"bhavcopy", "delivery", "index_close", "fii_dii"}
@@ -254,6 +260,32 @@ async def cmd_daas_keygen(args: argparse.Namespace) -> int:
     return 0
 
 
+async def cmd_feature_flags(args: argparse.Namespace) -> int:
+    from nidp.shared.feature_flags import list_flags, set_flag
+    if args.ff_cmd == "list":
+        flags = await list_flags()
+        if not flags:
+            print("(no flags — run migrate first)")
+            return 0
+        print(f"  {'FLAG':<25}  {'ENABLED':<8}  NOTES")
+        print("  " + "─" * 60)
+        for f in flags:
+            mark = "✓" if f["enabled"] else "✗"
+            notes = (f["notes"] or "")[:40]
+            print(f"  {mark}  {f['flag_name']:<23}  {'yes' if f['enabled'] else 'no':<8}  {notes}")
+        print()
+        print("  Toggle: nidp feature-flags set <flag> on|off")
+        return 0
+    if args.ff_cmd == "set":
+        enabled = args.value.lower() in ("on", "true", "1", "yes", "enable", "enabled")
+        await set_flag(args.flag_name, enabled, args.notes)
+        state = "ON" if enabled else "OFF"
+        print(f"  ✓ {args.flag_name} → {state}")
+        return 0
+    print(f"unknown feature-flags subcommand: {args.ff_cmd}")
+    return 2
+
+
 async def cmd_daas_keys(args: argparse.Namespace) -> int:
     from nidp.services.daas_api import keys as daas_keys
     if args.daas_cmd == "list":
@@ -329,20 +361,29 @@ def main() -> None:
     p_dk_rev = p_dk_sub.add_parser("revoke", help="Revoke by key_id.")
     p_dk_rev.add_argument("--key-id", required=True)
 
+    p_ff = sub.add_parser("feature-flags", help="List or toggle runtime feature flags.")
+    p_ff_sub = p_ff.add_subparsers(dest="ff_cmd", required=True)
+    p_ff_sub.add_parser("list", help="Show all flags and their current state.")
+    p_ff_set = p_ff_sub.add_parser("set", help="Enable or disable a flag.")
+    p_ff_set.add_argument("flag_name", help="Flag name, e.g. event_processing")
+    p_ff_set.add_argument("value",     help="on|off|true|false|1|0")
+    p_ff_set.add_argument("--notes",   default=None, help="Optional reason for the change.")
+
     args = p.parse_args()
 
     if args.cmd == "list-services":
         sys.exit(cmd_list_services(args))
 
     handler = {
-        "migrate":     cmd_migrate,
-        "ingest":      cmd_ingest,
-        "health":      cmd_health,
-        "backfill":    cmd_backfill,
-        "snapshot":    cmd_snapshot,
-        "validate":    cmd_validate,
-        "daas-keygen": cmd_daas_keygen,
-        "daas-keys":   cmd_daas_keys,
+        "migrate":       cmd_migrate,
+        "ingest":        cmd_ingest,
+        "health":        cmd_health,
+        "backfill":      cmd_backfill,
+        "snapshot":      cmd_snapshot,
+        "validate":      cmd_validate,
+        "daas-keygen":   cmd_daas_keygen,
+        "daas-keys":     cmd_daas_keys,
+        "feature-flags": cmd_feature_flags,
     }[args.cmd]
 
     try:
