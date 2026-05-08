@@ -245,7 +245,10 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
         from services.claude_cas_mapper import map_to_internal as _mp
         if not _ok():
             return None
-        raw = parse_with_nivesh(content, password=password or "")
+        # parse_with_nivesh is synchronous and does network I/O (Document AI).
+        # Run it in a worker thread so it can't block the event loop — without
+        # this, a slow Document AI call wedges every other request.
+        raw = await asyncio.to_thread(parse_with_nivesh, content, password or "")
         if not raw:
             return None
         h, n = _mp(raw)

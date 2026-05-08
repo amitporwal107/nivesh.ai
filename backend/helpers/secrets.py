@@ -96,6 +96,24 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "parsing",
     },
+    "OPENALGO_BASE_URL": {
+        "display_name": "OpenAlgo · Base URL",
+        "description": "Internal URL of the Nivesh-hosted OpenAlgo instance the backend calls for holdings/positions/funds. Example: https://openalgo-internal.nivesh.svc.cluster.local. When set, the user-facing Broker Connect form drops the URL field.",
+        "test_fn": None,
+        "category": "broker",
+    },
+    "OPENALGO_DASHBOARD_URL": {
+        "display_name": "OpenAlgo · Dashboard URL (public)",
+        "description": "Public URL where end-users sign in to the Nivesh-hosted OpenAlgo dashboard, connect their broker, and copy their API key. Often the same as the base URL; can be a separate ingress (e.g. https://openalgo.nivesh.ai). Surfaced in the Broker Connect modal as 'Open OpenAlgo dashboard'.",
+        "test_fn": None,
+        "category": "broker",
+    },
+    "OPENALGO_MANAGEMENT_TOKEN": {
+        "display_name": "OpenAlgo · Management API Token",
+        "description": "Shared secret the Nivesh backend uses to call OpenAlgo's /management/v1/users endpoint and auto-provision per-user OpenAlgo accounts + API keys. Must match `OPENALGO_MANAGEMENT_TOKEN` in OpenAlgo's .env. When set, end-users never see OpenAlgo's signup/login screens — Nivesh signs them in transparently using their Google email.",
+        "test_fn": None,
+        "category": "broker",
+    },
 }
 
 # Module-level cache: DB overrides for the CURRENT running environment.

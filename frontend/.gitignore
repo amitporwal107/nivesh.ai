@@ -21,3 +21,22 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Capacitor native build artifacts (the projects themselves are committed,
+# but per-developer build output and dependency caches are not)
+/android/.gradle
+/android/build
+/android/app/build
+/android/local.properties
+/android/.idea
+/android/captures
+/android/app/release
+/android/app/src/main/assets/public
+/android/app/src/main/assets/capacitor.config.json
+/android/app/src/main/assets/capacitor.plugins.json
+/ios/App/Pods
+/ios/App/build
+/ios/DerivedData
+/ios/App/App/public
+/ios/App/App/capacitor.config.json
+/ios/App/App/config.xml

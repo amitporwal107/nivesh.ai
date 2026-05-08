@@ -17,7 +17,7 @@ except subprocess.CalledProcessError:
     subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
     subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
 
-from middleware import RateLimitMiddleware, validate_env
+from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, validate_env
 
 # Validate env on startup
 validate_env()
@@ -65,6 +65,8 @@ from routes.benchmarks import router as benchmarks_router  # Benchmark Index Dat
 from routes.positional import router as positional_router  # Positional Trading Engine (technical, 5-30d)
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
+from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
+from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -114,6 +116,8 @@ app.include_router(benchmarks_router)             # Benchmark Index Data Service
 app.include_router(positional_router)              # Positional Trading Engine
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
+app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
+app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 
 
 # Root endpoint
@@ -122,8 +126,10 @@ async def root():
     return {"message": "nivesh.ai API"}
 
 
-# Middleware
+# Middleware (Starlette runs middleware in REVERSE add order, so headers
+# wrap the rate-limiter to ensure 429 responses also carry security headers).
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 _cors_env = os.environ.get('CORS_ORIGINS', '')
 _cors_origin_regex: str | None = None
@@ -166,12 +172,14 @@ async def startup_seed():
         logger.info("Secrets + feature flags + V3 weights hydrated from DB")
     except Exception as e:
         logger.warning(f"Config hydrate failed: {e}")
-    # Start MF scheduler if Postgres is configured
+    # Start MF scheduler. PG-dependent jobs (drain / v3_rescore /
+    # nifty100_refresh) wrap their own work in try/except so if Postgres
+    # is misconfigured or temporarily down they degrade gracefully —
+    # while non-PG jobs (AMFI NAV, benchmark indices, gmail_auto_import,
+    # portfolio_snapshot) keep running on schedule.
     try:
-        from services import pg_client, mf_scheduler
-        pool = await pg_client.get_pool()
-        if pool is not None:
-            mf_scheduler.start()
+        from services import mf_scheduler
+        mf_scheduler.start()
     except Exception as e:
         logger.warning(f"MF scheduler start failed: {e}")
     # Portfolio snapshot indexes (cheap, idempotent)

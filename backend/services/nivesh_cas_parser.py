@@ -139,8 +139,18 @@ def _build_client():
     return client, documentai
 
 
+DOCAI_PROCESS_TIMEOUT_SEC = 120  # hard ceiling; Document AI usually takes <30s for a 10-page CAS
+
+
 def _process_chunk(chunk_bytes: bytes) -> Dict[str, Any]:
-    """Call Document AI on a single PDF chunk; return {text, tables}."""
+    """Call Document AI on a single PDF chunk; return {text, tables}.
+
+    Uses a hard timeout — without it a network blip can hang an event-loop
+    thread indefinitely (we hit this in prod and the entire backend
+    wedged on accept()). The gRPC client raises DeadlineExceeded after
+    `timeout`, which the chain handler treats as a normal parser failure
+    and falls back to claude_vision / casparser_api.
+    """
     client, documentai = _build_client()
     project = _cfg("GOOGLE_DOCAI_PROJECT")
     processor = _cfg("GOOGLE_DOCAI_PROCESSOR")
@@ -148,7 +158,7 @@ def _process_chunk(chunk_bytes: bytes) -> Dict[str, Any]:
 
     raw_doc = documentai.RawDocument(content=chunk_bytes, mime_type="application/pdf")
     request = documentai.ProcessRequest(name=name, raw_document=raw_doc)
-    result = client.process_document(request=request)
+    result = client.process_document(request=request, timeout=DOCAI_PROCESS_TIMEOUT_SEC)
     return _extract_text_and_tables(result.document)
 
 

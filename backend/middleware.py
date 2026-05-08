@@ -1,7 +1,8 @@
-"""Middleware — rate limiting, env validation, request logging."""
+"""Middleware — rate limiting, env validation, request logging, security headers."""
 import os
 import time
 import logging
+import secrets as _stdlib_secrets
 from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -66,6 +67,59 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+
+# ── Security Headers ──
+# PRD §12 / FR-API: every response sets the OWASP-recommended hardening headers.
+# CSP allows Google OAuth (accounts.google.com) and our own origin; everything
+# else falls back to default-src 'self'. A per-request nonce is exposed via
+# request.state.csp_nonce so route handlers can inline it on bootstrap HTML.
+
+_CSP_DIRECTIVES = (
+    "default-src 'self'",
+    "script-src 'self' https://accounts.google.com 'nonce-{nonce}'",
+    "style-src 'self' 'unsafe-inline'",  # CRA inlines critical CSS
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://accounts.google.com https://www.googleapis.com",
+    "frame-src https://accounts.google.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Set OWASP hardening headers on every response.
+
+    HSTS is only set when the request was served over HTTPS (otherwise the
+    browser ignores it and we'd just be lying in dev). The CSP nonce is fresh
+    per request and surfaced to handlers via ``request.state.csp_nonce``.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        nonce = _stdlib_secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
+
+        response = await call_next(request)
+
+        csp = "; ".join(_CSP_DIRECTIVES).format(nonce=nonce)
+        response.headers.setdefault("Content-Security-Policy", csp)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        # HSTS only if we're on HTTPS (request.url.scheme reflects whatever
+        # the upstream proxy sets via X-Forwarded-Proto when uvicorn runs
+        # with --proxy-headers).
+        if request.url.scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains; preload",
+            )
+        return response
 
 
 # ── Env Validation ──

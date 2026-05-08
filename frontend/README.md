@@ -2,6 +2,49 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## Mobile (iOS + Android via Capacitor)
+
+The web app is wrapped as a native mobile app using [Capacitor](https://capacitorjs.com).
+
+- **App ID**: `ai.nivesh.app`
+- **Display name**: `nivesh.ai`
+- **Web layer**: existing CRA build under `build/` is bundled into the native shell
+- **Native projects**: `android/` (Android Studio) and `ios/` (Xcode)
+
+### Prerequisites
+
+- **Android**: Android Studio + Android SDK 33+, JDK 17. Open `android/` in Android Studio for first run, or use `yarn cap:run:android` with a connected device/emulator.
+- **iOS**: macOS with Xcode 15+, CocoaPods (`sudo gem install cocoapods`). Run `cd ios/App && pod install` after the first sync (Capacitor skips this on Linux). Then open `ios/App/App.xcworkspace`.
+
+### Common scripts
+
+```bash
+yarn cap:sync           # rebuild web + sync into both native projects
+yarn cap:android        # build, sync, open in Android Studio
+yarn cap:ios            # build, sync, open in Xcode (macOS only)
+yarn cap:run:android    # build, sync, run on attached Android device/emulator
+yarn cap:run:ios        # build, sync, run on attached iOS simulator (macOS only)
+```
+
+### Backend / API notes
+
+The mobile app loads the web bundle from a local origin inside the WebView, then calls `REACT_APP_BACKEND_URL` over HTTPS. Two things must be true on the backend:
+
+1. **CORS**: the API allowlist must include the WebView origins
+   - Android: `https://localhost`
+   - iOS: `capacitor://localhost`
+2. **Auth cookies**: any `Set-Cookie` returned by the API must use `SameSite=None; Secure` for the WebView to keep them across requests.
+
+### Known caveat: Google OAuth
+
+`@react-oauth/google` opens an embedded Google sign-in flow. Google blocks this in WebViews, so it will fail in the wrapped app. To fix, swap to the system browser via `@capacitor/browser` (or use [`@codetrix-studio/capacitor-google-auth`](https://github.com/CodetrixStudio/CapacitorGoogleAuth)) and configure the OAuth client to allow the `ai.nivesh.app` redirect scheme. This is a follow-up — not required to install/run the app, only to log in via Google on device.
+
+### After editing web code
+
+Native projects ship the contents of `build/` baked in. Re-run `yarn cap:sync` (or any `cap:*` script) after changes — hot reload from the dev server requires extra config and is off by default.
+
+
+
 ## Available Scripts
 
 In the project directory, you can run:

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">nivesh.ai</string>
+    <string name="title_activity_main">nivesh.ai</string>
+    <string name="package_name">ai.nivesh.app</string>
+    <string name="custom_url_scheme">ai.nivesh.app</string>
+</resources>

@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@capacitor/android": "^7",
+    "@capacitor/app": "^7",
+    "@capacitor/browser": "^7",
+    "@capacitor/cli": "^7",
+    "@capacitor/core": "^7",
+    "@capacitor/ios": "^7",
+    "@capacitor/preferences": "^7",
+    "@capacitor/splash-screen": "^7",
+    "@capacitor/status-bar": "^7",
     "@cas-parser/connect": "^1.4.0",
     "@hookform/resolvers": "^5.0.1",
     "@radix-ui/react-accordion": "^1.2.8",
@@ -64,7 +73,12 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
-    "test": "craco test"
+    "test": "craco test",
+    "cap:sync": "craco build && cap sync",
+    "cap:android": "craco build && cap sync android && cap open android",
+    "cap:ios": "craco build && cap sync ios && cap open ios",
+    "cap:run:android": "craco build && cap sync android && cap run android",
+    "cap:run:ios": "craco build && cap sync ios && cap run ios"
   },
   "browserslist": {
     "production": [

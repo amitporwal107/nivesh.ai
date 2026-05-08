@@ -2,6 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
+import { bootstrapNative } from "@/native/bootstrap";
+
+bootstrapNative();
 
 // Suppress uninformative cross-origin "Script error." events that trigger the
 // CRA dev-overlay on some mobile browsers (Samsung Internet, older Chrome).

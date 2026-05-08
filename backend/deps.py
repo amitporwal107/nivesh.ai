@@ -84,9 +84,54 @@ async def get_current_user(request: Request) -> dict:
 async def require_admin(request: Request) -> dict:
     """Get current user and verify they are an admin."""
     user = await get_current_user(request)
-    if not user.get("is_admin"):
+    if not _is_role(user, "admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+# ── Role-based access control (FR-RBAC-001) ──────────────────────────────
+# A user document carries either a legacy `is_admin: bool` flag or a new
+# `role: "user" | "advisor" | "support" | "admin"` field. `_is_role` is the
+# single source of truth — anything checking for admin / advisor capability
+# should go through `require_role(...)` (or its narrower siblings) so we
+# can drop `is_admin` cleanly when migration completes.
+
+_ALLOWED_ROLES = ("user", "advisor", "support", "admin")
+
+
+def _is_role(user: dict, *roles: str) -> bool:
+    """True if user has any of the named roles. Recognises both the new
+    ``role`` field and the legacy ``is_admin`` boolean (treated as ``admin``).
+    """
+    declared = (user.get("role") or "").lower()
+    if declared in roles:
+        return True
+    if "admin" in roles and user.get("is_admin"):
+        return True
+    return False
+
+
+def require_role(*roles: str):
+    """Dependency factory: require one of the named roles.
+
+    Usage:
+        @router.get("/foo", dependencies=[Depends(require_role("advisor", "admin"))])
+        async def foo(...): ...
+    """
+    for r in roles:
+        if r not in _ALLOWED_ROLES:
+            raise ValueError(f"unknown role: {r!r} (allowed: {_ALLOWED_ROLES})")
+
+    async def _checker(request: Request) -> dict:
+        user = await get_current_user(request)
+        if not _is_role(user, *roles):
+            raise HTTPException(
+                status_code=403,
+                detail=f"requires role: {' or '.join(roles)}",
+            )
+        return user
+
+    return _checker
 
 
 async def check_whitelist(email: str) -> dict:

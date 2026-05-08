@@ -47,36 +47,68 @@ def _derive_dev_key() -> bytes:
     return hashlib.sha256(material).digest()  # 32 bytes
 
 
+_DEV_ENVS = {"local", "dev", "development", "test", "ci"}
+
+
+def _is_dev_env() -> bool:
+    return os.environ.get("APP_ENV", "local").lower() in _DEV_ENVS
+
+
 def _get_key() -> bytes:
+    """Resolve the AES-256 key. In any non-dev APP_ENV the deterministic
+    fallback is a hard failure rather than a warning — a misconfigured prod
+    must not silently encrypt PII with a key that's derivable from a public
+    constant.
+    """
     global _cached_key
     if _cached_key is not None:
         return _cached_key
-    # 1. env var
+
+    source = "missing"
     raw = os.environ.get("PII_ENCRYPTION_KEY")
-    if not raw:
+    if raw:
+        source = "env"
+    else:
         try:
             from helpers import secrets as _s
             raw = _s.get("PII_ENCRYPTION_KEY")
+            if raw:
+                source = "secret"
         except Exception:  # noqa: BLE001
             raw = ""
+
+    k: Optional[bytes] = None
     if raw:
         try:
             k = base64.b64decode(raw)
             if len(k) != _KEY_BYTES:
-                logger.warning(
-                    "PII_ENCRYPTION_KEY has wrong length (%d, want 32); "
-                    "falling back to dev key.", len(k),
+                logger.error(
+                    "PII_ENCRYPTION_KEY has wrong length (%d, want 32)",
+                    len(k),
                 )
-                k = _derive_dev_key()
+                k = None
         except Exception as e:  # noqa: BLE001
-            logger.warning("PII_ENCRYPTION_KEY base64 decode failed: %s", e)
-            k = _derive_dev_key()
-    else:
+            logger.error("PII_ENCRYPTION_KEY base64 decode failed: %s", e)
+            k = None
+
+    if k is None:
+        if not _is_dev_env():
+            # Hard fail: refuse to encrypt PII in non-dev with a derivable key.
+            raise RuntimeError(
+                "PII_ENCRYPTION_KEY is not configured (or invalid) and APP_ENV="
+                f"{os.environ.get('APP_ENV')!r} is not a dev environment. "
+                "Set PII_ENCRYPTION_KEY (base64 of 32 random bytes) before "
+                "starting the server."
+            )
         logger.warning(
             "PII_ENCRYPTION_KEY not configured — using deterministic dev key "
-            "(INSECURE; must be set in prod).",
+            "(INSECURE; only allowed when APP_ENV is one of %s).",
+            sorted(_DEV_ENVS),
         )
         k = _derive_dev_key()
+        source = "dev_fallback"
+
+    logger.info("pii_key_source=%s", source)
     _cached_key = k
     return k
 
