@@ -20,7 +20,7 @@ import openpyxl
 
 logger = logging.getLogger(__name__)
 
-SOURCE_TAG = "SBI_MF_PORTFOLIO_XLSX"
+SOURCE_TAG = "SBI_MF_PORTFOLIO_XLSX"   # default; callers may override
 
 _COL_ALIASES: list[tuple[str, str]] = [
     ("name of instrument", "security_name"),
@@ -93,12 +93,12 @@ def parse_portfolio_xlsx(
     data: bytes,
     as_of_month: date,
     source_url: str,
+    source_tag: str = SOURCE_TAG,
 ) -> list[dict]:
-    """Parse SBI MF portfolio Excel → list of mf_holdings_monthly rows.
+    """Parse an AMC portfolio Excel → list of mf_holdings_monthly rows.
 
-    scheme_code is set to the scheme *name* from the Excel (the row-level
-    header above each block).  The SBI adapter resolves name → AMFI code
-    via DB lookup before handing rows to the writer.
+    scheme_code is set to the scheme *name* from the Excel header row.
+    The calling adapter resolves name → AMFI code via DB lookup.
     """
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     as_of_str = date(as_of_month.year, as_of_month.month, 1).isoformat()
@@ -108,7 +108,7 @@ def parse_portfolio_xlsx(
         ws = wb[sheet_name]
         sheet_rows = list(ws.iter_rows(values_only=True))
         result.extend(
-            _parse_sheet(sheet_rows, as_of_str, source_url, sheet_name)
+            _parse_sheet(sheet_rows, as_of_str, source_url, sheet_name, source_tag)
         )
     return result
 
@@ -118,6 +118,7 @@ def _parse_sheet(
     as_of_month: str,
     source_url: str,
     sheet_name: str,
+    source_tag: str = SOURCE_TAG,
 ) -> list[dict]:
     result: list[dict] = []
     current_scheme: Optional[str] = None
@@ -204,7 +205,7 @@ def _parse_sheet(
             "quantity":         qty,
             "market_value_inr": mkt_val,
             "weight_pct":       weight,
-            "source":           SOURCE_TAG,
+            "source":           source_tag,
             "source_url":       source_url,
         })
     return result

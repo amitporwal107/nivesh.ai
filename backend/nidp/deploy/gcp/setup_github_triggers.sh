@@ -65,6 +65,9 @@ ALL_SERVICES=(
     # give Cloud Scheduler one job per source for failure isolation.
     corporate_announcements_nse corporate_announcements_bse
     announcement_classifier document_parser
+    # MF data feeds phase
+    amfi_nav amfi_nav_history amfi_circulars
+    mf_disclosure_snapshot mf_holdings
 )
 
 if [[ -n "$SERVICE_FILTER" ]]; then
@@ -220,6 +223,13 @@ for svc in "${SERVICES[@]}"; do
     case "$svc" in
         corporate_announcements_nse|corporate_announcements_bse)
             included="${included},backend/nidp/services/corporate_announcements/**"
+            ;;
+        # mf_disclosure_snapshot shares amfi_central.py with all adapters;
+        # a change to amfi_central should rebuild the snapshot image.
+        # mf_holdings shares sbi_parser.py (used by all AMC adapters) —
+        # already within the service dir glob, so no extra path needed.
+        mf_disclosure_snapshot)
+            included="${included},backend/nidp/services/mf_disclosure_snapshot/amfi_central.py"
             ;;
     esac
     create_trigger \

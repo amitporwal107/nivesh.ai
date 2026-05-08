@@ -11,6 +11,29 @@
 # These are granted by setup_github_triggers.sh.
 
 steps:
+  # Step 0: ensure the Cloud Build SA itself has the IAP roles it needs to
+  # SSH through IAP in the next step.  This is idempotent; re-running is safe.
+  # Without this, the first manual `gcloud builds submit` always exits 255.
+  - id: grant-iap-roles
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+        CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+        echo "Ensuring IAP roles for Cloud Build SA: $CB_SA"
+        for role in roles/iap.tunnelResourceAccessor roles/compute.osAdminLogin roles/compute.viewer; do
+            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+                --member="serviceAccount:$CB_SA" \
+                --role="$role" \
+                --condition=None \
+                --quiet >/dev/null 2>&1 || true
+        done
+        echo "IAP roles OK — sleeping 20s for IAM propagation"
+        sleep 20
+
   - id: migrate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash

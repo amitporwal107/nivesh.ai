@@ -38,27 +38,20 @@ logger = logging.getLogger(__name__)
 AdapterFn = Callable[[aiohttp.ClientSession], Awaitable[list[dict]]]
 
 
-# ── Stubs ───────────────────────────────────────────────────────────
-# Each adapter is a no-op until its per-AMC scraper is built. We keep
-# the registration so a future implementation drops in by replacing
-# the function body — no orchestrator change.
-
-async def _stub(amc_id: str, http: aiohttp.ClientSession) -> list[dict]:
-    logger.warning(
-        "mf_disclosure_snapshot[%s]: adapter not implemented yet — skipping. "
-        "Add scraper at nidp/services/mf_disclosure_snapshot/amc_<id>.py and "
-        "register here.", amc_id,
-    )
-    return []
-
-
 async def sbi(http: aiohttp.ClientSession) -> list[dict]:
-    """TER + risk-o-meter for SBI schemes from AMFI central monthly disclosures.
+    return await _amfi_central_adapter("sbi", http)
 
-    Source: AMFI publishes both disclosures for all schemes in a single Excel.
-    Fund manager (primary_manager / secondary_manager) is left None — SBI's
-    factsheets page (https://www.sbimf.com/factsheets) is JS-rendered via AJAX
-    and requires a headless browser or a discovered XHR endpoint.
+
+async def _amfi_central_adapter(
+    amc_id: str,
+    http: aiohttp.ClientSession,
+) -> list[dict]:
+    """Generic AMFI-central adapter for any top-10 AMC.
+
+    TER and risk-o-meter come from AMFI's all-scheme Excel disclosures;
+    we filter to the given AMC's scheme codes from mf_scheme_master.
+    Fund manager data is not available from AMFI central — left None until
+    a per-AMC factsheet scraper is added.
     """
     from .amfi_central import fetch_ter_all, fetch_risk_all
     from nidp.shared.storage.pg import get_pool
@@ -67,26 +60,27 @@ async def sbi(http: aiohttp.ClientSession) -> list[dict]:
     risk_map = await fetch_risk_all(http)
 
     if not ter_map and not risk_map:
-        logger.warning("mf_disclosure_snapshot[sbi]: both TER and risk-o-meter empty")
+        logger.warning("mf_disclosure_snapshot[%s]: both TER and risk-o-meter empty", amc_id)
         return []
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        sbi_rows = await conn.fetch(
+        rows = await conn.fetch(
             """
             SELECT m.scheme_code
-              FROM nidp.mf_scheme_master  m
-              JOIN nidp.mf_amc_master     a ON a.id = m.amc_id
-             WHERE a.amc_id = 'sbi'
-            """
+              FROM nidp.mf_scheme_master m
+              JOIN nidp.mf_amc_master    a ON a.id = m.amc_id
+             WHERE a.amc_id = $1
+            """,
+            amc_id,
         )
-    sbi_codes = {r["scheme_code"] for r in sbi_rows}
-    if not sbi_codes:
-        logger.warning("mf_disclosure_snapshot[sbi]: no SBI schemes in mf_scheme_master yet")
+    codes = {r["scheme_code"] for r in rows}
+    if not codes:
+        logger.warning("mf_disclosure_snapshot[%s]: no schemes in mf_scheme_master yet", amc_id)
         return []
 
     result = []
-    for code in sbi_codes:
+    for code in codes:
         ter_pct, ter_pct_direct = ter_map.get(code, (None, None))
         risk = risk_map.get(code)
         if ter_pct is None and ter_pct_direct is None and risk is None:
@@ -99,21 +93,38 @@ async def sbi(http: aiohttp.ClientSession) -> list[dict]:
             "primary_manager":   None,
             "secondary_manager": None,
             "aum_inr_crore":     None,
-            "source_url":        "https://www.amfiindia.com/research-information/other-data/ter",
+            "source_url": "https://www.amfiindia.com/research-information/other-data/ter",
         })
-    logger.info("mf_disclosure_snapshot[sbi]: %d rows assembled", len(result))
+    logger.info("mf_disclosure_snapshot[%s]: %d rows assembled", amc_id, len(result))
     return result
 
 
-async def icici_pru(http: aiohttp.ClientSession) -> list[dict]:  return await _stub("icici_pru", http)
-async def hdfc(http: aiohttp.ClientSession) -> list[dict]:       return await _stub("hdfc", http)
-async def nippon(http: aiohttp.ClientSession) -> list[dict]:     return await _stub("nippon", http)
-async def kotak(http: aiohttp.ClientSession) -> list[dict]:      return await _stub("kotak", http)
-async def absl(http: aiohttp.ClientSession) -> list[dict]:       return await _stub("absl", http)
-async def uti(http: aiohttp.ClientSession) -> list[dict]:        return await _stub("uti", http)
-async def axis(http: aiohttp.ClientSession) -> list[dict]:       return await _stub("axis", http)
-async def tata(http: aiohttp.ClientSession) -> list[dict]:       return await _stub("tata", http)
-async def mirae(http: aiohttp.ClientSession) -> list[dict]:      return await _stub("mirae", http)
+async def icici_pru(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("icici_pru", http)
+
+async def hdfc(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("hdfc", http)
+
+async def nippon(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("nippon", http)
+
+async def kotak(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("kotak", http)
+
+async def absl(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("absl", http)
+
+async def uti(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("uti", http)
+
+async def axis(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("axis", http)
+
+async def tata(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("tata", http)
+
+async def mirae(http: aiohttp.ClientSession) -> list[dict]:
+    return await _amfi_central_adapter("mirae", http)
 
 
 ADAPTERS: dict[str, AdapterFn] = {

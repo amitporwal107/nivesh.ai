@@ -56,6 +56,9 @@ ALL_SERVICES=(
     # failure isolation.
     corporate_announcements_nse corporate_announcements_bse
     announcement_classifier document_parser
+    # MF data feeds
+    amfi_nav amfi_nav_history amfi_circulars
+    mf_disclosure_snapshot mf_holdings
 )
 
 # ── Args ────────────────────────────────────────────────────────────
