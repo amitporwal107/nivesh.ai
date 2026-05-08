@@ -95,15 +95,45 @@ cat <<EOF
 EOF
 
 # ── 1. Migrations ─────────────────────────────────────────────────────────────
+# Cloud Build only builds + pushes the migrations image.
+# This script then creates/executes the Cloud Run Job directly using the
+# caller's gcloud credentials, which have full project permissions.
+# (Cloud Build's default SA lacks roles/run.developer, so Cloud Run operations
+# must happen outside Cloud Build.)
 echo
-log "Step 1/6 — apply DB migrations via Cloud Build"
+log "Step 1/6 — build migration image via Cloud Build"
 
 run "gcloud builds submit '${REPO_ROOT}' \
     --config='${SCRIPT_DIR}/cloudbuild-migrations.yaml' \
     --project='${PROJECT}' \
     --region='${REGION}'"
 
-ok "migrations submitted"
+log "Step 1/6 — create / execute nidp-migrations Cloud Run Job"
+
+MIGRATIONS_IMG="${AR_REPO}/migrations:latest"
+
+if ! $DRY && gcloud run jobs describe nidp-migrations \
+        --region="${REGION}" --project="${PROJECT}" &>/dev/null; then
+    run "gcloud run jobs update nidp-migrations \
+        --image='${MIGRATIONS_IMG}' \
+        --region='${REGION}' --project='${PROJECT}' --quiet"
+else
+    run "gcloud run jobs create nidp-migrations \
+        --image='${MIGRATIONS_IMG}' \
+        --region='${REGION}' --project='${PROJECT}' \
+        --service-account='${SA_EMAIL}' \
+        --vpc-connector='${VPC_CONN}' \
+        --vpc-egress=private-ranges-only \
+        --set-secrets='NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest' \
+        --task-timeout=300s --max-retries=0 \
+        --memory=512Mi --cpu=1 \
+        --quiet"
+fi
+
+run "gcloud run jobs execute nidp-migrations \
+    --region='${REGION}' --project='${PROJECT}' --wait"
+
+ok "migrations applied"
 
 # ── 2. Build + push service images ───────────────────────────────────────────
 echo

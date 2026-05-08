@@ -1,12 +1,9 @@
 # Cloud Build pipeline for NIDP DB migrations.
 #
-# Builds a minimal migration-runner image, pushes it, then executes
-# `python -m nidp.cli migrate` via a Cloud Run Job + VPC connector.
-# Postgres is on the GCE VM (private IP); the VPC connector routes
-# traffic there without SSH, IAP, or OS Login.
-#
-# Idempotent: the nidp-migrations Cloud Run Job is created on first run
-# and updated on subsequent runs. All SQL uses IF NOT EXISTS / ON CONFLICT.
+# Responsibility: build + push the migration runner image only.
+# Executing the migration (Cloud Run Job create + execute) is done by
+# deploy_mf_feeds.sh so the caller's gcloud credentials (which have
+# full project permissions) handle Cloud Run — not the Cloud Build SA.
 #
 # Usage:
 #   gcloud builds submit . \
@@ -14,7 +11,6 @@
 #     --project=<PROJECT> --region=asia-south1
 
 steps:
-  # 1. Build the migration runner image
   - id: build
     name: gcr.io/cloud-builders/docker
     args:
@@ -27,54 +23,17 @@ steps:
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
       - .
 
-  # 2. Push the SHA tag (latest is pushed via the images: directive below)
-  - id: push
+  - id: push-sha
     name: gcr.io/cloud-builders/docker
     args:
       - push
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
 
-  # 3. Create/update the nidp-migrations Cloud Run Job, then execute it
-  - id: migrate
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: bash
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
     args:
-      - -c
-      - |
-        set -euo pipefail
-        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA"
-        SA="nidp-sa@$PROJECT_ID.iam.gserviceaccount.com"
-        VPC="projects/$PROJECT_ID/locations/${_REGION}/connectors/nidp-vpc"
-
-        if gcloud run jobs describe nidp-migrations \
-                --region=${_REGION} --project=$PROJECT_ID &>/dev/null; then
-          gcloud run jobs update nidp-migrations \
-              --image="$$IMG" \
-              --region=${_REGION} --project=$PROJECT_ID --quiet
-          echo "updated nidp-migrations"
-        else
-          gcloud run jobs create nidp-migrations \
-              --image="$$IMG" \
-              --command=python --args="-m,nidp.cli,migrate" \
-              --region=${_REGION} --project=$PROJECT_ID \
-              --service-account="$$SA" \
-              --vpc-connector="$$VPC" \
-              --vpc-egress=private-ranges-only \
-              --set-secrets="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest" \
-              --task-timeout=300s --max-retries=0 \
-              --memory=512Mi --cpu=1 \
-              --quiet
-          echo "created nidp-migrations"
-        fi
-
-        echo "executing nidp-migrations..."
-        gcloud run jobs execute nidp-migrations \
-            --region=${_REGION} --project=$PROJECT_ID --wait
-        echo "migrations complete"
-
-images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
 
 substitutions:
   _REGION: 'asia-south1'
