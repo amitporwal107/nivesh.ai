@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -A Mozilla/5.0 https://www.amfiindia.com/_next/static/chunks/5417-af9fd7d1d923610c.js)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

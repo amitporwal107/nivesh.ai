@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "MfNavDailyV1",
+  "doc": "One daily NAV row per scheme. Topic: nidp.mf_nav_daily.v1",
+  "fields": [
+    {"name": "scheme_code",    "type": "string"},
+    {"name": "nav_date",       "type": "string"},
+    {"name": "nav",            "type": "double"},
+    {"name": "repurchase_nav", "type": ["null", "double"], "default": null},
+    {"name": "sale_nav",       "type": ["null", "double"], "default": null},
+    {"name": "source",         "type": "string", "default": "AMFI_NAVALL"},
+    {"name": "source_run_id",  "type": "string"}
+  ]
+}

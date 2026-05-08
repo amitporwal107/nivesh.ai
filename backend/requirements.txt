@@ -191,3 +191,6 @@ xlsxwriter==3.2.9
 yarl==1.23.0
 yfinance==1.2.2
 zipp==3.23.0
+
+# Native broker SDKs (Nivesh SPC)
+kiteconnect==5.2.0  # Zerodha Kite Connect — read-only holdings/positions/funds

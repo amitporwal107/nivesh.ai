@@ -418,7 +418,18 @@ async def _enrich_with_live(picks: list) -> list:
     syms = [(p.get("nse_symbol") or "").upper() for p in picks if p.get("nse_symbol")]
     try:
         from services import live_price as _lp
-        prices = await asyncio.to_thread(_lp._batch_fetch_prices, syms)
+        # Bound the yfinance batch download — first call for a fresh
+        # symbol set can take 30s+ which freezes the UI on "Loading
+        # picks…". 8s is enough for a warm cache; cold misses degrade
+        # to no-LTP (UI handles live_price=null gracefully and the
+        # next 60s tick repopulates from the cache).
+        prices = await asyncio.wait_for(
+            asyncio.to_thread(_lp._batch_fetch_prices, syms),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("live overlay timed out — returning picks without LTP (will repopulate next tick)")
+        prices = {}
     except Exception as e:  # noqa: BLE001
         logger.warning("live overlay fetch failed: %s", e)
         prices = {}

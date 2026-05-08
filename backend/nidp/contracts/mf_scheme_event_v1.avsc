@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "namespace": "in.nivesh.nidp",
+  "name": "MfSchemeEventV1",
+  "doc": "Derived MF scheme event: TER/manager/risk-o-meter change, merger, rename, etc. Topic: nidp.mf_scheme_events.v1",
+  "fields": [
+    {"name": "event_id",      "type": "string"},
+    {"name": "scheme_code",   "type": "string"},
+    {"name": "event_type",    "type": "string"},
+    {"name": "event_date",    "type": "string"},
+    {"name": "old_value",     "type": ["null", "string"], "default": null, "doc": "JSON-encoded"},
+    {"name": "new_value",     "type": ["null", "string"], "default": null, "doc": "JSON-encoded"},
+    {"name": "source",        "type": "string"},
+    {"name": "source_ref",    "type": ["null", "string"], "default": null},
+    {"name": "source_run_id", "type": ["null", "string"], "default": null}
+  ]
+}

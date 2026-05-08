@@ -162,6 +162,38 @@ NSE_FO_BHAVCOPY_URL_OLD: Final[str] = (
 )
 NSE_FO_BHAVCOPY_FORMAT_CUTOVER_DATE: Final[str] = "2024-07-08"
 
+# ── Mutual fund sources ─────────────────────────────────────────────
+AMFI_WWW: Final[str] = "https://www.amfiindia.com"
+AMFI_PORTAL: Final[str] = "https://portal.amfiindia.com"
+
+# 12.1 AMFI daily NAV — pipe-delimited file with all schemes' current NAV.
+# Carries scheme metadata (code, ISINs, name) inline as section headers,
+# so the same fetch drives mf_scheme_master upserts as well as mf_nav_daily.
+# NB: AMFI moved this from www.amfiindia.com → portal.amfiindia.com in 2026.
+# The www.amfiindia.com path now 302s to portal — we hit portal directly
+# to skip the round-trip.
+AMFI_NAV_ALL_URL: Final[str] = f"{AMFI_PORTAL}/spages/NAVAll.txt"
+
+# 12.2 MFAPI.in — unofficial JSON aggregator over AMFI historical NAV.
+# Used for backfill / gap-fill only; daily ingest stays AMFI-direct.
+MFAPI_LIST_URL:    Final[str] = "https://api.mfapi.in/mf"
+MFAPI_SCHEME_URL:  Final[str] = "https://api.mfapi.in/mf/{SCHEME_CODE}"
+
+# 12.3 AMFI notices/circulars — landing page lists individual notices.
+# Source for scheme lifecycle events (mergers, renames, regulatory changes).
+AMFI_CIRCULARS_URL: Final[str] = (
+    f"{AMFI_WWW}/research-information/other-data/notices-circular"
+)
+
+# 12.4 Per-AMC scheme info / disclosure pages. Used by mf_disclosure_snapshot
+# and mf_holdings; one config per top-10 AMC. Each AMC site differs, so
+# the per-AMC fetcher/parser pair is registered in
+# nidp.services.mf_disclosure_snapshot.amc_dispatch and mf_holdings.amc_dispatch.
+MF_AMC_TOP10: Final[tuple[str, ...]] = (
+    "sbi", "icici_pru", "hdfc", "nippon", "kotak",
+    "absl", "uti", "axis", "tata", "mirae",
+)
+
 # ── Per-ingester source-class metadata (mirrors schema seed) ────────
 SOURCE_REGISTRY: Final[list[dict]] = [
     # name, ingester, url-pattern, class, confidence, freq

@@ -21,6 +21,13 @@ _price_cache: Dict[str, dict] = {}
 _price_cache_ts: float = 0
 _PRICE_CACHE_TTL = 300  # 5 minutes
 
+# Per-symbol cache used by _batch_fetch_prices so positional/dashboard
+# overlay calls don't hammer yfinance on every page load. 90s TTL is
+# tight enough during market hours but spares yfinance during dashboard
+# polling (live overlay refreshes every 60s on the frontend).
+_BATCH_PRICE_CACHE: Dict[str, Tuple[float, float]] = {}  # sym -> (price, ts)
+_BATCH_PRICE_TTL = 90.0
+
 NSE_EQUITY_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 NSE_ETF_URL = "https://nsearchives.nseindia.com/content/equities/eq_etfseclist.csv"
 NSE_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -112,12 +119,29 @@ async def _load_isin_map() -> Dict[str, str]:
 
 
 def _batch_fetch_prices(symbols: List[str]) -> Dict[str, float]:
-    """Fetch latest closing prices for a batch of NSE symbols using yfinance."""
+    """Fetch latest closing prices for a batch of NSE symbols using yfinance.
+
+    Per-symbol cached for `_BATCH_PRICE_TTL` seconds (in-process). Concurrent
+    callers (e.g. the positional dashboard's parallel load+loadTomorrow)
+    share the same cache so yfinance is only hit for genuinely-new symbols.
+    """
     if not symbols:
         return {}
 
-    nse_tickers = [f"{s}.NS" for s in symbols]
+    now = time.time()
     prices: Dict[str, float] = {}
+    uncached: List[str] = []
+    for s in symbols:
+        hit = _BATCH_PRICE_CACHE.get(s)
+        if hit and (now - hit[1]) < _BATCH_PRICE_TTL:
+            prices[s] = hit[0]
+        else:
+            uncached.append(s)
+
+    if not uncached:
+        return prices
+
+    nse_tickers = [f"{s}.NS" for s in uncached]
 
     try:
         # Batch download — single API call for all tickers
@@ -134,7 +158,9 @@ def _batch_fetch_prices(symbols: List[str]) -> Dict[str, float]:
             if "Close" in data.columns:
                 last_valid = data["Close"].dropna()
                 if not last_valid.empty:
-                    prices[sym] = round(float(last_valid.iloc[-1]), 2)
+                    p = round(float(last_valid.iloc[-1]), 2)
+                    prices[sym] = p
+                    _BATCH_PRICE_CACHE[sym] = (p, now)
         else:
             for t in nse_tickers:
                 sym = t.replace(".NS", "")
@@ -142,7 +168,9 @@ def _batch_fetch_prices(symbols: List[str]) -> Dict[str, float]:
                     col = data["Close"][t]
                     last_valid = col.dropna()
                     if not last_valid.empty:
-                        prices[sym] = round(float(last_valid.iloc[-1]), 2)
+                        p = round(float(last_valid.iloc[-1]), 2)
+                        prices[sym] = p
+                        _BATCH_PRICE_CACHE[sym] = (p, now)
                 except (KeyError, IndexError):
                     pass
 
