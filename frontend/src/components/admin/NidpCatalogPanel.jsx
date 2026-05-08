@@ -188,6 +188,31 @@ export default function NidpCatalogPanel() {
             ))}
           </div>
 
+          {(() => {
+            const empty = (data.tables || []).filter(t => !t.error && (t.rows === 0 || t.rows === null));
+            const errored = (data.tables || []).filter(t => !!t.error);
+            if (empty.length === 0 && errored.length === 0) return null;
+            return (
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-[11px]">
+                <div className="font-semibold text-amber-800 dark:text-amber-200 mb-1.5">
+                  Coverage gaps detected
+                </div>
+                {errored.length > 0 && (
+                  <div className="text-red-700 dark:text-red-300 mb-1">
+                    <span className="font-semibold">Errored ({errored.length}):</span>{" "}
+                    {errored.map(t => t.table).join(", ")} — query failed; click row for details.
+                  </div>
+                )}
+                {empty.length > 0 && (
+                  <div className="text-amber-800 dark:text-amber-300">
+                    <span className="font-semibold">Empty ({empty.length}):</span>{" "}
+                    {empty.map(t => t.table).join(", ")} — no rows. Either the feed hasn't run yet, or the upstream service isn't deployed/scheduled.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div>
             <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
               Tables ({data.totals.tables})
@@ -208,13 +233,18 @@ export default function NidpCatalogPanel() {
                 <tbody>
                   {data.tables.map(t => {
                     const isOpen = expandedTable === t.table;
+                    const isErr   = !!t.error;
+                    const isEmpty = !isErr && (t.rows === 0 || t.rows === null || t.rows === undefined);
+                    const rowBg = isErr
+                      ? "bg-red-50 dark:bg-red-900/20"
+                      : (isEmpty ? "bg-amber-50/60 dark:bg-amber-900/15" : "");
                     return (
                       <React.Fragment key={t.table}>
                         <tr
                           onClick={() => setExpandedTable(isOpen ? null : t.table)}
                           className={
                             "border-b border-slate-100 dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40 " +
-                            (t.error ? "bg-red-50 dark:bg-red-900/20" : "")
+                            rowBg
                           }
                         >
                           <td className="px-2 py-1 text-slate-400">
@@ -227,10 +257,16 @@ export default function NidpCatalogPanel() {
                               ? <span className="text-[11px] leading-snug">{t.description.stores}</span>
                               : <span className="text-slate-400 italic text-[10px]">no description</span>}
                           </td>
-                          <td className="px-2 py-1 text-right text-slate-700 dark:text-slate-200 font-medium align-top">
-                            {t.error
-                              ? <span className="text-red-600 text-[10px]" title={t.error}>err</span>
-                              : fmtNum(t.rows)}
+                          <td className="px-2 py-1 text-right font-medium align-top">
+                            {isErr ? (
+                              <span className="text-red-600 text-[10px]" title={t.error}>err</span>
+                            ) : isEmpty ? (
+                              <span className="text-amber-600 dark:text-amber-400" title="No rows yet — feed may not be running">
+                                {fmtNum(t.rows)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-700 dark:text-slate-200">{fmtNum(t.rows)}</span>
+                            )}
                           </td>
                           <td className="px-2 py-1 text-slate-500 align-top">{fmtDate(t.first_at)}</td>
                           <td className="px-2 py-1 text-slate-500 align-top">{fmtDate(t.last_at)}</td>
