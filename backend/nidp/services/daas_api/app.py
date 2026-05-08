@@ -134,7 +134,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=False,                  # API-key auth — no cookies
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=[
         "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
