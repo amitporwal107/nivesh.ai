@@ -30,6 +30,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -111,6 +112,24 @@ async def lifespan(app: FastAPI):
         pass
 
 
+_TAGS = [
+    {"name": "admin",            "description": "Key lifecycle management. Requires `NIDP_DAAS_INTERNAL_TOKEN` (Bearer auth). Use the 🔒 **Authorize** button → paste the internal token under **BearerAuth**."},
+    {"name": "health",           "description": "Liveness probe — no auth required."},
+    {"name": "me",               "description": "Caller identity, plan, and daily usage."},
+    {"name": "catalog",          "description": "Dataset index with live row counts."},
+    {"name": "prices",           "description": "NSE EOD OHLCV — raw bhavcopy and split/bonus/dividend-adjusted series."},
+    {"name": "corporate_actions","description": "Dividend, split, bonus, and rights calendar."},
+    {"name": "indices",          "description": "Index list and effective-dated constituent membership."},
+    {"name": "reference",        "description": "Symbol master, sector list, and NSE trading holidays."},
+    {"name": "financials",       "description": "Quarterly financials and shareholding pattern."},
+    {"name": "fno",              "description": "F&O bhavcopy — futures and options OHLCV, options chain, expiry calendar."},
+    {"name": "flows",            "description": "FII / DII net flows, bulk deals, and block deals."},
+    {"name": "announcements",    "description": "NSE + BSE corporate filings and exchange announcements."},
+    {"name": "macro",            "description": "RBI G-Sec yields and global macro series from FRED."},
+    {"name": "snapshots",        "description": "Pre-computed market-wide and per-stock daily snapshots."},
+    {"name": "features",         "description": "Engineered features from the Nivesh S4/S5 strategy pipeline."},
+]
+
 app = FastAPI(
     title="NIDP Data-as-a-Service API",
     version="1.0.0",
@@ -120,8 +139,52 @@ app = FastAPI(
     openapi_url="/openapi.json",
     contact={"name": "Nivesh", "url": "https://nivesh.com"},
     license_info={"name": "Commercial — see Nivesh DaaS terms"},
+    openapi_tags=_TAGS,
     lifespan=lifespan,
 )
+
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        contact=app.contact,
+        license_info=app.license_info,
+        tags=_TAGS,
+        routes=app.routes,
+    )
+    # Inject both security schemes so Swagger UI shows the Authorize button
+    schema.setdefault("components", {}).setdefault("securitySchemes", {}).update({
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "Pass your `nvd_...` token in the **X-API-Key** header. Issued via `POST /admin/keys`.",
+        },
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "description": "Internal admin token (`NIDP_DAAS_INTERNAL_TOKEN`). Required for `/admin/*` endpoints only.",
+        },
+    })
+    # Apply ApiKeyAuth globally to all /v1/* operations; BearerAuth to /admin/*
+    for path, methods in schema.get("paths", {}).items():
+        for method, op in methods.items():
+            if method == "parameters":
+                continue
+            tags = op.get("tags", [])
+            if "admin" in tags:
+                op.setdefault("security", [{"BearerAuth": []}])
+            elif path.startswith("/v1/"):
+                op.setdefault("security", [{"ApiKeyAuth": []}])
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
 
 
 # ── Middleware ──────────────────────────────────────────────────────
