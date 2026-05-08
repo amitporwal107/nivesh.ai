@@ -127,43 +127,75 @@ Internet → Global HTTPS LB → Cloud Armor WAF → Cloud Run Service
 
 ### First-time deploy
 
-> **Pre-requisite**: `bootstrap.sh --confirm` has already run.
+> **Pre-requisites**:
+> - `bootstrap.sh --confirm` has already run.
+> - `setup_daas.sh --project=$GCP_PROJECT --confirm` has already run (VPC connector, secrets, IAM).
+> - All commands below run from the **repo root** (the directory containing `backend/`).
 
 ```bash
 export GCP_PROJECT=<PROJECT_ID>
 export GCP_REGION=asia-south1
+```
 
-# 1. One-time: VPC connector, secrets, IAM, optional Armor
-./setup_daas.sh --project=$GCP_PROJECT --confirm
+#### Step 2 — Build, migrate, and deploy
 
-# 2. Build, push, and deploy the Cloud Run Service
+`deploy_daas.sh` now handles migrations automatically — it runs
+`python -m nidp.cli migrate` inside a one-off Cloud Run Job (same image +
+VPC connector as the Service, so it can reach the private Postgres without
+any SSH or IAP setup):
+
+```bash
+cd backend/nidp/deploy/gcp
 ./deploy_daas.sh --project=$GCP_PROJECT --confirm
+```
 
-# 3. Apply the DaaS migration (033_nidp_daas_api.sql)
-#    Run from a machine that can reach the VM's Postgres:
+This does, in order:
+1. Build and push the `daas_api` Docker image to Artifact Registry
+2. Run `nidp.cli migrate` as a Cloud Run Job (creates/updates all DB tables)
+3. Create/update the `nidp-daas-api` Cloud Run Service
+
+#### Step 4 — Issue your first API key
+
+The Cloud Run Service connects to Postgres via the VPC connector. To run the
+keygen CLI you need `NIDP_POSTGRES_URL` from Secret Manager:
+
+```bash
 NIDP_POSTGRES_URL="$(gcloud secrets versions access latest \
     --secret=NIDP_POSTGRES_URL --project=$GCP_PROJECT)"
-NIDP_POSTGRES_URL="$NIDP_POSTGRES_URL" python -m nidp.cli migrate
 
-# 4. Issue your first API key
-NIDP_POSTGRES_URL="$NIDP_POSTGRES_URL" python -m nidp.cli daas-keygen \
+NIDP_POSTGRES_URL="$NIDP_POSTGRES_URL" \
+    python -m nidp.cli daas-keygen \
     --name "first-user" --owner ops@yourco.com --plan free
-
-# 5. Smoke-test
-SVC_URL=$(gcloud run services describe nidp-daas-api \
-    --region=$GCP_REGION --project=$GCP_PROJECT --format="value(status.url)")
-
-curl $SVC_URL/health
-curl -H "X-API-Key: nvd_..." $SVC_URL/v1/catalog
-open $SVC_URL/docs   # OpenAPI / Swagger UI
 ```
+
+> The cleartext token is printed **once** and never stored. Save it immediately.
+
+#### Step 5 — Smoke-test
+
+```bash
+SVC_URL=$(gcloud run services describe nidp-daas-api \
+    --region=$GCP_REGION --project=$GCP_PROJECT \
+    --format="value(status.url)")
+
+curl $SVC_URL/health                           # → {"status":"ok"}
+curl -H "X-API-Key: nvd_..." $SVC_URL/v1/me   # → key info + plan
+curl $SVC_URL/docs                             # OpenAPI UI
+```
+
+---
 
 ### Re-deploying after a code change
 
 ```bash
+# From repo root:
+cd backend/nidp/deploy/gcp
 ./deploy_daas.sh --project=$GCP_PROJECT --confirm
-# deploys the new git-sha image and runs a /health smoke-test automatically
+# Builds new image, deploys it, and auto smoke-tests /health.
 ```
+
+If migrations also changed, run Step 2 first.
+
+---
 
 ### CI/CD (Cloud Build, auto on push)
 
@@ -171,8 +203,8 @@ open $SVC_URL/docs   # OpenAPI / Swagger UI
 # 1. Connect your GitHub repo in Cloud Console first:
 #    Cloud Build → Triggers → Connect Repository
 
-# 2. Create the trigger
-./setup_github_trigger_daas.sh \
+# 2. Create the trigger (from repo root)
+./backend/nidp/deploy/gcp/setup_github_trigger_daas.sh \
     --project=$GCP_PROJECT \
     --repo-owner=<GH_ORG> \
     --repo-name=<GH_REPO> \
@@ -180,12 +212,12 @@ open $SVC_URL/docs   # OpenAPI / Swagger UI
     --confirm
 ```
 
-On every push to `nidp` branch that touches `backend/nidp/services/daas_api/**`,
+On every push to `nidp` that touches `backend/nidp/services/daas_api/**`,
 Cloud Build will:
-1. Build and push the Docker image (tagged with `$SHORT_SHA`)
+1. Build and push the Docker image (tagged `$SHORT_SHA`)
 2. Run `python -m nidp.cli migrate` inside the image (idempotent)
-3. Update the Cloud Run Service to the new tag
-4. Smoke-test `/health` and `/v1/me` (expects 200 and 401 respectively)
+3. Update the Cloud Run Service to the new image
+4. Smoke-test `/health` and `/v1/me` (200 and 401 respectively)
 
 ### Key management
 
