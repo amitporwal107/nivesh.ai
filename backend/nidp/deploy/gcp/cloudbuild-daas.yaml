@@ -1,0 +1,177 @@
+# Cloud Build pipeline for the NIDP DaaS API.
+#
+# Triggered automatically on push to `nidp` branch (or main, configurable)
+# when files under `backend/nidp/services/daas_api/**` change.
+# Can also be triggered manually:
+#
+#   gcloud builds submit \
+#     --config=backend/nidp/deploy/gcp/cloudbuild-daas.yaml \
+#     --substitutions=_REGION=asia-south1 \
+#     --project=<PROJECT_ID>
+#
+# Steps:
+#   1. Build the daas_api image
+#   2. Push :$SHORT_SHA and :latest to Artifact Registry
+#   3. Run DB migrations (against the live Postgres via VPC) — safe because
+#      every migration is idempotent (CREATE IF NOT EXISTS / ON CONFLICT IGNORE).
+#   4. Update the Cloud Run Service to the new tag
+#   5. Smoke-test /health
+
+steps:
+  # ── 1. Build ──────────────────────────────────────────────────────
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/nidp/services/daas_api/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:latest
+      - .
+
+  # ── 2. Push ───────────────────────────────────────────────────────
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build]
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:latest
+
+  # ── 3. Migrate ────────────────────────────────────────────────────
+  # Runs inside the daas_api image so python + nidp package are
+  # already present. The NIDP_POSTGRES_URL secret is mounted here the
+  # same way Cloud Run mounts it at runtime — no plaintext in the
+  # build log.
+  # This step runs inside the Cloud Build worker network; the VPC
+  # connector for Cloud Run is separate. If the DB is not reachable
+  # from Cloud Build, remove this step and run migrations manually
+  # (see README).
+  - id: migrate
+    name: ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+    waitFor: [push-sha]
+    entrypoint: python
+    args: [-m, nidp.cli, migrate]
+    secretEnv: [NIDP_POSTGRES_URL]
+    env:
+      - PYTHONPATH=/app
+
+  # ── 4. Deploy Cloud Run Service ──────────────────────────────────
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    waitFor: [push-sha, migrate]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        SVC_NAME="nidp-daas-api"
+        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA"
+        SA_EMAIL="nidp-sa@$PROJECT_ID.iam.gserviceaccount.com"
+        VPC_CONN="projects/$PROJECT_ID/locations/${_REGION}/connectors/nidp-vpc"
+
+        # Build env-vars string
+        ENV_VARS="NIDP_STORAGE_BACKEND=gcs"
+        ENV_VARS="$ENV_VARS,GCP_PROJECT=$PROJECT_ID"
+        ENV_VARS="$ENV_VARS,GCP_REGION=${_REGION}"
+        ENV_VARS="$ENV_VARS,NIDP_DAAS_LOG_REQUESTS=1"
+        ENV_VARS="$ENV_VARS,NIDP_DAAS_CORS_ORIGINS=${_CORS_ORIGINS}"
+        ENV_VARS="$ENV_VARS,LOG_LEVEL=info"
+
+        # Build secrets string — NIDP_DAAS_INTERNAL_TOKEN is optional
+        SECRETS="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest"
+        if gcloud secrets describe NIDP_DAAS_INTERNAL_TOKEN \
+                --project="$PROJECT_ID" &>/dev/null; then
+          SECRETS="$SECRETS,NIDP_DAAS_INTERNAL_TOKEN=NIDP_DAAS_INTERNAL_TOKEN:latest"
+        fi
+
+        # VPC connector — skip gracefully if not yet created
+        VPC_FLAGS=""
+        if gcloud compute networks vpc-access connectors describe nidp-vpc \
+                --region="${_REGION}" --project="$PROJECT_ID" &>/dev/null; then
+          VPC_FLAGS="--vpc-connector=$VPC_CONN --vpc-egress=private-ranges-only"
+        else
+          echo "⚠ nidp-vpc connector not found — deploying without VPC connector"
+        fi
+
+        COMMON="
+          --image=$IMG
+          --region=${_REGION} --project=$PROJECT_ID
+          --service-account=$SA_EMAIL
+          --port=8081
+          --cpu=1 --memory=512Mi
+          --min-instances=1 --max-instances=20
+          --concurrency=80 --timeout=30s
+          --set-env-vars=$ENV_VARS
+          --set-secrets=$SECRETS
+          $VPC_FLAGS
+          --allow-unauthenticated
+          --quiet"
+
+        if gcloud run services describe "$SVC_NAME" \
+                --region="${_REGION}" --project="$PROJECT_ID" &>/dev/null; then
+          echo "updating $SVC_NAME → $SHORT_SHA"
+          gcloud run services update "$SVC_NAME" $COMMON
+        else
+          echo "creating $SVC_NAME"
+          gcloud run services create "$SVC_NAME" $COMMON
+        fi
+        echo "✅ deployed $SVC_NAME @ $SHORT_SHA"
+
+  # ── 5. Smoke-test /health ────────────────────────────────────────
+  - id: smoke
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    waitFor: [deploy]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        SVC_URL=$(gcloud run services describe nidp-daas-api \
+          --region=${_REGION} --project=$PROJECT_ID \
+          --format="value(status.url)")
+        echo "smoke-testing: $SVC_URL/health"
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SVC_URL/health")
+        if [[ "$HTTP_STATUS" == "200" ]]; then
+          echo "✅ /health returned 200"
+        else
+          echo "❌ /health returned $HTTP_STATUS" >&2
+          exit 1
+        fi
+        # 401 on /v1/me (unauthenticated) proves auth middleware is wired
+        AUTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SVC_URL/v1/me")
+        if [[ "$AUTH_STATUS" == "401" ]]; then
+          echo "✅ /v1/me returned 401 (auth gate working)"
+        else
+          echo "❌ /v1/me returned $AUTH_STATUS (expected 401)" >&2
+          exit 1
+        fi
+
+# Images pushed to Artifact Registry (logged by Cloud Build)
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:latest
+
+# Secret Manager — available inside steps that declare secretEnv
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/NIDP_POSTGRES_URL/versions/latest
+      env: NIDP_POSTGRES_URL
+
+substitutions:
+  _REGION: asia-south1
+  _CORS_ORIGINS: '*'      # override per trigger: e.g. https://app.nivesh.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+timeout: 900s
