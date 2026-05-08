@@ -121,5 +121,5 @@ LEFT JOIN LATERAL (
 ) week ON TRUE;
 
 
-INSERT INTO nidp.schema_migrations(filename) VALUES ('033_nidp_daas_api.sql')
+INSERT INTO nidp.schema_migrations(filename) VALUES ('035_nidp_daas_api.sql')
     ON CONFLICT (filename) DO NOTHING;
