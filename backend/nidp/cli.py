@@ -52,6 +52,9 @@ SERVICES: dict[str, str] = {
     "amfi_circulars":         "nidp.services.amfi_circulars.service",
     "mf_disclosure_snapshot": "nidp.services.mf_disclosure_snapshot.service",
     "mf_holdings":            "nidp.services.mf_holdings.service",
+    "event_calendar":         "nidp.services.event_calendar.service",
+    "nse_financials":         "nidp.services.nse_financials.service",
+    "event_analyzer":         "nidp.services.event_analyzer.service",
 }
 
 DATE_REQUIRED: set[str] = {"bhavcopy", "delivery", "index_close", "fii_dii"}
