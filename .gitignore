@@ -384,3 +384,7 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Local credentials / API tokens — never commit
+.angel-api
+.gh-token

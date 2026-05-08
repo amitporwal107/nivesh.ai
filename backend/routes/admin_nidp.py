@@ -42,22 +42,37 @@ from services import nidp_query_client as _nq
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp", tags=["admin-nidp"])
 
-# Canonical list of NIDP ingesters (mirrors backend/nidp/deploy/gcp/deploy.sh).
-# `cadence` is informational; the actual cadence is enforced by Cloud Scheduler.
+# Canonical list of NIDP ingesters — must mirror ALL_SERVICES in
+# backend/nidp/deploy/gcp/build_on_gcp.sh. When you add a new Cloud Run
+# job there, register it here so it shows up in the Console + so its
+# /jobs/{ingester}/* routes resolve. `cadence` is informational; actual
+# scheduling is done by Cloud Scheduler.
 NIDP_INGESTERS: List[Dict[str, str]] = [
-    {"ingester": "bhavcopy",            "cadence": "daily"},
-    {"ingester": "delivery",            "cadence": "daily"},
-    {"ingester": "index_close",         "cadence": "daily"},
-    {"ingester": "fii_dii",             "cadence": "daily"},
-    {"ingester": "bulk_deals",          "cadence": "daily"},
-    {"ingester": "block_deals",         "cadence": "daily"},
-    {"ingester": "corporate_actions",   "cadence": "event"},
-    {"ingester": "rbi_yields",          "cadence": "daily"},
-    {"ingester": "fred_macro",          "cadence": "daily"},
-    {"ingester": "nse_calendar",        "cadence": "monthly"},
-    {"ingester": "index_constituents",  "cadence": "monthly"},
-    {"ingester": "snapshot_builder",    "cadence": "daily"},
-    {"ingester": "yfinance_backfill",   "cadence": "event"},
+    # Phase 1A — core market data
+    {"ingester": "bhavcopy",                    "cadence": "daily"},
+    {"ingester": "delivery",                    "cadence": "daily"},
+    {"ingester": "index_close",                 "cadence": "daily"},
+    {"ingester": "fii_dii",                     "cadence": "daily"},
+    {"ingester": "bulk_deals",                  "cadence": "daily"},
+    {"ingester": "block_deals",                 "cadence": "daily"},
+    {"ingester": "corporate_actions",           "cadence": "event"},
+    {"ingester": "rbi_yields",                  "cadence": "daily"},
+    {"ingester": "fred_macro",                  "cadence": "daily"},
+    {"ingester": "nse_calendar",                "cadence": "monthly"},
+    {"ingester": "index_constituents",          "cadence": "monthly"},
+    {"ingester": "snapshot_builder",            "cadence": "daily"},
+    {"ingester": "yfinance_backfill",           "cadence": "event"},
+    # Phase 1B — fundamentals + adjusted prices + sector + F&O
+    {"ingester": "nse_financials",              "cadence": "quarterly"},
+    {"ingester": "nse_shareholding",            "cadence": "quarterly"},
+    {"ingester": "price_adjuster",              "cadence": "event"},
+    {"ingester": "nse_equity_master",           "cadence": "monthly"},
+    {"ingester": "fno_bhavcopy",                "cadence": "daily"},
+    # Phase 1B — corporate announcements (S4) + classifier + document parser (S5)
+    {"ingester": "corporate_announcements_nse", "cadence": "high-freq"},
+    {"ingester": "corporate_announcements_bse", "cadence": "high-freq"},
+    {"ingester": "announcement_classifier",     "cadence": "event"},
+    {"ingester": "document_parser",             "cadence": "event"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
@@ -277,15 +292,12 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
     db_error: Optional[str] = None
     try:
         feeds_resp = await _nq.get_feeds()
+        # Pass-through every field the query API returns so the React
+        # panel sees last_success_at, schedule_cron, last_7_days,
+        # cloud_logs_url, etc. Strip 'ingester' since it's the dict key.
         for f in feeds_resp.get("feeds", []):
-            db_status[f["ingester"]] = {
-                "last_run_status":      f.get("last_run_status"),
-                "consecutive_failures": f.get("consecutive_failures"),
-                "last_run_at":          f.get("last_run_at"),
-                "last_run_duration_ms": f.get("last_run_duration_ms"),
-                "last_rows_inserted":   f.get("last_rows_inserted"),
-                "last_error_message":   f.get("last_error_message"),
-            }
+            ing = f["ingester"]
+            db_status[ing] = {k: v for k, v in f.items() if k != "ingester"}
         # Surface server-side error (e.g. v_feed_status missing on the
         # remote DB) rather than silently returning empty status.
         if feeds_resp.get("error"):
@@ -313,15 +325,29 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
         if isinstance(r, tuple):
             images[r[0]] = r[1]
 
+    # Drift detection: ingesters listed in v_feed_status but NOT in
+    # NIDP_INGESTERS (= newly deployed services this code doesn't know
+    # about) and the inverse (registered here but no rows in
+    # source_registry, = job exists but has never run / source_registry
+    # never seeded).
+    canonical = {i["ingester"] for i in NIDP_INGESTERS}
+    in_db     = set(db_status.keys())
+    drift = {
+        "missing_from_db":          sorted(canonical - in_db),     # known but unregistered
+        "unregistered_in_canonical": sorted(in_db - canonical),    # in DB but UI doesn't know
+    }
+
     return {
-        "project":  GCP_PROJECT,
-        "region":   GCP_REGION,
-        "db_error": db_error,
+        "project":   GCP_PROJECT,
+        "region":    GCP_REGION,
+        "db_error":  db_error,
+        "drift":     drift,
         "jobs": [
             {
                 **spec,
                 "job_name":   _job_name(spec["ingester"]),
                 "image":      images.get(spec["ingester"]),
+                "registered_in_db": spec["ingester"] in in_db,
                 **db_status.get(spec["ingester"], {}),
             }
             for spec in NIDP_INGESTERS
