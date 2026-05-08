@@ -35,6 +35,7 @@ AUDIT_ACTIONS = {
     "consent_grant", "consent_withdraw",
     "data_export", "data_delete",
     "admin_override", "admin_impersonate",
+    "broker_connect", "broker_sync", "broker_disconnect",
 }
 
 

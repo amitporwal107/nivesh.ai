@@ -219,6 +219,20 @@ async def _portfolio_snapshot_job():
         logger.warning(f"portfolio_snapshot error: {e}")
 
 
+async def _gmail_auto_import_job():
+    """Daily 06:30 IST — for every Gmail-connected user with a saved CAS
+    password, scan the inbox and import any new monthly statements
+    (NSDL/CDSL/CAMS/KFintech). CAS providers send their batch shortly
+    after midnight IST, so 06:30 catches the same-day delivery wave
+    while leaving headroom for late-arrival statements."""
+    try:
+        from services.gmail_auto_import import auto_import_all_users
+        res = await auto_import_all_users()
+        logger.info(f"gmail_auto_import: {res}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"gmail_auto_import error: {e}")
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -282,6 +296,13 @@ def start():
     _scheduler.add_job(
         _macro_intelligence_job, CronTrigger(hour=18, minute=35),
         id="macro_intelligence_daily", replace_existing=True, max_instances=1,
+    )
+    # Gmail auto-import: daily 06:30 IST — pull any new monthly CAS
+    # statements that arrived overnight. Uses the password the user
+    # already entered during their first manual import.
+    _scheduler.add_job(
+        _gmail_auto_import_job, CronTrigger(hour=6, minute=30),
+        id="gmail_auto_import_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

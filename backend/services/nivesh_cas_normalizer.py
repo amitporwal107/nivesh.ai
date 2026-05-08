@@ -45,11 +45,19 @@ PAN_RE = re.compile(r"\b([A-Z]{5}\d{4}[A-Z]|[A-Z]{2}XXXXX\d?[A-Z])\b")
 FOLIO_NUM_RE = re.compile(r"^\d{6,15}$")
 UCC_RE = re.compile(r"\bMF[A-Z]{3,5}\d{3,5}\b|\b1\d{4,5}\b")
 DATE_DDMMMYYYY_RE = re.compile(r"\b(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{4})\b")
+DATE_DDMMYYYY_RE = re.compile(r"\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b")
 PERIOD_RE = re.compile(
     r"period\s+from\s+(\d{1,2}[-/ ][A-Za-z]{3}[-/ ]\d{4})\s+to\s+(\d{1,2}[-/ ][A-Za-z]{3}[-/ ]\d{4})",
     re.I,
 )
+# CDSL CAS uses DD-MM-YYYY: "Period: 01-02-2026 to 28-02-2026" or "From 01/02/2026 To 28/02/2026"
+PERIOD_DDMMYYYY_RE = re.compile(
+    r"(?:period|from)[:\s]+(\d{1,2}[-/]\d{1,2}[-/]\d{4})\s+(?:to|-)\s+(\d{1,2}[-/]\d{1,2}[-/]\d{4})",
+    re.I,
+)
 MONTH_RE = re.compile(r"^([A-Z]{3})\s+(\d{4})$")
+# CDSL BO ID: 16-digit account number, sometimes printed with spaces every 4 digits
+BO_ID_RE = re.compile(r"\bBO\s*ID[:\s]*([0-9 ]{12,20})\b", re.I)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -125,8 +133,38 @@ def _first_isin(s: str) -> Optional[str]:
     return m.group() if m else None
 
 
+# ── Depository detection ──────────────────────────────────────────────
+# CDSL markers: "Central Depository Services", "BO ID", "CDSL" header text,
+# "Depository: CDSL", or "Demat A/c No:" without an "NSDL ID" anywhere in
+# the same document. We scan the first ~4000 chars (cover page).
+_CDSL_MARKERS = re.compile(
+    r"\bCDSL\b|Central\s+Depository\s+Services|\bBO\s*ID\b|\bDepository[:\s]+CDSL\b",
+    re.I,
+)
+_NSDL_MARKERS = re.compile(r"\bNSDL\b|National\s+Securities\s+Depository", re.I)
+
+
+def _detect_depository(text: str) -> str:
+    """Return 'CDSL' if CDSL markers dominate the cover page, else 'NSDL'.
+
+    NSDL is the default because the original parser was NSDL-only, and any
+    consolidated CAS PDF contains NSDL boilerplate even when the demat side
+    is CDSL. We only flip to CDSL when CDSL markers appear and the NSDL ID
+    pattern is absent — i.e. it's a CDSL-only statement.
+    """
+    if not text:
+        return "NSDL"
+    head = text[:8000]
+    has_cdsl = bool(_CDSL_MARKERS.search(head))
+    # Strong NSDL signal = an actual "NSDL ID: <digits>" header line.
+    has_nsdl_id = bool(re.search(r"NSDL\s*ID[:\s]+\d+", head, re.I))
+    if has_cdsl and not has_nsdl_id:
+        return "CDSL"
+    return "NSDL"
+
+
 # ── Statement / investor extraction (from text) ────────────────────────
-def _extract_investor_info(text: str) -> Dict[str, Any]:
+def _extract_investor_info(text: str, depository: str = "NSDL") -> Dict[str, Any]:
     info: Dict[str, Any] = {"name": None, "pan": None, "address": None}
     if not text:
         return info
@@ -140,40 +178,68 @@ def _extract_investor_info(text: str) -> Dict[str, Any]:
     m = re.search(r"In the Single Name of[\s\n]+([A-Z][A-Z .]{2,80}?)\s*\(?PAN", text)
     if m:
         info["name"] = m.group(1).strip()
+    elif depository == "CDSL":
+        # CDSL: "BO Name: <NAME>" or "Sole/First Holder: <NAME>" or after BO ID block
+        m = re.search(r"(?:BO\s*Name|Sole(?:\s*/\s*First)?\s*Holder)[:\s]+([A-Z][A-Z .]{2,80})", text)
+        if m:
+            info["name"] = m.group(1).strip()
+        else:
+            m = re.search(r"BO\s*ID[:\s]*[0-9 ]{12,20}\s*\n\s*([A-Z][A-Z .]{3,80})\n", text)
+            if m:
+                info["name"] = m.group(1).strip()
     else:
         # Fallback: look for "Dear <Name>" at start of greeting
         m = re.search(r"NSDL ID:[\s\d]+\n([A-Z][A-Z .]{3,80})\n", text)
         if m:
             info["name"] = m.group(1).strip()
 
-    # Address — between name and "PINCODE: nnnnnn"
+    # Address — between name and "PINCODE: nnnnnn" (NSDL form)
     m = re.search(
         r"NSDL ID:[\s\d]+\n([A-Z][A-Z .]{3,80})\n([\s\S]+?PINCODE[:\s]+\d{6})",
         text,
     )
     if m:
         info["address"] = re.sub(r"\s+", " ", m.group(2)).strip()
+    elif depository == "CDSL":
+        # CDSL has "Address:" or address block after BO Name
+        m = re.search(r"Address[:\s]+([\s\S]{10,300}?\d{6})", text)
+        if m:
+            info["address"] = re.sub(r"\s+", " ", m.group(1)).strip()
 
     return info
 
 
-def _extract_statement_info(text: str) -> Dict[str, Any]:
+def _extract_statement_info(text: str, depository: Optional[str] = None) -> Dict[str, Any]:
+    if depository is None:
+        depository = _detect_depository(text)
     info: Dict[str, Any] = {
-        "depository": "NSDL",
+        "depository": depository,
         "id": None,
         "statement_type": "Consolidated Account Statement",
         "period": None,
     }
-    m = re.search(r"NSDL ID:\s*(\d+)", text)
-    if m:
-        info["id"] = m.group(1)
+    if depository == "CDSL":
+        # BO ID may be printed with spaces; normalise to digits-only.
+        m = BO_ID_RE.search(text)
+        if m:
+            info["id"] = re.sub(r"\D", "", m.group(1))
+    else:
+        m = re.search(r"NSDL ID:\s*(\d+)", text)
+        if m:
+            info["id"] = m.group(1)
+
+    # Period: prefer DD-MMM-YYYY (NSDL), then DD-MM-YYYY (CDSL), then "month of"
     m = PERIOD_RE.search(text)
     if m:
         info["period"] = f"{m.group(1)} to {m.group(2)}"
     else:
-        m2 = re.search(r"for the month of ([A-Z][a-z]+ \d{4})", text)
+        m2 = PERIOD_DDMMYYYY_RE.search(text)
         if m2:
-            info["period"] = m2.group(1)
+            info["period"] = f"{m2.group(1)} to {m2.group(2)}"
+        else:
+            m3 = re.search(r"for the month of ([A-Z][a-z]+ \d{4})", text)
+            if m3:
+                info["period"] = m3.group(1)
     return info
 
 
@@ -211,6 +277,25 @@ def _classify_table(table: List[List[str]]) -> str:
     has_inf = bool(ISIN_MF_RE.search(sample_blob))
     has_ine = bool(ISIN_EQUITY_RE.search(sample_blob))
     has_sgb = bool(ISIN_SGB_RE.search(sample_blob))
+
+    # CDSL header signatures (check before NSDL equity/folio/demat fallbacks
+    # because CDSL tables are wider but have distinct header keywords).
+    sample_lower = sample_blob.lower()
+    cdsl_eq_header = (
+        "security" in sample_lower
+        and ("current" in sample_lower or "free bal" in sample_lower)
+        and "folio" not in sample_lower
+        and "scheme" not in sample_lower
+    )
+    cdsl_mf_header = (
+        "scheme" in sample_lower
+        and "folio" in sample_lower
+        and ("valuation" in sample_lower or "invested" in sample_lower or "nav" in sample_lower)
+    )
+    if cdsl_eq_header and has_ine and n_cols >= 5:
+        return "cdsl_equity"
+    if cdsl_mf_header and has_inf and n_cols >= 5:
+        return "cdsl_mf_folio"
 
     # Asset allocation: 3 cols, percentage in col 2
     if n_cols == 3 and any("%" in str(r[-1] or "") for r in table[:5]):
@@ -505,6 +590,205 @@ def _folio_row_to_record(row: List[str]) -> Optional[Dict[str, Any]]:
     }
 
 
+# ── CDSL row extractors ────────────────────────────────────────────────
+# CDSL CAS layouts differ from NSDL: equity rows are wider (typically
+#   ISIN | Security | Current Qty | Frozen | Pledge | Pledge-Setup |
+#   Free Bal | Price | Value
+# ) and MF folio rows are narrower (typically
+#   ISIN | Scheme Name | Folio No | Units | NAV | Invested | Valuation |
+#   PnL | PnL%
+# ). The invariant in both: the **last two numeric cells** are
+# (price, value) or (NAV, valuation) — same as the legacy `cas_parser.py`
+# CDSL extractors. We exploit that to be robust to Doc AI cell merges.
+
+
+_CDSL_NAME_NOISE = re.compile(
+    r"#?\s*EQUITY\s+SHARES?\s+(?:OF\s+)?R[SE]\.?\s*[\d/\-]+\s*(?:EACH|AFTER|WITH|NEW|SUB|SPLIT|CAPITAL|REDUCTION|HAVING|PREMIUM)?[^\n]*",
+    re.I,
+)
+
+
+def _cdsl_clean_security_name(blob: str) -> str:
+    """Strip CDSL 'EQUITY SHARES OF RS.X EACH' boilerplate; keep first
+    alphabetic line that survives.
+    """
+    if not blob:
+        return ""
+    cleaned = _CDSL_NAME_NOISE.sub(" ", blob)
+    for ln in _split_lines(cleaned):
+        # Drop ISIN-only and pure-numeric lines.
+        if ANY_ISIN_RE.fullmatch(ln):
+            continue
+        if re.fullmatch(r"[\d,.\-+/\s%]+", ln):
+            continue
+        # Drop residual boilerplate fragments.
+        if re.fullmatch(r"(EQUITY|SHARES?|FV|EACH|HAVING|PREMIUM|FORMERLY|PRIVATE)\b.*", ln, re.I):
+            continue
+        return _clean(ln)
+    return ""
+
+
+def _row_numbers(row: List[str]) -> List[float]:
+    """Extract every parseable positive number from a row, in cell order
+    (cells walked left-to-right, multi-line cells walked top-to-bottom).
+    Strips ISIN tokens first — otherwise digit runs inside ISINs (e.g.
+    'INF179K01CR2' → 179, 1, 2) leak in and corrupt positional parses.
+    """
+    out: List[float] = []
+    for cell in row:
+        if not cell:
+            continue
+        scrub = ANY_ISIN_RE.sub(" ", str(cell))
+        for tok in re.findall(r"-?\d[\d,]*\.?\d*", scrub):
+            n = _f(tok)
+            if n > 0:
+                out.append(n)
+    return out
+
+
+def _cdsl_equity_row_to_record(row: List[str]) -> Optional[Dict[str, Any]]:
+    """CDSL equity holdings row.
+
+    Picks the row's ISIN (must be INE…), derives security name from the
+    Security cell after stripping 'EQUITY SHARES OF RS.X EACH' noise, and
+    treats the **last two positive numbers as (price, value)**. Quantity
+    is preferred from the first integer that satisfies qty * price ≈ value
+    (within 5%); falls back to round(value / price).
+    """
+    if not row:
+        return None
+    blob = _row_text(row)
+    # CDSL equity tables occasionally include ETFs (INF ISINs) — accept
+    # both prefixes; the caller routes INF rows into mutual_funds_demat.
+    isin = _has_isin(blob, ISIN_EQUITY_RE) or _has_isin(blob, ISIN_MF_RE)
+    if not isin:
+        return None
+
+    # Name: scan all cells, drop ISIN cell, prefer the longest cleaned line.
+    name = ""
+    for cell in row:
+        cs = str(cell or "")
+        if ANY_ISIN_RE.search(cs) and len(cs.strip()) <= 14:
+            continue
+        cand = _cdsl_clean_security_name(cs)
+        if len(cand) > len(name):
+            name = cand
+
+    nums = _row_numbers(row)
+    if len(nums) < 2:
+        return None
+    value = nums[-1]
+    price = nums[-2]
+    if price <= 0 or value <= 0:
+        return None
+    qty = round(value / price)
+    # Cross-check: if any leading integer (e.g. "Current Qty") matches
+    # value/price, prefer it — protects against Doc AI rounding loss.
+    for n in nums[:-2]:
+        if n == int(n) and 0 < n < 1_000_000 and abs(n * price - value) / value < 0.05:
+            qty = int(n)
+            break
+
+    return {
+        "isin": isin,
+        "stock_symbol": None,
+        "company_name": name,
+        "face_value_inr": 0.0,  # CDSL CAS rarely surfaces face value as a discrete column
+        "num_shares": int(qty),
+        "pledged_shares": 0,
+        "market_price_inr": price,
+        "value_inr": value,
+    }
+
+
+def _cdsl_mf_folio_row_to_record(row: List[str]) -> Optional[Dict[str, Any]]:
+    """CDSL MF folio row.
+
+    Distinct from NSDL folios (which always carry an explicit Avg Cost
+    and 10+ columns). CDSL folios are typically:
+        ISIN | Scheme | Folio | Units | NAV | Invested | Valuation | PnL | PnL%
+    Numeric layout: nums = [units, nav, invested, valuation, pnl, pnl%].
+    We accept (units, nav, invested, valuation) by position with sanity
+    checks; fall back to (nav, valuation) → derive units when only two
+    numbers survive the row.
+    """
+    if not row:
+        return None
+    blob = _row_text(row)
+    isin = _has_isin(blob, ISIN_MF_RE)
+    if not isin:
+        return None
+
+    # Scheme name: first line of any non-ISIN text cell.
+    name = ""
+    for cell in row:
+        cs = str(cell or "")
+        if ANY_ISIN_RE.search(cs) and len(cs.strip()) <= 14:
+            continue
+        for ln in _split_lines(cs):
+            if ANY_ISIN_RE.search(ln):
+                continue
+            if re.fullmatch(r"[\d,.\-+/\s%]+", ln):
+                continue
+            if FOLIO_NUM_RE.fullmatch(ln):
+                continue
+            if len(ln) > len(name):
+                name = _clean(ln)
+        if name:
+            break
+
+    # Folio: first all-digit cell or the digits pulled from a "12345/67" form.
+    folio = ""
+    for cell in row:
+        cs = str(cell or "")
+        for ln in _split_lines(cs):
+            digits = re.sub(r"\D", "", ln)
+            if 6 <= len(digits) <= 15 and not ANY_ISIN_RE.search(ln):
+                folio = digits
+                break
+        if folio:
+            break
+
+    nums = _row_numbers(row)
+    # Filter folio-shaped integers (>10M, no decimal) — they leak in when
+    # the folio cell wasn't isolated.
+    filtered = [n for n in nums if not (n == int(n) and n > 10_000_000)]
+
+    units = nav = invested = value = 0.0
+    if len(filtered) >= 4:
+        units, nav, invested, value = filtered[0], filtered[1], filtered[2], filtered[3]
+        # Doc AI sometimes flips Units ↔ Valuation. Re-order if units * nav
+        # is wildly off but valuation / nav is plausible.
+        if units > 0 and nav > 0 and value > 0:
+            if abs(units * nav - value) / max(value, 1.0) > 0.2:
+                derived = value / nav
+                if derived > 0 and abs(derived - units) / max(units, 1.0) > 0.1:
+                    units = round(derived, 4)
+    elif len(filtered) >= 2:
+        nav = filtered[-2]
+        value = filtered[-1]
+        units = round(value / nav, 4) if nav > 0 else 0.0
+
+    if value <= 0 or not name or len(name) < 3:
+        return None
+
+    avg_cost = round(invested / units, 4) if units > 0 and invested > 0 else nav
+    return {
+        "isin": isin,
+        "fund_name": name,
+        "folio_number": folio or None,
+        "ucc": None,
+        "amc": _amc_from_fund(name),
+        "num_units": units,
+        "total_cost_inr": invested,
+        "avg_cost_per_unit_inr": avg_cost,
+        "current_nav_inr": nav,
+        "current_value_inr": value,
+        "unrealised_pnl_inr": (value - invested) if invested > 0 else 0.0,
+        "annualised_return_pct": 0.0,
+    }
+
+
 def _amc_from_fund(name: str) -> str:
     """Best-effort AMC name extraction (mirrors claude_cas_mapper logic)."""
     if not name:
@@ -707,9 +991,10 @@ def normalize(docai_output: Dict[str, Any]) -> Dict[str, Any]:
     text = docai_output.get("text") or ""
     tables = docai_output.get("tables") or []
 
+    depository = _detect_depository(text)
     out: Dict[str, Any] = {
-        "statement_info": _extract_statement_info(text),
-        "investor_info": _extract_investor_info(text),
+        "statement_info": _extract_statement_info(text, depository=depository),
+        "investor_info": _extract_investor_info(text, depository=depository),
         "portfolio_summary": {"total_value_inr": _extract_total_value(text), "asset_allocation": []},
         "portfolio_value_trend": [],
         "accounts": [],
@@ -767,6 +1052,32 @@ def normalize(docai_output: Dict[str, Any]) -> Dict[str, Any]:
                 rec = _folio_row_to_record(r)
                 if rec:
                     out["holdings"]["mutual_fund_folios"].append(rec)
+        elif kind == "cdsl_equity":
+            for r in table:
+                rec = _cdsl_equity_row_to_record(r)
+                if not rec:
+                    continue
+                # Route ETFs (INF ISIN — happens when a CDSL "Equity" table
+                # accidentally swept in an ETF row) into the demat MF bucket
+                # so downstream classifiers tag them correctly. CDSL ETFs
+                # with INE-like ISINs stay in equities.
+                if rec["isin"].startswith("INF"):
+                    out["holdings"]["mutual_funds_demat"].append(
+                        {
+                            "isin": rec["isin"],
+                            "fund_name": rec.get("company_name") or "",
+                            "num_units": rec.get("num_shares") or 0,
+                            "nav_inr": rec.get("market_price_inr") or 0.0,
+                            "value_inr": rec.get("value_inr") or 0.0,
+                        }
+                    )
+                else:
+                    out["holdings"]["equities"].append(rec)
+        elif kind == "cdsl_mf_folio":
+            for r in table:
+                rec = _cdsl_mf_folio_row_to_record(r)
+                if rec:
+                    out["holdings"]["mutual_fund_folios"].append(rec)
         elif kind == "mf_transactions":
             scheme_ctx = (
                 mf_txn_headers[mf_txn_header_idx]
@@ -805,7 +1116,7 @@ def normalize(docai_output: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"NIVESH normalizer: recovered {len(extras)} MF-demat rows from text")
 
     logger.info(
-        f"NIVESH normalizer: tables={len(tables)} "
+        f"NIVESH normalizer: depository={depository} tables={len(tables)} "
         f"eq={len(out['holdings']['equities'])} "
         f"pref={len(out['holdings']['preference_shares'])} "
         f"sgb={len(out['holdings']['sovereign_gold_bonds'])} "

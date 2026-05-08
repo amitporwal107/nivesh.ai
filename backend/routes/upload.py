@@ -10,6 +10,7 @@ from deps import db, get_current_user
 from helpers.parsing import (
     parse_csv_holdings, parse_excel_holdings, parse_cas_pdf, save_holdings
 )
+from helpers.upload_validation import validate_upload
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -23,6 +24,9 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
     user_id = user["user_id"]
 
     content = file.file.read()
+    # FR-UPLOAD-001/005: enforce size + magic-byte sniff before any parser
+    # touches the bytes. Raises 413/415 directly.
+    validate_upload(content, filename)
 
     if filename.endswith(".pdf"):
         task_id = f"task_{uuid.uuid4().hex[:12]}"
@@ -89,13 +93,25 @@ async def upload_portfolio_raw(request: Request):
     pdf_password = request.headers.get("X-Password", "")
     user_id = user["user_id"]
 
+    # Stream with a hard byte budget so a malicious 10GB body doesn't OOM us.
+    from helpers.upload_validation import MAX_UPLOAD_BYTES
     body_chunks = []
+    total = 0
     async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (>{MAX_UPLOAD_BYTES} bytes).",
+            )
         body_chunks.append(chunk)
     content = b"".join(body_chunks)
 
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    # Magic-byte + extension validation (size already capped above)
+    validate_upload(content, filename)
 
     logger.info(f"Raw upload received: {len(content)} bytes, filename: {filename}")
 
