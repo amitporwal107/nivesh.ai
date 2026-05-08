@@ -279,28 +279,112 @@ async def build(target_date: Optional[date] = None) -> Dict[str, Any]:
         hot_sectors=hot_sectors,
     )
 
+    # ── Live overlay (NSE allIndices) ─────────────────────────────────
+    # Live values supersede the EOD-derived ones for: Nifty close + change,
+    # VIX, A/D ratio, sector heatmap. Breadth (% above 20EMA), 52w highs/
+    # lows, sector "stocks count + leader" stay EOD — those are structural,
+    # not tickable.
+    live_snapshot = None
+    try:
+        from . import nse_live
+        live_snapshot = await nse_live.get_live_snapshot()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("live nse snapshot failed: %s", e)
+
+    nifty_block = {
+        "close":      nifty_close,
+        "change_pct": nifty_change_pct,
+        "trend":      nifty_trend,
+        "source":     "eod_bhavcopy",
+    }
+    vix_block = {**vix, "source": "yfinance"}
+    sector_heatmap_out = heatmap[:14]
+    ad_ratio_live = None
+    is_live = False
+    fetched_at = None
+    nifty_trend_live = nifty_trend
+    hot_sectors_live = hot_sectors
+
+    if live_snapshot:
+        is_live = bool(live_snapshot.get("is_live"))
+        fetched_at = live_snapshot.get("fetched_at")
+        ln = live_snapshot.get("nifty50") or {}
+        if ln.get("close") is not None:
+            change_pct = ln.get("change_pct") or 0.0
+            nifty_trend_live = (
+                "UP" if change_pct > 0.1 else
+                "DOWN" if change_pct < -0.1 else "FLAT"
+            )
+            nifty_block = {
+                "close":      ln["close"],
+                "change_pct": ln.get("change_pct"),
+                "trend":      nifty_trend_live,
+                "source":     "nse_live",
+            }
+        lv = live_snapshot.get("vix") or {}
+        if lv.get("value") is not None:
+            vix_block = {
+                "value":      lv["value"],
+                "change_pct": lv.get("change_pct"),
+                "trend":      lv.get("trend") or "FLAT",
+                "source":     "nse_live",
+            }
+        if live_snapshot.get("advance_decline") is not None:
+            ad_ratio_live = live_snapshot["advance_decline"]
+        # Replace sector heatmap with live sectoral indices when available.
+        # Keep the EOD leader-stock+stocks-count info if we can match by name.
+        eod_meta = {h["sector"]: h for h in heatmap}
+        live_sectors = []
+        for s in (live_snapshot.get("sectors") or [])[:14]:
+            name = s["sector"]
+            meta = None
+            for k in eod_meta:
+                if k.lower() in name.lower() or name.lower() in k.lower():
+                    meta = eod_meta[k]
+                    break
+            live_sectors.append({
+                "sector":     name,
+                "ret_5d_pct": s.get("change_pct"),
+                "rs_5d_pp":   s.get("rs_vs_nifty_pp"),
+                "tone":       s.get("tone"),
+                "stocks":     (meta or {}).get("stocks"),
+                "leader":     (meta or {}).get("leader"),
+                "source":     "nse_live",
+            })
+        if live_sectors:
+            sector_heatmap_out = live_sectors
+            hot_sectors_live = sum(1 for s in live_sectors if s["tone"] == "HOT")
+
+        # Recompute verdict with live data — gives an intraday-tape
+        # verdict during market hours.
+        verdict = _deploy_verdict(
+            macro_risk=macro_risk,
+            breadth_20=pct_above_20,
+            breadth_50=pct_above_50,
+            nifty_trend=nifty_trend_live,
+            hot_sectors=hot_sectors_live,
+        )
+
     return {
         "ok": True,
         "as_of_date": str(target_date),
+        "is_live": is_live,
+        "fetched_at": fetched_at,
         "deploy_verdict": verdict["verdict"],
         "verdict_reason": verdict["reason"],
-        "nifty": {
-            "close":      nifty_close,
-            "change_pct": nifty_change_pct,
-            "trend":      nifty_trend,
-        },
-        "vix": vix,
+        "nifty": nifty_block,
+        "vix": vix_block,
         "breadth": {
             "pct_above_20ema":       pct_above_20,
             "pct_above_50ema":       pct_above_50,
-            "advance_decline_ratio": ad_ratio,
+            "advance_decline_ratio": ad_ratio_live if ad_ratio_live is not None else ad_ratio,
             "advances":              advances,
             "declines":              declines,
             "new_52w_highs":         new_52w_highs,
             "new_52w_lows":          new_52w_lows,
             "universe_size":         n_total,
         },
-        "sector_heatmap": heatmap[:14],
+        "sector_heatmap": sector_heatmap_out,
         "macro": {
             "risk":       macro_risk,
             "multiplier": macro_multiplier,

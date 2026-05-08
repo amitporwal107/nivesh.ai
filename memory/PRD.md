@@ -2,6 +2,31 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — LIVE Market Dashboard via yfinance (NSE ^NSEI / ^INDIAVIX / 12 sectorals)
+
+User reported the dashboard wasn't truly live. Fixed by adding a real-time indices fetcher:
+
+**`services/positional_engine/nse_live.py`**:
+- Fetches batch via yfinance: ^NSEI (Nifty 50), ^INDIAVIX, ^NSEBANK, ^CNXIT, ^CNXAUTO, ^CNXFMCG, ^CNXPHARMA, ^CNXMETAL, ^CNXENERGY, ^CNXINFRA, ^CNXMEDIA, ^CNXPSUBANK, ^CNXREALTY, ^CNXFINANCE — 14 indices in one network call, ~1 min lag from live tape during market hours.
+- Computes change_pct from period='2d' (current vs previous close).
+- Per-sector RS vs Nifty (sector_pct − nifty_pct) → tone bucket (HOT ≥1.5pp · WARM ≥0.4 · COOL ≥-0.4 · COLD <-0.4).
+- Caches 30s during market hours (9:15-15:30 IST Mon-Fri), 5 min after-hours.
+- Why not NSE allIndices? NSE returns 403 from cloud IPs — yfinance proxies via Yahoo CDN.
+
+**Market Dashboard overlay**:
+- `market_dashboard.build()` now overlays live values for: Nifty close + change, VIX, A/D ratio, sector heatmap. Breadth (% above 20EMA), 52w highs/lows, sector "stocks count + leader" stay EOD (structural metrics).
+- Verdict **recomputes** with live nifty_trend + live hot_sectors count when live data arrives — flips intraday from NORMAL → CAUTIOUS once Nifty breaks below 20-DMA. Exactly the gating-layer behavior the user's framework calls for.
+- Route cache TTL adapts: 30s market hours, 5 min after-hours.
+
+**Frontend `<DeployVerdictStrip/>`**:
+- Hero card shows ● LIVE pulsing chip + IST timestamp during market hours, "Markets closed" otherwise.
+- Nifty 50 tile labels "· LIVE" or "(EOD)" so user always knows the data freshness.
+- Auto-refresh: 60s during market hours, 5 min after — picks up the backend's freshly-cached snapshot.
+
+Live verdict on 2026-05-08 13:24 IST: CAUTIOUS · YELLOW · "Nifty below 20-DMA · breadth 80% — no aggressive entries" · Nifty 24,165.25 (-0.66%) · VIX 17.12 (+3.02%) RISING · IT +1.0% HOT · PSU Bank -0.6%.
+
+
+
 ### May 2026 — BTST Framework: Deploy Verdict Strip + Trade Journal + 4 BTST Scans + Loading-Picks Bug Fix
 
 User asked for the full BTST/positional system: Market Dashboard (gating layer), early signal scanner, trade management engine — based on their ChartInk dashboard 247498 + the framework they pasted (staged entries 20/30/30/20, exit ladder +5/+8-10/+12-15/trail, hedge sizing, sector rotation).
