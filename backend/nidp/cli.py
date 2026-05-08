@@ -9,6 +9,9 @@ Usage:
     python -m nidp.cli snapshot build --date YYYY-MM-DD [--force]
     python -m nidp.cli snapshot status [--date YYYY-MM-DD]
     python -m nidp.cli validate <service> [--date YYYY-MM-DD]
+    python -m nidp.cli daas-keygen --owner E --name N --plan free|standard|pro
+    python -m nidp.cli daas-keys list
+    python -m nidp.cli daas-keys revoke --key-id <uuid>
 
 Per-service entrypoint also works directly:
     python -m nidp.services.bulk_deals --date 2026-05-04
@@ -44,6 +47,11 @@ SERVICES: dict[str, str] = {
     "rbi_yields":          "nidp.services.rbi_yields.service",
     "fred_macro":          "nidp.services.fred_macro.service",
     "yfinance_backfill":   "nidp.services.yfinance_backfill.service",
+    "amfi_nav":               "nidp.services.amfi_nav.service",
+    "amfi_nav_history":       "nidp.services.amfi_nav_history.service",
+    "amfi_circulars":         "nidp.services.amfi_circulars.service",
+    "mf_disclosure_snapshot": "nidp.services.mf_disclosure_snapshot.service",
+    "mf_holdings":            "nidp.services.mf_holdings.service",
 }
 
 DATE_REQUIRED: set[str] = {"bhavcopy", "delivery", "index_close", "fii_dii"}
@@ -205,6 +213,66 @@ async def cmd_validate(args: argparse.Namespace) -> int:
     return 0 if not summary.has_block else 1
 
 
+async def cmd_daas_keygen(args: argparse.Namespace) -> int:
+    """Mint a new DaaS API key. The cleartext token is printed once
+    here and never stored — the DB only retains its SHA-256 hash."""
+    from nidp.services.daas_api import keys as daas_keys
+    expires_at = None
+    if args.expires_in_days:
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        expires_at = _dt.now(tz=_tz.utc) + _td(days=args.expires_in_days)
+    try:
+        out = await daas_keys.issue_key(
+            name=args.name,
+            owner_email=args.owner,
+            plan=args.plan,
+            rate_limit_rpm=args.rpm,
+            daily_quota=args.daily_quota,
+            expires_at=expires_at,
+            notes=args.notes,
+        )
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        return 2
+    print("─" * 64)
+    print("  ✅ DaaS API key issued. STORE THIS TOKEN NOW — it will not be shown again.")
+    print("─" * 64)
+    print(f"  token:        {out['token']}")
+    print(f"  key_id:       {out['key_id']}")
+    print(f"  prefix:       {out['key_prefix']}")
+    print(f"  name:         {out['name']}")
+    print(f"  owner:        {out['owner_email']}")
+    print(f"  plan:         {out['plan']}")
+    print(f"  rpm:          {out['rate_limit_rpm']}")
+    print(f"  daily_quota:  {out['daily_quota'] or 'unlimited'}")
+    print(f"  created_at:   {out['created_at']}")
+    print(f"  expires_at:   {out['expires_at'] or 'never'}")
+    print("─" * 64)
+    return 0
+
+
+async def cmd_daas_keys(args: argparse.Namespace) -> int:
+    from nidp.services.daas_api import keys as daas_keys
+    if args.daas_cmd == "list":
+        rows = await daas_keys.list_keys()
+        if not rows:
+            print("(no keys)")
+            return 0
+        for r in rows:
+            mark = " " if r["status"] == "active" else "✗"
+            print(f"  {mark} [{r['plan']:8s}] {r['key_prefix']}…  "
+                  f"{r['name']:25s}  {r['owner_email']:30s}  "
+                  f"rpm={r['rate_limit_rpm']}  quota={r['daily_quota'] or '∞'}  "
+                  f"last_used={r['last_used_at'] or '—'}")
+        return 0
+    if args.daas_cmd == "revoke":
+        ok = await daas_keys.revoke_key(key_id=args.key_id)
+        print(f"  {'✓ revoked' if ok else '— already revoked or not found'}: {args.key_id}")
+        return 0 if ok else 1
+    print(f"unknown daas-keys subcommand: {args.daas_cmd}")
+    return 2
+
+
 # ── Entrypoint ──────────────────────────────────────────────────────
 def main() -> None:
     setup_logging(service="nidp-cli")
@@ -238,18 +306,40 @@ def main() -> None:
     p_val.add_argument("service")
     p_val.add_argument("--date", type=_parse_date, default=None)
 
+    p_kg = sub.add_parser("daas-keygen", help="Issue a new DaaS API key.")
+    p_kg.add_argument("--name", required=True, help="Human label, e.g. 'AcmeCorp prod'.")
+    p_kg.add_argument("--owner", required=True, help="Owner email (for revocation contact).")
+    p_kg.add_argument("--plan", default="free",
+                      choices=["free", "standard", "pro", "internal"],
+                      help="Tier — controls default rpm + daily quota.")
+    p_kg.add_argument("--rpm", type=int, default=None,
+                      help="Override rpm cap (defaults to plan).")
+    p_kg.add_argument("--daily-quota", type=int, default=None,
+                      help="Override daily quota (defaults to plan; 0 = unlimited).")
+    p_kg.add_argument("--expires-in-days", type=int, default=None,
+                      help="Auto-expire after N days; default = never.")
+    p_kg.add_argument("--notes", default=None)
+
+    p_dk = sub.add_parser("daas-keys", help="List or revoke DaaS API keys.")
+    p_dk_sub = p_dk.add_subparsers(dest="daas_cmd", required=True)
+    p_dk_sub.add_parser("list", help="List all keys with status + last-used.")
+    p_dk_rev = p_dk_sub.add_parser("revoke", help="Revoke by key_id.")
+    p_dk_rev.add_argument("--key-id", required=True)
+
     args = p.parse_args()
 
     if args.cmd == "list-services":
         sys.exit(cmd_list_services(args))
 
     handler = {
-        "migrate":  cmd_migrate,
-        "ingest":   cmd_ingest,
-        "health":   cmd_health,
-        "backfill": cmd_backfill,
-        "snapshot": cmd_snapshot,
-        "validate": cmd_validate,
+        "migrate":     cmd_migrate,
+        "ingest":      cmd_ingest,
+        "health":      cmd_health,
+        "backfill":    cmd_backfill,
+        "snapshot":    cmd_snapshot,
+        "validate":    cmd_validate,
+        "daas-keygen": cmd_daas_keygen,
+        "daas-keys":   cmd_daas_keys,
     }[args.cmd]
 
     try:
