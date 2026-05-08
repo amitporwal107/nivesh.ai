@@ -11,6 +11,7 @@ This directory contains:
 | `deploy_daas.sh`       | **DaaS** build + push + create/update Cloud Run **Service** (`nidp-daas-api`). |
 | `cloudbuild-daas.yaml` | **DaaS** Cloud Build CI/CD pipeline (build → migrate → deploy → smoke-test). |
 | `setup_github_trigger_daas.sh` | **DaaS** create Cloud Build GitHub trigger. |
+| `deploy_mf_feeds.sh`   | **MF feeds** one-shot deploy: IAP grants → migrations → build 5 images → create Cloud Run Jobs → schedules → GitHub triggers → smoke-test. |
 | `rotate_credentials.sh`| Mint a new SA key, push to Secret Manager + Cloud Run env, smoke-test, delete the old key. Run at end of dev. |
 | `teardown.sh`          | Destroy every resource recorded in `gcp_resources.jsonl`. `--dry-run` is default; `--confirm` actually deletes. |
 | `gcp_resources.jsonl`  | Append-only log of every GCP resource created. Source of truth for rotate/teardown. |
@@ -95,6 +96,87 @@ When dev/test is done:
   if Cloud SQL is added later.
 - **Never paste the JSON into chat.** `bootstrap.sh` reads from
   `$GOOGLE_APPLICATION_CREDENTIALS`.
+
+---
+
+## Mutual Fund data feeds (MF phase)
+
+Five Cloud Run Jobs ingest AMFI and per-AMC mutual fund data:
+
+| Service | Source | Schedule (IST) | Notes |
+|---|---|---|---|
+| `amfi_nav` | AMFI NAVAll.txt (all ~10k schemes) | Mon–Fri 20:00 | Published ~18:30; 90-min buffer |
+| `amfi_nav_history` | AMFI historical NAV archive | **manual only** | One-time backfill; run after first deploy |
+| `amfi_circulars` | AMFI scheme-lifecycle notices | Daily 09:00 | Mergers, renames, new scheme filings |
+| `mf_disclosure_snapshot` | AMFI central TER + risk-o-meter Excels | 12th of month 10:00 | SEBI mandates publication by the 10th |
+| `mf_holdings` | Per-AMC monthly portfolio Excels (10 AMCs) | 12th of month 11:00 | SEBI XBRL-format disclosure; 1h after snapshot |
+
+AMCs covered by `mf_holdings`: SBI, ICICI Pru, HDFC, Nippon, Kotak, ABSL, UTI, Axis, Tata, Mirae Asset.
+
+### First-time deploy
+
+```bash
+# Dry-run first — shows every command, touches nothing
+cd backend/nidp/deploy/gcp
+./deploy_mf_feeds.sh --project=niveshdataintelligence
+
+# Deploy for real
+./deploy_mf_feeds.sh --project=niveshdataintelligence --confirm
+```
+
+The script runs 7 steps in order:
+
+| Step | Action |
+|---|---|
+| 0 | Grant Cloud Build SA the 3 IAP roles needed for SSH migrations (idempotent) |
+| 1 | Apply DB migrations via Cloud Build + IAP tunnel to the GCE VM |
+| 2 | Build + push 5 service images via `cloudbuild-service.yaml` |
+| 3 | `gcloud run jobs create` for each service (skips if already exists) |
+| 4 | Create 4 Cloud Scheduler triggers (skips if already exists) |
+| 5 | Create 5 GitHub push triggers via `setup_github_triggers.sh` |
+| 6 | Smoke-test `nidp-amfi-nav` with `--wait` and tail logs |
+
+### One-time NAV history backfill
+
+Run **once** after the first deploy to seed historical NAV data:
+
+```bash
+gcloud run jobs execute nidp-amfi-nav-history \
+    --region=asia-south1 --project=niveshdataintelligence --wait
+```
+
+### Re-deploying after a code change
+
+Pushing to the `nidp` branch auto-triggers rebuild via Cloud Build for
+whichever service's files changed. To force a manual redeploy of all 5:
+
+```bash
+./deploy_mf_feeds.sh --project=niveshdataintelligence --confirm
+```
+
+### Tail logs
+
+```bash
+# Replace <job> with e.g. nidp-amfi-nav, nidp-mf-holdings, etc.
+gcloud logging read \
+    'resource.type=cloud_run_job AND resource.labels.job_name=<job>' \
+    --limit=50 --format='value(textPayload)' \
+    --project=niveshdataintelligence
+```
+
+### Secret Manager secrets used by MF feeds
+
+All 5 services use the same common secrets as the Phase 1A/1B ingesters:
+
+| Secret | Purpose |
+|---|---|
+| `NIDP_POSTGRES_URL` | TimescaleDB connection |
+| `NIDP_KAFKA_BROKERS` | Redpanda event bus |
+| `NIDP_SCHEMA_REGISTRY_URL` | Avro schema registry |
+| `NIDP_REDIS_URL` | Dedup / state cache |
+
+No additional secrets needed — TER, risk-o-meter, NAV, and circular data
+are all fetched from public AMFI/SEBI URLs without authentication.
 
 ---
 
