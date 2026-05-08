@@ -176,7 +176,35 @@ _ENV_VARS="$_ENV_VARS,NIDP_DAAS_LOG_REQUESTS=1"
 _ENV_VARS="$_ENV_VARS,NIDP_DAAS_CORS_ORIGINS=$CORS_ORIGINS"
 _ENV_VARS="$_ENV_VARS,LOG_LEVEL=info"
 
-# ── 9. Deploy Cloud Run Service ──────────────────────────────────────
+# ── 9. Run DB migrations via a one-off Cloud Run Job ────────────────
+# Runs `python -m nidp.cli migrate` inside the just-pushed image.
+# The job uses the same VPC connector + secrets as the Service so it
+# can reach the private GCE VM's Postgres without any SSH/IAP setup.
+# Idempotent — safe to re-run on every deploy.
+MIGRATE_JOB="nidp-daas-migrate"
+_MIGRATE_FLAGS="
+    --image='$IMG'
+    --region='$REGION' --project='$PROJECT'
+    --service-account='$SA_EMAIL'
+    --set-secrets='$_SECRETS'
+    --set-env-vars='$_ENV_VARS'
+    $VPC_FLAGS
+    --args='python,-m,nidp.cli,migrate'
+    --max-retries=1
+    --quiet"
+
+log "──── applying DB migrations ────"
+if gcloud run jobs describe "$MIGRATE_JOB" \
+        --region="$REGION" --project="$PROJECT" &>/dev/null; then
+    maybe "gcloud run jobs update '$MIGRATE_JOB' $_MIGRATE_FLAGS"
+else
+    maybe "gcloud run jobs create '$MIGRATE_JOB' $_MIGRATE_FLAGS"
+fi
+maybe "gcloud run jobs execute '$MIGRATE_JOB' \
+    --region='$REGION' --project='$PROJECT' --wait"
+log "  ✓ migrations applied"
+
+# ── 10. Deploy Cloud Run Service ──────────────────────────────────────
 _COMMON_FLAGS="
     --image='$IMG'
     --region='$REGION' --project='$PROJECT'
@@ -206,7 +234,7 @@ else
     log "  ✓ created"
 fi
 
-# ── 10. Print service URL ────────────────────────────────────────────
+# ── 11. Print service URL ────────────────────────────────────────────
 if ! $DRY; then
     SVC_URL=$(gcloud run services describe "$SVC_NAME" \
         --region="$REGION" --project="$PROJECT" \
