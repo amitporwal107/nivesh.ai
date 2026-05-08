@@ -88,7 +88,8 @@ gcloud artifacts repositories describe nidp \
 EXTRA_APIS=(
     vpcaccess.googleapis.com       # Serverless VPC Access connector
     cloudbuild.googleapis.com      # Cloud Build CI/CD
-    cloudarmor.googleapis.com      # Cloud Armor WAF (only if --armor)
+    # Note: Cloud Armor is part of compute.googleapis.com (enabled by bootstrap.sh)
+    # There is no separate cloudarmor.googleapis.com API to enable.
 )
 for api in "${EXTRA_APIS[@]}"; do
     maybe "gcloud services enable $api --project=$PROJECT"
