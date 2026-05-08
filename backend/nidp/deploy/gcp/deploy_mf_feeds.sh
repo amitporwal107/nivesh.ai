@@ -94,37 +94,6 @@ cat <<EOF
 [mf-deploy] ─────────────────────────────────────────────────────
 EOF
 
-# ── 0. Grant Cloud Build SA the IAP roles it needs for migrations ─────────────
-# The migration build SSH-tunnels through IAP to the GCP VM.  The Cloud Build
-# SA must hold these 3 roles or every migration build exits with status 255.
-# This block is idempotent — re-running is always safe.
-echo
-log "Step 0/6 — ensure Cloud Build SA has IAP + osAdminLogin roles"
-
-PROJECT_NUMBER=$(gcloud projects describe "${PROJECT}" --format='value(projectNumber)' 2>/dev/null)
-if [[ -z "$PROJECT_NUMBER" ]]; then
-    err "Could not resolve project number for ${PROJECT}. Check --project / gcloud auth."
-    exit 1
-fi
-CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
-log "  Cloud Build SA: ${CB_SA}"
-
-for role in roles/iap.tunnelResourceAccessor roles/compute.osAdminLogin roles/compute.viewer; do
-    run "gcloud projects add-iam-policy-binding '${PROJECT}' \
-        --member='serviceAccount:${CB_SA}' \
-        --role='${role}' \
-        --condition=None \
-        --quiet"
-done
-ok "IAP roles ensured for Cloud Build SA"
-
-# IAM bindings propagate within ~30 s; sleep briefly on first real run so
-# the migration SSH step doesn't race against the policy taking effect.
-if ! $DRY; then
-    log "  Waiting 30s for IAM propagation…"
-    sleep 30
-fi
-
 # ── 1. Migrations ─────────────────────────────────────────────────────────────
 echo
 log "Step 1/6 — apply DB migrations via Cloud Build"

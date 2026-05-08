@@ -1,39 +1,40 @@
 # Cloud Build pipeline for NIDP DB migrations.
-# Triggered when files under backend/nidp/migrations/** change on
-# the nidp branch. Applies all .sql files (idempotent — each
-# migration uses CREATE TABLE IF NOT EXISTS / ON CONFLICT etc.) by
-# SSHing through IAP to the GCP VM and shelling docker exec psql.
 #
-# Cloud Build SA must have:
-#   roles/iap.tunnelResourceAccessor
-#   roles/compute.osAdminLogin             (on the VM)
-#   roles/compute.viewer                   (project-wide)
-# These are granted by setup_github_triggers.sh.
+# Builds a minimal migration-runner image, pushes it, then executes
+# `python -m nidp.cli migrate` via a Cloud Run Job + VPC connector.
+# Postgres is on the GCE VM (private IP); the VPC connector routes
+# traffic there without SSH, IAP, or OS Login.
+#
+# Idempotent: the nidp-migrations Cloud Run Job is created on first run
+# and updated on subsequent runs. All SQL uses IF NOT EXISTS / ON CONFLICT.
+#
+# Usage:
+#   gcloud builds submit . \
+#     --config=backend/nidp/deploy/gcp/cloudbuild-migrations.yaml \
+#     --project=<PROJECT> --region=asia-south1
 
 steps:
-  # Step 0: ensure the Cloud Build SA itself has the IAP roles it needs to
-  # SSH through IAP in the next step.  This is idempotent; re-running is safe.
-  # Without this, the first manual `gcloud builds submit` always exits 255.
-  - id: grant-iap-roles
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: bash
+  # 1. Build the migration runner image
+  - id: build
+    name: gcr.io/cloud-builders/docker
     args:
-      - -c
-      - |
-        set -euo pipefail
-        PROJECT_NUMBER=$$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-        CB_SA="$${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
-        echo "Ensuring IAP roles for Cloud Build SA: $$CB_SA"
-        for role in roles/iap.tunnelResourceAccessor roles/compute.osAdminLogin roles/compute.viewer; do
-            gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-                --member="serviceAccount:$$CB_SA" \
-                --role="$$role" \
-                --condition=None \
-                --quiet >/dev/null 2>&1 || true
-        done
-        echo "IAP roles OK — sleeping 20s for IAM propagation"
-        sleep 20
+      - build
+      - -f
+      - backend/nidp/deploy/gcp/Dockerfile.migrate
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
+      - .
 
+  # 2. Push the SHA tag (latest is pushed via the images: directive below)
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
+
+  # 3. Create/update the nidp-migrations Cloud Run Job, then execute it
   - id: migrate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
@@ -41,48 +42,45 @@ steps:
       - -c
       - |
         set -euo pipefail
-        # Cloud Build resolves these at submit time from the
-        # substitutions: block below (or --substitutions flag).
-        VM_NAME="${_VM_NAME}"
-        ZONE="${_ZONE}"
+        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA"
+        SA="nidp-sa@$PROJECT_ID.iam.gserviceaccount.com"
+        VPC="projects/$PROJECT_ID/locations/${_REGION}/connectors/nidp-vpc"
 
-        # Push migrations to the VM (IAP tunnel — no public IP needed)
-        # Note: $$VAR escapes Cloud Build's substitution engine so that
-        # the shell-local variables VM_NAME and ZONE (assigned above) are
-        # expanded by bash at runtime, not by Cloud Build at submit time.
-        gcloud compute ssh "$$VM_NAME" --tunnel-through-iap \
-            --zone=$$ZONE --project=$PROJECT_ID --quiet \
-            --command='sudo mkdir -p /tmp/nidp_migrations && sudo chmod 777 /tmp/nidp_migrations'
+        if gcloud run jobs describe nidp-migrations \
+                --region=${_REGION} --project=$PROJECT_ID &>/dev/null; then
+          gcloud run jobs update nidp-migrations \
+              --image="$$IMG" \
+              --region=${_REGION} --project=$PROJECT_ID --quiet
+          echo "updated nidp-migrations"
+        else
+          gcloud run jobs create nidp-migrations \
+              --image="$$IMG" \
+              --command=python --args="-m,nidp.cli,migrate" \
+              --region=${_REGION} --project=$PROJECT_ID \
+              --service-account="$$SA" \
+              --vpc-connector="$$VPC" \
+              --vpc-egress=private-ranges-only \
+              --set-secrets="NIDP_POSTGRES_URL=NIDP_POSTGRES_URL:latest" \
+              --task-timeout=300s --max-retries=0 \
+              --memory=512Mi --cpu=1 \
+              --quiet
+          echo "created nidp-migrations"
+        fi
 
-        gcloud compute scp --recurse --tunnel-through-iap \
-            backend/nidp/migrations/. \
-            "$$VM_NAME":/tmp/nidp_migrations/ \
-            --zone=$$ZONE --project=$PROJECT_ID --quiet
+        echo "executing nidp-migrations..."
+        gcloud run jobs execute nidp-migrations \
+            --region=${_REGION} --project=$PROJECT_ID --wait
+        echo "migrations complete"
 
-        # Apply each .sql in name order
-        gcloud compute ssh "$$VM_NAME" --tunnel-through-iap \
-            --zone=$$ZONE --project=$PROJECT_ID --quiet --command='
-              set -e
-              sudo docker exec nidp-postgres rm -rf /tmp/migrations
-              sudo docker exec nidp-postgres mkdir -p /tmp/migrations
-              sudo docker cp /tmp/nidp_migrations/. nidp-postgres:/tmp/migrations/
-              for f in $(ls /tmp/nidp_migrations/*.sql 2>/dev/null | sort); do
-                  name=$(basename "$f")
-                  echo "  applying $name..."
-                  sudo docker exec nidp-postgres psql -U postgres -d nidp \
-                      -v ON_ERROR_STOP=1 -f /tmp/migrations/"$name" >/dev/null
-                  echo "    ok"
-              done
-              echo "─── all migrations applied ───"
-              sudo docker exec nidp-postgres psql -U postgres -d nidp -c \
-                  "SELECT count(*) AS nidp_tables FROM information_schema.tables WHERE table_schema = '"'"'nidp'"'"';"
-            '
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/migrations:latest
 
 substitutions:
-  _VM_NAME: 'nidp-stack-vm'
-  _ZONE:    'asia-south1-a'
+  _REGION: 'asia-south1'
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
 
 timeout: 600s
