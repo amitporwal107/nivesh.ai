@@ -24,18 +24,21 @@ steps:
         ZONE="${_ZONE}"
 
         # Push migrations to the VM (IAP tunnel — no public IP needed)
-        gcloud compute ssh "$VM_NAME" --tunnel-through-iap \
-            --zone=$ZONE --project=$PROJECT_ID --quiet \
+        # Note: $$VAR escapes Cloud Build's substitution engine so that
+        # the shell-local variables VM_NAME and ZONE (assigned above) are
+        # expanded by bash at runtime, not by Cloud Build at submit time.
+        gcloud compute ssh "$$VM_NAME" --tunnel-through-iap \
+            --zone=$$ZONE --project=$PROJECT_ID --quiet \
             --command='sudo mkdir -p /tmp/nidp_migrations && sudo chmod 777 /tmp/nidp_migrations'
 
         gcloud compute scp --recurse --tunnel-through-iap \
             backend/nidp/migrations/. \
-            "$VM_NAME":/tmp/nidp_migrations/ \
-            --zone=$ZONE --project=$PROJECT_ID --quiet
+            "$$VM_NAME":/tmp/nidp_migrations/ \
+            --zone=$$ZONE --project=$PROJECT_ID --quiet
 
         # Apply each .sql in name order
-        gcloud compute ssh "$VM_NAME" --tunnel-through-iap \
-            --zone=$ZONE --project=$PROJECT_ID --quiet --command='
+        gcloud compute ssh "$$VM_NAME" --tunnel-through-iap \
+            --zone=$$ZONE --project=$PROJECT_ID --quiet --command='
               set -e
               sudo docker exec nidp-postgres rm -rf /tmp/migrations
               sudo docker exec nidp-postgres mkdir -p /tmp/migrations
