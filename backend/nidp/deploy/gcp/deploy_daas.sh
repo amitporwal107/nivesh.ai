@@ -69,7 +69,7 @@ done
 
 # ── Helpers ──────────────────────────────────────────────────────────
 log()     { echo "[deploy-daas] $*"; }
-maybe()   { if $DRY; then log "DRY-RUN  $*"; else log "RUN      $*"; eval "$@"; fi; }
+maybe()   { if $DRY; then log "DRY-RUN  $*"; else log "RUN      $*"; "$@"; fi; }
 die()     { echo "ERROR: $*" >&2; exit 1; }
 manifest() {
     local row="{\"ts\":\"$(date -u +%FT%TZ)\",\"type\":\"$1\",\"name\":\"$2\",\"region\":\"$3\""
@@ -121,20 +121,20 @@ gcloud artifacts repositories describe nidp \
 log "  ✓ Artifact Registry exists"
 
 # ── 2. Authenticate Docker → AR ─────────────────────────────────────
-maybe "gcloud auth configure-docker $AR_HOST --quiet"
+maybe gcloud auth configure-docker "$AR_HOST" --quiet
 
 # ── 3. Build image ──────────────────────────────────────────────────
 log "──── building daas_api ────"
 # Build context is REPO_ROOT — Dockerfile does:  COPY backend/nidp /app/nidp
-maybe "docker build \
-    -f '$DOCKERFILE' \
-    -t '$IMG' \
-    -t '$IMG_LATEST' \
-    '$REPO_ROOT'"
+maybe docker build \
+    -f "$DOCKERFILE" \
+    -t "$IMG" \
+    -t "$IMG_LATEST" \
+    "$REPO_ROOT"
 
 # ── 4. Push ─────────────────────────────────────────────────────────
-maybe "docker push '$IMG'"
-maybe "docker push '$IMG_LATEST'"
+maybe docker push "$IMG"
+maybe docker push "$IMG_LATEST"
 $DRY || manifest "container_image" "$IMG" "$REGION"
 
 # ── 5. Secret must exist before deployment ──────────────────────────
@@ -178,61 +178,58 @@ _ENV_VARS="$_ENV_VARS,LOG_LEVEL=info"
 
 # ── 9. Run DB migrations via a one-off Cloud Run Job ────────────────
 # Runs `python -m nidp.cli migrate` inside the just-pushed image.
-# The job uses the same VPC connector + secrets as the Service so it
-# can reach the private GCE VM's Postgres without any SSH/IAP setup.
+# Uses the same VPC connector + secrets as the Service so it can reach
+# the private GCE VM's Postgres without any SSH/IAP setup.
 # Idempotent — safe to re-run on every deploy.
 MIGRATE_JOB="nidp-daas-migrate"
-_MIGRATE_FLAGS="
-    --image='$IMG'
-    --region='$REGION' --project='$PROJECT'
-    --service-account='$SA_EMAIL'
-    --set-secrets='$_SECRETS'
-    --set-env-vars='$_ENV_VARS'
-    $VPC_FLAGS
-    --args='python,-m,nidp.cli,migrate'
-    --max-retries=1
-    --quiet"
-
 log "──── applying DB migrations ────"
 if gcloud run jobs describe "$MIGRATE_JOB" \
         --region="$REGION" --project="$PROJECT" &>/dev/null; then
-    maybe "gcloud run jobs update '$MIGRATE_JOB' $_MIGRATE_FLAGS"
+    maybe gcloud run jobs update "$MIGRATE_JOB" \
+        --image="$IMG" \
+        --region="$REGION" --project="$PROJECT" \
+        --service-account="$SA_EMAIL" \
+        --set-secrets="$_SECRETS" \
+        --set-env-vars="$_ENV_VARS" \
+        $VPC_FLAGS \
+        --args="python,-m,nidp.cli,migrate" \
+        --max-retries=1 --quiet
 else
-    maybe "gcloud run jobs create '$MIGRATE_JOB' $_MIGRATE_FLAGS"
+    maybe gcloud run jobs create "$MIGRATE_JOB" \
+        --image="$IMG" \
+        --region="$REGION" --project="$PROJECT" \
+        --service-account="$SA_EMAIL" \
+        --set-secrets="$_SECRETS" \
+        --set-env-vars="$_ENV_VARS" \
+        $VPC_FLAGS \
+        --args="python,-m,nidp.cli,migrate" \
+        --max-retries=1 --quiet
 fi
-maybe "gcloud run jobs execute '$MIGRATE_JOB' \
-    --region='$REGION' --project='$PROJECT' --wait"
+maybe gcloud run jobs execute "$MIGRATE_JOB" \
+    --region="$REGION" --project="$PROJECT" --wait
 log "  ✓ migrations applied"
 
-# ── 10. Deploy Cloud Run Service ──────────────────────────────────────
-_COMMON_FLAGS="
-    --image='$IMG'
-    --region='$REGION' --project='$PROJECT'
-    --service-account='$SA_EMAIL'
-    --port=8081
-    --cpu=$CPU --memory=$MEMORY
-    --min-instances=$MIN_INSTANCES
-    --max-instances=$MAX_INSTANCES
-    --concurrency=80
-    --timeout=30s
-    --set-env-vars='$_ENV_VARS'
-    --set-secrets='$_SECRETS'
-    $VPC_FLAGS
-    --allow-unauthenticated
-    --quiet"
-
-if gcloud run services describe "$SVC_NAME" \
-        --region="$REGION" --project="$PROJECT" &>/dev/null; then
-    log "──── updating existing Cloud Run Service: $SVC_NAME ────"
-    maybe "gcloud run services update '$SVC_NAME' $_COMMON_FLAGS"
-    log "  ✓ updated"
-else
-    log "──── creating new Cloud Run Service: $SVC_NAME ────"
-    maybe "gcloud run services create '$SVC_NAME' $_COMMON_FLAGS"
-    $DRY || manifest "cloud_run_service" "$SVC_NAME" "$REGION" \
-        "{\"image\":\"$IMG\",\"public\":true}"
-    log "  ✓ created"
-fi
+# ── 10. Deploy Cloud Run Service ─────────────────────────────────────
+# gcloud run deploy handles both create and update idempotently.
+log "──── deploying Cloud Run Service: $SVC_NAME ────"
+maybe gcloud run deploy "$SVC_NAME" \
+    --image="$IMG" \
+    --region="$REGION" --project="$PROJECT" \
+    --service-account="$SA_EMAIL" \
+    --port=8081 \
+    --cpu="$CPU" --memory="$MEMORY" \
+    --min-instances="$MIN_INSTANCES" \
+    --max-instances="$MAX_INSTANCES" \
+    --concurrency=80 \
+    --timeout=30s \
+    --set-env-vars="$_ENV_VARS" \
+    --set-secrets="$_SECRETS" \
+    $VPC_FLAGS \
+    --allow-unauthenticated \
+    --quiet
+$DRY || manifest "cloud_run_service" "$SVC_NAME" "$REGION" \
+    "{\"image\":\"$IMG\",\"public\":true}"
+log "  ✓ deployed"
 
 # ── 11. Print service URL ────────────────────────────────────────────
 if ! $DRY; then
