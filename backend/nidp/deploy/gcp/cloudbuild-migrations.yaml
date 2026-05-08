@@ -21,13 +21,13 @@ steps:
       - -c
       - |
         set -euo pipefail
-        PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
-        CB_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
-        echo "Ensuring IAP roles for Cloud Build SA: $CB_SA"
+        PROJECT_NUMBER=$$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+        CB_SA="$${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+        echo "Ensuring IAP roles for Cloud Build SA: $$CB_SA"
         for role in roles/iap.tunnelResourceAccessor roles/compute.osAdminLogin roles/compute.viewer; do
             gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-                --member="serviceAccount:$CB_SA" \
-                --role="$role" \
+                --member="serviceAccount:$$CB_SA" \
+                --role="$$role" \
                 --condition=None \
                 --quiet >/dev/null 2>&1 || true
         done
