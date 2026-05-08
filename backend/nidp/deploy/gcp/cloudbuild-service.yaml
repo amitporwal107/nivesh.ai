@@ -1,7 +1,7 @@
 # Cloud Build pipeline for one NIDP service.
 # Parameterised — the GitHub trigger sets _SERVICE (e.g. "bhavcopy")
 # and _SERVICE_DASHED (e.g. "bhavcopy" or "nse-calendar"). The build
-# produces an image tagged with $SHORT_SHA and :latest, then bumps
+# produces an image tagged with $BUILD_ID and :latest, then bumps
 # the matching Cloud Run job to the new tag.
 #
 # Triggers using this config are created by setup_github_triggers.sh.
@@ -15,7 +15,7 @@ steps:
       - -f
       - backend/nidp/services/${_SERVICE}/Dockerfile
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
       - .
@@ -30,7 +30,7 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
   - id: push-latest
     name: gcr.io/cloud-builders/docker
     args:
@@ -49,15 +49,15 @@ steps:
         if gcloud run jobs describe nidp-${_SERVICE_DASHED} \
               --region=${_REGION} --project=$PROJECT_ID &>/dev/null; then
           gcloud run jobs update nidp-${_SERVICE_DASHED} \
-              --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA \
+              --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID \
               --region=${_REGION} --project=$PROJECT_ID --quiet
-          echo "✅ updated nidp-${_SERVICE_DASHED} to $SHORT_SHA"
+          echo "✅ updated nidp-${_SERVICE_DASHED} to $BUILD_ID"
         else
           echo "⚠ nidp-${_SERVICE_DASHED} doesn't exist yet — image pushed; run deploy.sh to create the job"
         fi
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
 
 substitutions:
