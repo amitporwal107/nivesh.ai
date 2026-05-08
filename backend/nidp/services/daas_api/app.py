@@ -3,6 +3,7 @@
 Layout:
 
     /health                       (no auth)
+    /admin/keys                   — key lifecycle (NIDP_DAAS_INTERNAL_TOKEN)
     /v1/me                        — identity + rate-limit state
     /v1/me/usage                  — daily request counters
     /v1/catalog                   — datasets + coverage
@@ -37,6 +38,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from nidp.shared.storage.pg import close_pool, get_pool
 from nidp.services.daas_api.middleware import RequestContextMiddleware
 from nidp.services.daas_api.routers import (
+    admin,
     announcements,
     catalog,
     corporate_actions,
@@ -179,6 +181,9 @@ async def _validation_handler(request: Request, exc: RequestValidationError):
 # ── Routes ──────────────────────────────────────────────────────────
 # Public, no auth
 app.include_router(health.router)
+
+# Admin — internal token only (key lifecycle management)
+app.include_router(admin.router)
 
 
 @app.get("/", include_in_schema=False)
