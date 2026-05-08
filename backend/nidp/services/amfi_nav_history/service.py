@@ -47,13 +47,13 @@ SERVICE_NAME = "amfi_nav_history"
 DEFAULT_CONCURRENCY = 8
 
 
-def _parse_mfapi_date(s: str) -> Optional[str]:
+def _parse_mfapi_date(s: str):
     s = (s or "").strip()
     if not s:
         return None
     for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d-%b-%Y"):
         try:
-            return datetime.strptime(s, fmt).date().isoformat()
+            return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
     return None
@@ -145,9 +145,9 @@ async def run(
                             nav = float(nav_str)
                         except (TypeError, ValueError):
                             continue
-                        if from_date and nav_date < from_date.isoformat():
+                        if from_date and nav_date < from_date:
                             continue
-                        if to_date and nav_date > to_date.isoformat():
+                        if to_date and nav_date > to_date:
                             continue
                         rows.append({
                             "scheme_code": code,

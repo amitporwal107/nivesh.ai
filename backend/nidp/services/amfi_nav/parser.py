@@ -41,13 +41,13 @@ _RE_TYPE_HEADER = re.compile(
 )
 
 
-def _to_iso_date(s: str) -> Optional[str]:
+def _to_iso_date(s: str):
     s = (s or "").strip()
     if not s:
         return None
     for fmt in ("%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d", "%d/%m/%Y"):
         try:
-            return datetime.strptime(s, fmt).date().isoformat()
+            return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
     return None
