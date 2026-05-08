@@ -2,6 +2,47 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — BTST Framework: Deploy Verdict Strip + Trade Journal + 4 BTST Scans + Loading-Picks Bug Fix
+
+User asked for the full BTST/positional system: Market Dashboard (gating layer), early signal scanner, trade management engine — based on their ChartInk dashboard 247498 + the framework they pasted (staged entries 20/30/30/20, exit ladder +5/+8-10/+12-15/trail, hedge sizing, sector rotation).
+
+**Loading-picks bug fixed (P0)**:
+- `_batch_fetch_prices` was uncached — every page load fired 2 parallel `yf.download()` batches × 30s+. UI sat on "Loading picks…".
+- Fix: 90s per-symbol in-memory cache + 8s `asyncio.wait_for` timeout in `_enrich_with_live`. Cold call **35s → 1.0s**, warm cache **0.27s**, 12/12 picks render with live LTP.
+
+**Deploy Verdict Strip** (`/api/positional/market-dashboard`):
+- New endpoint + service `services/positional_engine/market_dashboard.py` aggregating Nifty (BeES proxy), breadth (% above 20EMA / 50EMA, advance/decline ratio, 52w highs/lows), sector heatmap (mean 5d return per sector, RS vs Nifty, hot/warm/cool/cold tone, leader stock), VIX (yfinance ^INDIAVIX), macro passthrough.
+- Single 4-bucket verdict: AGGRESSIVE / NORMAL / CAUTIOUS / DEFENSIVE — gating layer answers "is today a green-light day?" Macro risk HIGH→DEFENSIVE; Nifty downtrend→CAUTIOUS; breadth ≥65% + ≥2 hot sectors→AGGRESSIVE; else NORMAL/CAUTIOUS by breadth tier.
+- 60s cache on the route. Live response on aporwal107: NORMAL · NEUTRAL · breadth 80% · 296/7 new highs/lows · A/D 2.32 · sectors {Automobile +3.8% (HOT), Cement +2.9%, Finance +2.4%, IT-Software -2.8%, FMCG -1.1%}.
+- Frontend: `<DeployVerdictStrip/>` mounted at top of §1 The Market in MarketDashboard.jsx — gradient hero card + 5 number tiles + sector dot strip.
+
+**4 BTST ChartInk scan formulas seeded as defaults**:
+- `btst.early_accumulation` — close > SMA(50) > SMA(200) + 15d range ≤ 8% + vol ≤ SMA20 + RSI 50-65 (volume contraction + range compression)
+- `btst.breakout_confirmation` — close > 20d high(1) + vol ≥ 1.5× SMA20 + close > SMA50
+- `btst.sector_leaders_rs` — close > SMA50 + 1mo ret > 5% + 3mo ret > 10% + vol > SMA20 (relative strength)
+- `btst.exit_warning_distribution` — close < SMA20 + vol ≥ 1.5× SMA20 + 5d max-high − close ≥ 5% (distribution / breakdown)
+- `POST /api/positional/scans/seed-defaults?overwrite=false` — admin seeds these into existing scan_config (preserves user-added scans). User configures the per-scan ChartInk webhook URL once on chartink.com → real-time alerts flow into `chartink_scan_hits`.
+
+**Trade Journal** (`/api/positional/journal/*` — 7 endpoints):
+- New `routes/positional_journal.py` + Mongo `trade_journal` collection.
+- CRUD: `POST /journal` (open trade with capital_alloc/SL/target/plan_source), `GET /journal?status=&live=` (list with live LTP overlay), `GET /journal/{id}?live=` (full detail incl. stage_plan + exit_ladder), `POST /journal/{id}/fill` (log staged entry/exit), `POST /journal/{id}/close` (CLOSED|STOPPED), `DELETE /journal/{id}`.
+- Per the user's framework:
+  • **Staged entry plan** (PILOT 20% / CONFIRM 30% / SUSTAIN 30% / MOMENTUM 20%) with rupee allocation per stage and trigger description per stage. `next_stage` computed automatically.
+  • **Exit ladder** (+5% cover hedge cost · +8-10% book 25% · +12-15% book 25% · trailing 5EMA/swing-low) with HIT/WAITING status against live LTP.
+  • **P&L engine** — qty_in/out, avg_buy/sell, invested, deployed_pct, realized + unrealized + total P&L (₹ and %).
+  • **Hedge guidance** — `GET /journal/summary/portfolio` returns `needs_hedge` flag (gross long ≥ ₹2L OR ≥ 5 open trades) + suggested Nifty ATM PE lots (1 lot per ₹6L gross long delta hedge).
+- Frontend: `<TradeJournal/>` in §5 Trade Journal with 4 summary tiles (Open / Gross Long / Realized P&L / Win Rate), hedge alert banner, OPEN/CLOSED/ALL filter, expandable trade rows showing 4-step stage plan + 4-step exit ladder + fill log + close/stopped buttons. Inline FillForm to log fills without leaving the row.
+
+**MarketDashboard.jsx restructured**:
+- Added §5 "Trade Journal" section + nav link
+- DeployVerdictStrip now sits above MacroBar in §1 The Market
+- All existing components (MacroBar, TodayStrategyCard, SectorHeatmap, AlignedPicks, WhatChanged, MondayGamePlan, PositionalTopPicks, WeekendWatchlist, PositionalPicks) preserved.
+
+**Deferred to next iteration**:
+- OI + Volume + Delivery anomaly tracker for F&O stocks (needs F&O bhavcopy scrape + live OI feed)
+- Auto-Nifty-PE hedge sizing with real option chain (currently rule-of-thumb 1 lot per ₹6L)
+- Backtesting & calibration of the 4 BTST scans against historical outcomes
+
 ### Apr 2026 — NIVESH_CAS_PARSER (Google Document AI as 3rd parser provider)
 
 User uploaded `CASWRAPPER` (their own production-grade CAS parser using GCP Document AI + casparser fast-path) and asked us to wire it into nivesh.ai as a 3rd `cas_parser_provider` selectable from the Admin UI.

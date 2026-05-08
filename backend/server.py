@@ -63,6 +63,7 @@ from routes.cas_transactions import router as cas_transactions_router  # SIP det
 from routes.cas_snapshots import router as cas_snapshots_router  # CAS Time-Machine endpoints
 from routes.benchmarks import router as benchmarks_router  # Benchmark Index Data Service
 from routes.positional import router as positional_router  # Positional Trading Engine (technical, 5-30d)
+from routes.positional_journal import router as positional_journal_router  # Trade Journal (staged-entry tracker)
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
@@ -115,6 +116,7 @@ app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
 app.include_router(positional_router)              # Positional Trading Engine
+app.include_router(positional_journal_router)      # Trade Journal (staged-entry tracker)
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
 app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
