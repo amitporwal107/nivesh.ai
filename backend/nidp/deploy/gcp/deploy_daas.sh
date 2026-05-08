@@ -209,6 +209,7 @@ else
         --args="-m,nidp.cli,migrate" \
         --max-retries=1 --quiet
 fi
+maybe gcloud config set run/region "$REGION"
 maybe gcloud run jobs execute "$MIGRATE_JOB" \
     --region="$REGION" --project="$PROJECT" --wait
 log "  ✓ migrations applied"
