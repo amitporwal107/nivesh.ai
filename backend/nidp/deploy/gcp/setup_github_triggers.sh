@@ -248,9 +248,7 @@ if [[ -z "$SERVICE_FILTER" ]]; then
     create_trigger \
         "nidp-migrations-on-push" \
         "backend/nidp/deploy/gcp/cloudbuild-migrations.yaml" \
-        "backend/nidp/migrations/**" \
-        "_VM_NAME=nidp-stack-vm" \
-        "_ZONE=${REGION}-a"
+        "backend/nidp/migrations/**,backend/nidp/deploy/gcp/Dockerfile.migrate"
 fi
 
 echo

@@ -101,8 +101,7 @@ log "Step 1/6 — apply DB migrations via Cloud Build"
 run "gcloud builds submit '${REPO_ROOT}' \
     --config='${SCRIPT_DIR}/cloudbuild-migrations.yaml' \
     --project='${PROJECT}' \
-    --region='${REGION}' \
-    --substitutions='_VM_NAME=nidp-stack-vm,_ZONE=${REGION}-a'"
+    --region='${REGION}'"
 
 ok "migrations submitted"
 
