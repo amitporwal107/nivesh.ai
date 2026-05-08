@@ -892,6 +892,106 @@ async def get_calibration(request: Request):
         return {"buckets": [], "_reason": str(e)[:200]}
 
 
+# ── Market Dashboard (gating layer) + default ChartInk scan seeding ─────
+# Cached for 60s — the underlying SQL is a 2-query scan over ~270k rows
+# and is acceptable to recompute on a rolling minute basis.
+_MARKET_DASH_CACHE: dict = {"ts": 0.0, "data": None}
+
+
+@router.get("/market-dashboard")
+async def market_dashboard(request: Request):
+    """Returns Nifty / breadth / sector heatmap / VIX / macro + a single
+    deploy verdict (AGGRESSIVE / NORMAL / CAUTIOUS / DEFENSIVE).
+
+    Gating layer for the BTST framework — answers "is today a green-light
+    day to deploy aggressively, or a sit-on-hands day?"."""
+    await get_current_user(request)
+    import time
+    now = time.time()
+    if _MARKET_DASH_CACHE["data"] and (now - _MARKET_DASH_CACHE["ts"]) < 60.0:
+        return {**_MARKET_DASH_CACHE["data"], "_cache_hit": True}
+    from services.positional_engine import market_dashboard as md
+    data = await md.build()
+    if data.get("ok"):
+        _MARKET_DASH_CACHE["ts"] = now
+        _MARKET_DASH_CACHE["data"] = data
+    return data
+
+
+# Built-in defaults aligned to the user's BTST framework. Admin can
+# override these via the existing `/scans/config` PUT, but seeding them
+# first means a fresh deploy already has 4 useful gates.
+DEFAULT_BTST_SCANS = [
+    {
+        "name": "btst.early_accumulation",
+        "clause": (
+            "( {cash} ( latest close > latest sma( close,50 ) "
+            "and latest close > latest sma( close,200 ) "
+            "and 15 days max( high ) - 15 days min( low ) <= latest close * 0.08 "
+            "and latest volume <= latest sma( volume,20 ) "
+            "and latest rsi( 14 ) >= 50 and latest rsi( 14 ) <= 65 ) )"
+        ),
+        "enabled": True,
+    },
+    {
+        "name": "btst.breakout_confirmation",
+        "clause": (
+            "( {cash} ( latest close > 20 days max( high,1 ) "
+            "and latest volume >= 1.5 * latest sma( volume,20 ) "
+            "and latest close > latest sma( close,50 ) ) )"
+        ),
+        "enabled": True,
+    },
+    {
+        "name": "btst.sector_leaders_rs",
+        "clause": (
+            "( {cash} ( latest close > latest sma( close,50 ) "
+            "and 1 month ago return > 5 "
+            "and 3 months ago return > 10 "
+            "and latest volume > latest sma( volume,20 ) ) )"
+        ),
+        "enabled": True,
+    },
+    {
+        "name": "btst.exit_warning_distribution",
+        "clause": (
+            "( {cash} ( latest close < latest sma( close,20 ) "
+            "and latest volume >= 1.5 * latest sma( volume,20 ) "
+            "and 5 days max( high ) - latest close >= latest close * 0.05 ) )"
+        ),
+        "enabled": True,
+    },
+]
+
+
+@router.post("/scans/seed-defaults")
+async def admin_seed_default_scans(request: Request,
+                                    overwrite: bool = Query(False)):
+    """Admin: seed the 4 BTST framework scans (early-accumulation,
+    breakout-confirmation, sector-leaders-RS, exit-warning) into
+    scan_config. By default only adds those NOT already present (won't
+    touch your existing custom scans). Pass overwrite=true to replace
+    the default-named scans even if they exist."""
+    await require_admin(request)
+    existing = await scan_config.load(db)
+    by_name = {s["name"]: s for s in existing}
+    added: list = []
+    skipped: list = []
+    for d in DEFAULT_BTST_SCANS:
+        if d["name"] in by_name and not overwrite:
+            skipped.append(d["name"])
+            continue
+        by_name[d["name"]] = d
+        added.append(d["name"])
+    saved = await scan_config.save(db, list(by_name.values()))
+    return {
+        "ok": True,
+        "added": added,
+        "skipped": skipped,
+        "total_scans": len(saved),
+    }
+
+
 @router.get("/health")
 async def health(request: Request):
     """Lightweight admin health: counts in each engine table for the latest day."""

@@ -10,6 +10,8 @@ import WeekendWatchlist from "@/components/mfd/WeekendWatchlist";
 import MondayGamePlan from "@/components/mfd/MondayGamePlan";
 import PositionalPicks from "@/components/PositionalPicks";
 import PositionalTopPicks from "@/components/PositionalTopPicks";
+import DeployVerdictStrip from "@/components/DeployVerdictStrip";
+import TradeJournal from "@/components/TradeJournal";
 
 /**
  * MarketDashboard — global, market-wide signals + actionable trade ideas.
@@ -67,6 +69,7 @@ const SectionNav = () => (
       ["The Strategy", "#section-strategy"],
       ["The Sectors",  "#section-sectors"],
       ["The Trades",   "#section-trades"],
+      ["Journal",      "#section-journal"],
     ].map(([label, href]) => (
       <a
         key={href}
@@ -119,6 +122,7 @@ export default function MarketDashboard() {
           title="The Market"
           subtitle="Today's regime — what the macro is doing"
         >
+          <DeployVerdictStrip />
           <MacroBar />
         </Section>
 
@@ -152,6 +156,15 @@ export default function MarketDashboard() {
           <PositionalTopPicks />
           <WeekendWatchlist />
           <PositionalPicks hideWhenWatchlistMode />
+        </Section>
+
+        <Section
+          n="5"
+          id="section-journal"
+          title="Trade Journal"
+          subtitle="Staged entries · exit ladder · live P&L · hedge guidance"
+        >
+          <TradeJournal />
         </Section>
       </div>
     </div>
