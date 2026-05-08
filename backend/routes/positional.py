@@ -910,11 +910,37 @@ async def market_dashboard(request: Request):
 
     Live data overlay (NSE allIndices) for Nifty/VIX/sectors/AD when
     market is open. Cached 30s during market hours, 5min after-hours.
+    Auto-triggers a macro_state refresh when stale > 1 day so the lower
+    Macro Context panel never lags behind the live verdict.
     Gating layer for the BTST framework — answers "is today a green-light
     day to deploy aggressively, or a sit-on-hands day?"."""
     await get_current_user(request)
     import time
+    from datetime import date as _date
     now = time.time()
+
+    # Auto-refresh stale macro_state (best-effort, non-blocking on failure).
+    # Avoid hitting on every request — gate via a separate cache.
+    if not _MARKET_DASH_CACHE.get("macro_checked_today") == _date.today():
+        try:
+            from services import macro_engine
+            st = await macro_engine.latest_state()
+            stale_days = None
+            if st and st.get("date"):
+                from datetime import datetime as _dt
+                try:
+                    sd = _dt.fromisoformat(str(st["date"]).split("T")[0]).date()
+                    stale_days = (_date.today() - sd).days
+                except (ValueError, TypeError):
+                    stale_days = None
+            if stale_days is None or stale_days >= 1:
+                logger.info("market_dashboard: macro_state stale (%s days) — refreshing", stale_days)
+                await macro_engine.classify_regime(_date.today())
+                _MARKET_DASH_CACHE["data"] = None  # invalidate so verdict picks up fresh macro
+        except Exception as e:  # noqa: BLE001
+            logger.debug("auto macro refresh failed: %s", e)
+        _MARKET_DASH_CACHE["macro_checked_today"] = _date.today()
+
     if _MARKET_DASH_CACHE["data"] and (now - _MARKET_DASH_CACHE["ts"]) < _md_cache_ttl():
         return {**_MARKET_DASH_CACHE["data"], "_cache_hit": True}
     from services.positional_engine import market_dashboard as md
