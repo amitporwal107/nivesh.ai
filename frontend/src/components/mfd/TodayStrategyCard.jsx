@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
-import { Target, ArrowUp, ArrowDown, Info, Zap } from "lucide-react";
+import { Target, ArrowUp, ArrowDown, Info, Zap, Activity } from "lucide-react";
+import useLiveTape from "../../hooks/useLiveTape";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -21,6 +22,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export default function TodayStrategyCard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const live = useLiveTape();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,12 +70,58 @@ export default function TodayStrategyCard() {
   const interp = data.interpretation;
   const warning = data.risk_warning;
 
+  // ── Live tape overlay ─────────────────────────────────────────────────
+  const biasUpper = (s.bias || "").toUpperCase();
+  const biasIsAggressive = biasUpper.includes("AGGRESSIVE") || biasUpper.includes("MOMENTUM");
+  const biasIsCautious = biasUpper.includes("DEFENSIV") || biasUpper.includes("CAUTIOUS");
+  let liveOverride = null;
+  if (live.verdict && !live.loading) {
+    const v = live.verdict;
+    if (biasIsAggressive && (v === "CAUTIOUS" || v === "DEFENSIVE")) {
+      liveOverride = {
+        tone: "warn",
+        msg:  `Live tape is ${v.toLowerCase()} — ${live.verdictReason}. Consider half-size on new entries today.`,
+      };
+    } else if (biasIsCautious && v === "AGGRESSIVE") {
+      liveOverride = {
+        tone: "info",
+        msg:  `Live tape is aggressive — ${live.verdictReason}. Daily macro may be lagging the tape.`,
+      };
+    }
+  }
+
   return (
     <div className="space-y-2" data-testid="today-strategy-card">
       {warning && (
         <div className="rounded-lg border-2 border-rose-300 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-900 flex items-start gap-2" data-testid="risk-warning-banner">
           <Zap className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{warning}</span>
+        </div>
+      )}
+      {liveOverride && (
+        <div
+          className={`rounded-lg border-2 px-3 py-2 text-[12px] font-semibold flex items-start gap-2 ${
+            liveOverride.tone === "warn"
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-emerald-300 bg-emerald-50 text-emerald-900"
+          }`}
+          data-testid="live-tape-override-banner"
+        >
+          <Activity className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider font-bold inline-flex items-center gap-1">
+                {live.isLive && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+                {live.isLive ? "Live tape disagrees" : "Last close disagrees"}
+              </span>
+              {live.fetchedAt && (
+                <span className="text-[10px] font-mono opacity-70">
+                  {new Date(live.fetchedAt).toLocaleTimeString("en-IN", {hour:"2-digit",minute:"2-digit",hour12:false})} IST
+                </span>
+              )}
+            </div>
+            <div className="text-[11.5px] mt-0.5 font-normal leading-snug">{liveOverride.msg}</div>
+          </div>
         </div>
       )}
       <div className={`rounded-xl border-2 ${

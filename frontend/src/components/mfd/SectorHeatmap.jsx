@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import { Grid3x3, RefreshCw, AlertCircle, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import useLiveTape from "../../hooks/useLiveTape";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -15,6 +16,7 @@ export default function SectorHeatmap() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const liveTape = useLiveTape();
   const [backfilling, setBackfilling] = useState(false);
 
   const load = useCallback(async () => {
@@ -127,7 +129,7 @@ export default function SectorHeatmap() {
           <>
             <TopWeakStrip rows={rows} />
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2" data-testid="sector-heatmap-grid">
-              {rows.map((r) => <SectorCard key={r.sector} row={r} />)}
+              {rows.map((r) => <SectorCard key={r.sector} row={r} liveTape={liveTape} />)}
             </div>
           </>
         )}
@@ -146,7 +148,7 @@ function _tierFor(score) {
   return { tier: "STRONG AVOID", emoji: "🔴", className: "bg-rose-600 text-white" };
 }
 
-function SectorCard({ row }) {
+function SectorCard({ row, liveTape }) {
   const score = Number(row.macro_score) || 0;
   const tier = _tierFor(score);
   // Colour ramp: deep emerald → neutral → deep rose, banded by absolute strength
@@ -158,6 +160,15 @@ function SectorCard({ row }) {
     return { bg: "bg-rose-100 border-rose-300", text: "text-rose-900", Icon: TrendingDown };
   })();
   const Icon = tone.Icon;
+
+  // Live tape overlay (best-effort — null when no matching live sector)
+  const liveSector = liveTape?.lookupLiveSector?.(row.sector);
+  const livePct = liveSector?.change_pct;
+  const liveTone = livePct == null ? "" :
+    livePct >= 1.0 ? "text-emerald-700 bg-emerald-100" :
+    livePct >= 0   ? "text-emerald-600 bg-emerald-50" :
+    livePct >= -1  ? "text-rose-500 bg-rose-50" :
+                     "text-rose-700 bg-rose-100";
 
   return (
     <div
@@ -178,6 +189,17 @@ function SectorCard({ row }) {
         <span className={`inline-block text-[9.5px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${tier.className}`}>
           {tier.tier}
         </span>
+        {livePct != null && (
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] tabular-nums font-mono px-1.5 py-0.5 rounded ${liveTone}`}
+            title={`Live tape (intraday) · RS vs Nifty ${liveSector.rs_vs_nifty_pp >= 0 ? "+" : ""}${(liveSector.rs_vs_nifty_pp ?? 0).toFixed(1)}pp`}
+            data-testid={`sector-live-${row.sector}`}
+          >
+            {liveTape.isLive && <span className="w-1 h-1 rounded-full bg-current animate-pulse" />}
+            <span className="opacity-60 text-[8px] uppercase tracking-wider">live</span>
+            {livePct >= 0 ? "+" : ""}{livePct.toFixed(1)}%
+          </span>
+        )}
       </div>
       {row.rationale && (
         <div className="text-[10px] text-slate-600 mt-1 leading-tight" title={row.rationale}>
