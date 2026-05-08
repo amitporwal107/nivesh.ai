@@ -23,10 +23,11 @@ async def upsert_events(events: list[dict[str, Any]]) -> int:
                         (symbol, company_name, event_type, event_date,
                          period, purpose, ex_date, record_date, source)
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                    ON CONFLICT (symbol, event_type, event_date, period)
+                    ON CONFLICT (symbol, event_type, event_date, COALESCE(period, ''))
                     DO UPDATE SET
                         company_name = EXCLUDED.company_name,
                         purpose      = EXCLUDED.purpose,
+                        period       = COALESCE(EXCLUDED.period, nidp.event_calendar.period),
                         ex_date      = COALESCE(EXCLUDED.ex_date, nidp.event_calendar.ex_date),
                         record_date  = COALESCE(EXCLUDED.record_date, nidp.event_calendar.record_date),
                         fetched_at   = NOW()

@@ -36,7 +36,17 @@ def _parse_date(s: str | None) -> date | None:
 
 def _normalise_event_type(purpose: str) -> str:
     p = purpose.lower()
-    if any(k in p for k in ("quarterly result", "financial result", "q1", "q2", "q3", "q4")):
+    # Results / earnings — check before "board meeting" so a board meeting
+    # called to approve results is classified as quarterly_results, not board_meeting.
+    if any(k in p for k in (
+        "quarterly result", "financial result",
+        "unaudited result", "audited result",
+        "q1", "q2", "q3", "q4",
+        "half year", "half-year", "nine month",
+    )):
+        return "quarterly_results"
+    # Annual results (PSU banks, full-year filings)
+    if any(k in p for k in ("annual result", "annual account", "year ended", "full year result")):
         return "quarterly_results"
     if "board meeting" in p:
         return "board_meeting"
@@ -55,19 +65,69 @@ def _normalise_event_type(purpose: str) -> str:
     return "other"
 
 
-def _extract_period(purpose: str) -> str | None:
-    """Extract period label like 'Q4 FY25' from purpose string."""
+def _extract_period(purpose: str, bm_desc: str = "") -> str | None:
+    """Extract period label like 'Q4 FY26' from purpose or bm_desc strings."""
     import re
-    m = re.search(r'(Q[1-4])[^A-Z0-9]*(\d{2,4})', purpose, re.IGNORECASE)
+    from datetime import date as _date
+
+    text = f"{purpose} {bm_desc}"
+
+    # Explicit Q1-Q4 + year — highest confidence
+    m = re.search(r'\b(Q[1-4])\s*(?:FY)?[^A-Z0-9]*(\d{2,4})\b', text, re.IGNORECASE)
     if m:
         q, yr = m.group(1).upper(), m.group(2)
         yr = yr if len(yr) == 4 else "20" + yr
         fy = int(yr)
         return f"{q} FY{str(fy)[2:]}"
-    # Annual result
-    m2 = re.search(r'(annual|year ended|fy\s*20\d{2})', purpose, re.IGNORECASE)
+
+    # "quarter ended <Month> <Year>" or "period ended <Month> <Year>"
+    # → derive Q from month (Indian FY: Apr-Jun=Q1, Jul-Sep=Q2, Oct-Dec=Q3, Jan-Mar=Q4)
+    _MONTH_Q = {
+        1: "Q4", 2: "Q4", 3: "Q4",   # Jan-Mar  → Q4
+        4: "Q1", 5: "Q1", 6: "Q1",   # Apr-Jun  → Q1
+        7: "Q2", 8: "Q2", 9: "Q2",   # Jul-Sep  → Q2
+        10: "Q3", 11: "Q3", 12: "Q3", # Oct-Dec  → Q3
+    }
+    _MONTH_NAMES = {
+        "january": 1, "february": 2, "march": 3, "april": 4,
+        "may": 5, "june": 6, "july": 7, "august": 8,
+        "september": 9, "october": 10, "november": 11, "december": 12,
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+        "jun": 6, "jul": 7, "aug": 8, "sep": 9,
+        "oct": 10, "nov": 11, "dec": 12,
+    }
+    m2 = re.search(
+        r'(?:quarter|period|year|half.?year)\s+ended\s+(\w+)\s+\d{1,2}[,\s]+(\d{4})',
+        text, re.IGNORECASE,
+    )
     if m2:
-        return "Annual"
+        mon_str = m2.group(1).lower()
+        yr = int(m2.group(2))
+        mon = _MONTH_NAMES.get(mon_str)
+        if mon:
+            q = _MONTH_Q[mon]
+            # Indian FY: FY ends March, so "period ended March 2026" → FY26
+            fy = yr if mon >= 4 else yr  # April 2025 → FY26; March 2026 → FY26
+            return f"{q} FY{str(fy)[2:]}"
+
+    # "nine months ended" / "six months ended" / "half year ended <Month>"
+    m3 = re.search(r'(?:nine|6|six|half)[- ](?:months?|year)\s+ended\s+(\w+)\s+\d{1,2}[,\s]+(\d{4})',
+                   text, re.IGNORECASE)
+    if m3:
+        mon_str = m3.group(1).lower()
+        yr = int(m3.group(2))
+        mon = _MONTH_NAMES.get(mon_str)
+        if mon:
+            q = _MONTH_Q[mon]
+            return f"{q} FY{str(yr)[2:]}"
+
+    # "annual" / "year ended" without a specific month → just Annual + FY
+    m4 = re.search(r'(?:annual|year ended|fy\s*20(\d{2}))', text, re.IGNORECASE)
+    if m4:
+        yr_match = re.search(r'20(\d{2})', text)
+        suffix = yr_match.group(1) if yr_match else ""
+        return f"Annual FY{suffix}" if suffix else "Annual"
+
     return None
 
 
@@ -100,18 +160,21 @@ async def fetch_event_calendar(
 
     events: list[dict] = []
     for row in (data if isinstance(data, list) else data.get("data", [])):
-        purpose = row.get("purpose") or row.get("bm_purpose") or ""
-        ev_date = _parse_date(row.get("date") or row.get("bm_date"))
-        symbol  = (row.get("symbol") or "").strip().upper()
+        purpose  = row.get("purpose") or row.get("bm_purpose") or ""
+        bm_desc  = row.get("bm_desc") or row.get("description") or ""
+        ev_date  = _parse_date(row.get("date") or row.get("bm_date"))
+        symbol   = (row.get("symbol") or "").strip().upper()
         if not symbol or not ev_date:
             continue
+        # Use bm_desc as fallback for event type when purpose is generic
+        event_type = _normalise_event_type(purpose) or _normalise_event_type(bm_desc)
         events.append({
             "symbol":       symbol,
-            "company_name": row.get("companyName") or row.get("company_name") or "",
-            "event_type":   _normalise_event_type(purpose),
+            "company_name": row.get("companyName") or row.get("company") or row.get("company_name") or "",
+            "event_type":   event_type,
             "event_date":   ev_date,
-            "period":       _extract_period(purpose),
-            "purpose":      purpose,
+            "period":       _extract_period(purpose, bm_desc),
+            "purpose":      bm_desc or purpose,   # store the richer description
             "ex_date":      _parse_date(row.get("exDate") or row.get("ex_date")),
             "record_date":  _parse_date(row.get("recordDate") or row.get("record_date")),
             "source":       "nse",

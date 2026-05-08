@@ -135,3 +135,54 @@ async def run_once(source: str, target_date: Optional[date] = None) -> JobRun:
     else:
         raise ValueError(f"unknown source: {source!r} (expected 'nse' or 'bse')")
     return await ing.run(target_date=target_date)
+
+
+async def run(target_date: Optional[date] = None) -> None:
+    """Daily batch — ingest both NSE and BSE for the given date."""
+    for source in ("nse", "bse"):
+        try:
+            await run_once(source, target_date)
+        except Exception as e:
+            logger.error("corporate_announcements: daily %s failed: %s", source, e)
+
+
+async def run_intraday(target_date: Optional[date] = None) -> dict:
+    """1-min intraday poll: market hours guard → ingest NSE → classify new rows.
+
+    Design:
+    - Exits immediately outside 08:30–16:30 IST (cost = one Cloud Run cold start, ~$0)
+    - NSE-only during intraday (BSE API is less real-time; run BSE in daily batch)
+    - Immediately triggers announcement_classifier on any new rows so event
+      intelligence latency is < 2 min from filing to classified signal
+    - Writer uses ON CONFLICT DO NOTHING so 1-min re-runs are fully safe
+    """
+    from nidp.shared.market_hours import is_intraday_window
+    if not is_intraday_window():
+        logger.debug("corporate_announcements: outside intraday window — exiting")
+        return {"skipped": "outside_market_hours"}
+
+    stats: dict = {}
+
+    # NSE only for intraday (fast JSON endpoint)
+    try:
+        job = await run_once("nse", target_date)
+        stats["nse"] = {"status": job.status, "rows": getattr(job, "rows_inserted", 0)}
+    except Exception as e:
+        logger.error("corporate_announcements: intraday NSE failed: %s", e)
+        stats["nse"] = {"error": str(e)}
+
+    # Immediately classify any new unclassified rows (keeps latency < 2 min)
+    try:
+        from nidp.services.announcement_classifier.service import run_once as classify
+        clf = await classify(limit=100)
+        stats["classifier"] = clf
+        if clf.get("processed", 0) > 0:
+            logger.info(
+                "corporate_announcements: intraday classified %d new announcements",
+                clf["processed"],
+            )
+    except Exception as e:
+        logger.warning("corporate_announcements: intraday classifier failed: %s", e)
+        stats["classifier"] = {"error": str(e)}
+
+    return stats

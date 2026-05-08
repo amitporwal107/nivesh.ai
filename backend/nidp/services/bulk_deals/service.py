@@ -86,3 +86,25 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
     ingester = BulkDealsIngester()
     job = await ingester.run(target_date)
     return job.run_id
+
+
+async def run_intraday(target_date: Optional[date] = None) -> dict:
+    """1-min intraday poll: market hours guard → ingest rolling bulk deals file.
+
+    NSE publishes a single rolling CSV updated throughout the day.
+    The writer uses ON CONFLICT so every 1-min re-run is safe — only
+    genuinely new deals (new rows in the CSV) get inserted.
+    Bulk deals tend to arrive in clusters around 9:30 and 14:00 IST.
+    """
+    from nidp.shared.market_hours import is_intraday_window
+    if not is_intraday_window():
+        logger.debug("bulk_deals: outside intraday window — exiting")
+        return {"skipped": "outside_market_hours"}
+
+    try:
+        run_id = await run(target_date)
+        logger.info("bulk_deals: intraday poll complete run_id=%s", run_id)
+        return {"run_id": str(run_id)}
+    except Exception as e:
+        logger.error("bulk_deals: intraday poll failed: %s", e)
+        return {"error": str(e)}

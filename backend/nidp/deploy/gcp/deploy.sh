@@ -59,6 +59,8 @@ ALL_SERVICES=(
     # MF data feeds
     amfi_nav amfi_nav_history amfi_circulars
     mf_disclosure_snapshot mf_holdings
+    # Corporate event intelligence pipeline
+    event_calendar event_day_poller d1_prep intelligence
 )
 
 # ── Args ────────────────────────────────────────────────────────────
@@ -183,6 +185,13 @@ declare -A JOB_SECRETS=(
     # Create the secret once: `printf "%s" "sk-ant-..." | gcloud secrets create
     # ANTHROPIC_API_KEY --data-file=- --replication-policy=automatic`.
     [announcement_classifier]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest"
+    # d1_prep + intelligence call Claude Sonnet for pre-event briefings and
+    # post-event analysis. Both also send Telegram alerts.
+    # Create Telegram secrets once:
+    #   printf "%s" "<BOT_TOKEN>" | gcloud secrets create NIDP_TELEGRAM_BOT_TOKEN ...
+    #   printf "%s" "<CHAT_ID>"   | gcloud secrets create NIDP_TELEGRAM_CHAT_ID ...
+    [d1_prep]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,NIDP_TELEGRAM_BOT_TOKEN=NIDP_TELEGRAM_BOT_TOKEN:latest,NIDP_TELEGRAM_CHAT_ID=NIDP_TELEGRAM_CHAT_ID:latest"
+    [intelligence]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,NIDP_TELEGRAM_BOT_TOKEN=NIDP_TELEGRAM_BOT_TOKEN:latest,NIDP_TELEGRAM_CHAT_ID=NIDP_TELEGRAM_CHAT_ID:latest"
 )
 
 for svc in "${SVC_LIST[@]}"; do

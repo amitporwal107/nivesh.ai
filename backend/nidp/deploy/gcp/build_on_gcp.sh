@@ -62,6 +62,8 @@ ALL_SERVICES=(
     # the wealth-advisor admin console. Cloud Run *service* (not job)
     # — see the deploy branch below.
     query_api
+    # Corporate event intelligence pipeline
+    event_calendar event_day_poller d1_prep intelligence
 )
 
 # Services that deploy as Cloud Run *services* instead of jobs.
@@ -305,6 +307,8 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
                 secrets_for_svc="$secrets_for_svc,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" ;;
             query_api)
                 secrets_for_svc="$secrets_for_svc,NIDP_QUERY_API_TOKEN=NIDP_QUERY_API_TOKEN:latest" ;;
+            d1_prep|intelligence)
+                secrets_for_svc="$secrets_for_svc,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,NIDP_TELEGRAM_BOT_TOKEN=NIDP_TELEGRAM_BOT_TOKEN:latest,NIDP_TELEGRAM_CHAT_ID=NIDP_TELEGRAM_CHAT_ID:latest" ;;
         esac
 
         if _is_service_type "$svc"; then
@@ -361,6 +365,9 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
                 fi
             else
                 log "  $job_name does not exist — creating..."
+                # Claude-calling services need extra memory for concurrent HTTP + JSON work.
+                mem="512Mi"
+                case "$svc" in d1_prep|intelligence) mem="1Gi" ;; esac
                 if _run_gcloud "$job_name create" \
                         gcloud run jobs create "$job_name" \
                             --image="${AR_REPO}/${svc}:${TAG}" \
@@ -369,7 +376,7 @@ if [[ -z "$NO_UPDATE" && ${#SUCCEEDED[@]} -gt 0 ]]; then
                             $VPC_FLAGS \
                             --set-env-vars="$COMMON_ENV" \
                             --set-secrets="$secrets_for_svc" \
-                            --task-timeout=900s --max-retries=2 --memory=512Mi --cpu=1; then
+                            --task-timeout=900s --max-retries=2 --memory="$mem" --cpu=1; then
                     ok "  $job_name CREATED → $TAG"
                 else
                     DEPLOY_FAILED+=("$job_name")

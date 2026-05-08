@@ -176,6 +176,49 @@ add_schedule nidp-amfi-circulars     '0 9 * * *'      'AMFI scheme circulars'
 add_schedule nidp-mf-disclosure-snapshot '0 10 12 * *' 'MF TER + risk-o-meter snapshot (12th)'
 add_schedule nidp-mf-holdings        '0 11 12 * *'    'MF monthly portfolio holdings (12th)'
 
+# ── Corporate event intelligence pipeline ─────────────────────────
+#
+# event_calendar:
+#   Fetches NSE board-meeting / results calendar (today-7 to today+90).
+#   Run twice daily: 6:30am seeds tomorrow's schedule before intraday
+#   polling starts; 8:30pm picks up any late filings added during the day.
+#
+# event_day_poller:
+#   Checks NSE for results announcements every 5 min during market hours.
+#   The service has a built-in IST window guard (exits immediately outside
+#   09:15–16:30 IST), so firing every 5 min all day is safe and cheap.
+#
+# d1_prep:
+#   Evening D-1 briefings via Claude Sonnet for tomorrow's results.
+#   Runs once at 19:00 IST (after bhavcopy + fno_bhavcopy land).
+#
+# intelligence:
+#   Post-event scoring: volume/OI/PCR confirmation + breakout detection
+#   + Telegram alerts. Runs at 20:00 IST so both bhavcopy (19:00) and
+#   fno_bhavcopy (19:30) have settled.
+add_schedule nidp-event-calendar     '30 6 * * 1-5'   'NSE corporate event calendar (morning + evening)'
+# Second daily fire for event_calendar at 20:30 IST — same Cloud Run job, different scheduler trigger.
+# add_schedule derives the job URI from arg 1, so we create a wrapper trigger manually here.
+if ! gcloud scheduler jobs describe "nidp-cron-event-calendar-pm" \
+        --location="$REGION" --project="$PROJECT" &>/dev/null; then
+    if [[ -n "$DRY" ]]; then
+        log "DRY-RUN  create nidp-cron-event-calendar-pm (30 20 * * 1-5)"
+    else
+        gcloud scheduler jobs create http "nidp-cron-event-calendar-pm" \
+            --schedule="30 20 * * 1-5" --time-zone='Asia/Kolkata' \
+            --uri="${RUN_API}/nidp-event-calendar:run" --http-method=POST \
+            --oauth-service-account-email="$SA_EMAIL" \
+            --location="$REGION" --project="$PROJECT" --quiet && \
+            ok "nidp-cron-event-calendar-pm  (30 20 * * 1-5, evening refresh)" || \
+            warn "nidp-cron-event-calendar-pm  failed to create"
+    fi
+else
+    ok "nidp-cron-event-calendar-pm  (already exists)"
+fi
+add_schedule nidp-event-day-poller   '*/5 9-16 * * 1-5' 'Event-day results poller (intraday)'
+add_schedule nidp-d1-prep            '0 19 * * 1-5'   'D-1 pre-event briefings (Claude Sonnet)'
+add_schedule nidp-intelligence       '0 20 * * 1-5'   'Post-event intelligence + breakout alerts'
+
 echo
 log "done. List triggers:  ./list_schedules.sh"
 log "yfinance_backfill is event-driven (manual run only) — not scheduled."
