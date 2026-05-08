@@ -79,7 +79,17 @@ export default function DeployVerdictStrip() {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 5 * 60 * 1000);
+    // Refresh tighter when live; the backend internal cache caps NSE hits.
+    // 60s during market hours (so the LIVE chip + tape stays current),
+    // 5 min after hours.
+    const istHour = new Date().getUTCHours() + 5;
+    const istMin = new Date().getUTCMinutes() + 30;
+    const istMinutes = (istHour * 60 + istMin) % (24 * 60);
+    const isMarketHours = (
+      [1, 2, 3, 4, 5].includes((new Date().getUTCDay() + 1) % 7) &&
+      istMinutes >= 9 * 60 + 15 && istMinutes <= 15 * 60 + 30
+    );
+    const id = setInterval(load, isMarketHours ? 60_000 : 5 * 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -123,7 +133,15 @@ export default function DeployVerdictStrip() {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] uppercase tracking-wider opacity-80">Deploy Verdict</span>
               <span className="text-[10px] opacity-60">·</span>
-              <span className="text-[10px] opacity-80">{data.as_of_date}</span>
+              {data.is_live ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-white/25 px-1.5 py-0.5 rounded" title={`Live · fetched ${data.fetched_at}`} data-testid="deploy-verdict-live-chip">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> LIVE
+                </span>
+              ) : (
+                <span className="text-[10px] opacity-80" data-testid="deploy-verdict-closed-chip">Markets closed</span>
+              )}
+              <span className="text-[10px] opacity-60">·</span>
+              <span className="text-[10px] opacity-80">{data.fetched_at ? new Date(data.fetched_at).toLocaleTimeString("en-IN", {hour:"2-digit",minute:"2-digit",hour12:false}) + " IST" : data.as_of_date}</span>
             </div>
             <div className="text-xl sm:text-2xl font-bold tracking-tight mt-0.5" data-testid="deploy-verdict-label">
               {style.label}
@@ -146,7 +164,9 @@ export default function DeployVerdictStrip() {
       {/* Numbers strip — Nifty / breadth / VIX / sector heatmap */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2">
         <div className="rounded-xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-3" data-testid="md-tile-nifty">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">Nifty (BeES)</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            Nifty 50 {data.nifty?.source === "nse_live" ? <span className="text-emerald-500 font-bold">· LIVE</span> : data.nifty?.source === "eod_bhavcopy" ? <span className="text-slate-400">(EOD)</span> : null}
+          </div>
           <div className="flex items-baseline gap-1 mt-1">
             <NiftyIcon className={`w-3.5 h-3.5 ${niftyUp ? "text-emerald-600" : "text-rose-500"}`} />
             <span className="text-base font-bold text-slate-900 dark:text-white tabular-nums">

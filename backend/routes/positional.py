@@ -893,9 +893,14 @@ async def get_calibration(request: Request):
 
 
 # ── Market Dashboard (gating layer) + default ChartInk scan seeding ─────
-# Cached for 60s — the underlying SQL is a 2-query scan over ~270k rows
-# and is acceptable to recompute on a rolling minute basis.
+# Cache TTL adapts to market hours: 30s while NSE is open (so the live
+# overlay refreshes ~once per page load), 5min after-hours.
 _MARKET_DASH_CACHE: dict = {"ts": 0.0, "data": None}
+
+
+def _md_cache_ttl() -> float:
+    from services.positional_engine import nse_live as _nl
+    return 30.0 if _nl._is_market_open_ist() else 300.0
 
 
 @router.get("/market-dashboard")
@@ -903,12 +908,14 @@ async def market_dashboard(request: Request):
     """Returns Nifty / breadth / sector heatmap / VIX / macro + a single
     deploy verdict (AGGRESSIVE / NORMAL / CAUTIOUS / DEFENSIVE).
 
+    Live data overlay (NSE allIndices) for Nifty/VIX/sectors/AD when
+    market is open. Cached 30s during market hours, 5min after-hours.
     Gating layer for the BTST framework — answers "is today a green-light
     day to deploy aggressively, or a sit-on-hands day?"."""
     await get_current_user(request)
     import time
     now = time.time()
-    if _MARKET_DASH_CACHE["data"] and (now - _MARKET_DASH_CACHE["ts"]) < 60.0:
+    if _MARKET_DASH_CACHE["data"] and (now - _MARKET_DASH_CACHE["ts"]) < _md_cache_ttl():
         return {**_MARKET_DASH_CACHE["data"], "_cache_hit": True}
     from services.positional_engine import market_dashboard as md
     data = await md.build()
