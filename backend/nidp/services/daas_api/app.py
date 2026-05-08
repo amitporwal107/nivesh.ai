@@ -43,6 +43,7 @@ from nidp.services.daas_api.routers import (
     announcements,
     catalog,
     corporate_actions,
+    events,
     features,
     financials,
     flows,
@@ -275,3 +276,4 @@ app.include_router(announcements.router, prefix=v1_prefix)
 app.include_router(macro.router, prefix=v1_prefix)
 app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
+app.include_router(events.router, prefix=v1_prefix)
