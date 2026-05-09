@@ -8,7 +8,7 @@ import os
 import json
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://wealth-advisor-india-1.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://portfolio-ai-68.preview.emergentagent.com')
 
 # Test credentials from test_credentials.md
 TEST_USER_SESSION = os.environ["NIVESH_TEST_USER_TOKEN"]

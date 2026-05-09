@@ -11,7 +11,7 @@ from datetime import datetime
 
 class V2DecisionEngineAPITester:
     def __init__(self):
-        self.base_url = "https://wealth-advisor-india-1.preview.emergentagent.com"
+        self.base_url = "https://portfolio-ai-68.preview.emergentagent.com"
         self.session_token = "370eff71-fda1-46d8-b506-b81b894d634f"
         self.user_id = "user_f087c6332922"
         self.email = "priyankamantri@gmail.com"
