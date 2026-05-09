@@ -157,7 +157,6 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: E2_HIGHCPU_8
   pool:
     name: projects/$PROJECT_ID/locations/asia-south1/workerPools/nidp-private-pool
   serviceAccount: 'projects/niveshdataintelligence/serviceAccounts/nivesh-devops@niveshdataintelligence.iam.gserviceaccount.com'
