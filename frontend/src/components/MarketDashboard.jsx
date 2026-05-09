@@ -65,8 +65,8 @@ function Section({ id, n, title, subtitle, collapsed, onToggle, onDragStart, onD
       id={`section-${id}`}
       className={`scroll-mt-32 rounded-2xl border transition-colors ${
         isDragOver
-          ? "border-indigo-300 bg-indigo-50/30"
-          : "border-slate-200/70 bg-white/60"
+          ? "border-indigo-300 bg-indigo-50/30 dark:border-indigo-700/50 dark:bg-indigo-900/20"
+          : "border-slate-200/70 bg-white/60 dark:border-slate-700/70 dark:bg-slate-800/60"
       }`}
       draggable
       onDragStart={onDragStart}
@@ -81,7 +81,7 @@ function Section({ id, n, title, subtitle, collapsed, onToggle, onDragStart, onD
       >
         {/* Drag grip */}
         <div
-          className="text-slate-300 group-hover:text-slate-400 transition-colors cursor-grab active:cursor-grabbing flex-shrink-0"
+          className="text-slate-300 dark:text-slate-600 group-hover:text-slate-400 dark:group-hover:text-slate-400 transition-colors cursor-grab active:cursor-grabbing flex-shrink-0"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         >
