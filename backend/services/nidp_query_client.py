@@ -118,3 +118,73 @@ async def get_feed_calendar(ingester: str, days: int = 7) -> Dict[str, Any]:
 
 async def get_validation(limit: int = 50) -> Dict[str, Any]:
     return await _request("GET", "/validation", params={"limit": limit})
+
+
+# ── Quality / Certification ────────────────────────────────────────────────
+
+async def get_quality(domain: Optional[str] = None, limit: int = 90) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    return await _request("GET", "/quality", params=params)
+
+
+async def get_certification(domain: Optional[str] = None, limit: int = 90) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    return await _request("GET", "/certification", params=params)
+
+
+async def get_consistency(domain: Optional[str] = None, limit: int = 90) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    return await _request("GET", "/consistency", params=params)
+
+
+async def get_consistency_findings(
+    domain: Optional[str] = None,
+    dimension: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 200,
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    if dimension:
+        params["dimension"] = dimension
+    if severity:
+        params["severity"] = severity
+    return await _request("GET", "/consistency/findings", params=params)
+
+
+async def get_publish_gate(domain: Optional[str] = None, limit: int = 90) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    return await _request("GET", "/publish-gate", params=params)
+
+
+async def get_exception_queue(resolved: bool = False, limit: int = 100) -> Dict[str, Any]:
+    return await _request("GET", "/exception-queue",
+                          params={"resolved": str(resolved).lower(), "limit": limit})
+
+
+async def resolve_exception(
+    queue_id: str,
+    action: str,
+    resolution_note: str = "",
+    resolved_by: str = "ops",
+) -> Dict[str, Any]:
+    return await _request(
+        "PATCH", f"/exception-queue/{queue_id}",
+        json={"action": action, "resolution_note": resolution_note, "resolved_by": resolved_by},
+    )
+
+
+async def get_quarantine(domain: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit": limit}
+    if domain:
+        params["domain"] = domain
+    return await _request("GET", "/quarantine", params=params)

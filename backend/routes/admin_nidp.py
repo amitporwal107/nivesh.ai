@@ -73,6 +73,8 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "corporate_announcements_bse", "cadence": "high-freq"},
     {"ingester": "announcement_classifier",     "cadence": "event"},
     {"ingester": "document_parser",             "cadence": "event"},
+    # Post-ingestion quality pipeline
+    {"ingester": "quality_gate",                "cadence": "daily"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
@@ -520,3 +522,141 @@ async def catalog(request: Request) -> Dict[str, Any]:
         "feeds":      feeds,
         "validation": validation,
     }
+
+
+# ────────────────────────────────────────────────────────────────────
+# Quality Dashboard — proxied to the NIDP Query API quality endpoints
+# ────────────────────────────────────────────────────────────────────
+
+
+def _quality_503():
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "NIDP Query API not configured — set NIDP_QUERY_API_URL "
+            "and NIDP_QUERY_API_TOKEN secrets."
+        ),
+    )
+
+
+@router.get("/quality/summary")
+async def quality_summary(
+    request: Request,
+    domain: Optional[str] = Query(None),
+) -> Dict[str, Any]:
+    """Aggregated quality snapshot — quality scores + certification + gate per domain."""
+    await require_admin(request)
+    if not _nq.is_configured():
+        _quality_503()
+
+    quality_r, cert_r, gate_r, exc_r = await asyncio.gather(
+        _nq.get_quality(domain=domain, limit=90),
+        _nq.get_certification(domain=domain, limit=90),
+        _nq.get_publish_gate(domain=domain, limit=30),
+        _nq.get_exception_queue(resolved=False, limit=50),
+        return_exceptions=True,
+    )
+
+    def _safe(r, key):
+        return r.get(key, []) if isinstance(r, dict) else []
+
+    return {
+        "quality":     _safe(quality_r,  "quality"),
+        "certified":   _safe(cert_r,     "certified"),
+        "gate":        _safe(gate_r,     "gate"),
+        "exceptions":  _safe(exc_r,      "exceptions"),
+        "errors": {
+            "quality":    str(quality_r) if isinstance(quality_r, Exception) else None,
+            "certified":  str(cert_r)    if isinstance(cert_r,    Exception) else None,
+            "gate":       str(gate_r)    if isinstance(gate_r,    Exception) else None,
+            "exceptions": str(exc_r)     if isinstance(exc_r,     Exception) else None,
+        },
+    }
+
+
+@router.get("/quality/consistency")
+async def quality_consistency(
+    request: Request,
+    domain: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=500),
+) -> Dict[str, Any]:
+    """Consistency runs + findings in one call."""
+    await require_admin(request)
+    if not _nq.is_configured():
+        _quality_503()
+
+    runs_r, findings_r = await asyncio.gather(
+        _nq.get_consistency(domain=domain, limit=30),
+        _nq.get_consistency_findings(domain=domain, severity=severity, limit=limit),
+        return_exceptions=True,
+    )
+
+    return {
+        "runs":     runs_r.get("consistency", [])  if isinstance(runs_r,     dict) else [],
+        "findings": findings_r.get("findings", []) if isinstance(findings_r, dict) else [],
+        "errors": {
+            "runs":     str(runs_r)     if isinstance(runs_r,     Exception) else None,
+            "findings": str(findings_r) if isinstance(findings_r, Exception) else None,
+        },
+    }
+
+
+@router.get("/quality/exceptions")
+async def quality_exceptions(
+    request: Request,
+    resolved: bool = Query(False),
+    limit: int = Query(100, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Exception queue — unresolved REVIEW items awaiting ops action."""
+    await require_admin(request)
+    if not _nq.is_configured():
+        _quality_503()
+    try:
+        return await _nq.get_exception_queue(resolved=resolved, limit=limit)
+    except _nq.NidpQueryClientError as e:
+        raise HTTPException(status_code=502, detail=e.detail) from e
+
+
+@router.patch("/quality/exceptions/{queue_id}")
+async def resolve_exception(
+    queue_id: str,
+    request:  Request,
+    action:          str = Query(..., description="APPROVE | REJECT | OVERRIDE | ESCALATE"),
+    resolution_note: str = Query(""),
+) -> Dict[str, Any]:
+    """Resolve or override an exception queue item (ops action)."""
+    await require_admin(request)
+    if not _nq.is_configured():
+        _quality_503()
+    try:
+        return await _nq.resolve_exception(
+            queue_id=queue_id,
+            action=action,
+            resolution_note=resolution_note,
+            resolved_by=getattr(request.state, "user_email", "ops"),
+        )
+    except _nq.NidpQueryClientError as e:
+        raise HTTPException(status_code=502, detail=e.detail) from e
+
+
+@router.get("/quality/quarantine")
+async def quality_quarantine(
+    request: Request,
+    domain:  Optional[str] = Query(None),
+    limit:   int           = Query(50, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Dates condemned by the quality gate (FAIL → quarantine_log).
+    Returns empty list gracefully if the Query API hasn't been redeployed
+    with the /quarantine endpoint yet (404 from upstream → empty response).
+    """
+    await require_admin(request)
+    if not _nq.is_configured():
+        _quality_503()
+    try:
+        return await _nq.get_quarantine(domain=domain, limit=limit)
+    except _nq.NidpQueryClientError as e:
+        if e.status == 404:
+            # Query API not yet redeployed — return empty rather than error
+            return {"quarantine": [], "error": "endpoint not yet available on Query API"}
+        raise HTTPException(status_code=502, detail=e.detail) from e
