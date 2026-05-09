@@ -71,6 +71,23 @@ SHARE_COUNT_TAGS: Dict[str, str] = {
     "NumberOfSharesPledgedOrOtherwiseEncumbered":                        "pledged_shares",
 }
 
+# BSE SHP v1.1 format (SEBI mandate from Dec-2025 onwards).
+# Single tag, column determined by contextRef. Values are decimal fractions
+# (0.4504 = 45.04%) — multiply by 100 when extracting.
+_NEW_PCT_TAG = "ShareholdingAsAPercentageOfTotalNumberOfShares"
+_NEW_SHARES_TAG = "NumberOfFullyPaidUpEquityShares"
+_NEW_TOTAL_SHARES_CTX = "ShareholdingPattern_ContextI"
+_NEW_CONTEXT_TO_COL: Dict[str, str] = {
+    "ShareholdingOfPromoterAndPromoterGroup_ContextI": "promoter_pct",
+    "PublicShareholding_ContextI":                     "public_pct",
+    "InstitutionsForeign_ContextI":                    "fii_pct",
+    "InstitutionsDomestic_ContextI":                   "dii_pct",
+    "MutualFunds_ContextI":                            "mf_pct",
+    "Banks_ContextI":                                  "bank_fi_pct",
+    "NonResidentIndians_ContextI":                     "nri_pct",
+    "IndividualsOrHinduUndividedFamily_ContextI":      "individual_pct",
+}
+
 
 def parse_filing_list(body: bytes) -> List[Dict[str, Any]]:
     try:
@@ -185,6 +202,28 @@ def parse_xbrl_document(body: bytes, manifest: Dict[str, Any]) -> List[Dict[str,
         else:
             row[col] = round(raw, 4)
         captured_any = True
+
+    if not captured_any:
+        # BSE SHP v1.1 format (SEBI Dec-2025 mandate): uses a single tag
+        # ShareholdingAsAPercentageOfTotalNumberOfShares with contextRef
+        # for categorisation. Values are decimal fractions (×100 = percent).
+        for elem in root.iter():
+            local = _localname(elem.tag)
+            ctx_id = elem.get("contextRef", "")
+            if local == _NEW_PCT_TAG and ctx_id in _NEW_CONTEXT_TO_COL:
+                try:
+                    raw = float((elem.text or "").strip())
+                except (ValueError, AttributeError):
+                    continue
+                col = _NEW_CONTEXT_TO_COL[ctx_id]
+                row[col] = round(raw * 100, 4)
+                captured_any = True
+            elif local == _NEW_SHARES_TAG and ctx_id == _NEW_TOTAL_SHARES_CTX:
+                try:
+                    row["total_shares"] = int(float((elem.text or "").strip()))
+                    captured_any = True
+                except (ValueError, AttributeError):
+                    pass
 
     if not captured_any:
         return []
