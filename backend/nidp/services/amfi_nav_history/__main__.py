@@ -30,10 +30,11 @@ def main() -> None:
     p.add_argument("--scheme-codes", type=str, default="",
                    help="Comma-separated scheme codes; default = all active.")
     p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
-    p.add_argument("--only-stale-days", type=int, default=None,
+    p.add_argument("--only-stale-days", type=int, default=7,
                    help="Only refetch schemes whose latest known NAV is older "
-                        "than this many days. Daily Cloud Run job uses 7 to "
-                        "stay inside its 60min timeout. Default = full backfill.")
+                        "than this many days. Daily Cloud Run job default = 7 "
+                        "to stay inside the 60min timeout. Pass 0 for full "
+                        "backfill (one-shot use only).")
     p.add_argument("--metrics", action="store_true")
     args = p.parse_args()
 
