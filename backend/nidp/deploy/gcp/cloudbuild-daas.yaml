@@ -98,7 +98,6 @@ steps:
           --set-env-vars=$$ENV_VARS
           --set-secrets=$$SECRETS
           $$VPC_FLAGS
-          --allow-unauthenticated
           --quiet"
 
         if gcloud run services describe "$$SVC_NAME" \
@@ -109,6 +108,13 @@ steps:
           echo "creating $$SVC_NAME"
           gcloud run services create "$$SVC_NAME" $$COMMON
         fi
+
+        # Grant public (unauthenticated) access — idempotent IAM binding.
+        # --allow-unauthenticated was removed from `services update` in newer SDK.
+        gcloud run services add-iam-policy-binding "$$SVC_NAME" \
+          --member="allUsers" \
+          --role="roles/run.invoker" \
+          --region="${_REGION}" --project="$PROJECT_ID"
         echo "✅ deployed $$SVC_NAME @ $BUILD_ID"
 
   # ── 5. Smoke-test /health ────────────────────────────────────────
