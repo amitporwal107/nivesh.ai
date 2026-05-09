@@ -94,8 +94,20 @@ echo
 # ── 3. GCS Cloud Build source bucket ──────────────────────────────────────
 # gcloud builds submit uploads the source tarball here before creating the
 # build. Without objectAdmin the upload fails with FORBIDDEN.
+# The bucket is auto-created on first build; create it now if absent so the
+# IAM binding doesn't fail.
+log "Ensuring Cloud Build source bucket exists ($CB_BUCKET)..."
+if ! gcloud storage buckets describe "$CB_BUCKET" --project="$PROJECT" &>/dev/null; then
+    run "gcloud storage buckets create '$CB_BUCKET' \
+        --project='$PROJECT' \
+        --location='$REGION' \
+        --uniform-bucket-level-access"
+fi
+
 log "Granting objectAdmin on Cloud Build source bucket ($CB_BUCKET)..."
-run "gsutil iam ch serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin '$CB_BUCKET'"
+run "gcloud storage buckets add-iam-policy-binding '$CB_BUCKET' \
+    --member='serviceAccount:$SA_EMAIL' \
+    --role='roles/storage.objectAdmin'"
 ok "storage.objectAdmin on $CB_BUCKET"
 echo
 
