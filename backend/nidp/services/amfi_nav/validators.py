@@ -22,6 +22,7 @@ ROW_COUNT_MIN = CountAtLeastRule(
     sql="""
         SELECT count(*) FROM nidp.mf_nav_daily
          WHERE source_run_id = $2
+           AND $1::date IS NOT NULL
     """,
     min_count=8000,
     severity=Severity.CRITICAL,
@@ -81,20 +82,21 @@ SCHEME_MASTER_COVERAGE = CustomSQLRule(
         SELECT count(*)
           FROM nidp.mf_nav_daily n
           LEFT JOIN nidp.mf_scheme_master m USING (scheme_code)
-         WHERE n.source_run_id = $2
+         WHERE n.source_run_id = $1
            AND m.scheme_code IS NULL
     """,
     sample_sql="""
         SELECT n.scheme_code
           FROM nidp.mf_nav_daily n
           LEFT JOIN nidp.mf_scheme_master m USING (scheme_code)
-         WHERE n.source_run_id = $2
+         WHERE n.source_run_id = $1
            AND m.scheme_code IS NULL
          LIMIT 5
     """,
     message="NAV rows present without matching scheme_master entry",
     severity=Severity.ERROR,
     failure_class=FailureClass.FIX,
+    params_fn=lambda c: [c.job_run_id],
 )
 
 register("amfi_nav", [
