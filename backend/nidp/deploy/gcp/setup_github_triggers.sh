@@ -68,6 +68,8 @@ ALL_SERVICES=(
     # MF data feeds phase
     amfi_nav amfi_nav_history amfi_circulars
     mf_disclosure_snapshot mf_holdings
+    # Post-ingestion quality gate
+    quality_gate
 )
 
 if [[ -n "$SERVICE_FILTER" ]]; then
@@ -230,6 +232,12 @@ for svc in "${SERVICES[@]}"; do
         # already within the service dir glob, so no extra path needed.
         mf_disclosure_snapshot)
             included="${included},backend/nidp/services/mf_disclosure_snapshot/amfi_central.py"
+            ;;
+        # quality_gate depends heavily on the shared validation, reconciliation,
+        # quality_gate, and certification modules. Any change to those modules
+        # must rebuild the quality_gate image.
+        quality_gate)
+            included="${included},backend/nidp/shared/validation/**,backend/nidp/shared/reconciliation.py,backend/nidp/shared/quality_gate.py,backend/nidp/shared/certification.py"
             ;;
     esac
     create_trigger \

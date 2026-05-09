@@ -1,0 +1,139 @@
+"""python -m nidp.services.quality_gate [--date YYYY-MM-DD] [--domain mf|equity|all]
+
+Runs the full post-ingestion quality pipeline for one trading date:
+  1. Consistency checks (all rules registered for the domain)
+  2. Quality score computation (Q = 0.40A + 0.30C + 0.15P + 0.10F + 0.05U)
+  3. Gate decision: PASS → certify + cache flush
+                   REVIEW → exception queue
+                   FAIL   → quarantine + non-zero exit (triggers Cloud Run retry)
+
+Exit codes:
+  0 — all domains PASS or REVIEW (publishable or queued for ops)
+  1 — at least one domain FAIL (Cloud Run will retry up to --max-retries)
+  2 — argument / config error
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import sys
+from datetime import date, datetime
+
+from nidp.shared.logging_setup import setup_logging
+
+# Trigger rule registration as a side-effect of import
+from nidp.shared.validation.consistency_rules import mf as _mf_rules   # noqa: F401
+from nidp.shared.validation.consistency_rules import equity as _eq_rules  # noqa: F401
+
+from nidp.shared.storage.pg import get_pool, close_pool
+from nidp.shared.validation.consistency_runner import run_consistency_checks
+from nidp.shared.validation.quality_score import (
+    compute_quality_score,
+    persist_quality_score,
+)
+from nidp.shared.quality_gate import QualityGate, GateOutcome
+from nidp.shared.certification import CertificationPublisher
+
+logger = logging.getLogger(__name__)
+
+_DOMAINS = ("mf", "equity")
+
+
+async def run_pipeline(target_date: date, domain_arg: str) -> bool:
+    """Returns True if all domains passed or went to REVIEW; False if any FAIL."""
+    domains = _DOMAINS if domain_arg == "all" else (domain_arg,)
+    pool    = await get_pool()
+    all_ok  = True
+
+    for domain in domains:
+        logger.info("=== quality_gate[%s] %s ===", domain, target_date)
+
+        # Stage 1: consistency checks
+        c_summary = await run_consistency_checks(target_date=target_date, domain=domain)
+        logger.info(
+            "consistency[%s]: status=%s rules=%d findings=%d block=%s",
+            domain, c_summary.status, c_summary.rules_run,
+            c_summary.findings_count, c_summary.has_block,
+        )
+
+        # Stage 2: quality score
+        async with pool.acquire() as conn:
+            qs = await compute_quality_score(conn, target_date, domain)
+            await persist_quality_score(conn, qs)
+        logger.info(
+            "quality_score[%s]: overall=%.3f cert=%s decision=%s",
+            domain, qs.overall, qs.certification, qs.publish_decision,
+        )
+
+        # Stage 3: gate decision
+        async with pool.acquire() as conn:
+            gate      = QualityGate(conn)
+            decision  = await gate.evaluate(target_date, domain)
+
+        logger.info(
+            "gate[%s]: outcome=%s reason=%s",
+            domain, decision.outcome, decision.reason,
+        )
+
+        if decision.outcome == GateOutcome.PASS:
+            async with pool.acquire() as conn:
+                pub = CertificationPublisher(conn)
+                await pub.publish(target_date, domain, quality_score=qs)
+            logger.info("certified[%s] %s — cache invalidated", domain, target_date)
+
+        elif decision.outcome == GateOutcome.REVIEW:
+            logger.warning(
+                "REVIEW[%s] %s — added to exception_queue. ops must resolve manually.",
+                domain, target_date,
+            )
+
+        else:  # FAIL
+            logger.error(
+                "FAIL[%s] %s — quarantined. reason: %s",
+                domain, target_date, decision.reason,
+            )
+            all_ok = False
+
+    return all_ok
+
+
+def _parse_date(s: str) -> date:
+    return datetime.strptime(s, "%Y-%m-%d").date()
+
+
+def main() -> None:
+    setup_logging()
+
+    p = argparse.ArgumentParser(
+        description="NIDP Quality Gate — post-ingestion pipeline",
+    )
+    p.add_argument(
+        "--date", type=_parse_date, default=None,
+        help="Target date (default: today)",
+    )
+    p.add_argument(
+        "--domain", choices=("mf", "equity", "all"), default="all",
+        help="Domain to gate (default: all)",
+    )
+    args = p.parse_args()
+
+    target_date = args.date or date.today()
+    logger.info("quality_gate starting: date=%s domain=%s", target_date, args.domain)
+
+    async def _main() -> bool:
+        try:
+            return await run_pipeline(target_date, args.domain)
+        finally:
+            await close_pool()
+
+    success = asyncio.run(_main())
+    if not success:
+        logger.error("quality_gate FAILED — exiting with code 1 (Cloud Run will retry)")
+        sys.exit(1)
+
+    logger.info("quality_gate complete for %s", target_date)
+
+
+if __name__ == "__main__":
+    main()
