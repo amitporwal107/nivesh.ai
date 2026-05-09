@@ -1,43 +1,39 @@
 # Cloud Build pipeline for one NIDP service.
 # Parameterised — the GitHub trigger sets _SERVICE (e.g. "bhavcopy")
-# and _SERVICE_DASHED (e.g. "bhavcopy" or "nse-calendar"). The build
-# produces an image tagged with $BUILD_ID and :latest, then bumps
-# the matching Cloud Run job to the new tag.
+# and _SERVICE_DASHED (e.g. "bhavcopy" or "nse-calendar").
+#
+# Build strategy:
+#   • Kaniko with registry-based layer cache (90d TTL) — the pip-install
+#     layer is reused across builds when requirements.txt is unchanged.
+#   • Tags every successful build with BOTH the BUILD_ID (immutable) and
+#     :latest (mutable, points at HEAD of nidp branch).
+#   • A `:stable` tag is promoted manually via the rollback.sh script
+#     when a build is verified healthy in production. Rollback =
+#     re-deploying :stable.
+#   • Runs on the project-level private worker pool `nidp-private-pool`
+#     so we don't share quota with other GCP customers.
 #
 # Triggers using this config are created by setup_github_triggers.sh.
 
 steps:
-  # 1. Build the image
-  - id: build
-    name: gcr.io/cloud-builders/docker
+  # 1. Build + push using Kaniko with registry layer cache.
+  #    Kaniko writes intermediate layers to a `cache` repo in AR and
+  #    reuses them on subsequent builds → pip install layer cached.
+  - id: build-and-push
+    name: gcr.io/kaniko-project/executor:v1.20.0
     args:
-      - build
-      - -f
-      - backend/nidp/services/${_SERVICE}/Dockerfile
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
-      - .
+      - --dockerfile=backend/nidp/services/${_SERVICE}/Dockerfile
+      - --context=dir:///workspace
+      - --destination=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
+      - --destination=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
+      - --cache=true
+      - --cache-ttl=720h
+      - --cache-repo=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp-cache/${_SERVICE}
+      - --compressed-caching=false
+      - --snapshot-mode=redo
+      - --use-new-run
 
-  # 2. Push both tags to Artifact Registry EXPLICITLY before deploy.
-  #    The `images:` directive at the bottom of this yaml *also*
-  #    pushes them — but only after every step finishes. The deploy
-  #    step below needs the SHA tag to already be in AR, so we push
-  #    here first. Without this, deploy fails with
-  #    'gcloud.run.jobs.update: Image ...:<sha> not found'.
-  - id: push-sha
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
-  - id: push-latest
-    name: gcr.io/cloud-builders/docker
-    args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
-
-  # 3. Update the Cloud Run job to the new SHA tag (idempotent — if the
+  # 2. Update the Cloud Run job to the new SHA tag (idempotent — if the
   #    job doesn't exist yet, this step skips).
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -56,10 +52,6 @@ steps:
           echo "⚠ nidp-${_SERVICE_DASHED} doesn't exist yet — image pushed; run deploy.sh to create the job"
         fi
 
-images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:latest
-
 substitutions:
   _SERVICE: ''           # e.g. "bhavcopy" — set per trigger
   _SERVICE_DASHED: ''    # e.g. "nse-calendar" — set per trigger
@@ -68,5 +60,7 @@ substitutions:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8
+  pool:
+    name: projects/$PROJECT_ID/locations/asia-south1/workerPools/nidp-private-pool
 
 timeout: 600s
