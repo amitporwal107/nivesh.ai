@@ -139,7 +139,7 @@ async def run(
         events = events_by_symbol.get(sym, [])
         cumfactors = cumulative_factors_for_dates(events, target_dates)
         for r, (cum_pret, cum_tret, last_ex, last_type) in zip(rows, cumfactors):
-            close = r["close_price"]
+            close = float(r["close_price"]) if r["close_price"] is not None else None
             if close is None or close <= 0:
                 report.rows_skipped += 1
                 continue
@@ -175,10 +175,10 @@ async def run(
     return report
 
 
-def _scale(value: Optional[float], factor: float) -> Optional[float]:
+def _scale(value, factor: float) -> Optional[float]:
     if value is None:
         return None
-    return round(value * factor, 6)
+    return round(float(value) * factor, 6)
 
 
 def _scale_volume(volume: Optional[int], factor: float) -> Optional[int]:
