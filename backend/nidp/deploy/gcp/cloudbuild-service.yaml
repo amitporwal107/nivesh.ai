@@ -11,7 +11,10 @@
 #     when a build is verified healthy in production. Rollback =
 #     re-deploying :stable.
 #   • Runs on the project-level private worker pool `nidp-private-pool`
-#     so we don't share quota with other GCP customers.
+#     when E2_CPUS quota is granted in asia-south1. Until then, this
+#     config falls back to the default shared pool by leaving
+#     options.pool unset. To enable the private pool, uncomment the
+#     `pool:` block under `options:` (see bottom of file).
 #
 # Triggers using this config are created by setup_github_triggers.sh.
 
@@ -47,19 +50,23 @@ steps:
           gcloud run jobs update nidp-${_SERVICE_DASHED} \
               --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/${_SERVICE}:$BUILD_ID \
               --region=${_REGION} --project=$PROJECT_ID --quiet
-          echo "✅ updated nidp-${_SERVICE_DASHED} to $BUILD_ID"
+          echo "updated nidp-${_SERVICE_DASHED} to $BUILD_ID"
         else
-          echo "⚠ nidp-${_SERVICE_DASHED} doesn't exist yet — image pushed; run deploy.sh to create the job"
+          echo "nidp-${_SERVICE_DASHED} doesn't exist yet - image pushed only"
         fi
 
 substitutions:
-  _SERVICE: ''           # e.g. "bhavcopy" — set per trigger
-  _SERVICE_DASHED: ''    # e.g. "nse-calendar" — set per trigger
+  _SERVICE: ''
+  _SERVICE_DASHED: ''
   _REGION: 'asia-south1'
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  pool:
-    name: projects/$PROJECT_ID/locations/asia-south1/workerPools/nidp-private-pool
+  machineType: E2_HIGHCPU_8
+  # Once E2_CPUS quota is granted in asia-south1, uncomment the next
+  # two lines AND remove the `machineType:` line above (incompatible
+  # with private pools — the pool's worker config supplies the type).
+  # pool:
+  #   name: projects/$PROJECT_ID/locations/asia-south1/workerPools/nidp-private-pool
 
 timeout: 600s
