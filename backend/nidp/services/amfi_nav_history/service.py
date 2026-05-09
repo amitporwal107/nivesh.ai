@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "amfi_nav_history"
 
-DEFAULT_CONCURRENCY = 8
+DEFAULT_CONCURRENCY = 5
+_CHUNK_SIZE = 200  # schemes per gather() batch — bounds peak in-flight memory
 
 
 def _parse_mfapi_date(s: str):
@@ -160,7 +161,12 @@ async def run(
                     inserted = await upsert_history(rows, run.run_id)
                     total_inserted += inserted
 
-                await asyncio.gather(*[_one(c) for c in codes])
+                for i in range(0, len(codes), _CHUNK_SIZE):
+                    await asyncio.gather(*[_one(c) for c in codes[i:i + _CHUNK_SIZE]])
+                    logger.info(
+                        "amfi_nav_history chunk %d/%d done",
+                        min(i + _CHUNK_SIZE, len(codes)), len(codes),
+                    )
 
             run.rows_fetched = total_fetched
             run.rows_inserted = total_inserted

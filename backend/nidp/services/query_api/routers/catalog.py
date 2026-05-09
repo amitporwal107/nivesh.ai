@@ -34,7 +34,7 @@ _CATALOG_TABLES: List[Tuple[str, Optional[str], str]] = [
     ("nse_holidays",              "holiday_date", "Reference"),
     ("sector_master",             None,           "Reference"),
     ("nse_financials_quarterly",  "period_end",   "Fundamentals"),
-    ("shareholding_pattern",      "as_of_date",   "Fundamentals"),
+    ("shareholding_pattern",      "period_end",   "Fundamentals"),
     ("rbi_yields",                "as_of_date",   "Macro"),
     ("fred_macro",                "as_of_date",   "Macro"),
     ("corporate_announcements",   "filed_at",     "Disclosure"),
@@ -43,6 +43,14 @@ _CATALOG_TABLES: List[Tuple[str, Optional[str], str]] = [
     ("stock_features_daily",      "as_of_date",   "Derived"),
     ("market_daily_snapshot",     "as_of_date",   "Derived"),
     ("stock_daily_snapshot",      "as_of_date",   "Derived"),
+    # ── Mutual Funds ─────────────────────────────────────────────────
+    ("mf_amc_master",                  None,           "Mutual Funds"),
+    ("mf_scheme_master",               None,           "Mutual Funds"),
+    ("mf_nav_daily",                   "nav_date",     "Mutual Funds"),
+    ("mf_holdings_monthly",            "as_of_month",  "Mutual Funds"),
+    ("mf_scheme_disclosure_snapshot",  "snapshot_date","Mutual Funds"),
+    ("mf_scheme_events",               "event_date",   "Mutual Funds"),
+    ("mf_amfi_circulars",              "published_at", "Mutual Funds"),
 ]
 
 
@@ -160,6 +168,42 @@ _TABLE_DESC: Dict[str, Dict[str, str]] = {
         "stores":   "Stock card payload (price, change, volume, delivery, key features) — one per (symbol, day)",
         "use":      "Frozen 'as-of' read for positional picks; ensures historical UI shows what we knew on that day.",
     },
+    # ── Mutual Funds ─────────────────────────────────────────────────────
+    "mf_amc_master": {
+        "source":   "Seeded from AMFI + manual AUM data (quarterly refresh)",
+        "stores":   "AMC slug, name, registrar (CAMS/KFINTECH), AUM, website — ~45 AMCs",
+        "use":      "Foreign key target for mf_scheme_master; drives AMC-level aggregations and top-N filtering.",
+    },
+    "mf_scheme_master": {
+        "source":   "AMFI NAVAll.txt — section headers carry scheme metadata inline (daily, ~10 k schemes)",
+        "stores":   "Canonical scheme code, name, AMC, ISINs (growth + IDCW), category, benchmark, status, latest NAV",
+        "use":      "Primary lookup for any MF query — join on scheme_code or ISIN from CAS/portfolio data.",
+    },
+    "mf_nav_daily": {
+        "source":   "AMFI NAVAll.txt daily file (amfi_nav Cloud Run job, 20:00 IST Mon–Fri); MFAPI backfill",
+        "stores":   "Daily NAV, repurchase NAV, sale NAV per scheme — ~10 k schemes × ~250 days/yr = ~2.5 M rows/yr",
+        "use":      "Return calculation, SIP XIRR, historical performance charts. Timescale hypertable.",
+    },
+    "mf_holdings_monthly": {
+        "source":   "Top-10 AMC monthly portfolio disclosures (SEBI mandate — published by 10th of M+1)",
+        "stores":   "Per-security weight, market value, quantity, sector, credit rating — one snapshot per scheme per month",
+        "use":      "Portfolio overlap analysis, sector concentration, hidden equity exposure in debt funds.",
+    },
+    "mf_scheme_disclosure_snapshot": {
+        "source":   "AMC SID pages scraped weekly (mf_disclosure_snapshot Cloud Run job, 12th of month)",
+        "stores":   "TER (regular + direct), risk-o-meter, primary/secondary fund manager, AUM — weekly snapshot",
+        "use":      "Source for mf_scheme_events diff engine; also surfaces real-time manager and expense changes.",
+    },
+    "mf_scheme_events": {
+        "source":   "Derived: diff of consecutive mf_scheme_disclosure_snapshot rows + AMFI circular parsing",
+        "stores":   "Typed lifecycle events (ter_change, manager_change, risk_change, merger, rename, launch, closure) with old/new values",
+        "use":      "Alert feed for scheme changes; drives the MF scheme-event DaaS endpoint.",
+    },
+    "mf_amfi_circulars": {
+        "source":   "AMFI notices listing page (amfi_circulars Cloud Run job, daily 09:00 IST)",
+        "stores":   "Circular title, URL, kind (notice/circular/addendum), published date, extracted body text",
+        "use":      "Raw source for merger/rename events that predate the disclosure snapshot cycle.",
+    },
 }
 
 
@@ -171,6 +215,7 @@ _DOMAIN_DESC: Dict[str, str] = {
     "Macro":           "India rate curve (RBI G-Sec) + global macro (FRED). Context for risk-on/risk-off regime.",
     "Disclosure":      "Real-time exchange filings, parsed PDFs, and pgvector embeddings — drives the announcement intelligence and Copilot.",
     "Derived":         "Pre-computed snapshots and per-stock feature rows. Built nightly so the strategy engine and dashboard read flat rows instead of recomputing 90-bar windows.",
+    "Mutual Funds":    "AMFI NAV time series, monthly portfolio holdings, TER/risk-o-meter snapshots, scheme lifecycle events, and AMFI circulars — covering ~10 k schemes across all AMCs.",
 }
 
 
