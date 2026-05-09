@@ -7,7 +7,7 @@
     {"name": "as_of_date",          "type": "string"},
     {"name": "biz_date",            "type": ["null", "string"], "default": null},
     {"name": "instrument_type",     "type": {"type": "enum", "name": "FnoInstrumentType",
-                                              "symbols": ["FUTIDX","FUTSTK","OPTIDX","OPTSTK","UNKNOWN"],
+                                              "symbols": ["FUTIDX","FUTSTK","OPTIDX","OPTSTK","IDF","STF","IDO","STO","UNKNOWN"],
                                               "default": "UNKNOWN"}},
     {"name": "ticker_symbol",       "type": "string"},
     {"name": "isin",                "type": ["null", "string"], "default": null},
