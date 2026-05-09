@@ -210,7 +210,8 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
          WHERE {' AND '.join(where)}
     """
     # Long-running query — bump server-side and asyncpg timeouts.
-    await conn.execute("SET LOCAL statement_timeout = 600000")  # 10 min
+    # SET (not SET LOCAL) since we're not in a transaction here.
+    await conn.execute("SET statement_timeout = 600000")  # 10 min
     rows = await conn.fetch(sql, *args, timeout=600)
     return [dict(r) for r in rows]
 
