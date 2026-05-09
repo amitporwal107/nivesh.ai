@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 SOURCE_NAME = "NSE_SEC_BHAVDATA"
 
 
+_BATCH_SIZE = 500
+_STMT_TIMEOUT_MS = 60_000  # 60s per batch
+
+
 async def upsert_delivery(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
@@ -21,23 +25,33 @@ async def upsert_delivery(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
          SOURCE_NAME, run_id)
         for r in rows
     ]
+
+    sql = """
+        INSERT INTO nidp.delivery_data
+            (as_of_date, symbol, series, traded_qty, deliverable_qty,
+             deliverable_pct, source, source_run_id, ingested_at)
+        VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (as_of_date, symbol, series, source) DO UPDATE SET
+            traded_qty       = EXCLUDED.traded_qty,
+            deliverable_qty  = EXCLUDED.deliverable_qty,
+            deliverable_pct  = EXCLUDED.deliverable_pct,
+            source_run_id    = EXCLUDED.source_run_id,
+            ingested_at      = NOW()
+    """
+
+    # Batch the upsert to avoid asyncpg executemany TimeoutError
+    # on the default 30s socket-level timeout when row count is large
+    # (~2k rows * 8 cols * round-trips).
     pool = await get_pool()
+    total = 0
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.executemany(
-                """
-                INSERT INTO nidp.delivery_data
-                    (as_of_date, symbol, series, traded_qty, deliverable_qty,
-                     deliverable_pct, source, source_run_id, ingested_at)
-                VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8, NOW())
-                ON CONFLICT (as_of_date, symbol, series, source) DO UPDATE SET
-                    traded_qty       = EXCLUDED.traded_qty,
-                    deliverable_qty  = EXCLUDED.deliverable_qty,
-                    deliverable_pct  = EXCLUDED.deliverable_pct,
-                    source_run_id    = EXCLUDED.source_run_id,
-                    ingested_at      = NOW()
-                """,
-                args,
-            )
-    logger.info("delivery_data upserted %d rows", len(args))
-    return len(args)
+        await conn.execute(f"SET LOCAL statement_timeout = {_STMT_TIMEOUT_MS}")
+        for i in range(0, len(args), _BATCH_SIZE):
+            batch = args[i:i + _BATCH_SIZE]
+            async with conn.transaction():
+                await conn.executemany(sql, batch, timeout=120)
+            total += len(batch)
+            logger.info("delivery_data batch upserted %d/%d rows",
+                        total, len(args))
+    logger.info("delivery_data upserted %d rows total", total)
+    return total
