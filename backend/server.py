@@ -70,7 +70,6 @@ from routes.broker_connect import router as broker_connect_router  # Secure Port
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
-from routes.mf_daas import router as mf_daas_router              # MF DaaS — schemes, NAV, holdings, events, disclosure, circulars
 
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -125,7 +124,6 @@ app.include_router(broker_connect_router)          # Secure Portfolio Connect �
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
-app.include_router(mf_daas_router)                 # MF DaaS (/api/data/mf/*)
 
 
 # Root endpoint

@@ -52,6 +52,7 @@ from nidp.services.daas_api.routers import (
     indices,
     macro,
     me,
+    mf,
     prices,
     reference,
     snapshots,
@@ -129,6 +130,7 @@ _TAGS = [
     {"name": "macro",            "description": "RBI G-Sec yields and global macro series from FRED."},
     {"name": "snapshots",        "description": "Pre-computed market-wide and per-stock daily snapshots."},
     {"name": "features",         "description": "Engineered features from the Nivesh S4/S5 strategy pipeline."},
+    {"name": "mutual_funds",     "description": "Mutual fund AMCs, schemes, daily NAV, monthly holdings, portfolio overlap, lifecycle events, TER/risk-o-meter snapshots, AMFI circulars."},
 ]
 
 app = FastAPI(
@@ -277,3 +279,4 @@ app.include_router(macro.router, prefix=v1_prefix)
 app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
 app.include_router(events.router, prefix=v1_prefix)
+app.include_router(mf.router, prefix=v1_prefix)

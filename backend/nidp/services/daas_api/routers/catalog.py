@@ -180,6 +180,55 @@ _DATASETS: List[Dict[str, Any]] = [
         "endpoints":  ["/v1/snapshots/stock/{symbol}"],
         "description": "Per-stock point-in-time card — OHLCV + index flags + deals.",
     },
+    # ── Mutual Fund feeds ─────────────────────────────────────────────
+    {
+        "name":       "mf_scheme_master",
+        "table":      "nidp.mf_scheme_master",
+        "date_col":   None,
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/schemes", "/v1/mf/schemes/{scheme_code}"],
+        "description": "AMFI scheme catalog — codes, ISINs, AMC, category, benchmark, status.",
+    },
+    {
+        "name":       "mf_nav_daily",
+        "table":      "nidp.mf_nav_daily",
+        "date_col":   "nav_date",
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/nav/{scheme_code}", "/v1/mf/nav/latest"],
+        "description": "Daily NAV time series for all AMFI schemes (~10k schemes, updated daily).",
+    },
+    {
+        "name":       "mf_holdings_monthly",
+        "table":      "nidp.mf_holdings_monthly",
+        "date_col":   "as_of_month",
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/holdings/{scheme_code}", "/v1/mf/holdings/overlap"],
+        "description": "Monthly SEBI-mandated portfolio holdings for top-10 AMCs.",
+    },
+    {
+        "name":       "mf_scheme_events",
+        "table":      "nidp.mf_scheme_events",
+        "date_col":   "event_date",
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/schemes/{scheme_code}/events"],
+        "description": "Detected scheme lifecycle events: TER changes, manager changes, risk shifts, mergers, renames.",
+    },
+    {
+        "name":       "mf_scheme_disclosure_snapshot",
+        "table":      "nidp.mf_scheme_disclosure_snapshot",
+        "date_col":   "snapshot_date",
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/schemes/{scheme_code}/disclosure"],
+        "description": "Weekly TER, risk-o-meter, and fund manager snapshots from SID pages.",
+    },
+    {
+        "name":       "mf_amfi_circulars",
+        "table":      "nidp.mf_amfi_circulars",
+        "date_col":   "published_at",
+        "domain":     "Mutual Funds",
+        "endpoints":  ["/v1/mf/circulars"],
+        "description": "AMFI notices, circulars, and addenda — source for scheme lifecycle events.",
+    },
 ]
 
 
