@@ -150,6 +150,8 @@ def build_events(
 
         elif action == "DIVIDEND":
             prev = prev_close_lookup(symbol, ex_date)
+            if prev is not None:
+                prev = float(prev)
             div_amt = float(r["dividend_amount"]) if r.get("dividend_amount") is not None else None
             f = dividend_factor(div_amt, prev)
             if f is None:
