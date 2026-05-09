@@ -110,6 +110,7 @@ Five Cloud Run Jobs ingest AMFI and per-AMC mutual fund data:
 | `amfi_circulars` | AMFI scheme-lifecycle notices | Daily 09:00 | Mergers, renames, new scheme filings |
 | `mf_disclosure_snapshot` | AMFI central TER + risk-o-meter Excels | 12th of month 10:00 | SEBI mandates publication by the 10th |
 | `mf_holdings` | Per-AMC monthly portfolio Excels (10 AMCs) | 12th of month 11:00 | SEBI XBRL-format disclosure; 1h after snapshot |
+| `quality_gate` | Internal (reads Postgres) | Mon–Fri 22:30 | Post-ingestion quality pipeline — see below |
 
 AMCs covered by `mf_holdings`: SBI, ICICI Pru, HDFC, Nippon, Kotak, ABSL, UTI, Axis, Tata, Mirae Asset.
 
@@ -135,6 +136,78 @@ The script runs 7 steps in order:
 | 4 | Create 4 Cloud Scheduler triggers (skips if already exists) |
 | 5 | Create 5 GitHub push triggers via `setup_github_triggers.sh` |
 | 6 | Smoke-test `nidp-amfi-nav` with `--wait` and tail logs |
+
+### Quality Gate — post-ingestion pipeline
+
+The `quality_gate` Cloud Run Job runs at **22:30 IST Mon–Fri** after all
+daily ingesters, the snapshot builder, and the price adjuster have settled.
+
+**What it does (for each domain: `mf`, `equity`):**
+
+| Stage | Action |
+|---|---|
+| 1. Consistency | Runs cross-source, internal, temporal, and point-in-time rules |
+| 2. Quality Score | Computes Q = 0.40·Accuracy + 0.30·Consistency + 0.15·Completeness + 0.10·Freshness + 0.05·Auditability |
+| 3. Gate Decision | PASS → certify + API cache flush · REVIEW → `exception_queue` · FAIL → `quarantine_log` + exit 1 |
+
+**Certification tiers:** Platinum ≥ 99.5 · Gold 98–99.49 · Silver 95–97.99 · Review < 95
+
+**First-time deploy — run migration 040 before creating the job:**
+
+```bash
+# Apply migration 040 (new tables: consistency_runs, consistency_findings,
+# quality_scores, certified_dates, exception_queue, quarantine_log)
+gcloud builds submit . \
+  --config=backend/nidp/deploy/gcp/cloudbuild-migrations.yaml \
+  --project=niveshdataintelligence --region=asia-south1
+
+# Build + deploy the quality_gate job
+./deploy.sh --project=niveshdataintelligence \
+  --services=quality_gate --confirm
+
+# Create the Cloud Scheduler trigger
+./setup_schedules.sh --project=niveshdataintelligence --confirm
+
+# Create the GitHub push trigger
+./setup_github_triggers.sh --project=niveshdataintelligence \
+  --service=quality_gate --confirm
+```
+
+**Manual run (test a specific date):**
+
+```bash
+gcloud run jobs execute nidp-quality-gate \
+  --region=asia-south1 --project=niveshdataintelligence \
+  --args="--date=2026-05-09,--domain=all" --wait
+```
+
+**Optional: API cache webhook (CDN/API-GW purge on certification)**
+
+```bash
+printf "%s" "https://your-cdn.example.com/cache/purge" | \
+  gcloud secrets create NIDP_CACHE_WEBHOOK_URL \
+  --data-file=- --replication-policy=automatic \
+  --project=niveshdataintelligence
+```
+If absent, cache invalidation falls back to Redis-only (or no-op if Redis is
+also unconfigured). The quality gate itself still runs normally.
+
+**Monitoring:**
+
+```bash
+# Tail quality gate logs
+gcloud logging read \
+  'resource.type=cloud_run_job AND resource.labels.job_name=nidp-quality-gate' \
+  --limit=50 --format='value(textPayload)' --project=niveshdataintelligence
+
+# Check certified dates via API
+curl -H "Authorization: Bearer $TOKEN" \
+  https://nidp-daas-api-<hash>-as.a.run.app/certification
+
+# Check exception queue (ops dashboard)
+curl -H "Authorization: Bearer $TOKEN" \
+  https://nidp-daas-api-<hash>-as.a.run.app/exception-queue
+```
 
 ### One-time NAV history backfill
 

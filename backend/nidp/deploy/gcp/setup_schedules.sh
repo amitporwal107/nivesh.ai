@@ -219,6 +219,26 @@ add_schedule nidp-event-day-poller   '*/5 9-16 * * 1-5' 'Event-day results polle
 add_schedule nidp-d1-prep            '0 19 * * 1-5'   'D-1 pre-event briefings (Claude Sonnet)'
 add_schedule nidp-intelligence       '0 20 * * 1-5'   'Post-event intelligence + breakout alerts'
 
+# ── Post-ingestion quality gate ────────────────────────────────────
+#
+# quality_gate:
+#   Runs the full post-ingestion pipeline for each trading date:
+#     1. Cross-source + temporal consistency checks (mf + equity)
+#     2. Weighted quality score (Q = 0.40A + 0.30C + 0.15P + 0.10F + 0.05U)
+#     3. Gate decision: PASS → certify + cache flush
+#                       REVIEW → exception queue (ops resolves)
+#                       FAIL   → quarantine (Cloud Run retries up to max-retries)
+#
+#   22:30 IST runs AFTER:
+#     • snapshot_builder (22:00 IST)  — stock feature snapshots settled
+#     • price_adjuster   (22:30 IST)  — same window, no DB write conflict
+#       (price_adjuster reads prices_eod; quality_gate reads it too but read-only)
+#
+#   Non-trading days: Cloud Run jobs exit cleanly with 0 rows found.
+#   Re-runs are idempotent: consistency_runs are append-only (new run_id),
+#   quality_scores are append-only, certified_dates uses UPSERT.
+add_schedule nidp-quality-gate       '30 22 * * 1-5'  'Quality gate: consistency + score + certify'
+
 echo
 log "done. List triggers:  ./list_schedules.sh"
 log "yfinance_backfill is event-driven (manual run only) — not scheduled."

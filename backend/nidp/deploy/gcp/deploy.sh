@@ -61,6 +61,8 @@ ALL_SERVICES=(
     mf_disclosure_snapshot mf_holdings
     # Corporate event intelligence pipeline
     event_calendar event_day_poller d1_prep intelligence
+    # Post-ingestion quality gate (consistency + scoring + certification)
+    quality_gate
 )
 
 # ── Args ────────────────────────────────────────────────────────────
@@ -192,6 +194,11 @@ declare -A JOB_SECRETS=(
     #   printf "%s" "<CHAT_ID>"   | gcloud secrets create NIDP_TELEGRAM_CHAT_ID ...
     [d1_prep]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,NIDP_TELEGRAM_BOT_TOKEN=NIDP_TELEGRAM_BOT_TOKEN:latest,NIDP_TELEGRAM_CHAT_ID=NIDP_TELEGRAM_CHAT_ID:latest"
     [intelligence]="ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,NIDP_TELEGRAM_BOT_TOKEN=NIDP_TELEGRAM_BOT_TOKEN:latest,NIDP_TELEGRAM_CHAT_ID=NIDP_TELEGRAM_CHAT_ID:latest"
+    # quality_gate reads NIDP_REDIS_URL (already in common) for cache flush
+    # and optionally NIDP_CACHE_WEBHOOK_URL for CDN/API-GW purge.
+    # Create once: printf "%s" "<url>" | gcloud secrets create NIDP_CACHE_WEBHOOK_URL ...
+    # If absent, webhook purge is silently skipped.
+    [quality_gate]="NIDP_CACHE_WEBHOOK_URL=NIDP_CACHE_WEBHOOK_URL:latest"
 )
 
 for svc in "${SVC_LIST[@]}"; do
@@ -201,7 +208,23 @@ for svc in "${SVC_LIST[@]}"; do
     IMG="$AR_REPO/$svc:$TAG"
     JOB_NAME="nidp-${svc//_/-}"
     SECRETS_FOR_SVC="${JOB_SECRETS[common]}"
-    [[ -n "${JOB_SECRETS[$svc]:-}" ]] && SECRETS_FOR_SVC="$SECRETS_FOR_SVC,${JOB_SECRETS[$svc]}"
+    if [[ -n "${JOB_SECRETS[$svc]:-}" ]]; then
+        # For optional secrets (e.g. NIDP_CACHE_WEBHOOK_URL), only append if
+        # the secret actually exists in Secret Manager — prevents deploy failure
+        # when the secret hasn't been created yet.
+        EXTRA_SECRETS=""
+        IFS=',' read -ra _PAIRS <<< "${JOB_SECRETS[$svc]}"
+        for _pair in "${_PAIRS[@]}"; do
+            _secret_name="${_pair%%=*}"   # e.g. NIDP_CACHE_WEBHOOK_URL
+            if gcloud secrets describe "$_secret_name" \
+                    --project="$PROJECT" &>/dev/null; then
+                EXTRA_SECRETS="${EXTRA_SECRETS:+$EXTRA_SECRETS,}$_pair"
+            else
+                warn "secret $_secret_name not found — skipping for $svc (create it to enable)"
+            fi
+        done
+        [[ -n "$EXTRA_SECRETS" ]] && SECRETS_FOR_SVC="$SECRETS_FOR_SVC,$EXTRA_SECRETS"
+    fi
 
     # VPC connector required so Cloud Run jobs can reach the VM's
     # internal IP (where Postgres + Kafka live). private-ranges-only
