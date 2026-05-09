@@ -209,7 +209,9 @@ async def _load_prices(conn, *, since: Optional[date], symbols: Optional[List[st
           FROM nidp.prices_eod
          WHERE {' AND '.join(where)}
     """
-    rows = await conn.fetch(sql, *args)
+    # Long-running query — bump server-side and asyncpg timeouts.
+    await conn.execute("SET LOCAL statement_timeout = 600000")  # 10 min
+    rows = await conn.fetch(sql, *args, timeout=600)
     return [dict(r) for r in rows]
 
 
@@ -245,44 +247,52 @@ async def _upsert_adjusted(rows: List[dict], run_id: str) -> int:
         SOURCE_NAME, run_id,
     ) for r in rows]
 
+    sql = """
+        INSERT INTO nidp.prices_eod_adjusted
+            (symbol, as_of_date,
+             raw_open, raw_high, raw_low, raw_close, raw_volume,
+             adj_open, adj_high, adj_low, adj_close, adj_volume,
+             tret_close,
+             cumulative_adj_factor, cumulative_tret_factor,
+             last_event_ex_date, last_event_type,
+             source, source_run_id, ingested_at)
+        VALUES ($1, $2::date,
+                $3, $4, $5, $6, $7,
+                $8, $9, $10, $11, $12,
+                $13,
+                $14, $15,
+                $16::date, $17,
+                $18, $19, NOW())
+        ON CONFLICT (symbol, as_of_date, source) DO UPDATE SET
+            raw_open                = EXCLUDED.raw_open,
+            raw_high                = EXCLUDED.raw_high,
+            raw_low                 = EXCLUDED.raw_low,
+            raw_close               = EXCLUDED.raw_close,
+            raw_volume              = EXCLUDED.raw_volume,
+            adj_open                = EXCLUDED.adj_open,
+            adj_high                = EXCLUDED.adj_high,
+            adj_low                 = EXCLUDED.adj_low,
+            adj_close               = EXCLUDED.adj_close,
+            adj_volume              = EXCLUDED.adj_volume,
+            tret_close              = EXCLUDED.tret_close,
+            cumulative_adj_factor   = EXCLUDED.cumulative_adj_factor,
+            cumulative_tret_factor  = EXCLUDED.cumulative_tret_factor,
+            last_event_ex_date      = EXCLUDED.last_event_ex_date,
+            last_event_type         = EXCLUDED.last_event_type,
+            source_run_id           = EXCLUDED.source_run_id,
+            ingested_at             = NOW()
+    """
+
+    # Batch upsert to avoid asyncpg executemany TimeoutError on
+    # large rebuilds. Default executemany timeout (~30s) is too tight
+    # for 100k+ row symbol-universe runs.
+    BATCH = 500
+    total = 0
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.executemany(
-                """
-                INSERT INTO nidp.prices_eod_adjusted
-                    (symbol, as_of_date,
-                     raw_open, raw_high, raw_low, raw_close, raw_volume,
-                     adj_open, adj_high, adj_low, adj_close, adj_volume,
-                     tret_close,
-                     cumulative_adj_factor, cumulative_tret_factor,
-                     last_event_ex_date, last_event_type,
-                     source, source_run_id, ingested_at)
-                VALUES ($1, $2::date,
-                        $3, $4, $5, $6, $7,
-                        $8, $9, $10, $11, $12,
-                        $13,
-                        $14, $15,
-                        $16::date, $17,
-                        $18, $19, NOW())
-                ON CONFLICT (symbol, as_of_date, source) DO UPDATE SET
-                    raw_open                = EXCLUDED.raw_open,
-                    raw_high                = EXCLUDED.raw_high,
-                    raw_low                 = EXCLUDED.raw_low,
-                    raw_close               = EXCLUDED.raw_close,
-                    raw_volume              = EXCLUDED.raw_volume,
-                    adj_open                = EXCLUDED.adj_open,
-                    adj_high                = EXCLUDED.adj_high,
-                    adj_low                 = EXCLUDED.adj_low,
-                    adj_close               = EXCLUDED.adj_close,
-                    adj_volume              = EXCLUDED.adj_volume,
-                    tret_close              = EXCLUDED.tret_close,
-                    cumulative_adj_factor   = EXCLUDED.cumulative_adj_factor,
-                    cumulative_tret_factor  = EXCLUDED.cumulative_tret_factor,
-                    last_event_ex_date      = EXCLUDED.last_event_ex_date,
-                    last_event_type         = EXCLUDED.last_event_type,
-                    source_run_id           = EXCLUDED.source_run_id,
-                    ingested_at             = NOW()
-                """,
-                args,
-            )
-    return len(args)
+        await conn.execute("SET LOCAL statement_timeout = 60000")
+        for i in range(0, len(args), BATCH):
+            batch = args[i:i + BATCH]
+            async with conn.transaction():
+                await conn.executemany(sql, batch, timeout=120)
+            total += len(batch)
+    return total
