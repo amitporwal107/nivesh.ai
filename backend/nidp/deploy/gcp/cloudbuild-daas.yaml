@@ -11,7 +11,7 @@
 #
 # Steps:
 #   1. Build the daas_api image
-#   2. Push :$SHORT_SHA and :latest to Artifact Registry
+#   2. Push :$BUILD_ID and :latest to Artifact Registry
 #   3. Run DB migrations (against the live Postgres via VPC) — safe because
 #      every migration is idempotent (CREATE IF NOT EXISTS / ON CONFLICT IGNORE).
 #   4. Update the Cloud Run Service to the new tag
@@ -26,7 +26,7 @@ steps:
       - -f
       - backend/nidp/services/daas_api/Dockerfile
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$BUILD_ID
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:latest
       - .
@@ -37,7 +37,7 @@ steps:
     waitFor: [build]
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$BUILD_ID
 
   - id: push-latest
     name: gcr.io/cloud-builders/docker
@@ -56,7 +56,7 @@ steps:
   # from Cloud Build, remove this step and run migrations manually
   # (see README).
   - id: migrate
-    name: ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+    name: ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$BUILD_ID
     waitFor: [push-sha]
     entrypoint: python
     args: [-m, nidp.cli, migrate]
@@ -74,7 +74,7 @@ steps:
       - |
         set -e
         SVC_NAME="nidp-daas-api"
-        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA"
+        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$BUILD_ID"
         SA_EMAIL="nidp-sa@$PROJECT_ID.iam.gserviceaccount.com"
         VPC_CONN="projects/$PROJECT_ID/locations/${_REGION}/connectors/nidp-vpc"
 
@@ -119,13 +119,13 @@ steps:
 
         if gcloud run services describe "$$SVC_NAME" \
                 --region="${_REGION}" --project="$PROJECT_ID" &>/dev/null; then
-          echo "updating $$SVC_NAME → $SHORT_SHA"
+          echo "updating $$SVC_NAME → $BUILD_ID"
           gcloud run services update "$$SVC_NAME" $$COMMON
         else
           echo "creating $$SVC_NAME"
           gcloud run services create "$$SVC_NAME" $$COMMON
         fi
-        echo "✅ deployed $$SVC_NAME @ $SHORT_SHA"
+        echo "✅ deployed $$SVC_NAME @ $BUILD_ID"
 
   # ── 5. Smoke-test /health ────────────────────────────────────────
   - id: smoke
@@ -158,7 +158,7 @@ steps:
 
 # Images pushed to Artifact Registry (logged by Cloud Build)
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:$BUILD_ID
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/nidp/daas_api:latest
 
 # Secret Manager — available inside steps that declare secretEnv
