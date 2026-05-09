@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import aiohttp
@@ -139,9 +139,7 @@ class AmfiNavIngester(BaseIngester):
                         "run_id": str(run.run_id),
                         "target_date": as_of.isoformat(),
                         "rows_inserted": nav_n,
-                        "scheme_master_upserted": scheme_n,
-                        "validation_status": validation.status,
-                        "findings_count": validation.findings_count,
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
                     }
                     await bus.publish(
                         self.INGESTION_COMPLETED_TOPIC,
