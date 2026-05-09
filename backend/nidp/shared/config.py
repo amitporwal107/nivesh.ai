@@ -47,7 +47,11 @@ DEFAULT_UA: Final[str] = (
 
 # ── Source URL templates ────────────────────────────────────────────
 # All hosts known to NIDP. Per-source templates use these.
-NSE_ARCHIVES: Final[str] = "https://archives.nseindia.com"
+# NB: As of late-2024 NSE deprecated the legacy `archives.nseindia.com`
+# host (now returns Akamai 503). All archive content moved to
+# `nsearchives.nseindia.com`. We keep the constant name `NSE_ARCHIVES`
+# for clarity at call sites but point it at the live host.
+NSE_ARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
 NSE_NSEARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
 NSE_WWW: Final[str] = "https://www.nseindia.com"
 BSE_WWW: Final[str] = "https://www.bseindia.com"
