@@ -135,7 +135,9 @@ def build_events(
             continue
 
         if action == "SPLIT":
-            f = split_factor(r.get("face_value_pre"), r.get("face_value_post"))
+            fv_pre  = float(r["face_value_pre"])  if r.get("face_value_pre")  is not None else None
+            fv_post = float(r["face_value_post"]) if r.get("face_value_post") is not None else None
+            f = split_factor(fv_pre, fv_post)
             if f is None:
                 continue
             out.append(CorpActionEvent(symbol, ex_date, action, f, f))
@@ -148,7 +150,8 @@ def build_events(
 
         elif action == "DIVIDEND":
             prev = prev_close_lookup(symbol, ex_date)
-            f = dividend_factor(r.get("dividend_amount"), prev)
+            div_amt = float(r["dividend_amount"]) if r.get("dividend_amount") is not None else None
+            f = dividend_factor(div_amt, prev)
             if f is None:
                 continue
             # PRET unaffected by dividends
