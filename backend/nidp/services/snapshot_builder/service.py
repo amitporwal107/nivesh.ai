@@ -165,7 +165,7 @@ async def run(target_date: date, *, force: bool = False) -> uuid.UUID:
                 },
                 schema_name=SNAPSHOT_SCHEMA,
             )
-            await bus.flush(5.0)
+            await bus.flush(60.0)
 
             run_.metadata["market_rows"] = market.rows
             run_.metadata["stock_rows"] = stocks.rows

@@ -18,6 +18,10 @@ _FUTURES_STRIKE_SENTINEL = -1.0
 _FUTURES_OPTION_TYPE_SENTINEL = "FUT"
 
 
+_BATCH_SIZE = 500
+_STMT_TIMEOUT_MS = 60_000  # 60s per batch
+
+
 async def upsert_fno_bhavcopy(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
@@ -61,53 +65,62 @@ async def upsert_fno_bhavcopy(rows: list[dict[str, Any]], run_id: uuid.UUID) -> 
             run_id,
         ))
 
+    sql = """
+        INSERT INTO nidp.fno_bhavcopy
+            (as_of_date, biz_date, instrument_type, ticker_symbol,
+             isin, series, expiry_date, actual_expiry_date,
+             strike_price, option_type,
+             open_price, high_price, low_price, close_price,
+             last_price, prev_close_price, settle_price, underlying_price,
+             open_interest, change_in_oi, traded_volume, traded_value,
+             num_trades, new_board_lot_qty,
+             source, source_run_id, ingested_at)
+        VALUES ($1::date, $2::date, $3, $4,
+                $5, $6, $7::date, $8::date,
+                $9, $10,
+                $11, $12, $13, $14,
+                $15, $16, $17, $18,
+                $19, $20, $21, $22,
+                $23, $24,
+                $25, $26, NOW())
+        ON CONFLICT (as_of_date, instrument_type, ticker_symbol,
+                     expiry_date, strike_price, option_type, source)
+        DO UPDATE SET
+            biz_date            = EXCLUDED.biz_date,
+            isin                = EXCLUDED.isin,
+            series              = EXCLUDED.series,
+            actual_expiry_date  = EXCLUDED.actual_expiry_date,
+            open_price          = EXCLUDED.open_price,
+            high_price          = EXCLUDED.high_price,
+            low_price           = EXCLUDED.low_price,
+            close_price         = EXCLUDED.close_price,
+            last_price          = EXCLUDED.last_price,
+            prev_close_price    = EXCLUDED.prev_close_price,
+            settle_price        = EXCLUDED.settle_price,
+            underlying_price    = EXCLUDED.underlying_price,
+            open_interest       = EXCLUDED.open_interest,
+            change_in_oi        = EXCLUDED.change_in_oi,
+            traded_volume       = EXCLUDED.traded_volume,
+            traded_value        = EXCLUDED.traded_value,
+            num_trades          = EXCLUDED.num_trades,
+            new_board_lot_qty   = EXCLUDED.new_board_lot_qty,
+            source_run_id       = EXCLUDED.source_run_id,
+            ingested_at         = NOW()
+    """
+
+    # Batch upsert to avoid asyncpg executemany TimeoutError on
+    # 200k+ row F&O bhavcopy days.
     pool = await get_pool()
+    total = 0
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.executemany(
-                """
-                INSERT INTO nidp.fno_bhavcopy
-                    (as_of_date, biz_date, instrument_type, ticker_symbol,
-                     isin, series, expiry_date, actual_expiry_date,
-                     strike_price, option_type,
-                     open_price, high_price, low_price, close_price,
-                     last_price, prev_close_price, settle_price, underlying_price,
-                     open_interest, change_in_oi, traded_volume, traded_value,
-                     num_trades, new_board_lot_qty,
-                     source, source_run_id, ingested_at)
-                VALUES ($1::date, $2::date, $3, $4,
-                        $5, $6, $7::date, $8::date,
-                        $9, $10,
-                        $11, $12, $13, $14,
-                        $15, $16, $17, $18,
-                        $19, $20, $21, $22,
-                        $23, $24,
-                        $25, $26, NOW())
-                ON CONFLICT (as_of_date, instrument_type, ticker_symbol,
-                             expiry_date, strike_price, option_type, source)
-                DO UPDATE SET
-                    biz_date            = EXCLUDED.biz_date,
-                    isin                = EXCLUDED.isin,
-                    series              = EXCLUDED.series,
-                    actual_expiry_date  = EXCLUDED.actual_expiry_date,
-                    open_price          = EXCLUDED.open_price,
-                    high_price          = EXCLUDED.high_price,
-                    low_price           = EXCLUDED.low_price,
-                    close_price         = EXCLUDED.close_price,
-                    last_price          = EXCLUDED.last_price,
-                    prev_close_price    = EXCLUDED.prev_close_price,
-                    settle_price        = EXCLUDED.settle_price,
-                    underlying_price    = EXCLUDED.underlying_price,
-                    open_interest       = EXCLUDED.open_interest,
-                    change_in_oi        = EXCLUDED.change_in_oi,
-                    traded_volume       = EXCLUDED.traded_volume,
-                    traded_value        = EXCLUDED.traded_value,
-                    num_trades          = EXCLUDED.num_trades,
-                    new_board_lot_qty   = EXCLUDED.new_board_lot_qty,
-                    source_run_id       = EXCLUDED.source_run_id,
-                    ingested_at         = NOW()
-                """,
-                args,
-            )
-    logger.info("fno_bhavcopy upserted %d rows", len(args))
-    return len(args)
+        await conn.execute(f"SET LOCAL statement_timeout = {_STMT_TIMEOUT_MS}")
+        for i in range(0, len(args), _BATCH_SIZE):
+            batch = args[i:i + _BATCH_SIZE]
+            async with conn.transaction():
+                await conn.executemany(sql, batch, timeout=120)
+            total += len(batch)
+            if total % 5000 == 0 or total == len(args):
+                logger.info("fno_bhavcopy batch upserted %d/%d rows",
+                            total, len(args))
+    logger.info("fno_bhavcopy upserted %d rows total", total)
+    return total

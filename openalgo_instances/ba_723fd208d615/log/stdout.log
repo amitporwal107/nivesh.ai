@@ -1,0 +1,23 @@
+
+[94m🔄[0m Configuration version check passed ([92m1.0.7[0m)
+
+[92m[1m[OpenAlgo first-run setup][0m [92mGenerated fresh APP_KEY and API_KEY_PEPPER and saved
+to /app/openalgo_instances/ba_723fd208d615/.env. The .sample.env placeholder values have been replaced
+with cryptographically random secrets. This message will not appear
+again on subsequent runs.[0m
+
+[93mStarting OpenAlgo...[0m
+
+╭─── OpenAlgo v2.0.1.0 ──────────────────────────────╮
+│                                                    │
+│        Your Personal Algo Trading Platform         │
+│                                                    │
+│ Endpoints                                          │
+│ Web App    http://127.0.0.1:5100                   │
+│ WebSocket  ws://127.0.0.1:8100                     │
+│ Docs       https://docs.openalgo.in                │
+│                                                    │
+│ Status     Ready                                   │
+│                                                    │
+╰────────────────────────────────────────────────────╯
+

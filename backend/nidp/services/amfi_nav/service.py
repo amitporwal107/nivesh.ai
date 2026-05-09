@@ -148,7 +148,7 @@ class AmfiNavIngester(BaseIngester):
                         schema_name=self.INGESTION_COMPLETED_SCHEMA,
                         headers={"service": self.SERVICE_NAME},
                     )
-                    await bus.flush(5.0)
+                    await bus.flush(60.0)
                 else:
                     logger.error(
                         "amfi_nav validation BLOCKED — completion event "

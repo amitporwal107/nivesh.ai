@@ -1,0 +1,9 @@
+[2026-05-07 23:51:41,972] WARNING in _internal: Werkzeug appears to be used in a production deployment. Consider switching to a production web server instead.
+[2026-05-07 23:51:42,501] INFO in qty_freeze_db: Qty Freeze DB: Loading freeze quantities from /app/openalgo/database/../data/qtyfreeze.csv
+[2026-05-07 23:51:42,524] INFO in qty_freeze_db: Loaded 213 freeze quantities for NFO
+[2026-05-07 23:51:43,123] WARNING in python_strategy: No broker found for master contract check
+[2026-05-07 23:51:43,124] INFO in python_strategy: No active broker found during startup - delaying strategy restoration
+[2026-05-07 23:51:43,334] INFO in auth_db: Cleared all caches for user_id: ahaanporwal16be2a4c
+[2026-05-07 23:51:43,336] INFO in management: management.users: provisioned ahaanporwal16be2a4c for ahaanporwal16@gmail.com
+[2026-05-07 23:51:43,435] WARNING in auth_db: No valid auth token or broker found for user_id 'ahaanporwal16be2a4c'. Cached negative result.
+[2026-05-07 23:51:43,436] WARNING in auth_db: No valid broker found for user_id 'ahaanporwal16be2a4c'.
