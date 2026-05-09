@@ -1,6 +1,6 @@
 """nidp-block-deals — NSE block deals ingestion service.
 
-Source:    https://archives.nseindia.com/content/equities/block.csv
+Source:    https://nsearchives.nseindia.com/content/equities/block.csv
 Cadence:   Daily T+0 ~18:30 IST
 Output:    nidp.block_deals  +  Kafka topic nidp.block_deals.v1
 """

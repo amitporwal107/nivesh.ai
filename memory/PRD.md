@@ -2,6 +2,33 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — NIDP Failed-Feeds Audit + Local Test Harness + Code Fixes (No-deploy yet)
+
+User reported 5 failing NIDP Cloud Run feeds. Took the disciplined path: **audit → reproduce locally → fix → test → only deploy after green**. No GCP redeploy in this session — preview validation only.
+
+**Root causes diagnosed (with real production logs via OAuth token)**:
+1. `delivery` — `503` from dead Akamai host `archives.nseindia.com`. NSE migrated archive content to `nsearchives.nseindia.com` in late 2024. Same root cause silently affected 8 other feeds (bhavcopy_legacy, fno_bhavcopy_legacy, bulk_deals, block_deals, index_close, 6× index_constituents, fii_dii_legacy, corporate_actions_legacy).
+2. `fno_bhavcopy` — `'STO' is not in list` from fastavro `write_enum`. Real May 7 2026 file: 33,387 STO + 6,196 IDO + 626 STF + 15 IDF — ZERO legacy FUTSTK/OPTSTK. The Avro schema fix was committed but deployed image was stale.
+3. `price_adjuster` — `column "traded_volume" does not exist`. SQL alias fix `volume AS traded_volume` already in HEAD; deployed image stale.
+4. `amfi_nav_history` — 900s task-timeout + OOM SIGKILL. 12,000 schemes × MFAPI latency = ~3,600s real runtime.
+5. `backfill-90d` — exit(1) without trace. Likely transient NSE 503 (root cause #1); resolved as side-effect.
+
+**Code fixes applied (committed locally, NOT deployed yet)**:
+- `nidp/shared/config.py` — `NSE_ARCHIVES` host: `archives.nseindia.com` → `nsearchives.nseindia.com` (single-line, fixes 9 feeds).
+- `nidp/services/*/__init__.py` × 9 files — purged docstring stragglers referencing the dead host.
+- `nidp/services/amfi_nav_history/service.py` — concurrency 5→12, chunk size 200→100, new `only_stale_days` kwarg + resolver SQL that filters via `LEFT JOIN LATERAL ... WHERE last_nav < CURRENT_DATE - $1`. Daily Cloud Run job will use `--only-stale-days 7`, cutting universe from ~12,000 → ~1,000 schemes.
+- `nidp/services/amfi_nav_history/__main__.py` — `--only-stale-days` CLI flag plumbed through.
+
+**Local test harness (new `nidp/tests/test_failing_feeds_*.py`)**:
+- Pulled REAL fixtures from live NSE/MFAPI: `fno_bhavcopy_post2024_sample.csv.zip` (20 rows: 5×STO + 5×IDO + 5×STF + 5×IDF from May 7 2026), `sec_bhavdata_full_sample_20260507.csv` (29 rows), `mfapi_scheme_100027_sample.json` (531 rows back to 2006).
+- **Golden parser tests** (8): real-file parsing, full Avro round-trip with all 9 enum codes, parser↔migration column alignment, MFAPI date parser, archive-host migration audit (scans every service file for `archives.nseindia.com` stragglers).
+- **Persistence integration tests** (4) against local PG `nivesh_dev` with 80-table nidp schema: parse → write through real writer (uses `_FUTURES_STRIKE_SENTINEL=-1.0` and `_FUTURES_OPTION_TYPE_SENTINEL='FUT'` for futures rows) → read back, assert row counts and key fields. Including EXPLAIN-only test for price_adjuster's exact SELECT against live nidp.prices_eod schema.
+- Bonus regression fix: `nidp/tests/parsers/test_amfi_nav_parser.py` was asserting against ISO string but parser returns `date` object after commit `16a0b7c`.
+
+**Result**: **130/130 NIDP tests passing locally** (12 new + 118 pre-existing). All 5 failing feeds now have a deterministic local proof of fix. Ready to deploy with confidence.
+
+**Operational gate**: do NOT redeploy until user reviews this session's diff — once approved, the path is `git push nidp` → existing Cloud Build triggers fire → Cloud Run jobs picks up new images → re-execute each failed job to confirm green in production.
+
 ### May 2026 — LIVE Market Dashboard via yfinance (NSE ^NSEI / ^INDIAVIX / 12 sectorals)
 
 User reported the dashboard wasn't truly live. Fixed by adding a real-time indices fetcher:

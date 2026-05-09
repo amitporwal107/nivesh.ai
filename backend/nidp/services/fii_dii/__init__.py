@@ -1,6 +1,6 @@
 """nidp-fii-dii — NSE FII/DII daily flows.
 
-Source:    https://archives.nseindia.com/content/fo/fii_stats_{YYYYMMDD}.xls
+Source:    https://nsearchives.nseindia.com/content/fo/fii_stats_{YYYYMMDD}.xls
 Cadence:   Daily T+0 ~18:30 IST
 Output:    nidp.fii_dii_flows  +  Kafka topic nidp.fii_dii.v1
 

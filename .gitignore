@@ -388,3 +388,12 @@ credentials.json
 # Local credentials / API tokens — never commit
 .angel-api
 .gh-token
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
