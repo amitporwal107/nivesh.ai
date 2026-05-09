@@ -89,7 +89,7 @@ async def _resolve_scheme_codes(
     """Return the scheme codes to backfill.
 
     `only_stale_days`: if set, restrict to schemes whose latest known
-    NAV in `nidp.mf_nav_history` is older than that many days (or has
+    NAV in `nidp.mf_nav_daily` is older than that many days (or has
     no rows at all). Used by the daily Cloud Run job to keep the run
     bounded — full warehouse backfill stays available via `None`.
     """
@@ -109,7 +109,7 @@ async def _resolve_scheme_codes(
                 FROM nidp.mf_scheme_master m
                 LEFT JOIN LATERAL (
                     SELECT MAX(nav_date) AS last_nav
-                    FROM nidp.mf_nav_history h
+                    FROM nidp.mf_nav_daily h
                     WHERE h.scheme_code = m.scheme_code
                 ) hh ON TRUE
                 WHERE m.status = 'active'
