@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 # Filter to the F&O segment. Sgmt='FO' on the unified post-2024 file.
 _FO_SEGMENT = "FO"
 
-# We accept these instrument types (filter out spread / other rare types)
-_VALID_INSTRUMENT_TYPES = {"FUTIDX", "FUTSTK", "OPTIDX", "OPTSTK"}
+# NSE renamed instrument type codes in the unified post-2024 bhavcopy format.
+# Accept both old and new codes for backward compatibility with archived files.
+# Old → New: FUTIDX→IDF, FUTSTK→STF, OPTIDX→IDO, OPTSTK→STO
+_VALID_INSTRUMENT_TYPES = {"FUTIDX", "FUTSTK", "OPTIDX", "OPTSTK", "IDF", "STF", "IDO", "STO"}
 
 
 def parse_fno_bhavcopy(csv_bytes: bytes) -> List[Dict[str, Any]]:
