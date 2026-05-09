@@ -44,8 +44,9 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "amfi_nav_history"
 
-DEFAULT_CONCURRENCY = 5
-_CHUNK_SIZE = 200  # schemes per gather() batch — bounds peak in-flight memory
+DEFAULT_CONCURRENCY = 12     # was 5 — MFAPI tolerates 10-15 concurrent
+_CHUNK_SIZE = 100             # was 200 — bounds peak memory tighter
+_INCREMENTAL_DEFAULT_DAYS = 7 # daily run only refetches schemes stale >7d
 
 
 def _parse_mfapi_date(s: str):
@@ -82,15 +83,42 @@ async def _fetch_scheme(
 
 async def _resolve_scheme_codes(
     explicit: Optional[list[str]],
+    *,
+    only_stale_days: Optional[int] = None,
 ) -> list[str]:
+    """Return the scheme codes to backfill.
+
+    `only_stale_days`: if set, restrict to schemes whose latest known
+    NAV in `nidp.mf_nav_history` is older than that many days (or has
+    no rows at all). Used by the daily Cloud Run job to keep the run
+    bounded — full warehouse backfill stays available via `None`.
+    """
     if explicit:
         return [c for c in explicit if c.strip()]
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT scheme_code FROM nidp.mf_scheme_master "
-            "WHERE status = 'active' ORDER BY scheme_code"
-        )
+        if only_stale_days is None:
+            rows = await conn.fetch(
+                "SELECT scheme_code FROM nidp.mf_scheme_master "
+                "WHERE status = 'active' ORDER BY scheme_code"
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT m.scheme_code
+                FROM nidp.mf_scheme_master m
+                LEFT JOIN LATERAL (
+                    SELECT MAX(nav_date) AS last_nav
+                    FROM nidp.mf_nav_history h
+                    WHERE h.scheme_code = m.scheme_code
+                ) hh ON TRUE
+                WHERE m.status = 'active'
+                  AND (hh.last_nav IS NULL
+                       OR hh.last_nav < (CURRENT_DATE - $1::int))
+                ORDER BY m.scheme_code
+                """,
+                only_stale_days,
+            )
     return [r["scheme_code"] for r in rows]
 
 
@@ -101,19 +129,39 @@ async def run(
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     concurrency: int = DEFAULT_CONCURRENCY,
+    only_stale_days: Optional[int] = None,
 ) -> uuid.UUID:
     """Backfill historical NAVs from MFAPI.in.
 
     target_date is bookkeeping-only. The actual range is bounded by
     from_date / to_date (None = unbounded on that side).
+
+    `only_stale_days`: when set (e.g. 7), the resolver restricts the
+    universe to schemes whose latest known NAV is older than that
+    many days. The daily Cloud Run job sets this to bound runtime
+    inside the 60min task-timeout; manual full backfills leave it None.
     """
     bind_context(service=SERVICE_NAME)
     as_of = target_date or date.today()
 
-    codes = await _resolve_scheme_codes(scheme_codes)
+    codes = await _resolve_scheme_codes(scheme_codes, only_stale_days=only_stale_days)
     if not codes:
+        if only_stale_days is not None:
+            logger.info("amfi_nav_history: no schemes stale > %d days — nothing to do", only_stale_days)
+            # Open + immediately close a job_log row so monitoring sees a
+            # clean OK rather than an empty execution.
+            async with JobRun(ingester=SERVICE_NAME, target_date=as_of) as run:
+                run.source_url = MFAPI_SCHEME_URL
+                run.rows_fetched = 0
+                run.rows_inserted = 0
+                run.rows_skipped = 0
+                await run.finalize("OK")
+                INGESTER_RUNS.labels(service=SERVICE_NAME, status="OK").inc()
+                return run.run_id
         raise RuntimeError("No scheme codes to backfill — populate mf_scheme_master "
                            "(run amfi_nav once) or pass --scheme-codes.")
+    logger.info("amfi_nav_history: %d schemes selected (stale_days=%s)",
+                len(codes), only_stale_days)
 
     async with JobRun(ingester=SERVICE_NAME, target_date=as_of) as run:
         bind_context(run_id=str(run.run_id))

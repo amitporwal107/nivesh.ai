@@ -156,7 +156,7 @@ def parse_corporate_actions(body: bytes) -> list[dict[str, Any]]:
     """Parse NSE corporate-actions response.
 
     NSE moved this endpoint from CSV
-    (archives.nseindia.com/content/equities/corp_actions.csv → 404)
+    (nsearchives.nseindia.com/content/equities/corp_actions.csv → 404)
     to JSON
     (www.nseindia.com/api/corporates-corporateActions?index=equities).
     Response is now a JSON array of objects with these fields:

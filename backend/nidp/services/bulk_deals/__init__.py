@@ -1,6 +1,6 @@
 """nidp-bulk-deals — NSE bulk deals ingestion service.
 
-Source:    https://archives.nseindia.com/content/equities/bulk.csv
+Source:    https://nsearchives.nseindia.com/content/equities/bulk.csv
 Cadence:   Daily, post-market (~18:30 IST)
 Output:    nidp.bulk_deals  +  Kafka topic nidp.bulk_deals.v1
 """

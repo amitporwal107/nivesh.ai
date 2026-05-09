@@ -1,6 +1,7 @@
 """Golden-file tests for AMFI NAVAll parser. No network, no DB."""
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -67,7 +68,7 @@ def test_parse_navall_nav_values_and_date():
     by_code = {r["scheme_code"]: r for r in nav_rows}
 
     assert by_code["119551"]["nav"] == pytest.approx(520.45)
-    assert by_code["119551"]["nav_date"] == "2026-05-07"
+    assert by_code["119551"]["nav_date"] == date(2026, 5, 7)
     assert by_code["113333"]["nav"] == pytest.approx(145.78)
 
 
