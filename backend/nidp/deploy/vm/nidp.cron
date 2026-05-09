@@ -1,0 +1,76 @@
+# /etc/cron.d/nidp — schedules for the 28 NIDP services.
+#
+# Schedules ported 1:1 from
+#   backend/nidp/deploy/gcp/setup_schedules.sh
+# (same cron strings, same Asia/Kolkata semantics — TZ is set for the
+# whole file below). When you change a schedule, change it in BOTH
+# files until the Cloud Run path is fully decommissioned.
+#
+# Cron under Debian's vixie-cron honours `CRON_TZ=` so all schedules
+# below run in IST.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+# ── Daily NSE EOD (post-close, 19:00–19:30 IST staggered) ─────────
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bhavcopy
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh index_close
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fii_dii
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bulk_deals
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh block_deals
+
+# ── T+1 next morning ──────────────────────────────────────────────
+30 10 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh delivery
+
+# ── Daily / weekday data ──────────────────────────────────────────
+0  20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_actions
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh rbi_yields
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fred_macro
+
+# ── Monthly ───────────────────────────────────────────────────────
+0  6  1 * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_calendar
+30 6  1 * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh index_constituents
+
+# ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fno_bhavcopy
+30 20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_shareholding
+
+# ── Phase 1B weekly + derivation ──────────────────────────────────
+0  7  * * 0    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_equity_master
+30 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh price_adjuster
+
+# ── End-of-day snapshot (after all daily ingesters) ───────────────
+0  22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh snapshot_builder
+
+# ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
+*/10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_nse
+*/10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_bse
+
+# ── S4: Haiku event/impact classifier (every 30 min, all week) ────
+*/30 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh announcement_classifier
+
+# ── S5: document parser (every 15 min, all day) ───────────────────
+*/15 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh document_parser
+
+# ── Mutual fund feeds ─────────────────────────────────────────────
+0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav
+0  9  * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_circulars
+0  10 12 * *   nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_disclosure_snapshot
+0  11 12 * *   nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_holdings
+# amfi_nav_history is a one-time backfill — run manually:
+#   sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav_history
+
+# ── Corporate event intelligence pipeline ─────────────────────────
+30 6  * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
+*/5  9-16 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_day_poller
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh d1_prep
+0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence
+
+# ── Post-ingestion quality gate ───────────────────────────────────
+30 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh quality_gate
+
+# yfinance_backfill is event-driven (manual run only) — not scheduled.

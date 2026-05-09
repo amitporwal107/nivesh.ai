@@ -1,0 +1,14 @@
+[Unit]
+Description=Run NIDP health check every 30 minutes
+Requires=nidp-health.service
+
+[Timer]
+# First run 5 min after boot, then every 30 min wall-clock.
+OnBootSec=5min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Persistent=true
+Unit=nidp-health.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=NIDP feed-freshness health check (scans nidp.job_log)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nidp
+Group=nidp
+ExecStart=/opt/nidp/repo/backend/nidp/deploy/vm/health_check.sh
+StandardOutput=append:/opt/nidp/logs/health_check.log
+StandardError=append:/opt/nidp/logs/health_check.log
