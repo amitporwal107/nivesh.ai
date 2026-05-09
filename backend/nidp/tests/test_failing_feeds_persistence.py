@@ -252,6 +252,26 @@ def test_amfi_nav_history_persistence_roundtrip(_txn):
 # ─────────────────────────────────────────────────────────────────────
 # price_adjuster → SQL alias check against real prices_eod table
 # ─────────────────────────────────────────────────────────────────────
+def test_amfi_nav_history_only_stale_days_sql_runs_on_real_schema(_txn):
+    """The `--only-stale-days` resolver runs a JOIN against
+    nidp.mf_nav_daily. Compile that exact SQL via EXPLAIN to catch any
+    table-name drift before deploy. (We had `mf_nav_history` here in
+    a working draft — caught only because this test exists.)"""
+    _txn.execute("""
+        EXPLAIN SELECT m.scheme_code
+        FROM nidp.mf_scheme_master m
+        LEFT JOIN LATERAL (
+            SELECT MAX(nav_date) AS last_nav
+            FROM nidp.mf_nav_daily h
+            WHERE h.scheme_code = m.scheme_code
+        ) hh ON TRUE
+        WHERE m.status = 'active'
+          AND (hh.last_nav IS NULL OR hh.last_nav < (CURRENT_DATE - 7::int))
+        ORDER BY m.scheme_code
+    """)
+    assert _txn.fetchone() is not None
+
+
 def test_price_adjuster_select_runs_against_live_schema(_txn):
     """The production failure was a SELECT that referenced a
     non-existent column. Compile the actual SQL the service uses
