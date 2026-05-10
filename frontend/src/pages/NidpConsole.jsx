@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft, Database, PlayCircle, Activity, Server,
-  ShieldCheck, TrendingUp, Award,
+  ShieldCheck, TrendingUp, Award, BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import NidpCatalogPanel      from "@/components/admin/NidpCatalogPanel";
@@ -12,12 +12,15 @@ import NidpDiagnosticsPanel  from "@/components/admin/NidpDiagnosticsPanel";
 import NidpQualityDashboard  from "@/components/admin/NidpQualityDashboard";
 import NidpCertificationPanel from "@/components/admin/NidpCertificationPanel";
 import NidpTrendPanel        from "@/components/admin/NidpTrendPanel";
+import NidpGrafanaEmbed      from "@/components/admin/NidpGrafanaEmbed";
 
 const TABS = [
   { id: "catalog",       label: "Data Catalog",    icon: Database,
     blurb: "Every NIDP table, every feed, freshness, and validation findings." },
   { id: "jobs",          label: "Jobs",            icon: PlayCircle,
     blurb: "Per-ingester Cloud Run job control plane — list, trigger, inspect." },
+  { id: "grafana",       label: "Grafana",         icon: BarChart3,
+    blurb: "Live job-health dashboard embedded from the VM Grafana — no login required." },
   { id: "quality",       label: "Data Quality",    icon: ShieldCheck,
     blurb: "Executive summary · quality metrics · rule failures · exception queue · SLA monitor." },
   { id: "certification", label: "Certification",   icon: Award,
@@ -128,6 +131,12 @@ export default function NidpConsole() {
         {tab === "jobs" && (
           <div data-testid="nidp-tab-panel-jobs">
             <NidpJobsPanel />
+          </div>
+        )}
+
+        {tab === "grafana" && (
+          <div data-testid="nidp-tab-panel-grafana">
+            <NidpGrafanaEmbed />
           </div>
         )}
 
