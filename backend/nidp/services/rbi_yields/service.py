@@ -52,12 +52,14 @@ class RbiYieldsIngester(BaseIngester):
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
         # Try the BS_NSDPDisplay (Daily Reference Rate) page first; if
         # it 4xx's, fall back to ReferenceRateArchive.
+        from nidp.shared.archive import archive_raw
         for url in (RBI_GSEC_URL, RBI_REF_RATE_URL):
             with time_fetch(self.SOURCE_NAME):
                 try:
                     body, status = await _rbi_get(url)
                     if status == 200 and body:
                         SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
+                        archive_raw(self.SERVICE_NAME, target_date, url.rsplit("/", 1)[-1] or "rbi.html", body)
                         return body, url, status
                     SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 except Exception:                                  # noqa: BLE001

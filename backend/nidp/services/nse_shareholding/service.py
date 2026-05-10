@@ -46,6 +46,7 @@ class NseShareholdingIngester(BaseIngester):
                     list_url,
                     referer=f"{NSE_WWW}/companies-listing/corporate-filings-shareholding-pattern",
                     extra_headers={"Accept": "application/json"},
+                    archive_as=("nse_shareholding", target_date, "shareholding_index.json"),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
             except Exception:
@@ -67,6 +68,7 @@ class NseShareholdingIngester(BaseIngester):
                     body, st = await fetch_bytes(
                         url,
                         referer=f"{NSE_WWW}/companies-listing/corporate-filings-shareholding-pattern",
+                        archive_as=("nse_shareholding", target_date, f"xbrl/{url.rsplit('/', 1)[-1]}"),
                     )
                     if st == 200 and body:
                         xbrl_docs[url] = base64.b64encode(body).decode("ascii")

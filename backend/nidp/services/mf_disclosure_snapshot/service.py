@@ -46,6 +46,8 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                from nidp.shared.archive import archive_raw
+                import json as _json
                 for amc_id in MF_AMC_TOP10:
                     fn = ADAPTERS.get(amc_id)
                     if fn is None:
@@ -63,6 +65,12 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                         # Stub adapters return [] — counted as missing.
                         adapters_missing += 1
                         continue
+                    try:
+                        archive_raw(SERVICE_NAME, snapshot_date,
+                                    f"{amc_id}.parsed.json",
+                                    _json.dumps(rows, default=str).encode("utf-8"))
+                    except Exception:                                    # noqa: BLE001
+                        pass
                     all_rows.extend(rows)
 
             n_rows = await upsert_snapshot(all_rows, snapshot_date, run.run_id)

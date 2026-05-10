@@ -33,6 +33,7 @@ class CorporateActionsIngester(BaseIngester):
                     url,
                     referer=f"{NSE_WWW}/companies-listing/corporate-filings-actions",
                     extra_headers={"Accept": "application/json"},
+                    archive_as=("corporate_actions", target_date, "corporate_actions.json"),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
