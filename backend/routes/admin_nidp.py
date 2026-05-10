@@ -98,7 +98,12 @@ GRAFANA_BASE_URL = (
     os.environ.get("NIDP_GRAFANA_URL")
     or "http://34.47.191.39:3000"
 ).rstrip("/")
-GRAFANA_DASHBOARD_PATH = "/d/nidp-job-health/nidp-job-health"
+# kiosk=tv hides the top nav + sidebar + theme picker → clean dashboard
+# pane suitable for embedding inside the Nivesh admin console iframe or
+# as a "click-to-open" tab. Anonymous-Admin SSO (configured in Grafana)
+# means no login prompt either way.
+GRAFANA_DASHBOARD_PATH = "/d/nidp-job-health/nidp-job-health?kiosk=tv&theme=dark"
+GRAFANA_EMBED_PATH     = "/d/nidp-job-health/nidp-job-health?kiosk=tv&theme=dark&refresh=30s"
 
 
 def _job_name(ingester: str) -> str:
@@ -365,6 +370,7 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
         "db_error":  db_error,
         "drift":     drift,
         "grafana_url": f"{GRAFANA_BASE_URL}{GRAFANA_DASHBOARD_PATH}",
+        "grafana_embed_url": f"{GRAFANA_BASE_URL}{GRAFANA_EMBED_PATH}",
         "jobs": [
             {
                 **spec,
