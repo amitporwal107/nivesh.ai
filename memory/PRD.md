@@ -2,6 +2,94 @@
 
 ## Implemented Features (Latest)
 
+### May 10, 2026 — NIDP Intelligence Layer (Phase 2 foundation)
+
+User shared local diff implementing a comprehensive intelligence-engine layer
+on top of NIDP. Applied verbatim with bug fixes, JobRun wiring, and full
+deployment to the VM.
+
+**Migrations (applied on VM):**
+- `041_nidp_core_intelligence_layer.sql` — schemas `ref`, `dq`, `features`,
+  `graph`, `events`, `analytics`. Tables: `ref.security_master`,
+  `dq.validation_runs`, `dq.failed_rows`, `dq.quality_scores`,
+  `features.stock_features_daily`, `graph.correlations`, `graph.entity_links`,
+  `events.normalized_events`, `analytics.market_snapshot` + FTS view
+  `events.v_search_documents`.
+- `042_nidp_portfolio_bridge.sql` — `portfolio.user_holdings_snapshot`,
+  `portfolio.holding_security_map`, `portfolio.user_intelligence_snapshot`.
+  (Fixed during apply: replaced inline `UNIQUE (..., COALESCE(...))` with
+  a partial unique index — Postgres rejects function exprs in table
+  UNIQUE constraints.)
+
+**New services (with JobRun wrapping per "never ran" learnings):**
+- `intelligence_layer/` — daily materializer that populates the new
+  schemas from existing core tables. Runs in 11s. Materialized on first
+  run: 4193 EQUITY + 14360 MF_SCHEME rows in `ref.security_master`,
+  52 stock-stock correlations, 1 market_snapshot, 2 dq.quality_scores.
+- `portfolio_intelligence_sync/` — resolves user holdings to security
+  master and computes per-user intelligence snapshot. Runs in 88ms.
+- Both wrapped via `nidp/shared/derived_run.py`'s `run_with_job_log()`.
+- Cron: 23:15 (intelligence_layer) → 23:30 (portfolio_intelligence_sync) IST, Mon–Fri.
+
+**Bug fixes during apply (versus user's original SQL):**
+1. `ref.security_master` equity insert was producing duplicate
+   `(entity_type, symbol)` rows when prices_eod had multiple as_of_dates
+   per symbol → `CardinalityViolationError`. Fixed with
+   `DISTINCT ON (symbol)` + most-recent ordering.
+2. Same insert was hitting `ux_security_master_isin` (unique on isin)
+   when multiple symbols claimed the same ISIN in raw bhavcopy → now
+   nulls out colliding ISINs before insert.
+3. Same pattern applied to MF insert (with extra cross-collision check
+   against just-inserted equity ISINs).
+4. Correlations CTE was timing out (default pool `command_timeout=30s`).
+   Restricted universe to symbols in `nidp.index_constituents`, pushed
+   `abs(corr) >= 0.7` into the CTE's HAVING clause, raised per-statement
+   timeout to 600s for the heavy CTEs.
+
+**DaaS API (13 new endpoints under `/v1/intelligence/*`):**
+- `reference/securities` — security master query
+- `dq/scores` — daily quality tiers
+- `features/stocks/{symbol}` — feature store rows
+- `graph/entity-links` — ownership/membership graph
+- `graph/correlations` (+ `/{security_id}/top`) — correlation peers
+- `events`, `events/search`, `events/{event_id}` — normalized event corpus
+- `snapshots/market` (+ `/recent`) — daily market regime card
+- `portfolio/{external_user_id}/snapshot` + `/holdings` — per-user
+- All gated by `require_api_key`. Wired into `daas_api/app.py`.
+- 9 datasets added to `/v1/catalog`.
+- 13 new pytest cases — **29/29 daas_api tests pass**.
+
+**Documentation:**
+- `backend/nidp/contracts/portfolio_holdings_snapshot_v1.schema.json` — payload schema for portfolio sync.
+- `backend/nidp/docs/PORTFOLIO_SYNC_CONTRACT.md` — exporter contract.
+- `backend/NIDP_COPILOT_INTEGRATION_PLAN.md` — strategy for wiring Copilot to NIDP.
+
+**Pod-side wiring:**
+- `routes/admin_nidp.py`: appended `intelligence_layer` and
+  `portfolio_intelligence_sync` to `KNOWN_INGESTERS` so they appear
+  in the NIDP UI Console (now 34 feeds total, both showing OK).
+
+**⚠️ Open ops task:** `daas_api` is currently only used in pytest — it
+isn't deployed as a systemd service on `nidp-stack-vm`. Only
+`nidp-query-api.service` runs there. To expose `/v1/intelligence/*` as
+the live "NIDP DaaS API" referenced in `NIDP_COPILOT_INTEGRATION_PLAN.md`,
+need to add a `nidp-daas-api.service` unit on the VM (separate task).
+
+**Files of reference:**
+- `/app/backend/nidp/migrations/041_nidp_core_intelligence_layer.sql`
+- `/app/backend/nidp/migrations/042_nidp_portfolio_bridge.sql`
+- `/app/backend/nidp/services/intelligence_layer/{__init__,__main__,service}.py`
+- `/app/backend/nidp/services/portfolio_intelligence_sync/{__init__,__main__,service}.py`
+- `/app/backend/nidp/services/daas_api/routers/intelligence.py`
+- `/app/backend/nidp/services/daas_api/app.py` (router registration)
+- `/app/backend/nidp/services/daas_api/routers/catalog.py` (9 new datasets)
+- `/app/backend/nidp/cli.py` (2 services registered)
+- `/app/backend/nidp/tests/services/test_daas_api.py` (13 new tests)
+- `/app/backend/nidp/deploy/vm/{seed_source_registry.py,nidp.cron}` (2 new entries)
+- `/app/backend/routes/admin_nidp.py` (KNOWN_INGESTERS expanded)
+
+---
+
 ### May 10, 2026 — Derived feeds JobRun wiring + intelligence SQL fix + non-cron status labels
 
 User flagged that NIDP UI Jobs panel showed "never" for derived/non-cron feeds (announcement_classifier, quality_gate, intelligence, event_calendar, d1_prep, etc.) even though they were running fine, and that `intelligence` was permanently FAILED.

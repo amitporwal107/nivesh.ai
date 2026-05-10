@@ -88,6 +88,9 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "intelligence",                "cadence": "daily"},
     # Post-ingestion quality pipeline
     {"ingester": "quality_gate",                "cadence": "daily"},
+    # Intelligence layer (NIDP Phase 2 — security_master/dq/features/graph/events/analytics)
+    {"ingester": "intelligence_layer",          "cadence": "daily"},
+    {"ingester": "portfolio_intelligence_sync", "cadence": "daily"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
