@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft, Database, PlayCircle, Activity, Server,
-  ShieldCheck, TrendingUp, Award, BarChart3, Sparkles,
+  ShieldCheck, TrendingUp, Award, BarChart3, Sparkles, History,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import NidpCatalogPanel      from "@/components/admin/NidpCatalogPanel";
@@ -14,6 +14,7 @@ import NidpCertificationPanel from "@/components/admin/NidpCertificationPanel";
 import NidpTrendPanel        from "@/components/admin/NidpTrendPanel";
 import NidpGrafanaEmbed      from "@/components/admin/NidpGrafanaEmbed";
 import NidpDqAiPanel         from "@/components/admin/NidpDqAiPanel";
+import NidpReplayPanel       from "@/components/admin/NidpReplayPanel";
 
 const TABS = [
   { id: "catalog",       label: "Data Catalog",    icon: Database,
@@ -26,6 +27,8 @@ const TABS = [
     blurb: "Executive summary · quality metrics · rule failures · exception queue · SLA monitor." },
   { id: "dq_ai",         label: "Expectations (AI)", icon: Sparkles,
     blurb: "CRUD on quality expectations · review AI-proposed business rules · generate strict expectations per feed." },
+  { id: "replay",        label: "Replay (90d)",    icon: History,
+    blurb: "Historical Data Quality replay & backtesting — re-run governance for the last 90 days, calibrate thresholds, simulate failures." },
   { id: "certification", label: "Certification",   icon: Award,
     blurb: "90-day calendar tracker · certification status · eligibility criteria per domain." },
   { id: "trends",        label: "Trends",          icon: TrendingUp,
@@ -152,6 +155,12 @@ export default function NidpConsole() {
         {tab === "dq_ai" && (
           <div data-testid="nidp-tab-panel-dq_ai">
             <NidpDqAiPanel />
+          </div>
+        )}
+
+        {tab === "replay" && (
+          <div data-testid="nidp-tab-panel-replay">
+            <NidpReplayPanel />
           </div>
         )}
 
