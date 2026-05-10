@@ -1,0 +1,34 @@
+[Unit]
+Description=NIDP DaaS API — versioned read APIs (incl. /v1/intelligence/*) over the NIDP warehouse
+Documentation=https://github.com/nivesh-ai/nidp-stack
+After=network-online.target nidp-postgres.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nidp
+Group=nidp
+WorkingDirectory=/opt/nidp/repo/backend
+EnvironmentFile=/opt/nidp/nidp.env
+Environment=PORT=8083
+Environment=LOG_LEVEL=info
+Environment=PYTHONPATH=/opt/nidp/repo/backend
+ExecStart=/opt/nidp/venv/bin/uvicorn nidp.services.daas_api.app:app --host 0.0.0.0 --port 8083 --proxy-headers --forwarded-allow-ips '*'
+Restart=on-failure
+RestartSec=5s
+
+# Logging — journald, then forward to /opt/nidp/logs/daas_api/*.log
+# via syslog identifier filter if needed.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nidp-daas-api
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nidp/logs /opt/nidp/run
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
