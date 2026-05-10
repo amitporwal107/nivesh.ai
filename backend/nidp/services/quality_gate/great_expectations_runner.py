@@ -31,9 +31,11 @@ from nidp.services.quality_gate.great_expectations_suites import SUITES
 
 logger = logging.getLogger(__name__)
 
-PG_DSN = os.environ.get(
-    "NIDP_PG_DSN",
-    "postgresql://postgres:postgres@localhost:5433/nidp",
+PG_DSN = (
+    os.environ.get("NIDP_PG_DSN")
+    or os.environ.get("NIDP_POSTGRES_URL")
+    or os.environ.get("POSTGRES_URL")
+    or "postgresql://postgres:postgres@localhost:5433/nidp"
 )
 
 
