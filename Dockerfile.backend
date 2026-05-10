@@ -1,0 +1,48 @@
+# Backend image — single image used by 3 services:
+#   - main FastAPI backend (uvicorn server:app)
+#   - NIDP DaaS API       (uvicorn nidp.services.daas_api.app:app)
+#   - NIDP Query API      (uvicorn nidp.services.query_api.app:app)
+# We mount /app/backend at runtime for hot-reload; this image just
+# carries the OS deps + python dependencies.
+
+FROM python:3.11-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app/backend
+
+WORKDIR /app/backend
+
+# OS deps:
+#   - build-essential / gcc:    asyncpg, lxml, pyyaml C extensions
+#   - libpq-dev:                psycopg / asyncpg
+#   - libxml2-dev / libxslt-dev:lxml (NIDP scrapers)
+#   - curl + jq:                in-container healthchecks / debugging
+#   - tzdata:                   TZ=Asia/Kolkata
+#   - libmagic1 + poppler-utils:document_parser ingester
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        libpq-dev \
+        libxml2-dev libxslt-dev \
+        curl jq tzdata \
+        libmagic1 poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python deps in a stable layer (long-lived).
+COPY backend/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+ && pip install --no-cache-dir emergentintegrations \
+        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+ || true   # emergentintegrations is optional in offline mode
+
+# We do NOT COPY backend code here — docker-compose.local.yml mounts
+# ./backend at runtime so edits hot-reload via uvicorn --reload.
+# This Dockerfile produces a "library" image; the source bind-mount
+# overrides any baked code on container start.
+
+EXPOSE 8001 8083 8090
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]

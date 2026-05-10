@@ -1,0 +1,25 @@
+# Frontend image — Node 20 + craco dev server. Source files are
+# bind-mounted at runtime (frontend/src, frontend/public) so edits
+# hot-reload via webpack dev server.
+
+FROM node:20-alpine
+
+WORKDIR /app/frontend
+
+# Install OS deps for native node modules (sharp/canvas if needed)
+RUN apk add --no-cache python3 make g++ git
+
+# Install JS deps in a stable layer (long-lived).
+COPY frontend/package.json frontend/yarn.lock ./
+RUN yarn install --frozen-lockfile --network-timeout 600000
+
+# Copy the rest at build time so a one-shot `docker compose build` works
+# even before src is mounted; runtime bind-mount of frontend/src will
+# override these for hot-reload.
+COPY frontend ./
+
+ENV HOST=0.0.0.0 PORT=3000
+
+EXPOSE 3000
+
+CMD ["yarn", "start"]
