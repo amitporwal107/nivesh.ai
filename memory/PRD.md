@@ -2,6 +2,43 @@
 
 ## Implemented Features (Latest)
 
+### May 10, 2026 — Derived feeds JobRun wiring + intelligence SQL fix + non-cron status labels
+
+User flagged that NIDP UI Jobs panel showed "never" for derived/non-cron feeds (announcement_classifier, quality_gate, intelligence, event_calendar, d1_prep, etc.) even though they were running fine, and that `intelligence` was permanently FAILED.
+
+**Root causes:**
+1. **Derived ingesters** (8 of them) called `asyncio.run(run())` directly without wrapping in `JobRun`, so they never wrote to `nidp.job_log` even on success.
+2. **`intelligence` SQL bug**: `SELECT … FROM corporate_event_signals s LEFT JOIN nidp.nse_financials_quarterly f ON f.id = s.financials_id` — the financials table has no `id` column (composite PK on symbol+period_end+consolidated+source). The JOIN was also a no-op since `s.financials_id` is always NULL.
+3. **`amfi_nav_history` / `corporate_announcements_*`**: legitimately not on cron (manual + event-driven cadences) but UI showed bare "never".
+4. **`nse_financials`**: on cron but not wrapped with JobRun, plus its `expected_freq` in source_registry was `quarterly` instead of the actual `daily`.
+
+**Fixes:**
+- Created `/app/backend/nidp/shared/derived_run.py` with `run_with_job_log()` helper.
+- Wrapped 9 derived/non-BaseIngester services: `event_calendar`, `event_day_poller`, `d1_prep`, `intelligence`, `price_adjuster`, `announcement_classifier`, `document_parser`, `quality_gate`, `nse_financials`.
+- Fixed `intelligence/service.py` `_get_todays_signals()` query — removed broken JOIN cleanly.
+- Updated `seed_source_registry.py` to seed 13 entries (added announcement_classifier, document_parser, price_adjuster).
+- Fixed `nse_financials` cadence in DB (`quarterly` → `daily`, schedule_cron `30 20 * * *`).
+- UI (`NidpJobsPanel.jsx`):
+  - Status badge shows `"manual"` / `"event-driven"` instead of `"never"` based on `expected_freq`.
+  - `WeekStrip` + `CalendarStrip`: weekend cells with no run now render with a dashed border + tooltip `"Non-trading day (weekend)"` so users don't read it as a missed run.
+
+**Verification (testing_agent_v3_fork iter58 + iter59):**
+- Backend: 18/18 + 24/24 pytest passed. All 32 source_registry feeds returned. Intelligence: status=OK, consecutive_failures=0. nse_financials: status=OK, expected_freq=daily.
+- Frontend: 50 weekend cells confirmed with dashed-border + Non-trading day tooltip. amfi_nav_history shows "manual", corporate_announcements_* show "event-driven".
+
+**Files of reference:**
+- `/app/backend/nidp/shared/derived_run.py` (NEW)
+- `/app/backend/nidp/services/{event_calendar,event_day_poller,d1_prep,intelligence,price_adjuster,announcement_classifier,document_parser,quality_gate,nse_financials}/__main__.py`
+- `/app/backend/nidp/services/intelligence/service.py` (line 48-71)
+- `/app/backend/nidp/deploy/vm/seed_source_registry.py` (13 entries)
+- `/app/frontend/src/components/admin/NidpJobsPanel.jsx` (WeekStrip + CalendarStrip + status badge)
+- VM at 34.93.60.254 — files deployed via scp + tar; cleared __pycache__; verified via `nidp.job_log` queries.
+
+**Known issues remaining:**
+- `corporate_announcements_nse/bse` on the VM are missing their `__main__.py` and source files entirely (only Dockerfile present). They've been silently failing on cron with `No module named …__main__` for some time. **Not fixed in this iteration** — out of scope. Tracked as P2.
+
+---
+
 ### May 2026 — Clean-slate Friday run + comprehensive feed end-to-end status
 
 User requested: clear all feed state and do a clean run for 2026-05-08 to definitively know which feeds work end-to-end.
