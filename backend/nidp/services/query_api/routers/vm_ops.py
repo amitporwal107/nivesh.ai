@@ -108,10 +108,14 @@ async def feed_logs(
 
 
 @router.post("/feeds/{ingester}/execute")
-async def feed_execute(ingester: str) -> Dict[str, Any]:
-    """Spawn run_service.sh <ingester> in the background. Returns 202
-    immediately; UI polls /feeds/{ingester}/runs to see results land in
-    nidp.job_log when the job completes."""
+async def feed_execute(
+    ingester: str,
+    target_date: str | None = None,
+) -> Dict[str, Any]:
+    """Spawn run_service.sh <ingester> [--date YYYY-MM-DD] in the
+    background. Returns 202 immediately; UI polls
+    /feeds/{ingester}/runs to see results land in nidp.job_log when
+    the job completes."""
     _validate(ingester)
     if not RUN_SCRIPT.exists():
         raise HTTPException(
@@ -119,29 +123,33 @@ async def feed_execute(ingester: str) -> Dict[str, Any]:
             detail=f"run_service.sh missing on VM at {RUN_SCRIPT}",
         )
 
+    if target_date is not None and not _re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
+        raise HTTPException(status_code=400, detail="target_date must be YYYY-MM-DD")
+
     # Fork-detach so the python process exits after starting the job.
     # nohup + setsid keeps the child alive after we return.
-    cmd = f"nohup setsid {shlex.quote(str(RUN_SCRIPT))} {shlex.quote(ingester)} >/dev/null 2>&1 &"
+    args = [shlex.quote(str(RUN_SCRIPT)), shlex.quote(ingester)]
+    if target_date:
+        args += ["--date", shlex.quote(target_date)]
+    cmd = "nohup setsid " + " ".join(args) + " >/dev/null 2>&1 &"
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
         start_new_session=True,
     )
-    # Don't wait — the shell returns once the background fork happens.
-    # asyncio doesn't reap it for us, but we don't care about the rc here;
-    # the actual job's status will land in nidp.job_log.
     try:
         await asyncio.wait_for(proc.wait(), timeout=2.0)
     except asyncio.TimeoutError:
         pass
 
-    logger.info("feed_execute: spawned %s via %s", ingester, RUN_SCRIPT)
+    logger.info("feed_execute: spawned %s (date=%s) via %s", ingester, target_date or "default", RUN_SCRIPT)
     return {
-        "ok":       True,
-        "ingester": ingester,
-        "status":   "spawned",
-        "hint":     "poll /feeds/{ingester}/runs for completion (writes to nidp.job_log)",
+        "ok":          True,
+        "ingester":    ingester,
+        "target_date": target_date,
+        "status":      "spawned",
+        "hint":        "poll /feeds/{ingester}/runs for completion (writes to nidp.job_log)",
     }
 
 

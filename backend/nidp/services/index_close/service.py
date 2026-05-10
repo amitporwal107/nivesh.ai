@@ -31,7 +31,11 @@ class IndexCloseIngester(BaseIngester):
         url = fmt_url(INDEX_CLOSE_URL, target_date)
         with time_fetch(self.SOURCE_NAME):
             try:
-                body, status = await fetch_bytes(url, referer=f"{NSE_WWW}/all-reports-indices")
+                body, status = await fetch_bytes(
+                    url,
+                    referer=f"{NSE_WWW}/all-reports-indices",
+                    archive_as=("index_close", target_date, url.rsplit("/", 1)[-1]),
+                )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
             except Exception:

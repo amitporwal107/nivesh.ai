@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+import httpx
 
 from deps import require_admin
 from services import nidp_query_client as _nq
@@ -103,7 +105,10 @@ GRAFANA_BASE_URL = (
 # as a "click-to-open" tab. Anonymous-Admin SSO (configured in Grafana)
 # means no login prompt either way.
 GRAFANA_DASHBOARD_PATH = "/d/nidp-job-health/nidp-job-health?kiosk=tv&theme=dark"
-GRAFANA_EMBED_PATH     = "/d/nidp-job-health/nidp-job-health?kiosk=tv&theme=dark&refresh=30s"
+# Embedded URL is served via the pod's HTTPS proxy below (`/api/admin/nidp/grafana/*`)
+# so the iframe is same-origin HTTPS — avoids the mixed-content block
+# browsers apply to HTTP iframes inside HTTPS pages.
+GRAFANA_EMBED_PATH     = "/api/admin/nidp/grafana/d/nidp-job-health/nidp-job-health?kiosk=tv&theme=dark&refresh=30s"
 
 
 def _job_name(ingester: str) -> str:
@@ -364,13 +369,25 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
         "unregistered_in_canonical": sorted(in_db - canonical),    # in DB but UI doesn't know
     }
 
+    # Surface the most-recent trading day so the frontend can default
+    # the date picker without making a second call. Picks the most
+    # recent weekday <= today (in IST). Real holiday-aware logic lives
+    # in `nidp_calendar` — this is a sane MVP default.
+    from datetime import date, timedelta, timezone, datetime as _dt
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today_ist = _dt.now(ist).date()
+    last_trading_day = today_ist
+    while last_trading_day.weekday() >= 5:   # 5=Sat, 6=Sun
+        last_trading_day -= timedelta(days=1)
+
     return {
         "project":   GCP_PROJECT,
         "region":    GCP_REGION,
         "db_error":  db_error,
         "drift":     drift,
         "grafana_url": f"{GRAFANA_BASE_URL}{GRAFANA_DASHBOARD_PATH}",
-        "grafana_embed_url": f"{GRAFANA_BASE_URL}{GRAFANA_EMBED_PATH}",
+        "grafana_embed_url": GRAFANA_EMBED_PATH,
+        "last_trading_day":  last_trading_day.isoformat(),
         "jobs": [
             {
                 **spec,
@@ -385,25 +402,38 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
 
 
 @router.post("/jobs/{ingester}/execute")
-async def execute_job(ingester: str, request: Request) -> Dict[str, Any]:
-    """Trigger an ingester run. Routes through the NIDP Query API on the
-    VM (which spawns run_service.sh detached). Returns immediately —
-    UI polls /jobs/{ingester}/runs to see the job_log row land."""
+async def execute_job(
+    ingester: str,
+    request: Request,
+    target_date: Optional[str] = Query(
+        None,
+        description="ISO date (YYYY-MM-DD) for the run; defaults to last trading day on the VM.",
+        regex=r"^\d{4}-\d{2}-\d{2}$",
+    ),
+) -> Dict[str, Any]:
+    """Trigger an ingester run for the given target date. Routes through
+    the NIDP Query API on the VM (which spawns run_service.sh detached).
+    Returns immediately — UI polls /jobs/{ingester}/runs to see the
+    job_log row land."""
     await require_admin(request)
     _ingester_or_404(ingester)
 
     # ── Primary path: VM via query_api ──────────────────────────────
     if _nq.is_configured():
         try:
-            resp = await _nq.execute_feed(ingester)
-            logger.info("admin/nidp: spawned %s on VM via query_api", ingester)
+            resp = await _nq.execute_feed(ingester, target_date=target_date)
+            logger.info(
+                "admin/nidp: spawned %s on VM via query_api (date=%s)",
+                ingester, target_date or "default",
+            )
             return {
-                "ok":         True,
-                "ingester":   ingester,
-                "job_name":   _job_name(ingester),
-                "via":        "vm",
-                "status":     resp.get("status", "spawned"),
-                "hint":       resp.get("hint"),
+                "ok":          True,
+                "ingester":    ingester,
+                "job_name":    _job_name(ingester),
+                "target_date": target_date,
+                "via":         "vm",
+                "status":      resp.get("status", "spawned"),
+                "hint":        resp.get("hint"),
             }
         except _nq.NidpQueryClientError as e:
             logger.warning("admin/nidp: VM execute failed for %s: %s — falling back to gcloud", ingester, e.detail)
@@ -724,3 +754,141 @@ async def quality_quarantine(
             # Query API not yet redeployed — return empty rather than error
             return {"quarantine": [], "error": "endpoint not yet available on Query API"}
         raise HTTPException(status_code=502, detail=e.detail) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+# Grafana HTTPS reverse-proxy
+# ─────────────────────────────────────────────────────────────────
+# Modern browsers block HTTP iframes inside HTTPS pages (mixed-content).
+# The pod admin console is served over HTTPS but Grafana on the VM is
+# plain HTTP on :3000 — without TLS termination there, the iframe
+# silently renders a blank body. Solution: same-origin HTTPS proxy.
+#
+# We forward the full HTTP request (path + query + body) to the VM's
+# Grafana, strip frame-blocking headers from the response, and stream
+# the body back. Anonymous-Admin SSO on Grafana means we don't need
+# to inject any auth — Grafana treats every request as Admin already.
+# Access to this proxy is gated by `require_admin` like every other
+# endpoint in this router.
+
+_GRAFANA_BLOCKED_REQ_HEADERS = {
+    "host", "content-length", "connection", "accept-encoding",
+}
+_GRAFANA_BLOCKED_RESP_HEADERS = {
+    # Frame-blockers (the whole point of proxying):
+    "x-frame-options", "content-security-policy",
+    # Hop-by-hop:
+    "transfer-encoding", "connection", "keep-alive",
+    "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "upgrade",
+    # Response-encoding (we stream raw so let httpx decompress upstream
+    # then we re-emit without compression):
+    "content-encoding", "content-length",
+}
+
+
+@router.api_route(
+    "/grafana/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    include_in_schema=False,
+)
+async def grafana_proxy(path: str, request: Request):
+    await require_admin(request)
+    upstream = f"{GRAFANA_BASE_URL}/{path}"
+    if request.url.query:
+        upstream += f"?{request.url.query}"
+
+    # Forward request headers (minus the ones that would confuse the
+    # upstream or that httpx will set itself).
+    fwd_headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in _GRAFANA_BLOCKED_REQ_HEADERS
+    }
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+            r = await client.request(
+                request.method,
+                upstream,
+                headers=fwd_headers,
+                content=body,
+            )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"grafana proxy: {e}") from e
+
+    resp_headers = {
+        k: v for k, v in r.headers.items()
+        if k.lower() not in _GRAFANA_BLOCKED_RESP_HEADERS
+    }
+    return StreamingResponse(
+        iter([r.content]),
+        status_code=r.status_code,
+        headers=resp_headers,
+        media_type=r.headers.get("content-type"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# Raw feed-file archive
+# ─────────────────────────────────────────────────────────────────
+# The VM keeps every raw download under /opt/nidp/archive/<ingester>/
+# <YYYY-MM-DD>/<filename>. These endpoints expose listing + download
+# through the same admin auth as the rest of the console.
+
+@router.get("/archive/{ingester}")
+async def list_archive(
+    ingester: str,
+    request: Request,
+    target_date: Optional[str] = Query(
+        None, regex=r"^\d{4}-\d{2}-\d{2}$",
+        description="If set, list files only for this date.",
+    ),
+    limit_dates: int = Query(30, ge=1, le=365),
+) -> Dict[str, Any]:
+    await require_admin(request)
+    _ingester_or_404(ingester)
+    if not _nq.is_configured():
+        raise HTTPException(status_code=503, detail="NIDP_QUERY_API not configured")
+    try:
+        return await _nq.list_archive(ingester, target_date=target_date, limit_dates=limit_dates)
+    except _nq.NidpQueryClientError as e:
+        raise HTTPException(status_code=502, detail=e.detail) from e
+
+
+@router.get("/archive/{ingester}/{target_date}/{filename:path}")
+async def download_archive(
+    ingester: str,
+    target_date: str,
+    filename: str,
+    request: Request,
+):
+    await require_admin(request)
+    _ingester_or_404(ingester)
+    if not _nq.is_configured():
+        raise HTTPException(status_code=503, detail="NIDP_QUERY_API not configured")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", target_date):
+        raise HTTPException(status_code=400, detail="invalid target_date")
+    # Disallow path traversal: filename may have one slash for sub-prefix
+    # but no `..` or absolute paths.
+    if ".." in filename or filename.startswith("/"):
+        raise HTTPException(status_code=400, detail="invalid filename")
+
+    upstream = f"{_nq.base_url()}/archive/{ingester}/{target_date}/{filename}"
+    headers = {"Authorization": f"Bearer {_nq.token()}"}
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.get(upstream, headers=headers)
+            r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text[:500]) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return StreamingResponse(
+        iter([r.content]),
+        media_type=r.headers.get("content-type", "application/octet-stream"),
+        headers={
+            "Content-Disposition": f'attachment; filename="{Path(filename).name}"',
+        },
+    )

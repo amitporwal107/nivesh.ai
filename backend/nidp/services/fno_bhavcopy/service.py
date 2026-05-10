@@ -65,6 +65,7 @@ class FnoBhavcopyIngester(BaseIngester):
                 body, status = await fetch_bytes(
                     url,
                     referer=f"{NSE_WWW}/all-reports-derivatives",
+                    archive_as=("fno_bhavcopy", target_date, url.rsplit("/", 1)[-1]),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status

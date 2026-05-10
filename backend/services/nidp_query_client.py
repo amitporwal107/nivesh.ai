@@ -51,6 +51,16 @@ def is_configured() -> bool:
     return bool(url and token)
 
 
+def base_url() -> Optional[str]:
+    url, _ = _config()
+    return url
+
+
+def token() -> Optional[str]:
+    _, t = _config()
+    return t
+
+
 def config_summary() -> Dict[str, Any]:
     """Non-secret view of the current config — for /diag."""
     url, token = _config()
@@ -199,5 +209,19 @@ async def get_feed_logs(ingester: str, lines: int = 200) -> Dict[str, Any]:
     )
 
 
-async def execute_feed(ingester: str) -> Dict[str, Any]:
-    return await _request("POST", f"/feeds/{ingester}/execute")
+async def execute_feed(ingester: str, target_date: Optional[str] = None) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    if target_date:
+        params["target_date"] = target_date
+    return await _request("POST", f"/feeds/{ingester}/execute", params=params)
+
+
+async def list_archive(
+    ingester: str,
+    target_date: Optional[str] = None,
+    limit_dates: int = 30,
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"limit_dates": limit_dates}
+    if target_date:
+        params["target_date"] = target_date
+    return await _request("GET", f"/archive/{ingester}", params=params)

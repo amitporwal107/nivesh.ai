@@ -84,7 +84,12 @@ class AmfiNavIngester(BaseIngester):
                     ).inc()
                     return run
 
-                # 2. Archive raw
+                # 2. Archive raw — both the legacy store_raw (DB-indexed,
+                # backend-pluggable) AND the new flat-file archive
+                # (/opt/nidp/archive/<ingester>/<date>/<filename>) that
+                # the admin console exposes for download.
+                from nidp.shared.archive import archive_raw as _archive_raw
+                _archive_raw(self.SERVICE_NAME, as_of, "NAVAll.txt", body)
                 await store_raw(
                     ingester=self.SERVICE_NAME,
                     target_date=as_of,
