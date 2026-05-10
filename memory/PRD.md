@@ -2,6 +2,52 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — Clean-slate Friday run + comprehensive feed end-to-end status
+
+User requested: clear all feed state and do a clean run for 2026-05-08 to definitively know which feeds work end-to-end.
+
+**Wipe**: TRUNCATE on `nidp.job_log`, `validation_findings`, `validation_runs`, `consistency_runs`, `consistency_findings`, `quality_scores`. NULL'd `source_registry.last_run_*`. Cleared `/opt/nidp/archive/`.
+
+**Run** (bounded concurrency 4): `WAVE1_PAR=4 bash run_all_friday.sh 2026-05-08`. Total wall-clock: ~5 min.
+
+**Wave 1 result: 21/21 OK** in 76 s — all raw ingesters succeeded (bhavcopy, delivery, fno_bhavcopy, amfi_nav, fii_dii, bulk_deals, block_deals, corporate_actions, rbi_yields, fred_macro, index_close, index_constituents, mf_holdings, mf_disclosure_snapshot, amfi_circulars, nse_calendar, nse_equity_master, nse_shareholding, nse_financials, event_calendar, event_day_poller).
+
+**Wave 2 result: 5/7 OK**: price_adjuster, announcement_classifier (4 min — OpenAI batch), document_parser, d1_prep, snapshot_builder. **2 FAIL**: intelligence (`column f.id does not exist` SQL drift), quality_gate (consistency-rule kwargs). These don't block daily publication.
+
+#### End-to-end feed verdict
+
+**✅ 16 OK with both archived raw files + DB rows**
+| Feed | Rows | Archive |
+|---|---|---|
+| bhavcopy | 3,393 | 196 KB ZIP |
+| delivery | 3,234 | 368 KB CSV |
+| fno_bhavcopy | 41,107 | 1.3 MB ZIP |
+| amfi_nav | 13,978 | 1.6 MB TXT |
+| nse_shareholding | 200 | 43 MB (207 XBRL files) |
+| nse_equity_master | 2,367 | 172 KB CSV |
+| fred_macro (PARTIAL) | 66,152 | 6.1 MB (7 series JSON) |
+| index_constituents | 886 | — |
+| nse_calendar | 241 | 44 KB JSON |
+| snapshot_builder | 3,014 | (derived) |
+| index_close | 147 | 24 KB CSV |
+| corporate_actions | 20 | 16 KB JSON |
+| block_deals | 106 | 20 KB CSV |
+| bulk_deals | 78 | 16 KB CSV |
+| rbi_yields | 5 | 120 KB HTML |
+| amfi_circulars | 1 | — |
+| fii_dii | 2 | 12 KB JSON |
+
+**⚠️ PARTIAL (script ran, but stub adapters)** — `mf_holdings`, `mf_disclosure_snapshot`. They iterate the top-10 AMC adapters but those return [] (not yet implemented). archive_raw is wired (will save when adapters return data).
+
+**⚠️ Service ran successfully but doesn't instrument `nidp.job_log`** (shows "----" / "never" in console, even though they actually ran):
+`price_adjuster`, `announcement_classifier`, `document_parser`, `d1_prep`, `event_calendar`, `event_day_poller`. These need a 5-line `JobRun` context-manager wrap (same pattern bhavcopy uses) — backlogged.
+
+**❌ Truly haven't run yet**: `corporate_announcements_nse/bse` (need different runtime args), `amfi_nav_history` (manual cadence), `yfinance_backfill` (event-driven), `nse_financials` (PARTIAL — schema gap), `intelligence` + `quality_gate` (FAIL — code drift).
+
+**Total fresh data this run**: ~136,000 rows · 51 MB raw archive · 207+ files saved across 14 feeds.
+
+---
+
 ### May 2026 — NIDP Console hardening: registry seed, Grafana SSO proxy, run-date picker, raw-feed archive
 
 User reported 5 issues from screenshots:
