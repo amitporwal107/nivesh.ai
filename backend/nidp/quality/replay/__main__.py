@@ -50,6 +50,13 @@ async def _amain(args: argparse.Namespace) -> int:
         or os.environ.get("POSTGRES_URL")
         or "postgresql://postgres:postgres@localhost:5433/nidp"
     )
+    # Propagate the resolved DSN to every shared-storage path so the
+    # replay engine, consistency_runner, and quality_score module all
+    # hit the same DB. (nidp.shared.storage.pg reads NIDP_POSTGRES_URL
+    # / POSTGRES_URL, not NIDP_PG_DSN.)
+    os.environ["NIDP_PG_DSN"]       = dsn
+    os.environ["NIDP_POSTGRES_URL"] = dsn
+    os.environ["POSTGRES_URL"]      = dsn
     cfg = ReplayConfig(
         start_date=args.start_date,
         end_date=args.end_date,

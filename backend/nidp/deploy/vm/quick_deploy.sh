@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-VM_IP="34.47.191.39"
+VM_IP="34.93.60.254"
 VM_ZONE="asia-south1-a"
 PROJECT="niveshdataintelligence"
 SSH_USER="aporwal107_gmail_com"
