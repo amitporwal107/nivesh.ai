@@ -2,6 +2,57 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — NIDP Console + Grafana Wired to VM Infra (Cloud-Run path deprecated)
+
+User's ask: *"we do have nidp console which has the catalogue Data Catalog/Jobs/Data Quality and certification page... please modify those to use new vm and infra"* + Grafana dashboard for `nidp.job_log`.
+
+**Delivered (iter 55 — testing-agent verified 15/15 backend + 100% frontend)**:
+
+1. **NIDP Query API on VM** — `/opt/nidp/repo/backend/nidp/services/query_api/` deployed as systemd service `nidp-query-api.service` on `nidp-stack-vm:8090`. Bearer-token auth (token in `/opt/nidp/query_api.env`, mode 0640, owned root:nidp). Reads `nidp.job_log`, `nidp.v_feed_status`, catalog/quality/certification tables on local TimescaleDB (port 5433).
+
+2. **GCP firewall rule** `nidp-allow-query-api` created via REST API: opens TCP 8090 (query API) + 3000 (Grafana) on tag `nidp-stack` from 0.0.0.0/0. Token gates 8090; Grafana login gates 3000.
+
+3. **VM-side execute + tail-logs** — new `routers/vm_ops.py` adds `GET /feeds/{ingester}/logs?lines=N` (tails `/opt/nidp/logs/<ingester>/<ingester>.log`) and `POST /feeds/{ingester}/execute` (spawns `run_service.sh` detached via `nohup setsid`).
+
+4. **Pod backend client** — `services/nidp_query_client.py` got `get_feed_logs()` + `execute_feed()`. Secrets `NIDP_QUERY_API_URL=http://34.47.191.39:8090` and `NIDP_QUERY_API_TOKEN` written to `db.system_config.secrets:preview`.
+
+5. **`routes/admin_nidp.py` rewritten**:
+   - `execute_job` now routes through query_api (`via='vm'`), gcloud Cloud Run as fallback for legacy compat.
+   - `job_logs` reads VM log files via query_api, gcloud as fallback.
+   - `NIDP_INGESTERS` canonical list extended +9: `amfi_nav`, `amfi_circulars`, `amfi_nav_history`, `mf_disclosure_snapshot`, `mf_holdings`, `event_calendar`, `event_day_poller`, `d1_prep`, `intelligence` — all running via cron on the VM.
+   - `/jobs` response now includes `grafana_url` field pointing at the NIDP Job Health dashboard.
+
+6. **Grafana NIDP Job Health dashboard** — provisioned at `http://34.47.191.39:3000/d/nidp-job-health/nidp-job-health` (folder NIDP). 9 panels: total/OK/FAILED/PARTIAL run stats (24h), success-rate gauge, last-run-per-ingester table (color-coded), top failures (7d), runs-per-hour stacked bar (7d), runtime-per-ingester avg/max table. Datasource `NIDP-TimescaleDB` provisioned via `/etc/grafana/provisioning/datasources/datasources.yml`.
+
+7. **Frontend `NidpJobsPanel.jsx`**:
+   - Added Grafana CTA button (`data-testid='admin-nidp-grafana-link'`) in panel header — opens dashboard in new tab.
+   - Updated header copy "Cloud Run jobs" → "All NIDP services… via cron pipeline on `nidp-stack-vm`".
+   - Inline log section relabelled "VM logs" / log_path display.
+   - Trigger toast adapts: VM-mode shows "spawned on nidp-stack-vm".
+
+**Files added/changed**:
+- `/app/backend/nidp/deploy/vm/nidp-query-api.service` (NEW — systemd unit)
+- `/app/backend/nidp/deploy/vm/install_query_api.sh` (NEW — token gen + service install)
+- `/app/backend/nidp/deploy/vm/install_grafana.sh` (NEW — datasource + dashboard provisioning)
+- `/app/backend/nidp/deploy/vm/grafana/datasources.yml`, `dashboards.yml`, `dashboards/nidp_job_health.json` (NEW)
+- `/app/backend/nidp/services/query_api/routers/vm_ops.py` (NEW)
+- `/app/backend/nidp/services/query_api/app.py` (router registration)
+- `/app/backend/services/nidp_query_client.py` (+ get_feed_logs, execute_feed)
+- `/app/backend/routes/admin_nidp.py` (NIDP_INGESTERS extended; execute_job + job_logs rewritten; GRAFANA_BASE_URL surfaced)
+- `/app/frontend/src/components/admin/NidpJobsPanel.jsx` (Grafana button + copy updates)
+- `/app/backend/tests/test_nidp_admin_vm_iteration55.py` (NEW — testing agent regression suite)
+
+**Live verification**:
+- `GET /api/admin/nidp/diag` → reachable=true, auth_ok=true, db_latency_ms=2
+- `GET /api/admin/nidp/jobs` → 32 jobs, includes grafana_url field, real OK/FAILED/PARTIAL statuses
+- `GET /api/admin/nidp/jobs/amfi_nav/logs?limit=10` → via=vm, real JSON-formatted log lines from `/opt/nidp/logs/amfi_nav/amfi_nav.log`
+- `POST /api/admin/nidp/jobs/amfi_circulars/execute` → via=vm, status=spawned (actually triggered on VM)
+- All 11 quality endpoints return 200 with structured arrays (empty initially — quality_run table populates after first quality_gate cron tick)
+
+**SPA route note**: NIDP Console is mounted at `/nidp` (not `/admin/nidp`) — defined in App.js, linked from UserProfileDropdown.
+
+---
+
 ### May 2026 — NIDP Cron VM Deployment (Docker-free, Cloud-Build-free)
 
 All 3 requested tasks completed in this session:
