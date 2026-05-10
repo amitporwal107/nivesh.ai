@@ -41,16 +41,11 @@ gcloud compute firewall-rules create allow-nidp-daas-api \
   --action=ALLOW \
   --rules=tcp:8083 \
   --source-ranges=0.0.0.0/0 \
-  --target-tags=nidp-stack-vm
+  --target-tags=nidp-stack
 ```
 
-If `nidp-stack-vm` doesn't already have the matching network tag, add it:
-
-```bash
-gcloud compute instances add-tags nidp-stack-vm \
-  --zone=asia-south1-a \
-  --tags=nidp-stack-vm
-```
+(VM's actual network tag is `nidp-stack`, verified via the instance
+metadata service.)
 
 After the firewall rule is in place:
 
