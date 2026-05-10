@@ -12,14 +12,25 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.metrics import start_metrics_server
+from nidp.shared.storage.pg import close_pool
 
 from .service import run_once
 
 
 async def _main(args: argparse.Namespace) -> None:
-    await run_once(limit=args.limit, dry_run=args.dry_run)
+    try:
+        await run_with_job_log(
+            "announcement_classifier",
+            run_once,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            rows_inserted_attr="processed",
+        )
+    finally:
+        await close_pool()
 
 
 def main() -> None:

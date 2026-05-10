@@ -9,7 +9,9 @@ import argparse
 import asyncio
 from datetime import date, timedelta
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
+from nidp.shared.storage.pg import close_pool
 from .service import run
 
 DEFAULT_SINCE_DAYS = 30
@@ -32,11 +34,20 @@ def main() -> None:
 
     symbols = [s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None
 
-    report = asyncio.run(run(
-        since=since,
-        symbols=symbols,
-        include_dividends=not a.no_dividends,
-    ))
+    async def _run() -> object:
+        try:
+            return await run_with_job_log(
+                "price_adjuster",
+                run,
+                since=since,
+                symbols=symbols,
+                include_dividends=not a.no_dividends,
+                rows_inserted_attr="rows_written",
+            )
+        finally:
+            await close_pool()
+
+    report = asyncio.run(_run())
     print(report.as_dict())
 
 

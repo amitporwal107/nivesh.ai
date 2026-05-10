@@ -15,6 +15,9 @@ SEEDS = [
     ('D-1 Prep',                      'd1_prep',                 'derived://nidp/d1_prep',                                                          'DERIVED',  1.00, 'daily',     '15 22 * * 1-5'),
     ('Intelligence Aggregator',       'intelligence',            'derived://nidp/intelligence',                                                     'DERIVED',  1.00, 'daily',     '30 22 * * 1-5'),
     ('Quality Gate',                  'quality_gate',            'derived://nidp/quality_gate',                                                     'DERIVED',  1.00, 'daily',     '45 22 * * 1-5'),
+    ('Announcement Classifier',       'announcement_classifier', 'derived://nidp/announcement_classifier',                                          'DERIVED',  1.00, 'high-freq', '*/10 * * * *'),
+    ('Document Parser',               'document_parser',         'derived://nidp/document_parser',                                                  'DERIVED',  1.00, 'high-freq', '*/10 * * * *'),
+    ('Price Adjuster',                'price_adjuster',          'derived://nidp/price_adjuster',                                                   'DERIVED',  1.00, 'daily',     '0 23 * * 1-5'),
 ]
 
 
