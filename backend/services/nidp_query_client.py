@@ -188,3 +188,16 @@ async def get_quarantine(domain: Optional[str] = None, limit: int = 50) -> Dict[
     if domain:
         params["domain"] = domain
     return await _request("GET", "/quarantine", params=params)
+
+
+# ── VM ops (logs + execute, replaces gcloud Cloud Run path) ──────────
+
+async def get_feed_logs(ingester: str, lines: int = 200) -> Dict[str, Any]:
+    return await _request(
+        "GET", f"/feeds/{ingester}/logs",
+        params={"lines": lines},
+    )
+
+
+async def execute_feed(ingester: str) -> Dict[str, Any]:
+    return await _request("POST", f"/feeds/{ingester}/execute")

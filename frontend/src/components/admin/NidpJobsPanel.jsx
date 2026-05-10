@@ -106,8 +106,12 @@ export default function NidpJobsPanel() {
         `${API}/api/admin/nidp/jobs/${ingester}/execute`, {},
         { withCredentials: true, timeout: 45 * 1000 },
       );
-      toast.success(`Started ${ingester} (execution: ${r.data?.execution_name || "ok"}). Refresh in ~30-60s for results.`, { id: `trigger-${ingester}` });
-      // Auto-refresh in 30s — Cloud Run jobs typically finish in that window
+      const via = r.data?.via || "vm";
+      const detail = via === "vm"
+        ? `(spawned on nidp-stack-vm)`
+        : `(execution: ${r.data?.execution_name || "ok"})`;
+      toast.success(`Started ${ingester} ${detail}. Refresh in ~30-60s for results.`, { id: `trigger-${ingester}` });
+      // Auto-refresh in 30s — VM jobs typically finish within that window
       setTimeout(fetchJobs, 30 * 1000);
     } catch (e) {
       toast.error(`Trigger failed: ${e?.response?.data?.detail || e.message}`, { id: `trigger-${ingester}` });
@@ -176,20 +180,37 @@ export default function NidpJobsPanel() {
             NIDP Ingestion Jobs {data ? <span className="text-slate-400 font-normal">({(data.jobs || []).length})</span> : null}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-            All NIDP Cloud Run jobs registered in <code>NIDP_INGESTERS</code> (admin_nidp.py).
-            Status comes from <code>nidp.v_feed_status</code>; Trigger fires <code>gcloud run jobs execute</code>.
+            All NIDP services registered in <code>NIDP_INGESTERS</code> (admin_nidp.py).
+            Status comes from <code>nidp.v_feed_status</code> on the VM TimescaleDB;
+            Trigger spawns <code>run_service.sh</code> on <code>nidp-stack-vm</code> via cron pipeline.
             Expand a row to see recent runs and tail logs.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchJobs}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm px-3 py-2 disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {data?.grafana_url && (
+            <a
+              href={data.grafana_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="admin-nidp-grafana-link"
+              className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-sm px-3 py-2"
+              title="Open NIDP Job Health dashboard in Grafana"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Grafana
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={fetchJobs}
+            disabled={loading}
+            data-testid="admin-nidp-jobs-refresh"
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm px-3 py-2 disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Refresh
+          </button>
+        </div>
       </div>
 
       {!data && loading && (
@@ -482,11 +503,11 @@ function ExpandedRow({ ingester, data, acting, onLoadLogs, onReloadRuns, lastErr
         )}
       </div>
 
-      {/* Inline tail (existing /logs endpoint) */}
+      {/* Inline tail (VM /opt/nidp/logs/<ingester>/<ingester>.log) */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Cloud Run logs (inline tail · last 4h)
+            VM logs (inline tail · /opt/nidp/logs/{"{ingester}"}/{"{ingester}"}.log)
           </div>
           <button onClick={onLoadLogs} disabled={acting === "logs"} className="text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">
             {acting === "logs" ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
