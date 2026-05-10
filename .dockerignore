@@ -1,0 +1,49 @@
+# exclude noisy / heavy / sensitive paths from the build context so
+# `docker build` is fast and doesn't leak local secrets into images.
+
+# python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# node
+**/node_modules/
+**/.next/
+**/build/
+**/dist/
+
+# git / IDE
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# emergent platform metadata
+.emergent/
+
+# local env files (compose mounts the right ones explicitly)
+.env
+.env.*
+!.env.local.example
+**/.env
+**/.env.*
+!frontend/.env.local.example
+
+# logs / data dirs
+logs/
+*.log
+test_reports/
+tmp/
+data/
+.dump/
+
+# docker artifacts
+docker-compose.override.yml
+
+# memory & docs not needed at runtime
+memory/
+.taskmaster/

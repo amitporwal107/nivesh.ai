@@ -1,0 +1,189 @@
+# Local "everything-on-laptop" stack — no Emergent pod, no GCP VM, no
+# Upstash, no Neon. One `docker compose up -d` and you have the full
+# Nivesh + NIDP product running locally on these ports:
+#
+#   3000  React frontend (craco/webpack dev server, hot-reload)
+#   8001  Main FastAPI backend (uvicorn, --reload)
+#   8083  NIDP DaaS API (versioned read APIs incl. /v1/intelligence/*)
+#   8090  NIDP Query API (NIDP UI Console data source)
+#  27017  MongoDB (primary app store)
+#   5432  Postgres (app DB: nivesh_dev — MF/analytics persistence)
+#   5433  Postgres+TimescaleDB (NIDP warehouse: nidp DB)
+#   6379  Redis (cache/lock substrate)
+#
+# All services share a private docker network "nivesh-local" and address
+# each other by service name (e.g. backend reaches NIDP DaaS via
+# http://nidp-daas-api:8083). Host-port mappings are for *your* laptop.
+#
+# Bring-up workflow:
+#   ./scripts/local/setup.sh all       # one-shot end-to-end
+# OR step-by-step (each step explained):
+#   ./scripts/local/setup.sh prereqs
+#   ./scripts/local/setup.sh env
+#   ./scripts/local/setup.sh infra
+#   ./scripts/local/setup.sh migrate
+#   ./scripts/local/setup.sh seed
+#   ./scripts/local/setup.sh services
+#   ./scripts/local/setup.sh verify
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: nivesh-mongo
+    restart: unless-stopped
+    ports: ["${MONGO_PORT:-27017}:27017"]
+    volumes: [mongo-data:/data/db]
+    networks: [nivesh-local]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres-app:
+    image: postgres:16
+    container_name: nivesh-pg-app
+    restart: unless-stopped
+    ports: ["${POSTGRES_APP_PORT:-5432}:5432"]
+    environment:
+      POSTGRES_USER:     ${POSTGRES_APP_USER:-nivesh}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:-nivesh_local}
+      POSTGRES_DB:       ${POSTGRES_APP_DB:-nivesh_dev}
+    volumes: [pg-app-data:/var/lib/postgresql/data]
+    networks: [nivesh-local]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  postgres-nidp:
+    image: timescale/timescaledb:latest-pg16
+    container_name: nivesh-pg-nidp
+    restart: unless-stopped
+    ports: ["${POSTGRES_NIDP_PORT:-5433}:5432"]
+    environment:
+      POSTGRES_USER:     ${POSTGRES_NIDP_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_NIDP_PASSWORD:-postgres}
+      POSTGRES_DB:       ${POSTGRES_NIDP_DB:-nidp}
+    volumes: [pg-nidp-data:/var/lib/postgresql/data]
+    networks: [nivesh-local]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: nivesh-redis
+    restart: unless-stopped
+    ports: ["${REDIS_PORT:-6379}:6379"]
+    volumes: [redis-data:/data]
+    networks: [nivesh-local]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+
+  nidp-daas-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: nivesh/backend:local
+    container_name: nivesh-nidp-daas-api
+    restart: unless-stopped
+    command: ["uvicorn", "nidp.services.daas_api.app:app", "--host", "0.0.0.0", "--port", "8083", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    environment:
+      NIDP_POSTGRES_URL:        postgresql://${POSTGRES_NIDP_USER:-postgres}:${POSTGRES_NIDP_PASSWORD:-postgres}@postgres-nidp:5432/${POSTGRES_NIDP_DB:-nidp}
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN}
+      PYTHONPATH:               /app/backend
+      LOG_LEVEL:                info
+      TZ:                       Asia/Kolkata
+    ports: ["${NIDP_DAAS_PORT:-8083}:8083"]
+    working_dir: /app/backend
+    networks: [nivesh-local]
+    depends_on:
+      postgres-nidp: { condition: service_healthy }
+
+  nidp-query-api:
+    image: nivesh/backend:local
+    container_name: nivesh-nidp-query-api
+    restart: unless-stopped
+    command: ["uvicorn", "nidp.services.query_api.app:app", "--host", "0.0.0.0", "--port", "8090", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    environment:
+      NIDP_POSTGRES_URL: postgresql://${POSTGRES_NIDP_USER:-postgres}:${POSTGRES_NIDP_PASSWORD:-postgres}@postgres-nidp:5432/${POSTGRES_NIDP_DB:-nidp}
+      PYTHONPATH:        /app/backend
+      LOG_LEVEL:         info
+      TZ:                Asia/Kolkata
+    ports: ["${NIDP_QUERY_PORT:-8090}:8090"]
+    working_dir: /app/backend
+    networks: [nivesh-local]
+    depends_on:
+      postgres-nidp: { condition: service_healthy }
+      nidp-daas-api: { condition: service_started }
+
+  backend:
+    image: nivesh/backend:local
+    container_name: nivesh-backend
+    restart: unless-stopped
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    env_file: ./.env.local
+    environment:
+      MONGO_URL:          mongodb://mongodb:27017
+      DB_NAME:            ${DB_NAME:-nivesh_local}
+      POSTGRES_URL:       postgresql://${POSTGRES_APP_USER:-nivesh}:${POSTGRES_APP_PASSWORD:-nivesh_local}@postgres-app:5432/${POSTGRES_APP_DB:-nivesh_dev}
+      REDIS_URL:          redis://redis:6379/0
+      NIDP_DAAS_BASE_URL: http://nidp-daas-api:8083
+      NIDP_QUERY_API_URL: http://nidp-query-api:8090
+      PYTHONPATH:         /app/backend
+      TZ:                 Asia/Kolkata
+    ports: ["${BACKEND_PORT:-8001}:8001"]
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend                      # hot-reload Python code
+      - backend-pycache:/app/backend/__pycache__
+    networks: [nivesh-local]
+    depends_on:
+      mongodb:       { condition: service_healthy }
+      postgres-app:  { condition: service_healthy }
+      redis:         { condition: service_healthy }
+      nidp-daas-api: { condition: service_started }
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: nivesh/frontend:local
+    container_name: nivesh-frontend
+    restart: unless-stopped
+    command: ["yarn", "start"]
+    env_file: ./frontend/.env.local
+    environment:
+      HOST:             0.0.0.0
+      PORT:             3000
+      WDS_SOCKET_PORT:  3000
+      CI:               "true"        # disable interactive prompts
+    ports: ["${FRONTEND_PORT:-3000}:3000"]
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - ./frontend/public:/app/frontend/public
+      - ./frontend/craco.config.js:/app/frontend/craco.config.js
+      - ./frontend/tailwind.config.js:/app/frontend/tailwind.config.js
+      - ./frontend/postcss.config.js:/app/frontend/postcss.config.js
+    networks: [nivesh-local]
+    depends_on:
+      backend: { condition: service_started }
+
+volumes:
+  mongo-data:
+  pg-app-data:
+  pg-nidp-data:
+  redis-data:
+  backend-pycache:
+
+networks:
+  nivesh-local:
+    name: nivesh-local
