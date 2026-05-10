@@ -679,8 +679,8 @@ async def quality_expectations(request: Request) -> Dict[str, Any]:
 async def dq_proxy(tail: str, request: Request) -> StreamingResponse:
     await require_admin(request)
 
-    base = os.environ.get("NIDP_DAAS_BASE_URL") or _secrets.get("NIDP_DAAS_BASE_URL")
-    key  = os.environ.get("NIDP_DAAS_API_KEY")  or _secrets.get("NIDP_DAAS_API_KEY")
+    base = os.environ.get("NIDP_DAAS_BASE_URL")
+    key  = os.environ.get("NIDP_DAAS_API_KEY")
     if not base or not key:
         raise HTTPException(
             status_code=503,

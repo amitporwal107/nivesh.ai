@@ -1,0 +1,62 @@
+{
+  "summary": "Iter60 NIDP 90-Day Replay engine — backend + frontend contract testing complete. Backend: 26/26 unit tests + 15/15 admin-endpoint integration tests PASS (41/41). CLI `python -m nidp.quality.replay --help` prints all 11 flags correctly. /api/admin/nidp/replay/policies returns 200 with `source: builtin` + `warning: NIDP DB unreachable (InvalidPasswordError)` (POD POSTGRES_URL points at local nivesh_dev with wrong creds for the replay engine's expected schema — graceful degrade works as designed). Both v1 and legacy policies present with weights summing exactly to 1.0 and PRD-spec values (v1: 0.30/0.25/0.20/0.15/0.10, legacy: 0.40/0.30/0.15/0.10/0.05). /start with end<start returns 422 Pydantic error; /start with valid payload returns 502 'NIDP PG connect failed: password authentication failed for user nivesh' (expected in pod). /runs and /status both 502 with same meaningful message. Auth gating verified: GET /policies, POST /start, GET /runs all return 401 without session. Frontend: /nidp shows new 'Replay (90d)' tab (data-testid=nidp-tab-replay), all 4 sub-tabs render (start/history/detail/policies). Policies tab shows both v1 + legacy cards (replay-policy-v1, replay-policy-legacy) with all weights/thresholds. History tab renders error banner ('NIDP PG connect failed: password authentication failed for user nivesh') AND 'no replays yet — start one' empty state correctly. Start Run form renders with native date pickers, MF/EQUITY checkboxes, scoring policy dropdown (defaulting to v1), parallel workers input (4), failure rate input (0.1), 3 checkboxes (inject failures, reset window, skip weekends), and Start Replay button. One frontend bug found: 422 validation errors render as literal '[object Object]' banner because `String(error)` is called on the FastAPI detail array directly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "NidpReplayPanel.jsx → StartRunTab error banner",
+        "issue": "When backend returns 422 with detail=[{loc,msg,type,...}], UI shows literal '[object Object]' instead of the error message. Bug also affects HistoryTab (line 285), DetailTab (line 409), and PoliciesTab (line 644). Fix: normalize detail before setError — `const d = e?.response?.data?.detail; const msg = Array.isArray(d) ? d.map(x=>x.msg||JSON.stringify(x)).join('; ') : (d||e.message); setError(msg);`",
+        "selector": "div with AlertTriangle inside StartRunTab around line 250 (error state at line 132)",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "NidpReplayPanel.jsx → Scoring policy <select>",
+        "issue": "React hydration warning: '<span> cannot be a child of <option>'. The <option> for each policy wraps the description in a <span> which is invalid HTML. Replace span with plain text concatenation or remove the wrapper.",
+        "selector": "Scoring policy select inside StartRunTab",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Start Run tab",
+        "issues": [
+          "Missing data-testid on several interactive elements expected by review spec: scoring policy select (no replay-policy-select), inject-failures checkbox (no replay-inject-failures), reset-data checkbox (no replay-reset-data), Start Replay submit button (no replay-submit). The elements exist and work, but lack testids for stable automation."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nidp_replay_iter60.py",
+    "/app/test_reports/pytest/iter60_admin.xml",
+    "/app/test_reports/pytest/iter60_unit.xml"
+  ],
+  "action_items": [
+    "Frontend (MEDIUM): Fix error banner rendering of FastAPI 422 responses across all 4 tabs in NidpReplayPanel.jsx — normalize `e.response.data.detail` (which is an array) into a string before passing to setError. Affects lines 132, 285, 409, 644.",
+    "Frontend (LOW): Remove <span> wrapper inside <option> elements in scoring-policy select to clear React hydration warning.",
+    "Frontend (LOW): Add missing data-testid attributes: replay-policy-select, replay-inject-failures, replay-reset-data, replay-submit — to align with review-request spec and enable robust E2E automation.",
+    "Backend (no action — works as designed): /policies graceful-degrade returns `source: builtin` + `warning` when DSN connection fails. /start and /runs correctly bubble up 502 with asyncpg error message. Migration 044 was intentionally not applied per problem statement."
+  ],
+  "critical_code_review_comments": [
+    "admin_nidp_replay.py:_wait_for_replay_id — currently busy-polls the holder dict but the engine never writes `replay_id` to it before completion (engine writes to its own state). The 2s wait will always time out and the API returns `replay_id: None`. Either (a) have ReplayEngine.run() set holder['replay_id'] immediately after the audit.replay_runs INSERT, or (b) drop the polling and just return the engine.replay_id post-INSERT via a side channel. Currently the UI cannot navigate to Run Detail right after Start because replay_id is null.",
+    "admin_nidp_replay.py:start_replay — comment says '/start, /status, /runs returns 503 with helpful hint — same pattern as /diag and /catalog' but the actual code returns 502 (from _open_pool exception path) when DSN is set but connect fails, and 503 only when DSN is entirely absent. Update docstring or status code to match.",
+    "policy.py:list_policies — silently swallows ALL exceptions from the DB query (not just UndefinedTableError). A genuine DB error (permission denied, network blip) will be hidden under built-in fallback with no logging. Add a logger.warning() in the except clause.",
+    "NidpReplayPanel.jsx — 4 separate error-handling blocks duplicate the same `setError(e?.response?.data?.detail || e.message)` pattern that produces '[object Object]'. Extract a small helper `function formatApiError(e)` and reuse across the 4 tabs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_nidp_replay_iter60.py"
+  ],
+  "success_rate": {
+    "backend": "100% (41/41 — 26 unit + 15 endpoint contract)",
+    "frontend": "85% (tab/subtab nav, policy display, history empty state work; validation error banner shows [object Object] instead of message)"
+  },
+  "test_credentials": "session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b (aporwal107@gmail.com, admin)",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend replay contract tests live at /app/backend/tests/test_nidp_replay_iter60.py (run with `python -m pytest backend/tests/test_nidp_replay_iter60.py -v` from /app). They load REACT_APP_BACKEND_URL from /app/frontend/.env via python-dotenv. All endpoints needing the NIDP audit.* schema return 502 in pod env because POSTGRES_URL points at nivesh_dev (wrong creds + missing schema for the replay engine). This is EXPECTED. /policies is the only DB-touching endpoint that gracefully degrades to builtin. To smoke-test a real replay you'd need NIDP_PG_DSN pointing at 34.93.60.254:5433/nidp (postgres:postgres) — but that DB does NOT yet have migration 044 applied. CLI smoke: `cd /app/backend && python -m nidp.quality.replay --help` (works, lists 11 flags). Frontend bug to retest after main-agent fix: end_date<start_date submission should show readable Pydantic message (e.g., 'end_date must be on or after start_date'), not '[object Object]'.",
+  "rca of the issue": "Frontend [object Object] banner — RCA: FastAPI returns 422 validation errors as `{detail: [{loc, msg, type, input, url, ...}, ...]}`. NidpReplayPanel.jsx grabs `e.response.data.detail` directly (which is an Array of objects) and stores it in state, then renders via `{String(error)}` which yields '[object Object]'. Reproduction: open /nidp → Replay (90d) → Start Run → set start_date=2026-05-10, end_date=2026-01-01 → click Start Replay → red banner shows '[object Object]' instead of 'end_date must be on or after start_date'. Mitigation: normalize the detail field — `const d = err?.response?.data?.detail; setError(Array.isArray(d) ? d.map(x => x.msg ?? JSON.stringify(x)).join('; ') : (typeof d === 'string' ? d : err.message));`. Apply at 4 sites (lines ~132, 285, 409, 644) or extract a helper. The bug is purely client-side; backend error contract is correct (matches FastAPI standard)."
+}
