@@ -10,18 +10,25 @@ import argparse
 import asyncio
 import json
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.metrics import start_metrics_server
+from nidp.shared.storage.pg import close_pool
 
 from .service import run_once
 
 
 async def _main(args: argparse.Namespace) -> None:
-    summary = await run_once(
-        discover_limit=args.discover_limit,
-        parse_limit=args.parse_limit,
-        concurrency=args.concurrency,
-    )
+    try:
+        summary = await run_with_job_log(
+            "document_parser",
+            run_once,
+            discover_limit=args.discover_limit,
+            parse_limit=args.parse_limit,
+            concurrency=args.concurrency,
+        )
+    finally:
+        await close_pool()
     print(json.dumps(summary, indent=2, default=str))
 
 

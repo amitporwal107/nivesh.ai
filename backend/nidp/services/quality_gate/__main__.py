@@ -20,6 +20,7 @@ import logging
 import sys
 from datetime import date, datetime
 
+from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
 
 # Trigger rule registration as a side-effect of import
@@ -146,7 +147,13 @@ def main() -> None:
 
     async def _main() -> bool:
         try:
-            return await run_pipeline(target_date, args.domain)
+            return await run_with_job_log(
+                "quality_gate",
+                run_pipeline,
+                target_date,
+                args.domain,
+                target_date=target_date,
+            )
         finally:
             await close_pool()
 

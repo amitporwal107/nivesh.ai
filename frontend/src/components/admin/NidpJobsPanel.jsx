@@ -51,15 +51,27 @@ function WeekStrip({ days }) {
       {days.map(d => {
         const dt = new Date(d.date + "T00:00:00");
         const letter = dt.toLocaleDateString(undefined, { weekday: "narrow" });
-        const bg = d.status ? CAL_BG[d.status] : "bg-slate-200 dark:bg-slate-700";
+        const wd = dt.getUTCDay();
+        const isWeekend = wd === 0 || wd === 6;
+        let bg;
+        let tip;
+        if (d.status) {
+          bg = CAL_BG[d.status];
+          tip = `${d.date}${d.is_today ? " (today)" : ""} · ${d.status} · ${d.run_count || 0} run(s)`;
+        } else if (isWeekend) {
+          // Non-trading day — visibly muted with a dashed border so the
+          // user doesn't read a missing weekend run as a failure.
+          bg = "bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600";
+          tip = `${d.date}${d.is_today ? " (today)" : ""} · Non-trading day (weekend)`;
+        } else {
+          bg = "bg-slate-200 dark:bg-slate-700";
+          tip = `${d.date}${d.is_today ? " (today)" : ""} · no run`;
+        }
         const ring = d.is_today ? "ring-2 ring-indigo-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-800" : "";
-        const tip = d.status
-          ? `${d.date}${d.is_today ? " (today)" : ""} · ${d.status} · ${d.run_count || 0} run(s)`
-          : `${d.date}${d.is_today ? " (today)" : ""} · no run`;
         return (
           <div key={d.date} className="flex flex-col items-center" title={tip}>
             <div className={`w-3.5 h-3.5 rounded-sm ${bg} ${ring}`} />
-            <div className={"text-[8px] mt-0.5 " + (d.is_today ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-slate-400")}>
+            <div className={"text-[8px] mt-0.5 " + (d.is_today ? "text-indigo-600 dark:text-indigo-400 font-bold" : (isWeekend ? "text-slate-300 dark:text-slate-600" : "text-slate-400"))}>
               {letter}
             </div>
           </div>
@@ -535,17 +547,37 @@ function CalendarStrip({ calendar }) {
   }
   // Render oldest → newest left → right (calendar is desc; reverse).
   const cells = [...calendar].reverse();
+  // Indian markets are closed on Saturday (6) & Sunday (0). When a cell
+  // has no run on a weekend, that's expected — show it as an explicitly
+  // muted "non-trading day" tile so the user doesn't read it as a miss.
+  const isWeekend = (iso) => {
+    const d = new Date(`${iso}T00:00:00`);
+    const wd = d.getUTCDay(); // iso parses as UTC; weekday is correct
+    return wd === 0 || wd === 6;
+  };
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" data-testid="calendar-strip">
       {cells.map(c => {
-        const cls = c.status ? CAL_BG[c.status] : "bg-slate-200 dark:bg-slate-700";
-        const tip = c.status
-          ? `${c.date} · ${c.status} · ${c.run_count} run(s) · ${c.rows_total ?? 0} rows`
-          : `${c.date} · no run`;
+        const weekend = isWeekend(c.date);
+        let cls;
+        let tip;
+        if (c.status) {
+          cls = CAL_BG[c.status];
+          tip = `${c.date} · ${c.status} · ${c.run_count} run(s) · ${c.rows_total ?? 0} rows`;
+        } else if (weekend) {
+          // Diagonal-stripe pattern via Tailwind to clearly distinguish
+          // a non-trading day from a missed run on a weekday.
+          cls = "bg-slate-100 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600";
+          tip = `${c.date} · Non-trading day (weekend)`;
+        } else {
+          cls = "bg-slate-200 dark:bg-slate-700";
+          tip = `${c.date} · no run`;
+        }
         return (
           <div
             key={c.date}
             title={tip}
+            data-testid={`calendar-cell-${c.date}`}
             className={`h-5 flex-1 rounded ${cls}`}
             style={{ minWidth: "20px" }}
           />
@@ -568,7 +600,7 @@ function ExpandedRow({ ingester, data, acting, onLoadLogs, onReloadRuns, lastErr
           <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Last 7 days
           </div>
-          <div className="text-[10px] text-slate-400">oldest → today (hover for details)</div>
+          <div className="text-[10px] text-slate-400">oldest → today · dashed = non-trading day · hover for details</div>
         </div>
         <CalendarStrip calendar={calendar} />
       </div>
