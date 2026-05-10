@@ -46,7 +46,12 @@ User PRD: "NIDP 90-Day Historical Data Quality Backtesting Framework". Goal — 
 - 15 endpoint contract tests in `backend/tests/test_nidp_replay_iter60.py` — auth gating, /policies graceful fallback, /start Pydantic validation, /runs error contract. 100% pass.
 - 41/41 total pass.
 
-**Status:** Code, tests, and UI shipped end-to-end on the pod. Live replay execution requires migration 044 to be applied on the NIDP TimescaleDB (34.93.60.254:5433/nidp) and the pod backend to have NIDP_PG_DSN set. Both are deployment steps the user can trigger when ready.
+**Status:** Code, tests, UI shipped + **deployed to VM end-to-end on May 10, 2026**:
+- Migration 044 applied to NIDP TimescaleDB; all 5 audit tables created; both policies (legacy + v1) seeded
+- DaaS API restarted on the VM; `/v1/dq/proposals/generate-all` 404 fixed
+- Real CLI replay executed: `python -m nidp.quality.replay --start-date 2026-05-01 --end-date 2026-05-08 --policy-version v1 --domains mf,equity --reset true` → replay_id `643e3817-58d0-4154-bac7-56cf413827aa`, 10 evaluations, all dimensions correctly captured, score 83.75 across the window (freshness was 0 because warehouse data lags those test dates — expected behavior).
+- Pod-side `quality_gate` dynamic_runner verified on VM: 27 active rules from `dq.expectations_active` evaluated, 9 pass / 5 fail / 13 error; real findings persisted (e.g., `prices_eod/close_price_between_low_and_high` caught 7 rows out of 196 910; `mf_nav_daily/nav_greater_than_zero` caught 167 771 violating rows).
+- Pod env still has no PG-port-5433 access (firewalled), so `/api/admin/nidp/replay/start` from the UI returns 502 — by design. Replays are triggered from the VM CLI or via the cron schedule.
 
 **Files of reference:**
 - `/app/backend/nidp/migrations/044_nidp_replay_engine.sql`

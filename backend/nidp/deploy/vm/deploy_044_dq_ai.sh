@@ -25,7 +25,7 @@ if [[ -z "${OWNER_TOKEN}" ]]; then
   exit 2
 fi
 
-VM_IP="34.47.191.39"
+VM_IP="34.93.60.254"
 SSH_USER="aporwal107_gmail_com"
 SSH_KEY="/root/.ssh/nidp_gcp"
 SSH_OPTS=(-i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=30)

@@ -235,14 +235,28 @@ async def _persist_finding(
         payload["error"] = result.error
 
     try:
+        # Map severity → failure_class for the gate to consume:
+        #   CRITICAL → BLOCK (gate fails)
+        #   ERROR    → BLOCK
+        #   WARN     → FIX (visible but non-blocking)
+        #   INFO     → INFO
+        failure_class = {
+            "CRITICAL": "BLOCK",
+            "ERROR":    "BLOCK",
+            "WARN":     "FIX",
+            "INFO":     "INFO",
+        }.get(sev, "FIX")
+
         await conn.execute(
             """
             INSERT INTO nidp.validation_findings
-              (job_run_id, ingester, target_date, rule_name, severity,
-               message, expected, actual, sample_payload)
-            VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9::jsonb)
+              (finding_id, validation_id, job_run_id, ingester, target_date,
+               rule_name, severity, failure_class, message,
+               expected, actual, sample_rows)
+            VALUES (gen_random_uuid(), gen_random_uuid(), $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10::jsonb)
             """,
             run_id, result.dataset_name, target_date, result.name, sev,
+            failure_class,
             (result.error or f"{result.failed_rows}/{result.total_rows} rows violate {result.name}")[:500],
             result.expression[:1000],
             str(result.failed_rows),
