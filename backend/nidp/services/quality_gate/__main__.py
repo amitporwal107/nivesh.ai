@@ -70,6 +70,30 @@ async def run_pipeline(target_date: date, domain_arg: str) -> bool:
         # block certification of unrelated domains.
         logger.exception("great_expectations runner crashed (continuing)")
 
+    # ── Stage 0b: Dynamic rules from dq.expectations_active ──────
+    # AI-promoted + hand-authored business rules persisted in the
+    # registry. Findings flow into nidp.validation_findings and feed
+    # the quality score the same way GE findings do.
+    try:
+        from nidp.services.quality_gate.dynamic_runner import run_active_rules
+        dyn_report = await run_active_rules(target_date=target_date)
+        if dyn_report.get("skipped"):
+            logger.info(
+                "dynamic_rules: skipped — %s",
+                dyn_report.get("skipped_reason", "unknown"),
+            )
+        else:
+            logger.info(
+                "dynamic_rules: rules=%d pass=%d fail=%d error=%d (datasets=%d)",
+                dyn_report.get("rules_total", 0),
+                dyn_report.get("rules_pass",  0),
+                dyn_report.get("rules_fail",  0),
+                dyn_report.get("rules_error", 0),
+                len(dyn_report.get("datasets", {})),
+            )
+    except Exception:                                                    # noqa: BLE001
+        logger.exception("dynamic_runner crashed (continuing)")
+
     for domain in domains:
         logger.info("=== quality_gate[%s] %s ===", domain, target_date)
 
