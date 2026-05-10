@@ -346,7 +346,15 @@ export default function NidpJobsPanel() {
                         <td className="px-2 py-2">
                           <span className="inline-flex items-center gap-1.5">
                             <span className={`inline-block w-2 h-2 rounded-full ${style.dot}`} />
-                            <span className={style.text + " font-medium"}>{j.last_run_status || "never"}</span>
+                            <span className={style.text + " font-medium"}>
+                              {j.last_run_status
+                                ? j.last_run_status
+                                : (j.expected_freq === "manual"
+                                    ? "manual"
+                                    : (j.expected_freq === "event"
+                                        ? "event-driven"
+                                        : "never"))}
+                            </span>
                           </span>
                         </td>
                         <td className={"px-2 py-2 " + (streak > 0 ? "text-red-600 font-semibold" : "text-slate-500")}>
