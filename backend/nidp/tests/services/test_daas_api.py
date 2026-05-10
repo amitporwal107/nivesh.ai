@@ -374,3 +374,58 @@ def test_portfolio_holdings_envelope(client):
     body = r.json()
     assert "data" in body
     assert "pagination" in body
+
+
+# ─── dq_ai router (AI-assisted data quality) ──────────────────────
+
+
+def test_openapi_includes_dq_ai_routes(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = set(r.json()["paths"].keys())
+    must = {
+        "/v1/dq/diagnostics/analyze",
+        "/v1/dq/diagnostics",
+        "/v1/dq/diagnostics/{diagnostic_id}",
+        "/v1/dq/proposals/generate",
+        "/v1/dq/proposals",
+        "/v1/dq/proposals/{proposal_id}/accept",
+        "/v1/dq/proposals/{proposal_id}/reject",
+        "/v1/dq/expectations/active",
+    }
+    assert must <= paths
+
+
+def test_dq_diagnostics_list_envelope(client):
+    r = client.get("/v1/dq/diagnostics", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "pagination" in body
+
+
+def test_dq_proposals_list_envelope(client):
+    r = client.get("/v1/dq/proposals", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "pagination" in body
+
+
+def test_dq_active_expectations_envelope(client):
+    r = client.get("/v1/dq/expectations/active", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "pagination" in body
+
+
+def test_dq_diagnostic_404_when_missing(client):
+    r = client.get(
+        "/v1/dq/diagnostics/00000000-0000-0000-0000-000000000000",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 404
+
+
+def test_dq_proposals_status_filter_validation(client):
+    r = client.get("/v1/dq/proposals?status=NOT_A_STATUS", headers={"X-API-Key": "k"})
+    assert r.status_code == 400
+
