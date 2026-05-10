@@ -1,0 +1,47 @@
+[Unit]
+Description=NIDP Query API (read-only HTTPS surface over nidp.* warehouse tables)
+Documentation=https://github.com/nivesh/nidp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nidp
+Group=nidp
+WorkingDirectory=/opt/nidp/repo/backend
+
+# Load shared NIDP env (Postgres URL, etc.)
+EnvironmentFile=/opt/nidp/nidp.env
+# Service-specific env (token + bind port)
+EnvironmentFile=/opt/nidp/query_api.env
+
+Environment=PYTHONPATH=/opt/nidp/repo/backend
+Environment=PYTHONUNBUFFERED=1
+
+# Bind to all interfaces (0.0.0.0). Bearer-token auth gates every
+# non-/health endpoint — see backend/nidp/services/query_api/auth.py.
+ExecStart=/opt/nidp/venv/bin/python -m uvicorn \
+    nidp.services.query_api.app:app \
+    --host 0.0.0.0 \
+    --port ${NIDP_QUERY_API_PORT} \
+    --proxy-headers \
+    --forwarded-allow-ips=*
+
+Restart=on-failure
+RestartSec=5s
+
+# Logging — journald, then forward to /opt/nidp/logs/query_api/*.log
+# via syslog identifier filter if needed.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nidp-query-api
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nidp/logs /opt/nidp/run
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
