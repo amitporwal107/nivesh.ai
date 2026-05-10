@@ -350,12 +350,18 @@ class ReplayEngine:
             stats = await engine.run()
     """
 
-    def __init__(self, pool: asyncpg.Pool, config: ReplayConfig):
+    def __init__(self, pool: asyncpg.Pool, config: ReplayConfig,
+                 on_started=None):
+        """`on_started`: optional callable(replay_id: str) invoked
+        immediately after the audit.replay_runs row is INSERTed,
+        so callers can return the replay_id to the UI without waiting
+        for the run to finish."""
         self.pool   = pool
         self.cfg    = config
         self.replay_id: Optional[str] = None
         self.policy: Optional[ScoringPolicy] = None
         self._semaphore = asyncio.Semaphore(config.parallel)
+        self._on_started = on_started
 
     async def _create_run_row(self) -> str:
         async with self.pool.acquire() as conn:
@@ -530,6 +536,11 @@ class ReplayEngine:
 
         # 3. Persist replay row + dates_total
         self.replay_id = await self._create_run_row()
+        if self._on_started:
+            try:
+                self._on_started(self.replay_id)
+            except Exception:                                              # noqa: BLE001
+                logger.warning("on_started callback raised; ignoring")
         async with self.pool.acquire() as conn:
             await conn.execute(
                 "UPDATE audit.replay_runs SET dates_total=$2 WHERE replay_id=$1::uuid",

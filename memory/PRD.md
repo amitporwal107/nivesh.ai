@@ -2,6 +2,64 @@
 
 ## Implemented Features (Latest)
 
+### May 10, 2026 — NIDP 90-Day Historical Replay & Backtesting Engine
+
+User PRD: "NIDP 90-Day Historical Data Quality Backtesting Framework". Goal — replay 90+ trading days of historical data through the existing governance pipeline (Great Expectations + consistency + scoring + gate + certification + quarantine) under versioned scoring policies, with optional synthetic failure injection for calibration.
+
+**Migration:** `044_nidp_replay_engine.sql` adds `audit` schema:
+- `audit.policy_versions` — versioned scoring weights + thresholds. Seeded with `legacy` (Q = 0.40A + 0.30C + 0.15P + 0.10F + 0.05U) and `v1` (PRD-spec: Q = 0.30A + 0.25C + 0.20L + 0.15F + 0.10K).
+- `audit.replay_runs` — one row per CLI/API invocation; tracks window/policy/parallel/dates_total/dates_processed/status.
+- `audit.replay_dates` — per-(replay, target_date, domain) outcome with all 5 dimensions, certification, publish_decision, gate_outcome, block_findings, duration_ms.
+- `audit.replay_statistics` — aggregate roll-up (avg/p50/p10 Q, pass/review/fail counts, cert tier counts).
+- `audit.replay_failures` — synthetic injection log with detection ground-truth.
+
+**Engine** (`nidp/quality/replay/`):
+- `policy.py` — `ScoringPolicy` dataclass with `score()` / `certify()` / `publish_decision()`. Loads from `audit.policy_versions`; falls back to built-in `legacy` + `v1` if migration 044 hasn't been applied. `list_policies()` logs DB errors instead of swallowing silently.
+- `failure_injector.py` — 5 defect types (schema_drift, duplicate_keys, null_injection, delayed_arrival, cross_source_mismatch). Deterministic via seed; persists each injection with detection status.
+- `engine.py` — `ReplayEngine` orchestrates a single replay invocation. Walks trading days (uses `nidp.nse_holidays` if available, else weekday filter). Per-(date, domain) it: runs `run_consistency_checks` + `compute_quality_score` + re-scores under the chosen policy + writes to `nidp.certified_dates` / `nidp.exception_queue` / `nidp.quarantine_log` (so downstream dashboards populate from replay data). `parallel` controls asyncio semaphore concurrency. `reset_data` purges replay-managed rows for the window first. `on_started` callback fires immediately after audit.replay_runs INSERT so the API can return the replay_id without waiting for completion.
+- `__main__.py` — CLI per spec: `python -m nidp.quality.replay --start-date YYYY-MM-DD --end-date YYYY-MM-DD --domains all --policy-version v1 --parallel 8 --inject-failures false --reset true`. 11 flags total. Exits non-zero on FAILED runs.
+
+**Backend admin routes** (`/api/admin/nidp/replay/*`):
+- `GET /policies` — graceful degrade: returns built-in policies with `source: builtin` + warning when NIDP_PG_DSN unreachable; queries `audit.policy_versions` when reachable.
+- `POST /start` — validates StartReplayRequest (Pydantic), spawns background task, returns replay_id within ~50ms via on_started callback.
+- `GET /status/{replay_id}` — current run + statistics + live `rows_persisted` for progress.
+- `GET /runs` — last N replays with summary stats joined from `replay_statistics`.
+- `GET /runs/{id}/dates` — per-date outcomes filterable by domain + gate_outcome.
+- `GET /runs/{id}/failures` — synthetic injection log with detection rate.
+- `DELETE /runs/{id}` — cascade-deletes the replay and its dates.
+
+**Frontend** (`NidpReplayPanel.jsx` — 4 sub-tabs in new "Replay (90d)" Console tab):
+- **Start Run** — date pickers (default last 90d → today), MF/EQUITY domain checkboxes, scoring-policy dropdown (lists active policies), parallel workers (1–32), inject-failures + reset-data + skip-weekends toggles, failure-injection rate. Estimated trading-day count updates live.
+- **Run History** — table of recent replays with avg Q + pass/review/fail counts + status chip; click to drill into Detail.
+- **Run Detail** — status header, 10-tile stats grid (avg/p50/p10 Q, pass/review/fail, cert tiers), synthetic-failure expandable panel with detection-rate, per-date outcomes table filterable by domain + gate. Auto-polls every 5s while RUNNING.
+- **Policies** — read-only cards with weights + thresholds for every registered policy.
+
+**Bug fixes applied during testing iter60:**
+1. Frontend 422 errors no longer render as `[object Object]` — added `formatApiError()` helper that flattens FastAPI Pydantic detail arrays into readable strings (4 sites).
+2. Engine `on_started` callback wired so `/start` API returns the real replay_id within ~50ms instead of timing out / returning null.
+3. `<span>` inside `<option>` HTML hydration warning fixed (plain text concatenation).
+4. Missing data-testids added: `replay-policy-select`, `replay-inject-failures`, `replay-reset-data`, `replay-submit`.
+5. `policy.py:list_policies` now logs DB errors instead of silently swallowing them.
+
+**Tests:**
+- 26 unit tests in `nidp/tests/quality/test_replay_engine.py` — policy math (legacy + v1 formula match), certification tiers, publish decision, failure injector determinism, trading-day filter (with/without holiday table), ReplayConfig validation. 100% pass.
+- 15 endpoint contract tests in `backend/tests/test_nidp_replay_iter60.py` — auth gating, /policies graceful fallback, /start Pydantic validation, /runs error contract. 100% pass.
+- 41/41 total pass.
+
+**Status:** Code, tests, and UI shipped end-to-end on the pod. Live replay execution requires migration 044 to be applied on the NIDP TimescaleDB (34.93.60.254:5433/nidp) and the pod backend to have NIDP_PG_DSN set. Both are deployment steps the user can trigger when ready.
+
+**Files of reference:**
+- `/app/backend/nidp/migrations/044_nidp_replay_engine.sql`
+- `/app/backend/nidp/quality/replay/{__init__,__main__,engine,policy,failure_injector}.py`
+- `/app/backend/routes/admin_nidp_replay.py`
+- `/app/backend/server.py` (router registration line 39, 92)
+- `/app/frontend/src/components/admin/NidpReplayPanel.jsx`
+- `/app/frontend/src/pages/NidpConsole.jsx` (Replay tab, line 28)
+- `/app/backend/nidp/tests/quality/test_replay_engine.py`
+- `/app/backend/tests/test_nidp_replay_iter60.py`
+
+---
+
 ### May 10, 2026 — NIDP Intelligence Layer (Phase 2 foundation)
 
 User shared local diff implementing a comprehensive intelligence-engine layer

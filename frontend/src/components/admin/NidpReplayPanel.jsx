@@ -11,6 +11,17 @@ const REPLAY = `${API}/api/admin/nidp/replay`;
 
 const cls = (...xs) => xs.filter(Boolean).join(" ");
 
+/** Normalize FastAPI error responses (422 detail is an array of {msg,loc,...}). */
+function formatApiError(e) {
+  const d = e?.response?.data?.detail;
+  if (Array.isArray(d)) {
+    return d.map(x => x?.msg ? `${x.msg}` : JSON.stringify(x)).join("; ");
+  }
+  if (typeof d === "string") return d;
+  if (d && typeof d === "object") return JSON.stringify(d);
+  return e?.message || "request failed";
+}
+
 const STATUS_CHIP = {
   RUNNING:   "bg-amber-100 text-amber-800",
   SUCCESS:   "bg-emerald-100 text-emerald-700",
@@ -129,7 +140,7 @@ function StartRunTab({ onStarted }) {
       const r = await axios.post(`${REPLAY}/start`, form, { withCredentials: true });
       onStarted(r.data.replay_id);
     } catch (e) {
-      setError(e?.response?.data?.detail || e.message);
+      setError(formatApiError(e));
     } finally {
       setSubmitting(false);
     }
@@ -188,7 +199,7 @@ function StartRunTab({ onStarted }) {
         <label className="text-xs text-slate-600 dark:text-slate-300 space-y-1 block">
           <span>Scoring policy</span>
           <select value={form.policy_version}
-                  data-testid="replay-policy"
+                  data-testid="replay-policy-select"
                   onChange={e => setForm({ ...form, policy_version: e.target.value })}
                   className="w-full px-2 py-1.5 border rounded-md text-sm dark:bg-slate-800">
             {policies.map(p => (
@@ -229,13 +240,13 @@ function StartRunTab({ onStarted }) {
         <div className="flex flex-col gap-1.5 text-xs">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.inject_failures}
-                   data-testid="replay-inject"
+                   data-testid="replay-inject-failures"
                    onChange={e => setForm({ ...form, inject_failures: e.target.checked })} />
             Inject synthetic failures (FR-11) — for calibration
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.reset_data}
-                   data-testid="replay-reset"
+                   data-testid="replay-reset-data"
                    onChange={e => setForm({ ...form, reset_data: e.target.checked })} />
             Reset window — wipe quality_scores / exception_queue / quarantine_log for the replay range
           </label>
@@ -254,7 +265,7 @@ function StartRunTab({ onStarted }) {
       )}
 
       <div className="flex items-center gap-3">
-        <button data-testid="replay-start-btn" disabled={submitting || form.domains.length === 0} onClick={submit}
+        <button data-testid="replay-submit" disabled={submitting || form.domains.length === 0} onClick={submit}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
           Start Replay
@@ -282,7 +293,7 @@ function HistoryTab({ onSelect }) {
       const r = await axios.get(`${REPLAY}/runs?limit=50`, { withCredentials: true });
       setRuns(r.data.runs || []);
     } catch (e) {
-      setError(e?.response?.data?.detail || e.message);
+      setError(formatApiError(e));
     } finally {
       setLoading(false);
     }
@@ -406,7 +417,7 @@ function DetailTab({ replayId, setReplayId }) {
       setDates(d.data.dates || []);
       setFailures(f.data || {});
     } catch (e) {
-      setError(e?.response?.data?.detail || e.message);
+      setError(formatApiError(e));
     } finally {
       setLoading(false);
     }
@@ -641,7 +652,7 @@ function PoliciesTab() {
   useEffect(() => {
     axios.get(`${REPLAY}/policies`, { withCredentials: true })
       .then(r => setPolicies(r.data.policies || []))
-      .catch(e => setError(e?.response?.data?.detail || e.message))
+      .catch(e => setError(formatApiError(e)))
       .finally(() => setLoading(false));
   }, []);
 
