@@ -2,6 +2,43 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — NIDP Cron VM Deployment (Docker-free, Cloud-Build-free)
+
+All 3 requested tasks completed in this session:
+
+**a) SSH to nidp-stack-vm — RESOLVED**
+- Root cause: No gcloud SDK + no OS Login SSH key registered
+- Fix: Installed gcloud ARM64 SDK, registered ed25519 key via OS Login REST API as `aporwal107_gmail_com`
+- VM: `34.47.191.39` (asia-south1-a), Debian 12, e2-small, 35GB free disk
+
+**b) All 30 Cloud Scheduler jobs — PAUSED**
+- Used REST API with owner token to pause all 30 `nidp-cron-*` jobs
+- Verified: 30/30 PAUSED, 0 ENABLED
+
+**c) Cloud Build triggers — Already clean (0 triggers found)**
+
+**NIDP VM deployment (cron-based, Docker-free):**
+- NIDP backend code rsync'd from pod to `/opt/nidp/repo/backend/nidp/`
+- `nidp` service user created (uid=999)
+- Python 3.11 venv at `/opt/nidp/venv` with 81 packages
+- `/opt/nidp/nidp.env` configured for local TimescaleDB (`postgres:postgres@localhost:5433/nidp`)
+- `/etc/cron.d/nidp` installed — 31 scheduled jobs
+- `nidp-health.timer` running every 30 min
+- Smoke test: `amfi_nav` → **OK, 10,385 rows, 8.4 seconds**
+- Helper: `/app/backend/nidp/deploy/vm/quick_deploy.sh` for future deployments
+
+**Infrastructure already on VM (Docker-based, running before our work):**
+- TimescaleDB on port 5433 (nidp schema, 71 tables)
+- Kafka/Redpanda on port 9092 + Schema Registry 8081
+- Redis on port 6380
+- Grafana + Prometheus + Minio
+
+**Future deploy:** `bash /app/backend/nidp/deploy/vm/quick_deploy.sh <OWNER_TOKEN>`
+
+---
+
+## Implemented Features (Latest)
+
 ### May 2026 — NIDP Failed-Feeds Audit + Local Test Harness + Code Fixes (No-deploy yet)
 
 User reported 5 failing NIDP Cloud Run feeds. Took the disciplined path: **audit → reproduce locally → fix → test → only deploy after green**. No GCP redeploy in this session — preview validation only.
