@@ -241,3 +241,136 @@ def test_token_format_and_hash_stability():
 def test_known_plans_complete():
     from nidp.services.daas_api import keys
     assert {"free", "standard", "pro", "internal"} == set(keys.known_plans())
+
+
+
+def test_intelligence_reference_securities_envelope(client):
+    r = client.get("/v1/intelligence/reference/securities", headers={"X-API-Key": "k"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "data" in body
+    assert "pagination" in body
+
+
+def test_intelligence_dq_scores_envelope(client):
+    r = client.get("/v1/intelligence/dq/scores", headers={"X-API-Key": "k"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "data" in body
+    assert "pagination" in body
+
+
+def test_intelligence_market_snapshot_404_when_missing(client):
+    r = client.get("/v1/intelligence/snapshots/market", headers={"X-API-Key": "k"})
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["status"] == 404
+
+
+def test_openapi_includes_intelligence_routes(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = set(r.json()["paths"].keys())
+    must = {
+        "/v1/intelligence/reference/securities",
+        "/v1/intelligence/dq/scores",
+        "/v1/intelligence/features/stocks/{symbol}",
+        "/v1/intelligence/graph/entity-links",
+        "/v1/intelligence/snapshots/market",
+        "/v1/intelligence/snapshots/market/recent",
+        "/v1/intelligence/graph/correlations",
+        "/v1/intelligence/events",
+        "/v1/intelligence/events/search",
+    }
+    assert must <= paths
+
+
+def test_catalog_includes_intelligence_datasets(client):
+    r = client.get("/v1/catalog", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    datasets = r.json().get("datasets", [])
+    names = {d.get("name") for d in datasets}
+    assert "intelligence_security_master" in names
+    assert "intelligence_quality_scores" in names
+    assert "intelligence_stock_features_daily" in names
+    assert "intelligence_entity_links" in names
+    assert "intelligence_market_snapshot" in names
+    assert "intelligence_correlations" in names
+    assert "intelligence_normalized_events" in names
+
+
+def test_intelligence_events_envelope(client):
+    r = client.get("/v1/intelligence/events", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "pagination" in body
+
+
+def test_intelligence_correlations_envelope(client):
+    r = client.get("/v1/intelligence/graph/correlations", headers={"X-API-Key": "k"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body and "pagination" in body
+
+
+def test_openapi_includes_phase2_detail_routes(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = set(r.json()["paths"].keys())
+    assert "/v1/intelligence/events/{event_id}" in paths
+    assert "/v1/intelligence/graph/correlations/{security_id}/top" in paths
+
+
+def test_intelligence_events_invalid_enum_400(client):
+    r = client.get(
+        "/v1/intelligence/events?event_type=NOT_A_TYPE",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["message"] == "validation_error"
+
+
+def test_intelligence_event_detail_404(client):
+    r = client.get(
+        "/v1/intelligence/events/00000000-0000-0000-0000-000000000000",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 404
+
+
+def test_intelligence_top_correlations_shape(client):
+    r = client.get(
+        "/v1/intelligence/graph/correlations/00000000-0000-0000-0000-000000000000/top",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body
+    assert "count" in body
+
+
+def test_openapi_includes_portfolio_intelligence_routes(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = set(r.json()["paths"].keys())
+    assert "/v1/intelligence/portfolio/{external_user_id}/snapshot" in paths
+    assert "/v1/intelligence/portfolio/{external_user_id}/holdings" in paths
+
+
+def test_portfolio_intelligence_snapshot_404(client):
+    r = client.get(
+        "/v1/intelligence/portfolio/user_abc/snapshot",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 404
+
+
+def test_portfolio_holdings_envelope(client):
+    r = client.get(
+        "/v1/intelligence/portfolio/user_abc/holdings",
+        headers={"X-API-Key": "k"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "data" in body
+    assert "pagination" in body
