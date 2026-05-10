@@ -209,6 +209,8 @@ All 12 must pass.
 | `port already allocated` | host port collision | edit ports in `.env.local`: `BACKEND_PORT=8002`, etc. |
 | backend can't reach `mongodb:27017` | not on same docker network | `make down && make up` (recreates network) |
 | `make migrate` fails with "schema_migrations does not exist" | postgres-nidp not yet healthy | run `./scripts/local/setup.sh wait-infra` first |
+| `make seed` fails with "could not connect to server: localhost:5433" | leftover code path with hardcoded localhost | already fixed in `seed_source_registry.py` to read `NIDP_POSTGRES_URL`. If you see this, `git pull` again. |
+| backend connects to wrong Mongo / Postgres | stray `backend/.env` from another checkout overrides docker-compose env | `rm backend/.env frontend/.env` (both are gitignored — local stack uses `.env.local` instead) |
 | frontend hangs on "Compiling…" for >2 min | first compile + heavy bundle | normal, wait. After that it's < 5 s incremental |
 | NIDP feed says `403 Forbidden` | upstream blocking your IP | disable VPN, retry. If on corp WiFi, use mobile hotspot |
 | `OPENAI_API_KEY missing` errors in chat | not pasted into `.env.local` | paste it, then `docker compose -f docker-compose.local.yml restart backend` |

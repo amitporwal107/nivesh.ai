@@ -1,7 +1,23 @@
 """Seed nidp.source_registry with the 10 ingesters added during the
-VM-cron migration. Idempotent (ON CONFLICT UPDATE)."""
+VM-cron migration. Idempotent (ON CONFLICT UPDATE).
+
+Connection string resolution order:
+  1. NIDP_POSTGRES_URL env (used by docker-compose local stack)
+  2. POSTGRES_URL env
+  3. localhost:5433 default (matches the VM-side TimescaleDB Docker)
+"""
 import asyncio
+import os
+
 import asyncpg
+
+
+def _resolve_pg_url() -> str:
+    return (
+        os.environ.get("NIDP_POSTGRES_URL")
+        or os.environ.get("POSTGRES_URL")
+        or "postgresql://postgres:postgres@localhost:5433/nidp"
+    )
 
 SEEDS = [
     # source_name, ingester, url_pattern, source_class, confidence, expected_freq, schedule_cron
@@ -24,7 +40,7 @@ SEEDS = [
 
 
 async def main() -> None:
-    c = await asyncpg.connect("postgresql://postgres:postgres@localhost:5433/nidp")
+    c = await asyncpg.connect(_resolve_pg_url())
     for s in SEEDS:
         existing = await c.fetchval(
             "SELECT 1 FROM nidp.source_registry WHERE ingester = $1", s[1]
