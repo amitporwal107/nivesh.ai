@@ -103,7 +103,7 @@ def _parse_date(s: str) -> date:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging(service="quality_gate")
 
     p = argparse.ArgumentParser(
         description="NIDP Quality Gate — post-ingestion pipeline",

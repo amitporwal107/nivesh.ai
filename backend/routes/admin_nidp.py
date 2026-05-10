@@ -96,7 +96,7 @@ GCP_REGION  = os.environ.get("GCP_REGION",  "asia-south1")
 # link straight to the "NIDP Job Health" board.
 GRAFANA_BASE_URL = (
     os.environ.get("NIDP_GRAFANA_URL")
-    or "http://34.47.191.39:3000"
+    or "http://34.93.60.254:3000"
 ).rstrip("/")
 # kiosk=tv hides the top nav + sidebar + theme picker → clean dashboard
 # pane suitable for embedding inside the Nivesh admin console iframe or
