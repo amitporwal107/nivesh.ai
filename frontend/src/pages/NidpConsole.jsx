@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft, Database, PlayCircle, Activity, Server,
-  ShieldCheck, TrendingUp, Award, BarChart3,
+  ShieldCheck, TrendingUp, Award, BarChart3, Sparkles,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import NidpCatalogPanel      from "@/components/admin/NidpCatalogPanel";
@@ -13,6 +13,7 @@ import NidpQualityDashboard  from "@/components/admin/NidpQualityDashboard";
 import NidpCertificationPanel from "@/components/admin/NidpCertificationPanel";
 import NidpTrendPanel        from "@/components/admin/NidpTrendPanel";
 import NidpGrafanaEmbed      from "@/components/admin/NidpGrafanaEmbed";
+import NidpDqAiPanel         from "@/components/admin/NidpDqAiPanel";
 
 const TABS = [
   { id: "catalog",       label: "Data Catalog",    icon: Database,
@@ -23,6 +24,8 @@ const TABS = [
     blurb: "Live job-health dashboard embedded from the VM Grafana — no login required." },
   { id: "quality",       label: "Data Quality",    icon: ShieldCheck,
     blurb: "Executive summary · quality metrics · rule failures · exception queue · SLA monitor." },
+  { id: "dq_ai",         label: "Expectations (AI)", icon: Sparkles,
+    blurb: "CRUD on quality expectations · review AI-proposed business rules · generate strict expectations per feed." },
   { id: "certification", label: "Certification",   icon: Award,
     blurb: "90-day calendar tracker · certification status · eligibility criteria per domain." },
   { id: "trends",        label: "Trends",          icon: TrendingUp,
@@ -143,6 +146,12 @@ export default function NidpConsole() {
         {tab === "quality" && (
           <div data-testid="nidp-tab-panel-quality">
             <NidpQualityDashboard />
+          </div>
+        )}
+
+        {tab === "dq_ai" && (
+          <div data-testid="nidp-tab-panel-dq_ai">
+            <NidpDqAiPanel />
           </div>
         )}
 
