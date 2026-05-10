@@ -664,6 +664,51 @@ async def quality_expectations(request: Request) -> Dict[str, Any]:
     }
 
 
+# ─────────────────────────────────────────────────────────────────
+# AI-assisted DQ — pod-side proxy to NIDP DaaS /v1/dq/*
+# ─────────────────────────────────────────────────────────────────
+# Internal token injection happens here so the React UI only needs
+# the user's session cookie (the standard admin auth). Frontend never
+# sees NIDP_DAAS_API_KEY.
+
+@router.api_route(
+    "/dq/{tail:path}",
+    methods=["GET", "POST", "PATCH", "DELETE"],
+    summary="Authenticated proxy to NIDP DaaS /v1/dq/*",
+)
+async def dq_proxy(tail: str, request: Request) -> StreamingResponse:
+    await require_admin(request)
+
+    base = os.environ.get("NIDP_DAAS_BASE_URL") or _secrets.get("NIDP_DAAS_BASE_URL")
+    key  = os.environ.get("NIDP_DAAS_API_KEY")  or _secrets.get("NIDP_DAAS_API_KEY")
+    if not base or not key:
+        raise HTTPException(
+            status_code=503,
+            detail="NIDP_DAAS_BASE_URL / NIDP_DAAS_API_KEY not configured",
+        )
+
+    upstream = f"{base.rstrip('/')}/v1/dq/{tail}"
+    if request.url.query:
+        upstream += f"?{request.url.query}"
+
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    headers = {"X-API-Key": key, "Content-Type": "application/json", "Accept": "application/json"}
+
+    try:
+        # generate-all may take a while (LLM × N feeds); allow up to 8 min
+        timeout = 480 if "generate-all" in tail else 90
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.request(request.method, upstream, headers=headers, content=body)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"dq proxy: {e}") from e
+
+    return StreamingResponse(
+        iter([r.content]),
+        status_code=r.status_code,
+        media_type=r.headers.get("content-type", "application/json"),
+    )
+
+
 @router.get("/quality/summary")
 async def quality_summary(
     request: Request,
