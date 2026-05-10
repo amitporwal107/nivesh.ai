@@ -53,11 +53,8 @@ async def _get_todays_signals(conn, target_date: date) -> list[dict]:
                s.sentiment, s.confidence,
                s.estimated_move_pct_low, s.estimated_move_pct_high,
                s.signal_json, s.alert_sent,
-               f.revenue_from_ops_cr, f.total_income_cr,
-               f.interest_earned_cr,
                ec.company_name
           FROM nidp.corporate_event_signals s
-          LEFT JOIN nidp.nse_financials_quarterly f ON f.id = s.financials_id
           LEFT JOIN nidp.event_calendar ec
                  ON ec.symbol = s.symbol AND ec.event_date = s.event_date
                 AND ec.event_type = s.event_type
