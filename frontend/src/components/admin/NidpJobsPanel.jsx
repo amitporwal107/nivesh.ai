@@ -83,12 +83,20 @@ export default function NidpJobsPanel() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState({});       // ingester -> {runs, logs, ...}
   const [acting, setActing]   = useState({});          // ingester -> "execute" | "logs" | "runs"
+  // Run-date for Trigger and inline calendar fetches. Default = the
+  // backend-supplied `last_trading_day` (Mon–Fri shy of weekends);
+  // user can override per-trigger from the header date input.
+  const [runDate, setRunDate] = useState(null);
+  const [archive, setArchive] = useState(null);        // {ingester, payload} or null
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
       const r = await axios.get(`${API}/api/admin/nidp/jobs`, { withCredentials: true });
       setData(r.data);
+      // Initialise run-date to last trading day on first load only — never override
+      // a date the user has typed.
+      setRunDate(d => d || r.data?.last_trading_day || null);
     } catch (e) {
       toast.error(`Failed to load jobs: ${e?.response?.data?.detail || e.message}`);
     } finally {
@@ -100,11 +108,16 @@ export default function NidpJobsPanel() {
 
   const triggerJob = useCallback(async (ingester) => {
     setActing(s => ({ ...s, [ingester]: "execute" }));
-    toast.loading(`Triggering ${ingester}...`, { id: `trigger-${ingester}` });
+    toast.loading(`Triggering ${ingester} for ${runDate || "default date"}...`, { id: `trigger-${ingester}` });
     try {
       const r = await axios.post(
-        `${API}/api/admin/nidp/jobs/${ingester}/execute`, {},
-        { withCredentials: true, timeout: 45 * 1000 },
+        `${API}/api/admin/nidp/jobs/${ingester}/execute`,
+        {},
+        {
+          withCredentials: true,
+          timeout: 45 * 1000,
+          params: runDate ? { target_date: runDate } : {},
+        },
       );
       const via = r.data?.via || "vm";
       const detail = via === "vm"
@@ -187,6 +200,21 @@ export default function NidpJobsPanel() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Run-date picker — controls the date passed to Trigger and
+              defaults to last_trading_day from the backend. */}
+          <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <Clock className="w-3.5 h-3.5" />
+            Run date
+            <input
+              type="date"
+              value={runDate || ""}
+              onChange={e => setRunDate(e.target.value || null)}
+              data-testid="admin-nidp-run-date"
+              max={new Date().toISOString().slice(0, 10)}
+              className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs px-2 py-1.5"
+              title="Date passed to every Trigger button. Default is the last trading day."
+            />
+          </label>
           {data?.grafana_url && (
             <a
               href={data.grafana_url}
@@ -320,15 +348,29 @@ export default function NidpJobsPanel() {
                         </td>
                         <td className="px-2 py-2 text-slate-500">{j.last_rows_inserted ?? "—"}</td>
                         <td className="px-2 py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => triggerJob(j.ingester)}
-                            disabled={triggering}
-                            className="inline-flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white text-xs px-2 py-1"
-                          >
-                            {triggering ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
-                            Trigger
-                          </button>
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setArchive({ ingester: j.ingester })}
+                              data-testid={`admin-nidp-archive-${j.ingester}`}
+                              className="inline-flex items-center gap-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs px-2 py-1"
+                              title="Browse archived raw feed files for this ingester"
+                            >
+                              <FileText className="w-3 h-3" />
+                              Files
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => triggerJob(j.ingester)}
+                              disabled={triggering}
+                              data-testid={`admin-nidp-trigger-${j.ingester}`}
+                              className="inline-flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white text-xs px-2 py-1"
+                              title={runDate ? `Trigger ${j.ingester} for ${runDate}` : `Trigger ${j.ingester}`}
+                            >
+                              {triggering ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+                              Trigger
+                            </button>
+                          </div>
                         </td>
                       </tr>
 
@@ -356,7 +398,134 @@ export default function NidpJobsPanel() {
           </div>
         </>
       )}
+
+      {archive && (
+        <ArchiveModal
+          ingester={archive.ingester}
+          onClose={() => setArchive(null)}
+        />
+      )}
     </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Archive modal — lists every raw file the VM has saved for an
+// ingester (per-date) and provides an authenticated download link.
+// ─────────────────────────────────────────────────────────────────
+function ArchiveModal({ ingester, onClose }) {
+  const [data,   setData]   = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,  setError]  = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await axios.get(
+          `${API}/api/admin/nidp/archive/${ingester}`,
+          { withCredentials: true },
+        );
+        if (!cancelled) setData(r.data);
+      } catch (e) {
+        if (!cancelled) setError(e?.response?.data?.detail || e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ingester]);
+
+  const dl = (date, filename) =>
+    `${API}/api/admin/nidp/archive/${ingester}/${date}/${filename}`;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm"
+      onClick={onClose}
+      data-testid="admin-nidp-archive-modal"
+    >
+      <div
+        className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Raw feed archive · <code>{ingester}</code>
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              All raw downloads stored on <code>nidp-stack-vm</code>{" "}
+              under <code>/opt/nidp/archive/{ingester}/&lt;date&gt;/</code>.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            data-testid="admin-nidp-archive-close"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs"
+          >
+            Close ✕
+          </button>
+        </div>
+
+        <div className="p-5">
+          {loading && (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          )}
+
+          {error && (
+            <div className="text-xs text-rose-700 bg-rose-50 dark:bg-rose-900/20 dark:text-rose-300 rounded p-3">
+              {String(error)}
+            </div>
+          )}
+
+          {!loading && !error && data && !data.exists && (
+            <div className="text-xs text-slate-500 italic">
+              No archived files yet for this ingester. Trigger a run with a Run date selected — the next download will land here automatically.
+            </div>
+          )}
+
+          {!loading && !error && data?.dates?.length > 0 && (
+            <div className="space-y-4">
+              {data.dates.map(d => (
+                <div key={d.target_date} className="rounded-lg border border-slate-100 dark:border-slate-700">
+                  <div className="px-3 py-2 bg-slate-50 dark:bg-slate-900/40 text-xs font-mono text-slate-700 dark:text-slate-200 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                    <span>{d.target_date}</span>
+                    <span className="text-slate-400">
+                      {d.file_count} file{d.file_count === 1 ? "" : "s"} ·{" "}
+                      {(d.total_bytes / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} KB
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {(d.files || []).map(f => (
+                      <a
+                        key={f.filename}
+                        href={dl(d.target_date, f.filename)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`admin-nidp-archive-dl-${ingester}-${d.target_date}-${f.filename}`}
+                        className="flex items-center justify-between px-3 py-2 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-900/20 group"
+                      >
+                        <span className="font-mono text-slate-700 dark:text-slate-200 truncate group-hover:text-indigo-700 dark:group-hover:text-indigo-300">
+                          {f.filename}
+                        </span>
+                        <span className="text-slate-400 ml-3 shrink-0">
+                          {(f.size_bytes / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} KB · download ↓
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

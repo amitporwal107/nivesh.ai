@@ -36,6 +36,7 @@ class FiiDiiIngester(BaseIngester):
                     url,
                     referer=f"{NSE_WWW}/reports/fii-dii",
                     extra_headers={"Accept": "application/json"},
+                    archive_as=("fii_dii", target_date, "fii_dii.json"),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status

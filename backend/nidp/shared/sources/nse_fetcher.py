@@ -145,11 +145,18 @@ async def fetch_bytes(
     *,
     referer: Optional[str] = None,
     extra_headers: Optional[dict] = None,
+    archive_as: Optional[Tuple[str, Optional[str], str]] = None,
 ) -> Tuple[bytes, int]:
     """Fetch raw bytes with retry and (for NSE hosts) cookie-prime.
 
     Returns: (body, http_status). Raises aiohttp.ClientError on
     terminal failure after all retries.
+
+    `archive_as` (optional): a `(ingester, target_date, filename)` triple.
+    When supplied and the fetch returns 200, the body is also written
+    to `/opt/nidp/archive/<ingester>/<date>/<filename>` for audit / re-
+    download from the admin console. Failures here are logged, never
+    propagated.
     """
     if _is_nse_host(url):
         await _prime_nse()
@@ -171,7 +178,15 @@ async def fetch_bytes(
             async with session.get(url, headers=headers) as resp:
                 last_status = resp.status
                 if resp.status == 200:
-                    return await resp.read(), 200
+                    body = await resp.read()
+                    if archive_as is not None:
+                        try:
+                            from nidp.shared.archive import archive_raw
+                            ingester, target_date, filename = archive_as
+                            archive_raw(ingester, target_date, filename, body)
+                        except Exception as ae:  # pragma: no cover - never break a feed
+                            logger.warning("archive_raw skipped for %s: %s", url, ae)
+                    return body, 200
                 if resp.status in (401, 403) and _is_nse_host(url) and attempt == 0:
                     # Cookies likely expired — re-prime once and retry
                     logger.info("NSE %s on %s — re-priming cookies", resp.status, url)

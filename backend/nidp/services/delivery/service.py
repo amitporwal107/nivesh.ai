@@ -31,7 +31,11 @@ class DeliveryIngester(BaseIngester):
         url = fmt_url(DELIVERY_URL, target_date)
         with time_fetch(self.SOURCE_NAME):
             try:
-                body, status = await fetch_bytes(url, referer=f"{NSE_WWW}/all-reports")
+                body, status = await fetch_bytes(
+                    url,
+                    referer=f"{NSE_WWW}/all-reports",
+                    archive_as=("delivery", target_date, url.rsplit("/", 1)[-1]),
+                )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
             except Exception:

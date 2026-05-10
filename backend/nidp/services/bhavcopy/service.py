@@ -73,6 +73,7 @@ class BhavcopyIngester(BaseIngester):
                 body, status = await fetch_bytes(
                     url,
                     referer=f"{NSE_WWW}/all-reports",
+                    archive_as=("bhavcopy", target_date, url.rsplit("/", 1)[-1]),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status
