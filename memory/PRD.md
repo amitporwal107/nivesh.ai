@@ -73,11 +73,11 @@ deployment to the VM.
 `nidp-stack-vm` port 8083, all 13 `/v1/intelligence/*` endpoints
 return HTTP 200 against real materialized data. Auth via internal
 `NIDP_DAAS_INTERNAL_TOKEN` (also wired into pod backend's
-`/app/backend/.env` as `NIDP_DAAS_API_KEY`). Last firewall hop (open
-port 8083 to the public internet) needs one `gcloud` command from a
-user with project IAM permissions — full instructions in
-`backend/nidp/deploy/vm/NIDP_DAAS_API_OPS.md`. Until then, port 8083
-is reachable via SSH-tunnel only.
+`/app/backend/.env` as `NIDP_DAAS_API_KEY`). Firewall rule
+`allow-nidp-daas-api` (tcp:8083 → tag `nidp-stack`, source `0.0.0.0/0`)
+created on May 10 — verified end-to-end from the Emergent pod returning
+the live market_snapshot card (NIFTY 24176.15, BankNifty 55310.55,
+FII -4110.6cr, DII +6748.13cr, regime RISK_OFF) and 401 on no-key.
 
 **Files of reference:**
 - `/app/backend/nidp/migrations/041_nidp_core_intelligence_layer.sql`
