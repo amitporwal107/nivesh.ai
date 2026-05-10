@@ -498,9 +498,17 @@ function GenerateTab() {
 }
 
 function ErrorBanner({ error }) {
+  let msg;
+  if (Array.isArray(error)) {
+    msg = error.map(x => x?.msg || JSON.stringify(x)).join("; ");
+  } else if (error && typeof error === "object") {
+    msg = error.msg || JSON.stringify(error);
+  } else {
+    msg = String(error);
+  }
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
-      <AlertTriangle className="w-3.5 h-3.5"/> {String(error)}
+      <AlertTriangle className="w-3.5 h-3.5"/> {msg}
     </div>
   );
 }

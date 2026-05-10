@@ -57,6 +57,7 @@ from nidp.services.daas_api.routers import (
     mf,
     prices,
     reference,
+    replay,
     snapshots,
 )
 
@@ -233,13 +234,23 @@ async def _http_exc_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def _validation_handler(request: Request, exc: RequestValidationError):
     request_id = getattr(request.state, "request_id", None)
+    # Pydantic V2 may embed raw exceptions inside `ctx` (e.g. when a
+    # field_validator raises ValueError). Coerce any non-JSON-friendly
+    # values to str so JSONResponse doesn't fail with TypeError.
+    safe_errors = []
+    for err in exc.errors():
+        e = dict(err)
+        ctx = e.get("ctx")
+        if isinstance(ctx, dict):
+            e["ctx"] = {k: (str(v) if isinstance(v, BaseException) else v) for k, v in ctx.items()}
+        safe_errors.append(e)
     return JSONResponse(
         status_code=400,
         content={
             "error": {
                 "status":     400,
                 "message":    "validation_error",
-                "details":    exc.errors(),
+                "details":    safe_errors,
                 "request_id": request_id,
             }
         },
@@ -275,6 +286,7 @@ app.include_router(indices.router, prefix=v1_prefix)
 app.include_router(reference.router, prefix=v1_prefix)
 app.include_router(intelligence.router, prefix=v1_prefix)
 app.include_router(dq_ai.router, prefix=v1_prefix)
+app.include_router(replay.router, prefix=v1_prefix)
 app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)

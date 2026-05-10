@@ -1,415 +1,107 @@
-"""Admin → NIDP → Replay endpoints.
+"""Admin → NIDP → Replay endpoints (pod-side proxy).
 
-Drives the 90-day historical replay engine from the admin UI. The
-engine itself runs against the NIDP Postgres warehouse (`NIDP_PG_DSN`);
-this module is just the thin proxy that:
+Forwards `/api/admin/nidp/replay/*` to the DaaS API on the NIDP VM at
+`${NIDP_DAAS_BASE_URL}/v1/replay/*`. The replay engine itself runs on
+the VM (where it has direct PG access); the pod just gates the
+admin session and injects the X-API-Key.
 
-  1. Accepts a config payload, validates it.
-  2. Creates an asyncpg pool against the NIDP DB.
-  3. Spawns the replay as a fire-and-forget background task.
-  4. Exposes status + history endpoints reading audit.replay_runs.
-
-For local-dev pods that don't have NIDP_PG_DSN set, every endpoint
-returns 503 with a hint. If DSN is set but the connect fails (wrong
-creds / unreachable host), endpoints return 502 with the connect error
-detail. /policies is the lone exception — it gracefully falls back to
-built-in defaults so the UI's policy dropdown is never empty.
+Same pattern as `admin_nidp.py:dq_proxy` — generic verb-agnostic proxy.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-import asyncpg
-from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from deps import require_admin
-from nidp.quality.replay.engine import ReplayConfig, ReplayEngine
 from nidp.quality.replay.policy import list_policies
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp/replay", tags=["admin-nidp-replay"])
 
 
-def _nidp_dsn() -> Optional[str]:
-    return (
-        os.environ.get("NIDP_PG_DSN")
-        or os.environ.get("NIDP_POSTGRES_URL")
-        or os.environ.get("POSTGRES_URL")
-    )
-
-
-async def _open_pool() -> asyncpg.Pool:
-    dsn = _nidp_dsn()
-    if not dsn:
+def _vm_creds() -> tuple[str, str]:
+    base = os.environ.get("NIDP_DAAS_BASE_URL")
+    key  = os.environ.get("NIDP_DAAS_API_KEY")
+    if not base or not key:
         raise HTTPException(
             status_code=503,
             detail=(
-                "NIDP_PG_DSN not configured on this host. "
-                "Set NIDP_PG_DSN (or POSTGRES_URL) to the NIDP TimescaleDB "
-                "DSN to enable replay endpoints."
+                "NIDP_DAAS_BASE_URL / NIDP_DAAS_API_KEY not configured. "
+                "Set both in the pod backend .env to enable replay endpoints."
             ),
         )
-    try:
-        return await asyncpg.create_pool(dsn, min_size=1, max_size=8, command_timeout=60)
-    except Exception as e:                                                # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"NIDP PG connect failed: {e}") from e
+    return base.rstrip("/"), key
 
 
 # ─────────────────────────────────────────────────────────────────
-# Pydantic
-# ─────────────────────────────────────────────────────────────────
-class StartReplayRequest(BaseModel):
-    start_date:      date
-    end_date:        date
-    domains:         List[str] = Field(default_factory=lambda: ["mf", "equity"])
-    policy_version:  str       = "v1"
-    parallel:        int       = Field(default=4, ge=1, le=32)
-    inject_failures: bool      = False
-    reset_data:      bool      = False
-    failure_seed:    Optional[int]   = None
-    failure_rate:    float           = Field(default=0.10, ge=0.0, le=1.0)
-    skip_weekends:   bool            = True
-
-    @field_validator("end_date")
-    @classmethod
-    def _validate_window(cls, v, info):
-        start = info.data.get("start_date")
-        if start and v < start:
-            raise ValueError("end_date must be on or after start_date")
-        if start and (v - start).days > 366 * 5:
-            raise ValueError("replay window cannot exceed 5 years")
-        return v
-
-    @field_validator("domains")
-    @classmethod
-    def _validate_domains(cls, v):
-        if not v:
-            return ["mf", "equity"]
-        for d in v:
-            if d not in ("mf", "equity", "all"):
-                raise ValueError(f"unknown domain: {d}")
-        return v
-
-
-# ─────────────────────────────────────────────────────────────────
-# Background-task registry — one running replay at a time per pool.
-# ─────────────────────────────────────────────────────────────────
-_RUNNING: Dict[str, asyncio.Task] = {}
-
-
-async def _run_in_background(pool: asyncpg.Pool, cfg: ReplayConfig, replay_id_holder: Dict[str, Any]) -> None:
-    def _on_started(replay_id: str) -> None:
-        replay_id_holder["replay_id"] = replay_id
-
-    try:
-        engine = ReplayEngine(pool, cfg, on_started=_on_started)
-        result = await engine.run()
-        replay_id_holder["replay_id"] = engine.replay_id
-        replay_id_holder["result"]    = result
-    except Exception as e:                                                # noqa: BLE001
-        logger.exception("replay background task failed")
-        replay_id_holder["error"] = f"{type(e).__name__}: {str(e)[:500]}"
-    finally:
-        await pool.close()
-
-
-# ─────────────────────────────────────────────────────────────────
-# Endpoints
+# Special-case: /policies — graceful fallback to built-ins so the UI's
+# Start-Run dropdown is never empty even if the VM is unreachable.
 # ─────────────────────────────────────────────────────────────────
 @router.get("/policies")
 async def get_policies(request: Request) -> Dict[str, Any]:
     await require_admin(request)
-    # Graceful degrade: builtin policies don't need a DB.
-    dsn = _nidp_dsn()
-    if not dsn:
-        policies = await list_policies(None)
-        return {
-            "policies": [p.as_dict() for p in policies],
-            "source":   "builtin",
-            "hint":     "NIDP_PG_DSN not set — showing built-in defaults; apply migration 044 on NIDP DB to register custom policies.",
-        }
     try:
-        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, command_timeout=10)
-    except Exception as e:                                                # noqa: BLE001
-        policies = await list_policies(None)
-        return {
-            "policies": [p.as_dict() for p in policies],
-            "source":   "builtin",
-            "warning":  f"NIDP DB unreachable ({type(e).__name__}); showing built-in defaults",
-        }
-    try:
-        async with pool.acquire() as conn:
-            policies = await list_policies(conn)
-        return {"policies": [p.as_dict() for p in policies], "source": "db"}
-    finally:
-        await pool.close()
+        base, key = _vm_creds()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{base}/v1/replay/policies",
+                headers={"X-API-Key": key, "Accept": "application/json"},
+            )
+        if r.status_code == 200:
+            data = r.json()
+            data.setdefault("source", "db")
+            return data
+        # VM responded with non-200 → fall through to builtin
+        logger.warning("replay /policies: VM returned HTTP %s — using builtin", r.status_code)
+    except (HTTPException, httpx.HTTPError) as e:
+        logger.warning("replay /policies: VM unreachable (%s) — using builtin", e)
 
-
-@router.post("/start")
-async def start_replay(req: StartReplayRequest, request: Request) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    cfg = ReplayConfig(
-        start_date=req.start_date,
-        end_date=req.end_date,
-        domains=req.domains,
-        policy_version=req.policy_version,
-        parallel=req.parallel,
-        inject_failures=req.inject_failures,
-        reset_data=req.reset_data,
-        failure_seed=req.failure_seed,
-        failure_rate=req.failure_rate,
-        skip_weekends=req.skip_weekends,
-        initiated_by=getattr(request.state, "user_email", None) or "admin",
-    )
-
-    holder: Dict[str, Any] = {}
-    task = asyncio.create_task(_run_in_background(pool, cfg, holder))
-
-    # Park the task so the event loop doesn't GC it. Use a placeholder
-    # key until the engine writes back the real replay_id, then
-    # overwrite. Cleanup is opportunistic (next /start prunes done).
-    pending_key = f"pending_{id(task)}"
-    _RUNNING[pending_key] = task
-    for k in [k for k, t in _RUNNING.items() if t.done()]:
-        _RUNNING.pop(k, None)
-
-    # Brief settle — give the engine 2s to insert the replay_runs row.
-    # The engine's on_started callback writes replay_id into holder
-    # immediately after the INSERT.
-    deadline = asyncio.get_event_loop().time() + 2.0
-    while "replay_id" not in holder and "error" not in holder:
-        if asyncio.get_event_loop().time() > deadline or task.done():
-            break
-        await asyncio.sleep(0.05)
-
-    if "error" in holder and "replay_id" not in holder:
-        raise HTTPException(
-            status_code=502,
-            detail=f"replay engine failed to start: {holder['error']}",
-        )
-
-    replay_id = holder.get("replay_id")
+    policies = await list_policies(None)
     return {
-        "ok":         True,
-        "replay_id":  replay_id,
-        "status":     "RUNNING" if replay_id else "STARTING",
-        "config":     cfg.__dict__ | {
-            "start_date": cfg.start_date.isoformat(),
-            "end_date":   cfg.end_date.isoformat(),
-        },
+        "policies": [p.as_dict() for p in policies],
+        "source":   "builtin",
+        "warning":  "NIDP DaaS unreachable; showing built-in defaults",
     }
 
 
-# Holder is also accessible via _RUNNING for any future cancellation
-# semantics; not exposed in the API yet.
-
-
-@router.get("/status/{replay_id}")
-async def replay_status(replay_id: str, request: Request) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    try:
-        async with pool.acquire() as conn:
-            run = await conn.fetchrow(
-                """
-                SELECT r.replay_id::text, r.started_at, r.finished_at,
-                       r.status, r.start_date, r.end_date, r.domains,
-                       r.policy_version, r.parallel, r.inject_failures,
-                       r.reset_data, r.dates_total, r.dates_processed,
-                       r.dates_failed, r.error, r.initiated_by,
-                       r.config_json::text AS config_json
-                  FROM audit.replay_runs r
-                 WHERE r.replay_id = $1::uuid
-                """,
-                replay_id,
-            )
-            if not run:
-                raise HTTPException(status_code=404, detail="replay not found")
-
-            stats = await conn.fetchrow(
-                """
-                SELECT total_evaluations, pass_count, review_count, fail_count,
-                       avg_overall_score, p50_overall_score, p10_overall_score,
-                       cert_gold, cert_silver, cert_review, cert_rejected,
-                       publish_auto, publish_review, publish_reject,
-                       quarantine_count, exception_count, avg_duration_ms
-                  FROM audit.replay_statistics
-                 WHERE replay_id = $1::uuid
-                """,
-                replay_id,
-            )
-
-            # Live progress while RUNNING — count rows actually inserted
-            # by background workers.
-            live_processed = await conn.fetchval(
-                "SELECT count(*) FROM audit.replay_dates WHERE replay_id = $1::uuid",
-                replay_id,
-            )
-
-        return {
-            "run":        _row_to_dict(run),
-            "statistics": _row_to_dict(stats) if stats else None,
-            "live": {
-                "rows_persisted": int(live_processed or 0),
-            },
-        }
-    finally:
-        await pool.close()
-
-
-@router.get("/runs")
-async def list_runs(
-    request: Request,
-    limit: int = Query(20, ge=1, le=100),
-) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT r.replay_id::text, r.started_at, r.finished_at,
-                       r.status, r.start_date, r.end_date, r.domains,
-                       r.policy_version, r.parallel, r.inject_failures,
-                       r.dates_total, r.dates_processed, r.dates_failed,
-                       r.initiated_by, r.error,
-                       s.avg_overall_score, s.pass_count, s.review_count,
-                       s.fail_count, s.cert_gold, s.cert_silver, s.cert_review,
-                       s.cert_rejected
-                  FROM audit.replay_runs r
-                  LEFT JOIN audit.replay_statistics s
-                    ON s.replay_id = r.replay_id
-                 ORDER BY r.started_at DESC
-                 LIMIT $1
-                """,
-                limit,
-            )
-        return {"runs": [_row_to_dict(r) for r in rows]}
-    finally:
-        await pool.close()
-
-
-@router.get("/runs/{replay_id}/dates")
-async def replay_dates(
-    replay_id: str,
-    request: Request,
-    domain: Optional[str] = Query(None),
-    gate_outcome: Optional[str] = Query(None),
-    limit: int = Query(500, ge=1, le=2000),
-) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    try:
-        wheres = ["replay_id = $1::uuid"]
-        params: List[Any] = [replay_id]
-        if domain:
-            wheres.append(f"domain = ${len(params)+1}")
-            params.append(domain)
-        if gate_outcome:
-            wheres.append(f"gate_outcome = ${len(params)+1}")
-            params.append(gate_outcome)
-        params.append(limit)
-        sql = f"""
-            SELECT target_date, domain, overall_score, confidence_score,
-                   accuracy, consistency, completeness, freshness, auditability,
-                   certification, publish_decision, gate_outcome,
-                   block_findings, rules_run, rules_failed, duration_ms, error
-              FROM audit.replay_dates
-             WHERE {' AND '.join(wheres)}
-             ORDER BY target_date DESC, domain
-             LIMIT ${len(params)}
-        """
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(sql, *params)
-        return {"replay_id": replay_id, "dates": [_row_to_dict(r) for r in rows]}
-    finally:
-        await pool.close()
-
-
-@router.get("/runs/{replay_id}/failures")
-async def replay_failures(
-    replay_id: str,
-    request: Request,
-    limit: int = Query(500, ge=1, le=2000),
-) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT failure_id::text, target_date, domain, failure_type,
-                       target_table, rows_affected, detected, detected_by,
-                       payload_json::text AS payload, injected_at
-                  FROM audit.replay_failures
-                 WHERE replay_id = $1::uuid
-                 ORDER BY target_date DESC, failure_type
-                 LIMIT $2
-                """,
-                replay_id, limit,
-            )
-        out = [_row_to_dict(r) for r in rows]
-        # Detection rate summary
-        total = len(out)
-        detected = sum(1 for r in out if r.get("detected"))
-        return {
-            "replay_id":      replay_id,
-            "failures":       out,
-            "total":          total,
-            "detected":       detected,
-            "detection_rate": round(detected / total, 4) if total > 0 else None,
-        }
-    finally:
-        await pool.close()
-
-
-@router.delete("/runs/{replay_id}")
-async def delete_run(replay_id: str, request: Request) -> Dict[str, Any]:
-    await require_admin(request)
-    pool = await _open_pool()
-    try:
-        async with pool.acquire() as conn:
-            res = await conn.execute(
-                "DELETE FROM audit.replay_runs WHERE replay_id = $1::uuid",
-                replay_id,
-            )
-        return {"ok": True, "deleted": res}
-    finally:
-        await pool.close()
-
-
 # ─────────────────────────────────────────────────────────────────
-# Helpers
+# Generic proxy for everything else
 # ─────────────────────────────────────────────────────────────────
-def _row_to_dict(row) -> Dict[str, Any]:
-    if row is None:
-        return {}
-    out: Dict[str, Any] = {}
-    for k, v in dict(row).items():
-        if isinstance(v, datetime):
-            out[k] = v.isoformat()
-        elif isinstance(v, date):
-            out[k] = v.isoformat()
-        elif isinstance(v, (list, tuple)):
-            out[k] = list(v)
-        else:
-            out[k] = v
-    # Parse json columns shipped as text
-    if "config_json" in out and isinstance(out["config_json"], str):
-        try:
-            out["config_json"] = json.loads(out["config_json"])
-        except (ValueError, TypeError):
-            pass
-    if "payload" in out and isinstance(out["payload"], str):
-        try:
-            out["payload"] = json.loads(out["payload"])
-        except (ValueError, TypeError):
-            pass
-    return out
+@router.api_route(
+    "/{tail:path}",
+    methods=["GET", "POST", "PATCH", "DELETE"],
+    summary="Authenticated proxy to NIDP DaaS /v1/replay/*",
+)
+async def replay_proxy(tail: str, request: Request) -> StreamingResponse:
+    await require_admin(request)
+    base, key = _vm_creds()
+
+    upstream = f"{base}/v1/replay/{tail}"
+    if request.url.query:
+        upstream += f"?{request.url.query}"
+
+    body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    headers = {"X-API-Key": key, "Accept": "application/json"}
+    if body:
+        headers["Content-Type"] = "application/json"
+
+    try:
+        # Replay /start kicks off a background task on the VM but
+        # returns within a few seconds with the replay_id; allow 30s.
+        # Status / list calls are fast.
+        timeout = 30.0
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.request(request.method, upstream, headers=headers, content=body)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"replay proxy: {e}") from e
+
+    return StreamingResponse(
+        iter([r.content]),
+        status_code=r.status_code,
+        media_type=r.headers.get("content-type", "application/json"),
+    )

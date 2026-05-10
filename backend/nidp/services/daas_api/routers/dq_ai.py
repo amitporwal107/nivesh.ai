@@ -83,9 +83,11 @@ class ProposeBody(BaseModel):
 
 @router.post("/proposals/generate", summary="Run AI expectation author for a dataset")
 async def generate_proposals(body: ProposeBody) -> Dict[str, Any]:
+    if not body.dataset or not body.dataset.strip():
+        raise HTTPException(status_code=400, detail="dataset is required")
     try:
         result = await expectation_author.propose_expectations(
-            body.dataset,
+            body.dataset.strip(),
             sample_size=body.sample_size,
             failure_history_days=body.failure_history_days,
         )
@@ -102,6 +104,16 @@ async def generate_proposals(body: ProposeBody) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:                                                # noqa: BLE001
+        # Fall-through: surface the underlying error to the UI rather
+        # than a bare 500. Common cases: "dataset 'X' has no schema in
+        # information_schema", LLM API errors, asyncpg syntax errors.
+        import logging
+        logging.getLogger(__name__).exception("propose_expectations crashed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(e).__name__}: {str(e)[:300]}",
+        ) from e
 
 
 @router.get("/proposals", summary="List AI proposals (filterable)")
