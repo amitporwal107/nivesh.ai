@@ -31,6 +31,7 @@ class BlockDealsIngester(BaseIngester):
             try:
                 body, status = await fetch_bytes(
                     url, referer=f"{NSE_WWW}/report-detail/display-bulk-and-block-deals",
+                    archive_as=("block_deals", target_date, url.rsplit("/", 1)[-1]),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status

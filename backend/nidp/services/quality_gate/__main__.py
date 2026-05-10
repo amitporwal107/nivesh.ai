@@ -46,6 +46,29 @@ async def run_pipeline(target_date: date, domain_arg: str) -> bool:
     pool    = await get_pool()
     all_ok  = True
 
+    # ── Stage 0: Great Expectations ───────────────────────────────
+    # Per-feed expectation suites translated from the user-supplied
+    # NIDP_Sample_Feed_Expectation_Rules.docx. Findings land in
+    # nidp.validation_findings, so they're picked up by the
+    # quality-score (accuracy + completeness dimensions) and the
+    # data-quality dashboard the same way ingester-side validators are.
+    try:
+        from nidp.services.quality_gate.great_expectations_runner import run_all as _ge_run_all
+        ge_report = await _ge_run_all(target_date=target_date.isoformat())
+        ge_summary = ge_report.get("summary", {})
+        logger.info(
+            "great_expectations: feeds=%d pass=%d fail=%d (per-feed: %s)",
+            ge_summary.get("feeds_total", 0),
+            ge_summary.get("feeds_pass",  0),
+            ge_summary.get("feeds_fail",  0),
+            {k: ("PASS" if v.get("success") else f"FAIL/{v.get('failed_count', '?')}") for k, v in ge_report.get("feeds", {}).items()},
+        )
+    except Exception:                                                    # noqa: BLE001
+        # GE engine must NEVER fail the gate by itself — its findings
+        # influence the quality score, but a runner crash should not
+        # block certification of unrelated domains.
+        logger.exception("great_expectations runner crashed (continuing)")
+
     for domain in domains:
         logger.info("=== quality_gate[%s] %s ===", domain, target_date)
 

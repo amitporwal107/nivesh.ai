@@ -32,6 +32,7 @@ class AmfiCircularsIngester(BaseIngester):
     AVRO_SCHEMA = "mf_amfi_circular_v1"
 
     async def fetch(self, target_date: Optional[date]) -> tuple[bytes, str, int]:
+        from nidp.shared.archive import archive_raw
         url = AMFI_CIRCULARS_URL
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)
         headers = {"User-Agent": DEFAULT_UA, "Accept": "text/html,*/*"}
@@ -43,6 +44,8 @@ class AmfiCircularsIngester(BaseIngester):
                         SOURCE_FETCH.labels(
                             source=self.SOURCE_NAME, status=str(resp.status),
                         ).inc()
+                        if resp.status == 200 and body:
+                            archive_raw(self.SERVICE_NAME, target_date, "amfi_circulars.html", body)
                         return body, url, resp.status
             except Exception:
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status="error").inc()

@@ -97,6 +97,12 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                     if not body:
                         total_failed += 1
                         continue
+                    # Archive raw FRED JSON per series, per target_date
+                    try:
+                        from nidp.shared.archive import archive_raw
+                        archive_raw(SERVICE_NAME, target_date, f"{sid}.json", body)
+                    except Exception:                                          # noqa: BLE001
+                        pass
                     try:
                         rows = parse_fred_observations(body, series_id=sid)
                     except Exception as e:                                  # noqa: BLE001

@@ -33,6 +33,7 @@ class NseCalendarIngester(BaseIngester):
                     url,
                     referer=f"{NSE_WWW}/resources/exchange-communication-holidays",
                     extra_headers={"Accept": "application/json"},
+                    archive_as=("nse_calendar", target_date, "nse_holidays.json"),
                 )
                 SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
                 return body, url, status

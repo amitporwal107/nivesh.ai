@@ -62,6 +62,8 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                from nidp.shared.archive import archive_raw
+                import json as _json
                 for amc_id in MF_AMC_TOP10:
                     fn = ADAPTERS.get(amc_id)
                     if fn is None:
@@ -78,6 +80,16 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
                     if not rows:
                         adapters_missing += 1
                         continue
+                    # Archive the parsed rows per-AMC. We don't have the
+                    # raw HTML here (multiple AMC websites with different
+                    # shapes), so we persist the canonicalised form so
+                    # ops can re-import without re-scraping.
+                    try:
+                        archive_raw(SERVICE_NAME, as_of_month,
+                                    f"{amc_id}.parsed.json",
+                                    _json.dumps(rows, default=str).encode("utf-8"))
+                    except Exception:                                    # noqa: BLE001
+                        pass
                     all_rows.extend(rows)
 
             n = await upsert_holdings(all_rows, run.run_id)
