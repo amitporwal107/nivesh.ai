@@ -50,6 +50,7 @@ from nidp.services.daas_api.routers import (
     fno,
     health,
     indices,
+    intelligence,
     macro,
     me,
     mf,
@@ -271,6 +272,7 @@ app.include_router(prices.router, prefix=v1_prefix)
 app.include_router(corporate_actions.router, prefix=v1_prefix)
 app.include_router(indices.router, prefix=v1_prefix)
 app.include_router(reference.router, prefix=v1_prefix)
+app.include_router(intelligence.router, prefix=v1_prefix)
 app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)

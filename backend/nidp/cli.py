@@ -61,6 +61,8 @@ SERVICES: dict[str, str] = {
     "event_analyzer":         "nidp.services.event_analyzer.service",
     "d1_prep":                "nidp.services.d1_prep.service",
     "intelligence":           "nidp.services.intelligence.service",
+    "intelligence_layer":     "nidp.services.intelligence_layer.service",
+    "portfolio_intelligence_sync": "nidp.services.portfolio_intelligence_sync.service",
     "event_day_poller":       "nidp.services.event_day_poller.service",
 }
 
