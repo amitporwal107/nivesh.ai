@@ -159,6 +159,9 @@ async def list_policies(conn: Optional[asyncpg.Connection]) -> List[ScoringPolic
             return [await get_policy(conn, r["version"]) for r in rows]
         except asyncpg.UndefinedTableError:
             pass
-        except Exception:                                                 # noqa: BLE001
-            pass
+        except Exception as e:                                            # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(
+                "list_policies: DB query failed (%s) — falling back to built-in defaults", e,
+            )
     return list(_BUILTIN.values())

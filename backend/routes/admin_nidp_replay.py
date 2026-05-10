@@ -10,7 +10,10 @@ this module is just the thin proxy that:
   4. Exposes status + history endpoints reading audit.replay_runs.
 
 For local-dev pods that don't have NIDP_PG_DSN set, every endpoint
-returns 503 with a helpful hint — same pattern as /diag and /catalog.
+returns 503 with a hint. If DSN is set but the connect fails (wrong
+creds / unreachable host), endpoints return 502 with the connect error
+detail. /policies is the lone exception — it gracefully falls back to
+built-in defaults so the UI's policy dropdown is never empty.
 """
 from __future__ import annotations
 
@@ -101,8 +104,11 @@ _RUNNING: Dict[str, asyncio.Task] = {}
 
 
 async def _run_in_background(pool: asyncpg.Pool, cfg: ReplayConfig, replay_id_holder: Dict[str, Any]) -> None:
+    def _on_started(replay_id: str) -> None:
+        replay_id_holder["replay_id"] = replay_id
+
     try:
-        engine = ReplayEngine(pool, cfg)
+        engine = ReplayEngine(pool, cfg, on_started=_on_started)
         result = await engine.run()
         replay_id_holder["replay_id"] = engine.replay_id
         replay_id_holder["result"]    = result
@@ -174,18 +180,26 @@ async def start_replay(req: StartReplayRequest, request: Request) -> Dict[str, A
     for k in [k for k, t in _RUNNING.items() if t.done()]:
         _RUNNING.pop(k, None)
 
-    # Brief settle — give the engine 1.5s to insert the replay_runs row
-    # so we can return a real replay_id (UI then polls /status).
-    try:
-        await asyncio.wait_for(_wait_for_replay_id(pool, holder, task), timeout=2.0)
-    except asyncio.TimeoutError:
-        pass
+    # Brief settle — give the engine 2s to insert the replay_runs row.
+    # The engine's on_started callback writes replay_id into holder
+    # immediately after the INSERT.
+    deadline = asyncio.get_event_loop().time() + 2.0
+    while "replay_id" not in holder and "error" not in holder:
+        if asyncio.get_event_loop().time() > deadline or task.done():
+            break
+        await asyncio.sleep(0.05)
 
-    replay_id = holder.get("replay_id") or _last_replay_id(holder)
+    if "error" in holder and "replay_id" not in holder:
+        raise HTTPException(
+            status_code=502,
+            detail=f"replay engine failed to start: {holder['error']}",
+        )
+
+    replay_id = holder.get("replay_id")
     return {
         "ok":         True,
         "replay_id":  replay_id,
-        "status":     "RUNNING",
+        "status":     "RUNNING" if replay_id else "STARTING",
         "config":     cfg.__dict__ | {
             "start_date": cfg.start_date.isoformat(),
             "end_date":   cfg.end_date.isoformat(),
@@ -193,16 +207,8 @@ async def start_replay(req: StartReplayRequest, request: Request) -> Dict[str, A
     }
 
 
-async def _wait_for_replay_id(pool: asyncpg.Pool, holder: Dict[str, Any], task: asyncio.Task) -> None:
-    # We don't want to mutate `pool` after start_replay closes it via
-    # the background task — so query directly via a fresh pool would
-    # double-connect. Instead poll the holder dict the engine writes to.
-    while not task.done() and "replay_id" not in holder:
-        await asyncio.sleep(0.1)
-
-
-def _last_replay_id(holder: Dict[str, Any]) -> Optional[str]:
-    return holder.get("replay_id")
+# Holder is also accessible via _RUNNING for any future cancellation
+# semantics; not exposed in the API yet.
 
 
 @router.get("/status/{replay_id}")
