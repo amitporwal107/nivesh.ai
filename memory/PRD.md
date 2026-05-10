@@ -69,11 +69,15 @@ deployment to the VM.
   `portfolio_intelligence_sync` to `KNOWN_INGESTERS` so they appear
   in the NIDP UI Console (now 34 feeds total, both showing OK).
 
-**⚠️ Open ops task:** `daas_api` is currently only used in pytest — it
-isn't deployed as a systemd service on `nidp-stack-vm`. Only
-`nidp-query-api.service` runs there. To expose `/v1/intelligence/*` as
-the live "NIDP DaaS API" referenced in `NIDP_COPILOT_INTEGRATION_PLAN.md`,
-need to add a `nidp-daas-api.service` unit on the VM (separate task).
+**✅ Open ops task — RESOLVED:** `nidp-daas-api.service` deployed on
+`nidp-stack-vm` port 8083, all 13 `/v1/intelligence/*` endpoints
+return HTTP 200 against real materialized data. Auth via internal
+`NIDP_DAAS_INTERNAL_TOKEN` (also wired into pod backend's
+`/app/backend/.env` as `NIDP_DAAS_API_KEY`). Last firewall hop (open
+port 8083 to the public internet) needs one `gcloud` command from a
+user with project IAM permissions — full instructions in
+`backend/nidp/deploy/vm/NIDP_DAAS_API_OPS.md`. Until then, port 8083
+is reachable via SSH-tunnel only.
 
 **Files of reference:**
 - `/app/backend/nidp/migrations/041_nidp_core_intelligence_layer.sql`
