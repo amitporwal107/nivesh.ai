@@ -17,6 +17,7 @@ import {
   Lock,
 } from "lucide-react";
 import { toast } from "sonner";
+import NidpExpectationsPanel from "@/components/admin/NidpExpectationsPanel";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -1027,6 +1028,7 @@ export default function NidpQualityDashboard() {
   const SUB_TABS = [
     { id: "overview",     label: "Overview" },
     { id: "quality",      label: "Quality Metrics" },
+    { id: "expectations", label: "Expectations" },
     { id: "consistency",  label: "Consistency" },
     { id: "exceptions",   label: "Exceptions", badge: openExceptions || null, badgeCls: "bg-amber-500" },
     { id: "quarantine",   label: "Quarantine",  badge: quarantineCount || null, badgeCls: "bg-red-500" },
@@ -1122,6 +1124,10 @@ export default function NidpQualityDashboard() {
               <ConsistencyRunsTable runs={runs} />
               <ConsistencyFindingsTable findings={findings} />
             </>
+          )}
+
+          {subTab === "expectations" && (
+            <NidpExpectationsPanel />
           )}
 
           {subTab === "exceptions" && (

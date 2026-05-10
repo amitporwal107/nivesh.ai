@@ -633,6 +633,34 @@ def _quality_503():
     )
 
 
+@router.get("/quality/expectations")
+async def quality_expectations(request: Request) -> Dict[str, Any]:
+    """Documentation endpoint: every Great-Expectations suite the
+    NIDP `quality_gate` runs, with the column, kwargs and rule type
+    for each expectation. Surfaced as the 'Expectations' tab in the
+    admin console's Data Quality page."""
+    await require_admin(request)
+    # Lazy-import so the pod doesn't hard-depend on the GE engine
+    # if the VM-side code path is ever refactored.
+    try:
+        from nidp.services.quality_gate.great_expectations_suites import documentation
+        spec = documentation()
+    except Exception as e:                                               # noqa: BLE001
+        logger.exception("ge documentation failed")
+        raise HTTPException(status_code=500, detail=f"ge_docs: {e}") from e
+
+    # Friendly metadata so the UI can render a nice header.
+    feeds = sorted(spec.keys())
+    total_expectations = sum(len(s["expectations"]) for s in spec.values())
+    return {
+        "feeds_total":         len(feeds),
+        "expectations_total":  total_expectations,
+        "feeds":               spec,
+        "doc_url":             "/api/admin/nidp/quality/expectations",
+        "spec_source":         "NIDP_Sample_Feed_Expectation_Rules.docx + domain defaults",
+    }
+
+
 @router.get("/quality/summary")
 async def quality_summary(
     request: Request,
