@@ -1,30 +1,36 @@
-"""Haiku-based corporate-announcement classifier.
+"""GPT-based corporate-announcement classifier (OpenAI function calling).
 
-Forces structured output via Anthropic tool_use so the response is always
-parseable. Uses prompt caching on the system block (taxonomy + few-shot
-examples) so the per-call cost is dominated by the short user message.
+Forces structured output via OpenAI tool/function-calling so the response
+is always parseable. Replaces the Haiku/Anthropic implementation — kept
+the same `HaikuClassifier` class name so the calling code in service.py
+doesn't need to change. Naming is now historic; behaviour is identical.
 
 Cost envelope at NSE+BSE volume (~500 announcements/day):
-    System prompt ~1.6K input tokens, cached after first call.
-    Per-row user message ~150 tokens in, ~80 tokens out.
-    With 5-min cache TTL and 10-min cron cadence, every 2nd cron pays
-    the full prompt; the others hit the cache. Net ~₹15-25/day.
+    Default model: `gpt-4o-mini` ($0.15/M input, $0.60/M output).
+    Per-row: ~1.6K system + ~150 user tokens in, ~80 out → ~₹0.10/row.
+    500 rows × 7 days/week ≈ ₹350/week. ~5× cheaper than Haiku.
+
+Why not emergentintegrations? `nidp` services run in their own venv on
+the VM and are deployed without the wealth-advisor backend's heavier
+dependency tree. Using the official `openai` SDK keeps the install
+small and the path to swap models trivial.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
-import anthropic
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 # Model + prompt are versioned so we can re-classify just the rows whose
 # classifier_version is older than a new release.
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = os.environ.get("ANNOUNCEMENT_CLASSIFIER_MODEL", "gpt-4o-mini")
 
 EVENT_CATEGORIES = (
     "orders", "mna", "earnings", "capex", "regulatory", "management",
@@ -60,22 +66,27 @@ sentiment: market-impact directionality, NOT corporate-language polarity.
 - neutral  : routine disclosures, ambiguous, or genuinely mixed
 
 Rules:
-- Output ONLY via the classify_announcement tool. Never produce free text.
+- Output ONLY via the classify_announcement function. Never produce free text.
 - Be conservative on "high": a board-meeting notice IS NOT high impact even if results follow later.
 - "Newspaper publication of results" is low impact (regulatory boilerplate); the actual results filing is what counts."""
 
 CLASSIFY_TOOL: dict[str, Any] = {
-    "name": "classify_announcement",
-    "description": "Emit the classification for one corporate announcement.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "event_category": {"type": "string", "enum": list(EVENT_CATEGORIES)},
-            "impact_score":   {"type": "string", "enum": list(IMPACT_LEVELS)},
-            "sentiment":      {"type": "string", "enum": list(SENTIMENTS)},
-            "rationale":      {"type": "string", "description": "1-sentence justification for debugging"},
+    "type": "function",
+    "function": {
+        "name": "classify_announcement",
+        "description": "Emit the classification for one corporate announcement.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "event_category": {"type": "string", "enum": list(EVENT_CATEGORIES)},
+                "impact_score":   {"type": "string", "enum": list(IMPACT_LEVELS)},
+                "sentiment":      {"type": "string", "enum": list(SENTIMENTS)},
+                "rationale":      {"type": "string", "description": "1-sentence justification for debugging"},
+            },
+            "required": ["event_category", "impact_score", "sentiment", "rationale"],
+            "additionalProperties": False,
         },
-        "required": ["event_category", "impact_score", "sentiment", "rationale"],
+        "strict": True,
     },
 }
 
@@ -95,7 +106,9 @@ def _classifier_version() -> str:
     h.update(MODEL.encode())
     h.update(b"|")
     h.update(_SYSTEM_PROMPT.encode())
-    return MODEL.split("-")[1] + "-" + h.hexdigest()[:10]
+    # `<model_short>-<sha10>` → e.g. "gpt4omini-1234567890"
+    short = MODEL.replace("-", "").replace(".", "").lower()
+    return f"{short}-{h.hexdigest()[:10]}"
 
 
 CLASSIFIER_VERSION = _classifier_version()
@@ -118,30 +131,43 @@ def _build_user_message(row: dict) -> str:
 
 
 class HaikuClassifier:
+    """Class name retained for back-compat; powered by GPT now."""
+
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        key = api_key or os.environ.get("OPENAI_API_KEY")
         if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-        self._client = anthropic.Anthropic(api_key=key)
+            raise RuntimeError(
+                "OPENAI_API_KEY not set — required for the corporate-"
+                "announcement classifier. Set it in /opt/nidp/nidp.env."
+            )
+        self._client = OpenAI(api_key=key)
 
     def classify(self, row: dict) -> Classification:
-        msg = self._client.messages.create(
+        resp = self._client.chat.completions.create(
             model=MODEL,
             max_tokens=400,
-            system=[
-                {
-                    "type": "text",
-                    "text": _SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
+            temperature=0,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user",   "content": _build_user_message(row)},
             ],
             tools=[CLASSIFY_TOOL],
-            tool_choice={"type": "tool", "name": "classify_announcement"},
-            messages=[{"role": "user", "content": _build_user_message(row)}],
+            tool_choice={
+                "type": "function",
+                "function": {"name": "classify_announcement"},
+            },
         )
-        for block in msg.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "classify_announcement":
-                payload = block.input
+        choice = resp.choices[0]
+        tool_calls = choice.message.tool_calls or []
+        for tc in tool_calls:
+            if tc.function and tc.function.name == "classify_announcement":
+                try:
+                    payload = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(
+                        f"classifier returned invalid JSON: {e} "
+                        f"(raw={tc.function.arguments[:200]})"
+                    )
                 return Classification(
                     event_category=payload["event_category"],
                     impact_score=payload["impact_score"],
@@ -149,4 +175,6 @@ class HaikuClassifier:
                     rationale=payload.get("rationale", ""),
                     classifier_version=CLASSIFIER_VERSION,
                 )
-        raise RuntimeError("classifier returned no tool_use block")
+        raise RuntimeError(
+            f"classifier returned no tool_call (finish_reason={choice.finish_reason})"
+        )

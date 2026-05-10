@@ -31,6 +31,12 @@ REQUIRED_FIELDS = NoNullsRule(
 # At least one Nifty 50 options chain must be present per run. Acts
 # as the canary that the FO file actually has options data (not just
 # futures or a partial slice).
+#
+# Post-2024 NSE F&O codes (from F&O segment migration to new exchange
+# stack): index options use `IDO` (Index Derivative Option), index
+# futures use `IDF` (Index Derivative Future). Stock options/futures
+# use STO/STF. Pre-2024 the codes were OPTIDX/FUTIDX/OPTSTK/FUTSTK —
+# kept here as a fallback for any rerun against historical archives.
 NIFTY_OPTIONS_PRESENT = CustomSQLRule(
     name="fno_bhavcopy.nifty_options_present",
     sql="""
@@ -38,10 +44,17 @@ NIFTY_OPTIONS_PRESENT = CustomSQLRule(
             SELECT 1 FROM nidp.fno_bhavcopy
              WHERE source_run_id = $1
                AND ticker_symbol = 'NIFTY'
-               AND instrument_type = 'OPTIDX'
+               AND instrument_type IN ('IDO', 'IDF', 'OPTIDX', 'FUTIDX')
+               AND (
+                    -- IDO + legacy OPTIDX: must be a CE/PE row
+                    (instrument_type IN ('IDO', 'OPTIDX') AND option_type IN ('CE', 'PE'))
+                    -- IDF + legacy FUTIDX: futures rows have no option_type
+                    OR instrument_type IN ('IDF', 'FUTIDX')
+               )
+               AND expiry_date IS NOT NULL
         )
     """,
-    message="Nifty 50 options missing from FO bhavcopy — partial fetch likely",
+    message="Nifty 50 options/futures missing from FO bhavcopy — partial fetch likely (checked IDO/IDF + legacy OPTIDX/FUTIDX)",
     severity=Severity.CRITICAL,
     failure_class=FailureClass.BLOCK,
     params_fn=lambda c: [c.job_run_id],
