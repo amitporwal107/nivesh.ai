@@ -1,16 +1,15 @@
 apiVersion: 1
 
 # Provisioned PostgreSQL datasource pointing at the local TimescaleDB.
-# Mounted into the Grafana container at
-#   /etc/grafana/provisioning/datasources/datasources.yml
+# Mounted at /etc/grafana/provisioning/datasources/datasources.yml.
 # Grafana picks this up on container start; no UI clicks needed.
 datasources:
   - name: NIDP-TimescaleDB
+    uid: NIDP-TimescaleDB        # referenced by nidp_job_health.json
     type: postgres
     access: proxy
-    # When running inside docker-compose, the postgres container is
-    # reachable as `nidp-postgres` (its container name) on its native
-    # port 5432 (the 5433 host-port is the published mapping).
+    # Container hostname `nidp-postgres` from docker-compose, port 5432
+    # is the container-internal port (the 5433 host-port is the published mapping).
     url: nidp-postgres:5432
     database: nidp
     user: postgres
@@ -20,5 +19,6 @@ datasources:
       sslmode: disable
       postgresVersion: 1600
       timescaledb: true
-    isDefault: true
+    # Prometheus is already default — don't fight it.
+    isDefault: false
     editable: true

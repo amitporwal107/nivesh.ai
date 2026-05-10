@@ -73,12 +73,32 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "corporate_announcements_bse", "cadence": "high-freq"},
     {"ingester": "announcement_classifier",     "cadence": "event"},
     {"ingester": "document_parser",             "cadence": "event"},
+    # Mutual fund pipeline (added in VM-cron migration)
+    {"ingester": "amfi_nav",                    "cadence": "daily"},
+    {"ingester": "amfi_circulars",              "cadence": "daily"},
+    {"ingester": "amfi_nav_history",            "cadence": "manual"},
+    {"ingester": "mf_disclosure_snapshot",      "cadence": "monthly"},
+    {"ingester": "mf_holdings",                 "cadence": "monthly"},
+    # Corporate event intelligence pipeline
+    {"ingester": "event_calendar",              "cadence": "daily"},
+    {"ingester": "event_day_poller",            "cadence": "high-freq"},
+    {"ingester": "d1_prep",                     "cadence": "daily"},
+    {"ingester": "intelligence",                "cadence": "daily"},
     # Post-ingestion quality pipeline
     {"ingester": "quality_gate",                "cadence": "daily"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")
 GCP_REGION  = os.environ.get("GCP_REGION",  "asia-south1")
+
+# Public URL of the NIDP Grafana dashboard running on the VM. Surfaced
+# in /diag and /jobs responses so the NIDP Console can render a CTA
+# link straight to the "NIDP Job Health" board.
+GRAFANA_BASE_URL = (
+    os.environ.get("NIDP_GRAFANA_URL")
+    or "http://34.47.191.39:3000"
+).rstrip("/")
+GRAFANA_DASHBOARD_PATH = "/d/nidp-job-health/nidp-job-health"
 
 
 def _job_name(ingester: str) -> str:
@@ -344,6 +364,7 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
         "region":    GCP_REGION,
         "db_error":  db_error,
         "drift":     drift,
+        "grafana_url": f"{GRAFANA_BASE_URL}{GRAFANA_DASHBOARD_PATH}",
         "jobs": [
             {
                 **spec,
@@ -359,13 +380,30 @@ async def list_jobs(request: Request) -> Dict[str, Any]:
 
 @router.post("/jobs/{ingester}/execute")
 async def execute_job(ingester: str, request: Request) -> Dict[str, Any]:
-    """Trigger a Cloud Run job execution. Returns immediately with the
-    execution name — does NOT wait for the job to finish (jobs run
-    minutes; UI polls /runs to surface completion)."""
+    """Trigger an ingester run. Routes through the NIDP Query API on the
+    VM (which spawns run_service.sh detached). Returns immediately —
+    UI polls /jobs/{ingester}/runs to see the job_log row land."""
     await require_admin(request)
     _ingester_or_404(ingester)
-    job = _job_name(ingester)
 
+    # ── Primary path: VM via query_api ──────────────────────────────
+    if _nq.is_configured():
+        try:
+            resp = await _nq.execute_feed(ingester)
+            logger.info("admin/nidp: spawned %s on VM via query_api", ingester)
+            return {
+                "ok":         True,
+                "ingester":   ingester,
+                "job_name":   _job_name(ingester),
+                "via":        "vm",
+                "status":     resp.get("status", "spawned"),
+                "hint":       resp.get("hint"),
+            }
+        except _nq.NidpQueryClientError as e:
+            logger.warning("admin/nidp: VM execute failed for %s: %s — falling back to gcloud", ingester, e.detail)
+
+    # ── Legacy path: gcloud Cloud Run jobs (deprecated) ─────────────
+    job = _job_name(ingester)
     rc, out, err = await _run_gcloud(
         "run", "jobs", "execute", job,
         "--region", GCP_REGION, "--project", GCP_PROJECT,
@@ -378,11 +416,12 @@ async def execute_job(ingester: str, request: Request) -> Dict[str, Any]:
             detail=f"gcloud run jobs execute failed (rc={rc}): {err.strip() or out.strip()}",
         )
     execution_name = out.strip() or None
-    logger.info("admin/nidp: triggered %s (execution=%s)", job, execution_name)
+    logger.info("admin/nidp: triggered %s via gcloud (execution=%s)", job, execution_name)
     return {
         "ok":             True,
         "ingester":       ingester,
         "job_name":       job,
+        "via":            "gcloud",
         "execution_name": execution_name,
     }
 
@@ -427,15 +466,33 @@ async def job_runs(
 async def job_logs(
     ingester: str,
     request: Request,
-    window: str = Query("4h", description="gcloud --freshness window: 30m, 4h, 24h, etc."),
-    limit: int = Query(100, ge=1, le=500),
+    window: str = Query("4h", description="Legacy gcloud freshness window (only used in fallback)."),
+    limit: int = Query(200, ge=1, le=2000),
 ) -> Dict[str, Any]:
-    """Tail Cloud Run logs for this ingester. Pulls both jsonPayload
-    (structured logger output) and textPayload (raw stdout)."""
+    """Tail logs for this ingester. VM-mode reads
+    /opt/nidp/logs/<ingester>/<ingester>.log via the query_api;
+    falls back to `gcloud logging read` against Cloud Run if the
+    query_api isn't configured."""
     await require_admin(request)
     _ingester_or_404(ingester)
     job = _job_name(ingester)
 
+    # ── Primary path: VM logs via query_api ─────────────────────────
+    if _nq.is_configured():
+        try:
+            resp = await _nq.get_feed_logs(ingester, lines=limit)
+            return {
+                "ingester": ingester,
+                "job_name": job,
+                "via":      "vm",
+                "log_path": resp.get("log_path"),
+                "lines":    resp.get("lines") or [],
+                "error":    resp.get("error"),
+            }
+        except _nq.NidpQueryClientError as e:
+            logger.warning("admin/nidp: VM logs unavailable for %s: %s — falling back to gcloud", ingester, e.detail)
+
+    # ── Legacy path: gcloud Cloud Run logs (deprecated) ─────────────
     rc, out, err = await _run_gcloud(
         "logging", "read",
         f'resource.type=cloud_run_job AND resource.labels.job_name="{job}"',
@@ -454,6 +511,7 @@ async def job_logs(
     return {
         "ingester": ingester,
         "job_name": job,
+        "via":      "gcloud",
         "window":   window,
         "lines":    [l for l in out.splitlines() if l.strip()],
     }

@@ -1,0 +1,56 @@
+{
+  "summary": "Comprehensive backend + frontend testing of NIDP Console (VM-based query_api at 34.47.191.39:8090). All 15 backend pytest cases pass and the React /nidp console renders all 6 tabs with live VM data. Auth, diag, jobs, runs, logs, calendar, execute, catalog, and quality endpoints all return 200 with correct VM-routed payloads.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_nidp_admin_vm_iteration55.py",
+    "/app/test_reports/pytest/iter55_nidp_vm.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Problem statement said the route is /admin/nidp; actual SPA route is /nidp (defined in App.js, linked from UserProfileDropdown and AdminView). Not a bug — just a docs/naming mismatch worth aligning.",
+    "Diagnostics response from /api/admin/nidp/diag nests reachable/auth_ok/db_latency_ms inside nidp_query_api object and NIDP_QUERY_API_URL inside env object. Problem statement implied a flat shape; consider documenting the actual schema or flattening top-level convenience keys.",
+    "Quality endpoints return errors as a per-key dict ({'quality': null, 'certified': null, ...}) rather than a single null/array. Caller code should treat any-falsy-value as ok. Considered correct behavior, just non-obvious."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_nidp_admin_vm_iteration55.py"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 pytest)",
+    "frontend": "100% — all 6 tabs render, no console errors, all /api/admin/nidp/* calls return 200"
+  },
+  "test_credentials": "Admin session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b for aporwal107@gmail.com (is_admin=true). Verified via /api/auth/me.",
+  "seed_data_creation": "None — endpoints already returning real VM TimescaleDB data; amfi_circulars execute call spawned a real run on the VM (idempotent and safe).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "NIDP Console URL is /nidp (NOT /admin/nidp). Backend tests live in /app/backend/tests/test_nidp_admin_vm_iteration55.py — reuse for regressions. The diag response nests health under nidp_query_api.health.db_latency_ms and env.NIDP_QUERY_API_URL. Quality summary 'errors' field is a dict of per-source nulls (not a single null). Frontend successfully calls VM-backed endpoints; Grafana link data-testid='admin-nidp-grafana-link' resolves to http://34.47.191.39:3000/d/nidp-job-health/nidp-job-health.",
+  "verified_endpoints": {
+    "GET /api/admin/nidp/diag": "reachable=true, auth_ok=true, db_latency=2ms, URL=http://34.47.191.39:8090",
+    "GET /api/admin/nidp/jobs": "32 jobs returned (>=30 required), grafana_url present, includes amfi_nav/amfi_circulars/mf_holdings/event_calendar, mix of OK/FAILED/PARTIAL statuses",
+    "GET /api/admin/nidp/jobs/amfi_nav/runs?limit=5": "runs[] with rows_inserted>0 and status=OK",
+    "GET /api/admin/nidp/jobs/amfi_nav/logs?limit=10": "via=vm, log_path contains /opt/nidp/logs/amfi_nav, lines[] non-empty",
+    "GET /api/admin/nidp/jobs/amfi_nav/calendar?days=7": "7 calendar entries",
+    "POST /api/admin/nidp/jobs/amfi_circulars/execute": "ok=true, via=vm, status=spawned",
+    "GET /api/admin/nidp/catalog": "tables[], by_domain has 8 domains, feeds[] populated, validation present",
+    "GET /api/admin/nidp/quality/summary": "quality+certified+gate+exceptions arrays present, errors all null",
+    "GET /api/admin/nidp/quality/consistency": "runs+findings arrays present, errors all null",
+    "GET /api/admin/nidp/quality/exceptions": "exceptions[] present (empty)",
+    "GET /api/admin/nidp/quality/quarantine": "quarantine[] present (empty)",
+    "Auth gate": "All 4 sampled paths return 401 without session cookie"
+  },
+  "frontend_verified": {
+    "/nidp page": "Loads with admin user, header shows ADMIN badge",
+    "Tabs": "Data Catalog, Jobs, Data Quality, Certification, Trends, Diagnostics — all clickable, no console errors",
+    "Jobs panel": "Shows 32 rows (NIDP Ingestion Jobs (32)), feed registration drift banner shows expected 10 unregistered ingesters",
+    "Grafana button": "data-testid='admin-nidp-grafana-link' present, href=http://34.47.191.39:3000/d/nidp-job-health/nidp-job-health",
+    "Diagnostics tab": "Shows REACHABLE=connected, AUTH=connected, APP POSTGRES POOL=connected, DB latency 2ms, URL=http://34.47.191.39:8090"
+  },
+  "rca_of_the_issue": "N/A — no failures. All review_request items verified."
+}
