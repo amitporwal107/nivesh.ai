@@ -2,6 +2,63 @@
 
 ## Implemented Features (Latest)
 
+### May 2026 — NIDP Console hardening: registry seed, Grafana SSO proxy, run-date picker, raw-feed archive
+
+User reported 5 issues from screenshots:
+1. Many feeds tagged `not in DB` showing "never" status
+2. Stale catalogue (same root cause)
+3. Grafana embedded dashboard renders blank
+4. Wants a Run-date picker (default = last market closing day)
+5. Wants raw feed files archived on VM + downloadable from admin UI
+
+**All 5 fixed and verified by testing agent (iter 56 — 15/15 backend, all frontend flows green).**
+
+#### 1+2: source_registry seeded for the 10 VM-cron migration feeds
+- Added rows for `amfi_nav`, `amfi_circulars`, `amfi_nav_history`, `mf_holdings`, `mf_disclosure_snapshot`, `event_calendar`, `event_day_poller`, `d1_prep`, `intelligence`, `quality_gate`. Idempotent INSERT-or-UPDATE script committed at `/app/backend/nidp/deploy/vm/seed_source_registry.py`.
+- Backfilled `last_run_status / last_run_at / last_success_at` on those rows from `nidp.job_log`.
+- Result: `drift.missing_from_db` = `[]` (was 10), `drift.unregistered_in_canonical` = `[]`. The remaining 8 services that still show "never" (price_adjuster, document_parser, announcement_classifier, d1_prep, intelligence, event_*, quality_gate) are derived/event services that don't write to `nidp.job_log` — that's by design.
+
+#### 3: Grafana HTTPS proxy (mixed-content fix)
+- Added `@router.api_route("/grafana/{path:path}")` proxy in `routes/admin_nidp.py` — forwards every method/path/query/body to `http://34.93.60.254:3000` via `httpx.AsyncClient`, strips `X-Frame-Options` + `Content-Security-Policy` + hop-by-hop headers from the response.
+- `grafana_embed_url` in `/jobs` response now points to `/api/admin/nidp/grafana/d/nidp-job-health/...` — same-origin HTTPS, no mixed-content block.
+- Anonymous-Admin SSO already configured on Grafana → proxy needs no auth injection.
+
+#### 4: Run-date picker
+- `/jobs` response now exposes `last_trading_day` (computed in IST, weekday-aware).
+- Frontend `<NidpJobsPanel/>`: header has a `<input type="date">` (data-testid `admin-nidp-run-date`) defaulting to `last_trading_day`.
+- Per-row Trigger button now passes `?target_date=YYYY-MM-DD` to backend; backend → query_api → `run_service.sh <svc> --date <date>`.
+
+#### 5: Raw feed-file archive
+- New helper `nidp/shared/archive.py` → `archive_raw(ingester, target_date, filename, bytes)` writes to `/opt/nidp/archive/<ingester>/<YYYY-MM-DD>/<filename>`. Logged-but-never-raises on disk failure.
+- Hooked `archive_as=` kwarg into shared `nse_fetcher.fetch_bytes()` so every NSE-source ingester (bhavcopy, delivery, fno_bhavcopy, fii_dii, index_close, ...) auto-archives. amfi_nav has its own aiohttp call → patched directly.
+- New VM-side router `query_api/routers/archive.py` exposes `GET /archive/<ingester>` (lists last 30 days) and `GET /archive/<ingester>/<date>/<filename>` (downloads). Bearer-token gated.
+- New pod-side endpoints `/api/admin/nidp/archive/<ingester>` and `.../{date}/{filename}` proxy through the query_api with admin-session auth.
+- Frontend: per-job-row "Files" button opens `<ArchiveModal/>` → groups files by date → each file is a same-origin HTTPS download link.
+- **Live populated for 2026-05-08**: bhavcopy (190 KB ZIP), delivery (368 KB CSV), fno_bhavcopy (~MB ZIP), index_close, fii_dii, amfi_nav (NAVAll.txt). Stored under `/opt/nidp/archive/<ingester>/2026-05-08/`.
+
+**Files added/changed**:
+- `/app/backend/routes/admin_nidp.py` (proxy + archive routes + last_trading_day + target_date param)
+- `/app/backend/services/nidp_query_client.py` (base_url/token getters, list_archive, execute_feed(target_date))
+- `/app/backend/nidp/services/query_api/routers/archive.py` (NEW)
+- `/app/backend/nidp/services/query_api/routers/vm_ops.py` (target_date kwarg)
+- `/app/backend/nidp/services/query_api/app.py` (mount archive router)
+- `/app/backend/nidp/shared/archive.py` (NEW helper)
+- `/app/backend/nidp/shared/sources/nse_fetcher.py` (archive_as kwarg)
+- `/app/backend/nidp/services/{bhavcopy,delivery,index_close,fii_dii,fno_bhavcopy}/service.py` (pass archive_as)
+- `/app/backend/nidp/services/amfi_nav/service.py` (call archive_raw)
+- `/app/backend/nidp/deploy/vm/seed_source_registry.py` (NEW idempotent seed script)
+- `/app/frontend/src/components/admin/NidpJobsPanel.jsx` (run-date input, Files button, ArchiveModal)
+
+**Live verified by testing agent**:
+- Drift = empty
+- Grafana proxy `/api/admin/nidp/grafana/api/health` → 200 OK
+- Archive list/download work end-to-end (190,808-byte BhavCopy ZIP downloaded)
+- Path traversal returns 400
+- Run-date input prefills with 2026-05-08, Trigger sends target_date through to VM
+- All admin endpoints 401 without session
+
+---
+
 ### May 2026 — Final wrap-up: keys + classifier swap + fno rule fix → all-green pipeline
 
 User input: provided FRED_API_KEY, asked for OpenAI instead of Anthropic, supplied the correct fno NIFTY-options SQL.
