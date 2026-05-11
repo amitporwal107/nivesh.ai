@@ -228,7 +228,11 @@ async def _run_one_date(
 
         # Stage 2: scoring (using existing dimension-derivation logic)
         async with pool.acquire() as conn:
-            qs = await compute_quality_score(conn, target_date, domain)
+            # `replay_mode=True` switches the freshness rubric to a
+            # counterfactual ("did data ever arrive?" → 100 / 0) so that
+            # backfilled historical dates aren't auto-rejected just because
+            # their wall-clock ingestion timestamp is today.
+            qs = await compute_quality_score(conn, target_date, domain, replay_mode=True)
             await persist_quality_score(conn, qs)
 
         # Re-score under our policy. `qs.confidence` may be None if the

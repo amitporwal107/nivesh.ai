@@ -122,6 +122,8 @@ async def compute_quality_score(
     conn: asyncpg.Connection,
     target_date: date,
     domain: str,
+    *,
+    replay_mode: bool = False,
 ) -> QualityScore:
     """Derive all five quality dimensions from data already in the warehouse.
 
@@ -131,6 +133,12 @@ async def compute_quality_score(
       Completeness — pct of non-null values across known required fields
       Freshness    — whether data arrived within SLA (latest ingested_at vs EOD cutoff)
       Auditability — pct of persisted rows that carry source_run_id + ingested_at
+
+    `replay_mode=True` switches the freshness check to counterfactual
+    semantics: "did data ever arrive for this date?" — yes → 100, no → 0.
+    This is the right backtest question because the wall-clock-vs-SLA
+    arithmetic always penalises backfilled historical dates (their
+    ingestion timestamp is "today", not the historical date).
     """
 
     # ── Accuracy: validation rules pass rate (proxy for closeness to golden source)
@@ -218,6 +226,11 @@ async def compute_quality_score(
     latest_at = fresh_row["latest"] if fresh_row else None
     if latest_at is None:
         freshness = 0.0
+    elif replay_mode:
+        # Counterfactual: data exists for this historical date → treat as fresh.
+        # The original ingestion timestamps don't reflect "real-time arrival"
+        # for backfilled rows, so wall-clock SLA math is meaningless here.
+        freshness = 100.0
     else:
         # SLA: data should be in by 22:00 IST = 16:30 UTC same day
         import datetime
