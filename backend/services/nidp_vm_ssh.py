@@ -146,13 +146,31 @@ async def ssh_run_detached_as_nidp(
     inner_cmd: str, *, log_path: str, init_timeout: float = 30.0,
 ) -> Tuple[int, str, str]:
     """Spawn `inner_cmd` on the VM as user `nidp` with /opt/nidp/nidp.env sourced,
-    detached via nohup. Returns once the parent shell forks (≤ init_timeout)."""
-    quoted_inner = shlex.quote(inner_cmd)
-    quoted_log   = shlex.quote(log_path)
+    detached via nohup. Returns once the parent shell forks (≤ init_timeout).
+
+    Implementation: the inner command is base64-encoded and decoded into a
+    temp script on the VM, which side-steps the nested-quoting tangle of
+    `gcloud ssh -c "sudo -u nidp bash -c '... bash -c \"...\"'"`. The script
+    is then executed under `sudo -u nidp` with the env sourced.
+    """
+    import base64, time as _t
+
+    quoted_log = shlex.quote(log_path)
+    b64        = base64.b64encode(inner_cmd.encode("utf-8")).decode("ascii")
+    script_id  = f"nidp_trigger_{int(_t.time() * 1000)}.sh"
+    script_path = f"/tmp/{script_id}"
+    qscript    = shlex.quote(script_path)
+
+    # All single-shell-level (no nested -c), so quoting is straightforward.
+    # The sudo bash payload is single-quoted, so $! inside it is NOT expanded
+    # by the outer shell — the inner sudo bash itself expands it at exec time.
     wrapper = (
+        f"echo {b64} | base64 -d > {qscript} && chmod +x {qscript} && "
         f"sudo mkdir -p $(dirname {quoted_log}) && "
         f"sudo chown nidp:nidp $(dirname {quoted_log}) && "
-        f"sudo -u nidp -H bash -c 'set -a; source /opt/nidp/nidp.env; set +a; "
-        f"cd /opt/nidp/repo/backend && nohup bash -c {quoted_inner} > {quoted_log} 2>&1 & echo PID=$!'"
+        f"sudo -u nidp -H bash -c "
+        f"'set -a; source /opt/nidp/nidp.env; set +a; "
+        f"cd /opt/nidp/repo/backend && "
+        f"nohup bash {qscript} > {quoted_log} 2>&1 & echo PID=$!'"
     )
     return await ssh_exec(wrapper, timeout=init_timeout)

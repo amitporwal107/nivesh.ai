@@ -18,14 +18,18 @@ COOKIES = {"session_token": ADMIN_TOKEN}
 
 
 def test_trigger_health_reports_when_sa_missing() -> None:
-    """When the SA key isn't present, /trigger/health returns ok:false with a clear reason."""
+    """When the SA key is loaded, /trigger/health returns ok:true with VM echo.
+    When missing, returns ok:false with a clear reason."""
     r = httpx.get(f"{API}/api/admin/nidp/backfill/trigger/health",
                   cookies=COOKIES, timeout=30.0)
     assert r.status_code == 200, r.text
     d = r.json()
     assert "ok" in d
-    if not d["ok"]:
-        # Expected when SA key isn't uploaded
+    if d["ok"]:
+        # SA key is loaded — echo should include hostname
+        assert "nidp-stack-vm" in d.get("vm_echo", "")
+    else:
+        # Expected when SA key isn't uploaded yet
         assert "service-account" in d["reason"].lower() or "ssh" in d["reason"].lower() \
             or "gcloud" in d["reason"].lower()
 
