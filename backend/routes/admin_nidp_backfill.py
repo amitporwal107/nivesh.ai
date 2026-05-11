@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from deps import require_admin
 from routes._nidp_feed_provenance import PROVENANCE, certify, for_feed
 from services.nidp_vm_ssh import SSHUnavailable, ssh_exec, ssh_run_detached_as_nidp
+from services.nidp_vm_query import fetch_job_log
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp/backfill", tags=["admin-nidp-backfill"])
@@ -365,6 +366,35 @@ async def trigger_health(request: Request) -> Dict[str, Any]:
     if rc != 0:
         return {"ok": False, "reason": f"rc={rc} stderr={err[:300]}"}
     return {"ok": True, "vm_echo": out.strip()[:400]}
+
+
+@router.get(
+    "/job_log",
+    summary="Recent rows of nidp.job_log — covers rolling/reference ingesters not tracked in audit.backfill_runs",
+)
+async def job_log(
+    request: Request,
+    limit:       int = Query(50, ge=1, le=500),
+    ingester:    Optional[str] = Query(None, max_length=64),
+    status:      Optional[str] = Query(None, pattern="^(RUNNING|OK|FAILED|PARTIAL|SKIPPED)$"),
+    since_hours: int = Query(24, ge=1, le=720),
+) -> Dict[str, Any]:
+    await require_admin(request)
+    try:
+        rows = await fetch_job_log(
+            limit=limit, ingester=ingester, status=status, since_hours=since_hours,
+        )
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    # Light per-row enrichment (re-use provenance metadata for the ingester chip)
+    for r in rows:
+        prov = for_feed(r.get("ingester") or "")
+        r["source"]      = prov.get("source")
+        r["criticality"] = prov.get("criticality")
+    return {"rows": rows, "total": len(rows)}
 
 
 def _safe_initiator(user: Any) -> str:
