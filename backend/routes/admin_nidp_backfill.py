@@ -80,6 +80,35 @@ async def readiness(
     # Rough trading-day target (~5/7 of calendar days)
     trading_target = max(1, int(round(target_days * 5 / 7)))
 
+    # Cadence-aware staleness ceilings (in days). Beyond GAPS_max → EMPTY.
+    # The check is applied for rolling / event-driven / monthly / quarterly /
+    # one-shot feeds where "coverage over N trading days" is the wrong metric.
+    STALENESS_CERT = {
+        "rolling":       {"gold": 2,  "silver": 7,   "partial": 30,  "gaps": 90},
+        "event-driven":  {"gold": 7,  "silver": 30,  "partial": 90,  "gaps": 365},
+        "monthly":       {"gold": 35, "silver": 60,  "partial": 95,  "gaps": 365},
+        "quarterly":     {"gold": 95, "silver": 130, "partial": 200, "gaps": 400},
+        "weekly":        {"gold": 8,  "silver": 15,  "partial": 30,  "gaps": 90},
+        "one-shot":      {"gold": 365,"silver": 365, "partial": 365, "gaps": 365},
+    }
+
+    def _staleness_cert(cadence: str, st: int | None, rows_n: int | None) -> str:
+        """Cert tier from staleness for cadences where 90-day coverage is the wrong metric."""
+        if not rows_n:
+            return "EMPTY"
+        if st is None:
+            return "UNKNOWN"
+        b = STALENESS_CERT.get(cadence, STALENESS_CERT["rolling"])
+        if st <= b["gold"]:
+            return "GOLD"
+        if st <= b["silver"]:
+            return "SILVER"
+        if st <= b["partial"]:
+            return "PARTIAL"
+        if st <= b["gaps"]:
+            return "GAPS"
+        return "EMPTY"
+
     # 2. Build the matrix row-by-row
     rows: List[Dict[str, Any]] = []
     cert_counts: Dict[str, int] = {}
@@ -92,11 +121,13 @@ async def readiness(
         first_at_str = ds.get("first_at")
         rows_count  = ds.get("rows")
         date_col    = ds.get("date_col")
+        cadence     = (prov.get("cadence") or "unknown").lower()
 
         last_at = _parse_dt(last_at_str)
         first_at = _parse_dt(first_at_str)
 
-        # Coverage classification
+        # Coverage classification — branch on cadence so monthly / rolling /
+        # event-driven feeds aren't penalised against a daily-trading target.
         if date_col is None:
             # Snapshot tables — no date column. Coverage = "is there data?"
             coverage_pct = 1.0 if rows_count and rows_count > 0 else 0.0
@@ -104,35 +135,63 @@ async def readiness(
             staleness_days = (today - last_at.date()).days if isinstance(last_at, datetime) else None
             window_first = first_at_str
             window_last = last_at_str
-        elif rows_count == 0 or rows_count is None or last_at is None:
+            cert = "GOLD" if (rows_count and rows_count > 0) else "EMPTY"
+        elif not rows_count:
+            # Genuinely empty table.
             coverage_pct = 0.0
             days_covered = 0
             staleness_days = None
             window_first = None
             window_last = None
-        else:
-            # Time-series — clip to window and assume distinct dates ≈ trading days seen.
-            # The catalog endpoint gives us first/last only; we approximate
-            # days_covered = min(trading_target, span_days * 5/7).
-            last_d  = last_at.date() if isinstance(last_at, datetime) else last_at
-            first_d = first_at.date() if isinstance(first_at, datetime) else first_at
-            effective_first = max(first_d, window_start) if first_d else window_start
-            effective_last  = min(last_d, today) if last_d else today
-            if effective_last < effective_first:
+            cert = "EMPTY"
+        elif cadence in ("daily",):
+            # Time-series — clip to window. Trading-day approximation.
+            if last_at is None:
+                # Rows exist but catalog couldn't determine first/last — fall back to "no info" cert.
+                coverage_pct = 0.0
                 days_covered = 0
+                staleness_days = None
+                window_first = None
+                window_last = None
+                cert = "UNKNOWN"
             else:
-                span = (effective_last - effective_first).days + 1
-                # Use trading-day approximation for daily/event feeds
-                if prov.get("cadence") in ("daily",):
-                    days_covered = max(0, int(round(span * 5 / 7)))
+                last_d  = last_at.date() if isinstance(last_at, datetime) else last_at
+                first_d = first_at.date() if isinstance(first_at, datetime) else first_at
+                effective_first = max(first_d, window_start) if first_d else window_start
+                effective_last  = min(last_d, today) if last_d else today
+                if effective_last < effective_first:
+                    days_covered = 0
                 else:
-                    days_covered = span
-            coverage_pct = min(1.0, days_covered / trading_target) if trading_target else 0.0
-            staleness_days = (today - last_d).days if last_d else None
-            window_first = effective_first.isoformat()
-            window_last  = effective_last.isoformat()
-
-        cert = certify(coverage_pct)
+                    span = (effective_last - effective_first).days + 1
+                    days_covered = max(0, int(round(span * 5 / 7)))
+                coverage_pct = min(1.0, days_covered / trading_target) if trading_target else 0.0
+                staleness_days = (today - last_d).days if last_d else None
+                window_first = effective_first.isoformat()
+                window_last  = effective_last.isoformat()
+                cert = certify(coverage_pct)
+        else:
+            # rolling / event-driven / monthly / quarterly / weekly / one-shot
+            # → cert by staleness; coverage_pct is informational only.
+            if last_at is None:
+                # Rolling/event feed with rows but no last_at — show partial.
+                coverage_pct = 0.0
+                days_covered = 0
+                staleness_days = None
+                window_first = first_at_str
+                window_last = None
+                cert = "PARTIAL"  # have data, can't grade freshness
+            else:
+                last_d  = last_at.date() if isinstance(last_at, datetime) else last_at
+                first_d = first_at.date() if isinstance(first_at, datetime) else first_at
+                effective_first = max(first_d, window_start) if first_d else window_start
+                effective_last  = min(last_d, today) if last_d else today
+                span = max(0, (effective_last - effective_first).days + 1)
+                days_covered = span if span > 0 else 0
+                coverage_pct = min(1.0, days_covered / trading_target) if trading_target else 0.0
+                staleness_days = (today - last_d).days if last_d else None
+                window_first = effective_first.isoformat()
+                window_last  = effective_last.isoformat()
+                cert = _staleness_cert(cadence, staleness_days, rows_count)
         cert_counts[cert] = cert_counts.get(cert, 0) + 1
         crit = prov.get("criticality", "OPTIONAL")
         crit_counts.setdefault(crit, {}).setdefault(cert, 0)
