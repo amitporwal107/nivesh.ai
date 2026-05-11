@@ -402,7 +402,7 @@ and are hydrated at startup.
 
 ### 10.2 Frontend `.env` (protected)
 ```
-REACT_APP_BACKEND_URL=https://portfolio-ai-68.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://nidp-backfill-ui.preview.emergentagent.com
 ```
 
 ### 10.3 Supervisor services

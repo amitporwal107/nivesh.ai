@@ -37,6 +37,7 @@ from routes.admin_users import router as admin_users_router
 from routes.admin_data_pipeline import router as admin_pipeline_router
 from routes.admin_nidp import router as admin_nidp_router  # NIDP one-click diagnostic dump
 from routes.admin_nidp_replay import router as admin_nidp_replay_router  # NIDP 90-day replay engine
+from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # NIDP backfill status proxy
 from routes.copilot_prompts import router as copilot_prompts_router
 from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
 from routes.gmail import router as gmail_router
@@ -90,6 +91,7 @@ app.include_router(admin_rules_router)
 app.include_router(admin_pipeline_router)
 app.include_router(admin_nidp_router)
 app.include_router(admin_nidp_replay_router)
+app.include_router(admin_nidp_backfill_router)
 app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
 app.include_router(gmail_router)

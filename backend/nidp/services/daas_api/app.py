@@ -41,6 +41,7 @@ from nidp.services.daas_api.middleware import RequestContextMiddleware
 from nidp.services.daas_api.routers import (
     admin,
     announcements,
+    backfill,
     catalog,
     corporate_actions,
     dq_ai,
@@ -287,6 +288,7 @@ app.include_router(reference.router, prefix=v1_prefix)
 app.include_router(intelligence.router, prefix=v1_prefix)
 app.include_router(dq_ai.router, prefix=v1_prefix)
 app.include_router(replay.router, prefix=v1_prefix)
+app.include_router(backfill.router, prefix=v1_prefix)
 app.include_router(financials.router, prefix=v1_prefix)
 app.include_router(fno.router, prefix=v1_prefix)
 app.include_router(flows.router, prefix=v1_prefix)

@@ -17,7 +17,7 @@ from datetime import datetime
 class V2DashboardTester:
     def __init__(self):
         # Use the production URL from frontend/.env
-        self.base_url = "https://portfolio-ai-68.preview.emergentagent.com"
+        self.base_url = "https://nidp-backfill-ui.preview.emergentagent.com"
         # Test credentials from review request
         self.session_token = "370eff71-fda1-46d8-b506-b81b894d634f"
         self.test_email = "priyankamantri@gmail.com"

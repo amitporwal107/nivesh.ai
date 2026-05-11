@@ -3,7 +3,7 @@ import asyncio
 import httpx
 
 async def check_user_holdings():
-    BASE_URL = "https://portfolio-ai-68.preview.emergentagent.com/api"
+    BASE_URL = "https://nidp-backfill-ui.preview.emergentagent.com/api"
     TEST_USER_SESSION = "5770bebb-8a9a-41f7-a7b9-e8152ac25daa"
     
     headers = {

@@ -8,6 +8,7 @@ import {
 
 const API = process.env.REACT_APP_BACKEND_URL;
 const REPLAY = `${API}/api/admin/nidp/replay`;
+const BACKFILL = `${API}/api/admin/nidp/backfill`;
 
 const cls = (...xs) => xs.filter(Boolean).join(" ");
 
@@ -102,6 +103,7 @@ function StartRunTab({ onStarted }) {
   const ninetyAgo = new Date(today.getTime() - 90 * 24 * 3600 * 1000);
 
   const [policies, setPolicies] = useState([]);
+  const [readiness, setReadiness] = useState(null);
   const [form, setForm] = useState({
     start_date:      ninetyAgo.toISOString().slice(0, 10),
     end_date:        today.toISOString().slice(0, 10),
@@ -122,6 +124,19 @@ function StartRunTab({ onStarted }) {
       .then(r => setPolicies(r.data.policies || []))
       .catch(() => setPolicies([]));
   }, []);
+
+  // Pull readiness summary so we can warn the user inline before they
+  // launch a replay on incomplete data. Silent on failure — the
+  // dedicated Backfill Readiness tab surfaces real errors.
+  useEffect(() => {
+    const days = Math.max(
+      1,
+      Math.round((new Date(form.end_date) - new Date(form.start_date)) / 86400000) + 1,
+    );
+    axios.get(`${BACKFILL}/readiness?target_days=${days}`, { withCredentials: true })
+      .then(r => setReadiness(r.data))
+      .catch(() => setReadiness(null));
+  }, [form.start_date, form.end_date]);
 
   const tradingDayEstimate = useMemo(() => {
     const s = new Date(form.start_date);
@@ -156,6 +171,8 @@ function StartRunTab({ onStarted }) {
 
   return (
     <div className="space-y-4 max-w-3xl">
+      {readiness && <InlineReadinessBanner data={readiness} />}
+
       <div className="p-4 border rounded-md bg-white dark:bg-slate-900 space-y-3">
         <h3 className="text-sm font-medium text-slate-800 dark:text-slate-100">
           Replay window
@@ -570,6 +587,38 @@ function GateChip({ outcome }) {
   return <span className={cls("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]", cfg.cls)}>
     <Icon className="w-3 h-3" /> {outcome}
   </span>;
+}
+
+
+function InlineReadinessBanner({ data }) {
+  const v = data.verdict;
+  const cfg = {
+    READY:      { cls: "bg-emerald-50 border-emerald-300 text-emerald-800", icon: CheckCircle2 },
+    NEAR_READY: { cls: "bg-amber-50 border-amber-300 text-amber-800",       icon: AlertCircle },
+    NOT_READY:  { cls: "bg-rose-50 border-rose-300 text-rose-800",          icon: AlertTriangle },
+  }[v] || { cls: "bg-slate-50 border-slate-200 text-slate-600", icon: AlertCircle };
+  const Icon = cfg.icon;
+  const cc = data.cert_counts || {};
+  return (
+    <div className={cls("flex items-start gap-3 px-3 py-2.5 border rounded-md text-xs", cfg.cls)}
+         data-testid="replay-inline-readiness">
+      <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold text-[13px]">
+          Data coverage: {v.replace("_", " ")}
+          {" "}— MANDATORY at GOLD: <b>{data.totals.mandatory_gold}/{data.totals.mandatory_total}</b>
+          {" "}({(data.totals.mandatory_pct * 100).toFixed(0)}%)
+        </div>
+        <div className="opacity-90 mt-0.5">{data.verdict_msg}</div>
+        <div className="opacity-70 mt-1 flex items-center gap-3 flex-wrap">
+          {["GOLD", "SILVER", "PARTIAL", "GAPS", "EMPTY"].map(c =>
+            cc[c] ? <span key={c} className="font-mono">{c}: {cc[c]}</span> : null
+          )}
+          <span className="opacity-70">→ see <b>Backfill Readiness</b> tab for the full per-feed matrix.</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 

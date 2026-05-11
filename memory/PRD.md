@@ -2,6 +2,29 @@
 
 ## Implemented Features (Latest)
 
+### Feb 11, 2026 — NIDP Backfill Readiness Matrix UI
+
+User asked for a full Backfill Readiness Matrix before deciding whether to proceed with a 90-day replay. Built end-to-end:
+
+**Backend** (`/api/admin/nidp/backfill/readiness?target_days=90`):
+- New pod-side route in `routes/admin_nidp_backfill.py` that joins live coverage stats from the VM's `/v1/catalog` endpoint with a static provenance map (`routes/_nidp_feed_provenance.py`).
+- Per-feed: source (NSE/BSE/AMFI/RBI/SEBI/FRED/derived), source_url, retrieval method, ingester, cadence, depth, validation rules, criticality (MANDATORY/RECOMMENDED/OPTIONAL), live rows + first/last dates, days_covered vs trading_target, coverage_pct, staleness_days, cert tier (GOLD/SILVER/PARTIAL/GAPS/EMPTY).
+- Overall verdict: READY / NEAR_READY / NOT_READY based on % of MANDATORY feeds at GOLD coverage.
+- Filter `only_mandatory=true` for criticality-filtered views.
+
+**Frontend** (new `components/admin/NidpBackfillPanel.jsx` + new "Backfill Readiness" tab in NIDP Console):
+- **Readiness Matrix sub-tab**: verdict banner, cert distribution strip, filterable table (criticality / cert / domain), expandable per-row drawer with description / ingester command / source URL link / validation rules.
+- **Backfill Runs sub-tab**: lists `audit.backfill_runs` from VM with auto-poll every 5s while RUNNING; expandable per-run detail shows per-ingester rollup + recent jobs grid with errors.
+
+**Replay panel inline warning** (`NidpReplayPanel.jsx`):
+- Pulls `/backfill/readiness` for the current replay window and renders a NOT_READY / NEAR_READY / READY banner above the Start Run form so users see coverage gaps before launching a replay.
+
+**Live verdict on current data state**: NOT_READY — only 5/10 MANDATORY feeds at GOLD (prices_eod, delivery_data, index_eod, nse_holidays, mf_nav_daily). fno_bhavcopy / corporate_actions / sector_master / rbi_yields / mf_scheme_master need backfill.
+
+**Tests**: `/app/backend/tests/test_backfill_readiness.py` — 3 regression tests (matrix shape, only_mandatory filter, auth gate). All PASSED.
+
+---
+
 ### May 10, 2026 — NIDP 90-Day Historical Replay & Backtesting Engine
 
 User PRD: "NIDP 90-Day Historical Data Quality Backtesting Framework". Goal — replay 90+ trading days of historical data through the existing governance pipeline (Great Expectations + consistency + scoring + gate + certification + quarantine) under versioned scoring policies, with optional synthetic failure injection for calibration.
