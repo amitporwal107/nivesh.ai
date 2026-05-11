@@ -2,6 +2,22 @@
 
 ## Implemented Features (Latest)
 
+### Feb 11, 2026 (Session 1 Final) — Trigger UI live end-to-end
+
+**Service account live**: User created `nidp-orchestrator-sa@niveshdataintelligence.iam.gserviceaccount.com` with `compute.osAdminLogin` + `iam.serviceAccountUser` on the VM's compute SA. JSON key dropped at `/app/backend/.secrets/nidp_vm_sa.json` (chmod 600, gitignored).
+
+**Verified end-to-end via curl**:
+- `GET /trigger/health` → `{"ok": true, "vm_echo": "sa_103294281793147023642 nidp-stack-vm 19:00 up 1d..."}`
+- `POST /trigger/rolling` for corporate_actions + rbi_yields with `skip_existing=false` → **HTTP 200 in 8.9s**, PID returned, backfill ran on VM. Both ingesters fetched current state successfully but couldn't fill the 90-day window because the ingesters themselves are "rolling current state only" — they don't support historical date ranges.
+
+**Architectural finding** (deferred to Session 2): `corporate_actions` and `rbi_yields` ingesters only fetch the latest snapshot from NSE/RBI. To get true 90-day backfill we need to enhance the ingesters to query archive endpoints or scrape historical pages. This is **why verdict stays NEAR_READY at 8/10** — even after backfill, the architectural depth isn't reachable from current code.
+
+**Shell-quoting bug fixed**: First trigger attempt failed because the inner command was being passed through three levels of `bash -c '...'` and the single-quote nesting collided. Fix: base64-encode the inner script, write to `/tmp/nidp_trigger_<ts>.sh` on the VM, then execute via `bash <file>`. Documented in `services/nidp_vm_ssh.py::ssh_run_detached_as_nidp`.
+
+**Tests** — 8/8 passing including the new ok-with-SA-loaded health check.
+
+---
+
 ### Feb 11, 2026 — Backfill Trigger UI (Session 1 of 4-part roadmap)
 
 **4-part user-approved roadmap:**
