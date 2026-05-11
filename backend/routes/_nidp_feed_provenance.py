@@ -401,20 +401,55 @@ PROVENANCE: Dict[str, Dict[str, Any]] = {
 
 
 def for_feed(name: str) -> Dict[str, Any]:
-    """Returns provenance dict for `name`, or an UNKNOWN stub if not registered."""
+    """Returns provenance dict for `name`, or a sensible inference if not registered.
+
+    We resolve unknowns in this order:
+      1. Exact match in PROVENANCE
+      2. Substring inference (e.g. `corporate_announcements_nse` → NSE-flavoured)
+      3. UNKNOWN stub (rare; means the ingester was added without registering provenance)
+    """
     p = PROVENANCE.get(name)
     if p:
         return p
+
+    lower = (name or "").lower()
+    # Aliases for ingester variants that share parent provenance
+    aliases = {
+        "delivery":                "delivery_data",
+        "amfi_nav":                "mf_scheme_master",
+        "amfi_nav_history":        "mf_nav_daily",
+        "nse_financials":          "nse_financials_quarterly",
+        "nse_shareholding":        "shareholding_pattern",
+        "corporate_announcements_nse": "corporate_announcements",
+        "corporate_announcements_bse": "corporate_announcements",
+        "announcement_classifier":     "corporate_announcements",
+        "document_parser":             "corporate_announcements",
+        "mf_holdings":             "mf_holdings_monthly",
+        "amfi_circulars":          "mf_amfi_circulars",
+        "rbi":                     "rbi_yields",
+    }
+    if lower in aliases and aliases[lower] in PROVENANCE:
+        return {**PROVENANCE[aliases[lower]], "_inferred_from": aliases[lower]}
+
+    # Crude source inference by substring
+    inferred_source = None
+    if "nse" in lower:    inferred_source = "NSE"
+    elif "bse" in lower:  inferred_source = "BSE"
+    elif "amfi" in lower or lower.startswith("mf_"): inferred_source = "AMFI"
+    elif "rbi" in lower:  inferred_source = "RBI"
+    elif "sebi" in lower: inferred_source = "SEBI"
+    elif "mca" in lower:  inferred_source = "MCA"
+
     return {
-        "source":      "UNKNOWN",
+        "source":      inferred_source or "UNKNOWN",
         "source_url":  None,
         "retrieval":   "unknown",
-        "ingester":    None,
+        "ingester":    name,
         "cadence":     "unknown",
         "depth":       "unknown",
         "validation":  [],
         "criticality": "OPTIONAL",
-        "notes":       "Not registered in provenance map.",
+        "notes":       "Not registered in provenance map — source inferred from name.",
     }
 
 

@@ -72,8 +72,9 @@ export default function NidpBackfillPanel() {
     <div className="space-y-4" data-testid="backfill-panel">
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700">
         {[
-          { id: "matrix", label: "Readiness Matrix", icon: Database },
-          { id: "runs",   label: "Backfill Runs",    icon: Activity },
+          { id: "matrix",  label: "Readiness Matrix", icon: Database },
+          { id: "runs",    label: "Backfill Runs",    icon: Activity },
+          { id: "joblog",  label: "Job Log",          icon: FileWarning },
         ].map(t => (
           <button
             key={t.id}
@@ -100,6 +101,7 @@ export default function NidpBackfillPanel() {
 
       {tab === "matrix" && <ReadinessMatrix />}
       {tab === "runs"   && <BackfillRuns />}
+      {tab === "joblog" && <JobLog />}
 
       {triggerOpen && <TriggerModal onClose={() => setTriggerOpen(false)} />}
     </div>
@@ -448,9 +450,12 @@ function BackfillRuns() {
       {loading && <Loader2 className="w-5 h-5 animate-spin text-slate-400 mx-auto my-6" />}
 
       {!loading && runs.length === 0 && (
-        <div className="text-center py-8 text-slate-400 text-sm">
-          no backfill runs recorded yet — kick one off from the VM with
-          <code className="ml-1 text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">python -m nidp.services.backfill --start-date … --end-date …</code>
+        <div className="text-center py-8 text-slate-400 text-sm space-y-2">
+          <div>no daily-NSE backfill runs in <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">audit.backfill_runs</code> yet</div>
+          <div className="text-[11px]">
+            Rolling & reference jobs (bulk_deals, corporate_actions, rbi_yields, fii_dii…) log to
+            <code className="ml-1 text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">nidp.job_log</code> instead — see the <b>Job Log</b> tab.
+          </div>
         </div>
       )}
 
@@ -579,6 +584,158 @@ function RunDetail({ detail }) {
                     <td className="px-2 py-0.5 text-right font-mono">{j.rows_loaded || "—"}</td>
                     <td className="px-2 py-0.5 text-right font-mono">{j.duration_ms || "—"}</td>
                     <td className="px-2 py-0.5 text-rose-600 truncate max-w-[14rem]" title={j.error}>{j.error || ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─── Job Log (rolling/reference ingesters) ────────────────────────
+function JobLog() {
+  const [rows,    setRows]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [ingFilter,    setIngFilter]    = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [sinceHours,   setSinceHours]   = useState(24);
+
+  const reload = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams({ limit: 200, since_hours: sinceHours });
+      if (ingFilter)              params.set("ingester", ingFilter);
+      if (statusFilter !== "ALL") params.set("status",   statusFilter);
+      const r = await axios.get(`${BF}/job_log?${params}`, { withCredentials: true });
+      setRows(r.data.rows || []);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [ingFilter, statusFilter, sinceHours]);
+  useEffect(() => { reload(); }, [reload]);
+
+  // Auto-poll while any RUNNING
+  useEffect(() => {
+    if (!rows.some(r => r.status === "RUNNING")) return;
+    const t = setInterval(reload, 5000);
+    return () => clearInterval(t);
+  }, [rows, reload]);
+
+  const distinctIngesters = useMemo(
+    () => ["", ...new Set(rows.map(r => r.ingester))].filter(Boolean).sort(),
+    [rows],
+  );
+
+  return (
+    <div className="space-y-3" data-testid="job-log">
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <button data-testid="job-log-reload" onClick={reload}
+                className="px-2 py-1.5 border rounded-md flex items-center gap-1">
+          <RefreshCw className="w-3.5 h-3.5" /> reload
+        </button>
+        <label className="flex items-center gap-1 ml-2">
+          <span className="text-slate-500">window</span>
+          <select value={sinceHours} onChange={e => setSinceHours(parseInt(e.target.value, 10))}
+                  data-testid="job-log-since-hours"
+                  className="px-1.5 py-0.5 border rounded text-xs">
+            <option value={1}>1 h</option>
+            <option value={6}>6 h</option>
+            <option value={24}>24 h</option>
+            <option value={72}>3 d</option>
+            <option value={168}>7 d</option>
+            <option value={720}>30 d</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          <Filter className="w-3 h-3 text-slate-400" />
+          <span className="text-slate-500">ingester</span>
+          <select value={ingFilter} onChange={e => setIngFilter(e.target.value)}
+                  data-testid="job-log-ingester-filter"
+                  className="px-1.5 py-0.5 border rounded text-xs min-w-[8rem]">
+            <option value="">all</option>
+            {distinctIngesters.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-1">
+          <span className="text-slate-500">status</span>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                  data-testid="job-log-status-filter"
+                  className="px-1.5 py-0.5 border rounded text-xs">
+            {["ALL", "OK", "RUNNING", "FAILED", "PARTIAL", "SKIPPED"].map(s =>
+              <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <span className="ml-auto text-slate-400">{rows.length} rows</span>
+      </div>
+
+      <div className="text-[11px] text-slate-400 px-1">
+        Each row is one ingester run. Rolling & reference services (bulk_deals, corporate_actions, rbi_yields, fii_dii, etc.)
+        log here — not in the <b>Backfill Runs</b> tab, which only tracks the daily-NSE orchestrator.
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700">
+          <AlertTriangle className="w-4 h-4" /> {String(error)}
+        </div>
+      )}
+
+      {loading && rows.length === 0 && (
+        <Loader2 className="w-5 h-5 animate-spin text-slate-400 mx-auto my-8" />
+      )}
+
+      {!loading && rows.length === 0 && (
+        <div className="text-center py-8 text-slate-400 text-sm">no job log entries in this window</div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="border rounded-md overflow-hidden bg-white dark:bg-slate-900">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 dark:bg-slate-800 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-2 py-2">Started</th>
+                  <th className="px-2 py-2">Ingester</th>
+                  <th className="px-2 py-2">Source</th>
+                  <th className="px-2 py-2">Target date</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2 text-right">Fetched</th>
+                  <th className="px-2 py-2 text-right">Inserted</th>
+                  <th className="px-2 py-2 text-right">Skipped</th>
+                  <th className="px-2 py-2 text-right">Duration</th>
+                  <th className="px-2 py-2">Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.run_id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-800"
+                      data-testid={`job-log-row-${r.run_id}`}>
+                    <td className="px-2 py-1.5 font-mono text-[10px]">{(r.started_at || "").replace("T", " ").slice(0, 19)}</td>
+                    <td className="px-2 py-1.5 font-medium text-slate-800 dark:text-slate-100">{r.ingester}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={cls("px-1.5 py-0.5 rounded text-[10px]", SOURCE_CHIP[r.source] || SOURCE_CHIP.UNKNOWN)}>
+                        {r.source || "—"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-[10px]">{r.target_date || "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <StatusChip status={r.status === "OK" ? "SUCCESS" : r.status} />
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">{(r.rows_fetched ?? 0).toLocaleString()}</td>
+                    <td className="px-2 py-1.5 text-right font-mono">{(r.rows_inserted ?? 0).toLocaleString()}</td>
+                    <td className="px-2 py-1.5 text-right font-mono text-slate-400">{(r.rows_skipped ?? 0).toLocaleString()}</td>
+                    <td className="px-2 py-1.5 text-right font-mono text-slate-500">
+                      {r.duration_ms != null ? `${(r.duration_ms / 1000).toFixed(1)}s` : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-rose-600 truncate max-w-[16rem]" title={r.error_message}>
+                      {r.error_message ? `[${r.error_class || "?"}] ${r.error_message}` : ""}
+                    </td>
                   </tr>
                 ))}
               </tbody>
