@@ -119,6 +119,9 @@ async def ssh_exec(
         cfg["instance"],
         f"--command={command}",
         "--quiet",
+        # -T disables pseudo-tty allocation, so detached children on the
+        # remote side don't keep the SSH session open via tty inheritance.
+        "--ssh-flag=-T",
         "--ssh-flag=-o ConnectTimeout=15",
         "--ssh-flag=-o ServerAliveInterval=10",
     ]
@@ -146,12 +149,18 @@ async def ssh_run_detached_as_nidp(
     inner_cmd: str, *, log_path: str, init_timeout: float = 30.0,
 ) -> Tuple[int, str, str]:
     """Spawn `inner_cmd` on the VM as user `nidp` with /opt/nidp/nidp.env sourced,
-    detached via nohup. Returns once the parent shell forks (≤ init_timeout).
+    detached via `setsid nohup`. Returns once the parent shell forks (≤ init_timeout).
 
-    Implementation: the inner command is base64-encoded and decoded into a
-    temp script on the VM, which side-steps the nested-quoting tangle of
-    `gcloud ssh -c "sudo -u nidp bash -c '... bash -c \"...\"'"`. The script
-    is then executed under `sudo -u nidp` with the env sourced.
+    Detachment correctness — what was broken:
+      - `nohup bash script &` alone keeps the child's stdin/stdout attached
+        to the SSH session's pty. SSH then waits for the pty to close, which
+        only happens when the long-running backfill ends → ingress 502.
+      - Fix: `setsid` puts the child in a new session with no controlling
+        terminal; we also redirect stdin from `/dev/null`. SSH disconnects
+        as soon as the bash -c wrapper exits.
+
+    Quoting correctness — the inner command is base64-encoded and decoded
+    into a temp script on the VM, so we never nest `bash -c '... bash -c "..."'`.
     """
     import base64, time as _t
 
@@ -161,9 +170,12 @@ async def ssh_run_detached_as_nidp(
     script_path = f"/tmp/{script_id}"
     qscript    = shlex.quote(script_path)
 
-    # All single-shell-level (no nested -c), so quoting is straightforward.
-    # The sudo bash payload is single-quoted, so $! inside it is NOT expanded
-    # by the outer shell — the inner sudo bash itself expands it at exec time.
+    # The sudo bash payload is single-quoted; $! resolves on the VM.
+    # Detachment uses a subshell with `&` + `disown` so the SSH session
+    # exits as soon as the wrapper bash finishes. setsid breaks the
+    # controlling tty; </dev/null + redirect-to-file detach all 3 std FDs.
+    # We can't capture $! from inside the subshell, so we just confirm
+    # the spawn succeeded — actual PID surfaces in audit.backfill_runs.
     wrapper = (
         f"echo {b64} | base64 -d > {qscript} && chmod +x {qscript} && "
         f"sudo mkdir -p $(dirname {quoted_log}) && "
@@ -171,6 +183,7 @@ async def ssh_run_detached_as_nidp(
         f"sudo -u nidp -H bash -c "
         f"'set -a; source /opt/nidp/nidp.env; set +a; "
         f"cd /opt/nidp/repo/backend && "
-        f"nohup bash {qscript} > {quoted_log} 2>&1 & echo PID=$!'"
+        f"( setsid bash {qscript} </dev/null > {quoted_log} 2>&1 & disown ) ; "
+        f"echo SPAWNED'"
     )
     return await ssh_exec(wrapper, timeout=init_timeout)

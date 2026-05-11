@@ -75,6 +75,34 @@ def test_trigger_daily_rejects_inverted_dates() -> None:
     assert r.status_code == 422
 
 
+def test_trigger_rolling_returns_within_ingress_timeout() -> None:
+    """The trigger endpoint must return well under the Cloudflare 60s edge
+    timeout, even for many services. This is a regression test against the
+    'setsid nohup ... &' detachment bug — when SSH stdio is held by a child
+    process, the gcloud session refuses to disconnect."""
+    r = httpx.post(
+        f"{API}/api/admin/nidp/backfill/trigger/rolling",
+        cookies=COOKIES, timeout=30.0,
+        json={
+            "start_date":   "2026-02-10",
+            "end_date":     "2026-05-11",
+            "services":     [
+                "index_constituents", "bulk_deals", "block_deals",
+                "corporate_actions", "rbi_yields", "fii_dii",
+            ],
+            "skip_existing": True,
+        },
+    )
+    # Either it succeeds (SA key present) or 503 (SA key missing) — both fast.
+    assert r.status_code in (200, 503), r.text
+    if r.status_code == 200:
+        d = r.json()
+        assert d["ok"] is True
+        assert "log_path" in d
+        # `SPAWNED` confirms full detachment via subshell+disown
+        assert "SPAWNED" in d.get("ssh_stdout", "") or "PID" in d.get("ssh_stdout", "")
+
+
 def test_trigger_requires_admin_auth() -> None:
     r = httpx.post(
         f"{API}/api/admin/nidp/backfill/trigger/daily",
