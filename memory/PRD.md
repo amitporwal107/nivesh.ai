@@ -2,6 +2,53 @@
 
 ## Implemented Features (Latest)
 
+### Feb 11, 2026 — Backfill Trigger UI (Session 1 of 4-part roadmap)
+
+**4-part user-approved roadmap:**
+1. ✅ **This session** — Trigger Backfill/Replay UI + complete fno_bhavcopy backfill
+2. Next — Build 5 missing ingesters (AMFI AUM, RBI FX, SEBI insider, MCA financials, NSDL/CDSL demat) — BSE bhavcopy skipped per user (no F/O on BSE)
+3. Then — Nivesh Copilot agentic RAG over NIDP intelligence layer
+4. Then — Client portfolio sync (nivesh PG → NIDP PG/timeseries) with identity bridge
+
+**Shipped this session:**
+
+**Live backfill execution:**
+- fno_bhavcopy backfill **completed**: 55/55 jobs, **2,523,652 rows** (had 2/64 days, now 100% coverage, GOLD).
+- Rolling-sources backfill ran (bulk/block/CA/RBI/calendar/constituents) but `--skip-existing` blocked CA/RBI refetch (47 rows / 9 rows respectively). User must run with `--no-skip-existing` to actually backfill those rolling sources from archive.
+- **Readiness verdict flipped: NOT_READY → NEAR_READY (8/10 MANDATORY at GOLD).** Remaining gaps: corporate_actions, rbi_yields.
+
+**Snapshot-table coverage bug fix:** `sector_master` and `mf_scheme_master` (date_col=None snapshot tables) were being flagged EMPTY despite having 2,367 / 14,360 rows. Reordered the `readiness` logic to check `date_col is None` BEFORE `last_at is None`. Now correctly shows GOLD.
+
+**Pod→VM SSH bridge (`services/nidp_vm_ssh.py`):**
+- Installed gcloud SDK persistently at `/opt/google-cloud-sdk/bin/gcloud`.
+- Service-account-based auth: activates `nidp-orchestrator-sa@niveshdataintelligence.iam.gserviceaccount.com` from `/app/backend/.secrets/nidp_vm_sa.json` (loaded once, cached).
+- Wraps `gcloud compute ssh` with `--ssh-flag=-o ConnectTimeout=15`.
+- `ssh_run_detached_as_nidp()` helper: spawns commands as `sudo -u nidp` with `/opt/nidp/nidp.env` sourced, detached via nohup, log to `/opt/nidp/logs/backfill/`.
+- Fails fast with `SSHUnavailable` (HTTP 503) if SA key or gcloud missing.
+
+**New backend endpoints** (`routes/admin_nidp_backfill.py`):
+- `POST /api/admin/nidp/backfill/trigger/daily` — launches `nidp.services.backfill` (NSE daily ingesters bhavcopy/delivery/index_close/fno_bhavcopy). Pydantic validation rejects unknown ingesters; allow-list enforced. wipe_first / politeness_ms / parallel knobs.
+- `POST /api/admin/nidp/backfill/trigger/rolling` — launches `nidp.cli backfill` (rolling: bulk/block/CA/RBI/calendar/constituents/fii_dii). skip_existing toggle.
+- `GET /api/admin/nidp/backfill/trigger/health` — SSH liveness probe; UI gates the kick-off button.
+
+**Frontend trigger modal** (`NidpBackfillPanel.jsx`):
+- "Trigger backfill" button in panel header opens a centred modal.
+- Mode tabs: **Daily NSE** | **Rolling + reference** — maps directly to the two orchestrators.
+- SSH health banner (green when SA key live, red when not configured — with the exact .secrets path).
+- Date pickers, ingester/service multi-select checkboxes, knobs (politeness, parallel, wipe_first OR skip_existing).
+- Success/error toasts; success shows log path + pointer to the Backfill Runs tab for live progress.
+
+**GCP service account commands shared with user** (they'll generate the JSON key):
+```
+roles/compute.osAdminLogin + roles/compute.viewer + roles/iam.serviceAccountUser on the VM's compute SA.
+```
+
+**Tests** — `/app/backend/tests/test_backfill_trigger.py` — 5 tests covering health probe, ingester/service validation, date validation, admin auth gate. Combined with readiness tests: **8/8 PASSED**.
+
+**Token security note:** OAuth tokens are short-lived (1 hour). Used once for the fno_bhavcopy backfill. Now expired. SA JSON key will replace it for permanent UI-driven triggers.
+
+---
+
 ### Feb 11, 2026 — NIDP Backfill Readiness Matrix UI + Live Backfill Triggered
 
 User asked for a full Backfill Readiness Matrix before deciding whether to proceed with a 90-day replay. Built end-to-end, **then user provided GCP OAuth token to actually trigger the backfill from the pod via gcloud OS Login SSH.**

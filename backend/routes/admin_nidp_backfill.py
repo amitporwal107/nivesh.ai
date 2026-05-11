@@ -1,25 +1,31 @@
-"""Admin → NIDP → Backfill endpoints (pod-side proxy + readiness matrix).
+"""Admin → NIDP → Backfill endpoints (pod-side proxy + readiness matrix + VM triggers).
 
 Forwards `/api/admin/nidp/backfill/*` to the DaaS API on the NIDP VM
 at `${NIDP_DAAS_BASE_URL}/v1/backfill/*`. The backfill orchestrator
-runs as a detached subprocess on the VM (kicked off via SSH); this
-router gates the admin session, proxies read-only status endpoints,
-and computes the local **Backfill Readiness Matrix** by joining the
-VM's `/v1/catalog` coverage stats with our provenance metadata map.
+runs as a detached subprocess on the VM; this router gates the admin
+session, proxies read-only status endpoints, computes the local
+**Backfill Readiness Matrix** by joining the VM's `/v1/catalog`
+coverage stats with our provenance metadata map, and exposes two
+SSH-driven triggers that kick off the orchestrators on the VM.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
+import shlex
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from deps import require_admin
 from routes._nidp_feed_provenance import PROVENANCE, certify, for_feed
+from services.nidp_vm_ssh import SSHUnavailable, ssh_exec, ssh_run_detached_as_nidp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/nidp/backfill", tags=["admin-nidp-backfill"])
@@ -90,19 +96,19 @@ async def readiness(
         first_at = _parse_dt(first_at_str)
 
         # Coverage classification
-        if rows_count == 0 or rows_count is None or last_at is None:
-            coverage_pct = 0.0
-            days_covered = 0
-            staleness_days = None
-            window_first = None
-            window_last = None
-        elif date_col is None:
-            # Snapshot tables — no date column, coverage based on "is there data"
+        if date_col is None:
+            # Snapshot tables — no date column. Coverage = "is there data?"
             coverage_pct = 1.0 if rows_count and rows_count > 0 else 0.0
             days_covered = None
             staleness_days = (today - last_at.date()).days if isinstance(last_at, datetime) else None
             window_first = first_at_str
             window_last = last_at_str
+        elif rows_count == 0 or rows_count is None or last_at is None:
+            coverage_pct = 0.0
+            days_covered = 0
+            staleness_days = None
+            window_first = None
+            window_last = None
         else:
             # Time-series — clip to window and assume distinct dates ≈ trading days seen.
             # The catalog endpoint gives us first/last only; we approximate
@@ -216,6 +222,159 @@ def _parse_dt(s: Optional[str]) -> Optional[datetime]:
             return datetime.combine(date.fromisoformat(s), datetime.min.time())
         except ValueError:
             return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# VM trigger endpoints — SSH into the VM and start the orchestrator
+# detached. The pod returns within seconds; UI polls /runs for progress.
+# ──────────────────────────────────────────────────────────────────────
+_DAILY_INGESTERS_ALLOWED = {"bhavcopy", "delivery", "index_close", "fno_bhavcopy"}
+_ROLLING_SERVICES_ALLOWED = {
+    "nse_calendar", "index_constituents",
+    "bulk_deals", "block_deals", "corporate_actions",
+    "rbi_yields", "fii_dii",
+}
+_SHELL_TOKEN = re.compile(r"^[A-Za-z0-9_,-]+$")
+
+
+class TriggerDailyReq(BaseModel):
+    start_date:    date
+    end_date:      date
+    ingesters:     List[str] = Field(min_length=1)
+    wipe_first:    bool      = False
+    politeness_ms: int       = Field(default=4000, ge=500, le=30000)
+    parallel:      int       = Field(default=1, ge=1, le=8)
+
+    @field_validator("ingesters")
+    @classmethod
+    def _validate(cls, v: List[str]) -> List[str]:
+        bad = [i for i in v if i not in _DAILY_INGESTERS_ALLOWED]
+        if bad:
+            raise ValueError(
+                f"unknown daily ingesters: {bad}. allowed={sorted(_DAILY_INGESTERS_ALLOWED)}"
+            )
+        return v
+
+
+class TriggerRollingReq(BaseModel):
+    start_date: date
+    end_date:   date
+    services:   List[str] = Field(min_length=1)
+    skip_existing: bool   = True
+
+    @field_validator("services")
+    @classmethod
+    def _validate(cls, v: List[str]) -> List[str]:
+        bad = [s for s in v if s not in _ROLLING_SERVICES_ALLOWED]
+        if bad:
+            raise ValueError(
+                f"unknown rolling services: {bad}. allowed={sorted(_ROLLING_SERVICES_ALLOWED)}"
+            )
+        return v
+
+
+@router.post("/trigger/daily", summary="SSH into VM and launch nidp.services.backfill (daily NSE ingesters)")
+async def trigger_daily(req: TriggerDailyReq, request: Request) -> Dict[str, Any]:
+    user = await require_admin(request)
+    if req.end_date < req.start_date:
+        raise HTTPException(status_code=422, detail="end_date < start_date")
+    ingesters_arg = ",".join(req.ingesters)
+    if not _SHELL_TOKEN.match(ingesters_arg):
+        raise HTTPException(status_code=422, detail="ingesters contain invalid characters")
+
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/daily_{int(time.time())}.log"
+
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.services.backfill "
+        f"--start-date {req.start_date.isoformat()} "
+        f"--end-date {req.end_date.isoformat()} "
+        f"--ingesters {shlex.quote(ingesters_arg)} "
+        f"--wipe-first {'true' if req.wipe_first else 'false'} "
+        f"--politeness-ms {int(req.politeness_ms)} "
+        f"--parallel {int(req.parallel)} "
+        f"--auto-replay false "
+        f"--initiated-by {shlex.quote(init_by)}"
+    )
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}",
+        )
+    return {
+        "ok":           True,
+        "mode":         "daily",
+        "log_path":     log_path,
+        "initiated_by": init_by,
+        "command_echo": inner,
+        "ssh_stdout":   out.strip()[-400:],
+    }
+
+
+@router.post("/trigger/rolling", summary="SSH into VM and launch nidp.cli backfill (rolling + reference)")
+async def trigger_rolling(req: TriggerRollingReq, request: Request) -> Dict[str, Any]:
+    user = await require_admin(request)
+    if req.end_date < req.start_date:
+        raise HTTPException(status_code=422, detail="end_date < start_date")
+    services_arg = ",".join(req.services)
+    if not _SHELL_TOKEN.match(services_arg):
+        raise HTTPException(status_code=422, detail="services contain invalid characters")
+
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/rolling_{int(time.time())}.log"
+
+    skip_flag = "" if req.skip_existing else "--no-skip-existing"
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.cli backfill "
+        f"--from {req.start_date.isoformat()} "
+        f"--to {req.end_date.isoformat()} "
+        f"--services {shlex.quote(services_arg)} {skip_flag}"
+    ).strip()
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}",
+        )
+    return {
+        "ok":           True,
+        "mode":         "rolling",
+        "log_path":     log_path,
+        "initiated_by": init_by,
+        "command_echo": inner,
+        "ssh_stdout":   out.strip()[-400:],
+    }
+
+
+@router.get("/trigger/health", summary="Whether the pod can SSH into the NIDP VM")
+async def trigger_health(request: Request) -> Dict[str, Any]:
+    await require_admin(request)
+    try:
+        rc, out, err = await ssh_exec("whoami; hostname; uptime", timeout=20.0)
+    except SSHUnavailable as e:
+        return {"ok": False, "reason": str(e)}
+    if rc != 0:
+        return {"ok": False, "reason": f"rc={rc} stderr={err[:300]}"}
+    return {"ok": True, "vm_echo": out.strip()[:400]}
+
+
+def _safe_initiator(user: Any) -> str:
+    """Best-effort short, shell-safe initiated_by tag (email or user_id)."""
+    if isinstance(user, dict):
+        ident = user.get("email") or user.get("user_id") or "ui"
+    else:
+        ident = getattr(user, "email", None) or getattr(user, "user_id", None) or "ui"
+    ident = str(ident)[:64]
+    return re.sub(r"[^A-Za-z0-9._@-]", "_", ident)
 
 
 # ──────────────────────────────────────────────────────────────────────

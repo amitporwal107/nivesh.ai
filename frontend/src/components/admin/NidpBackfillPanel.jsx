@@ -3,7 +3,7 @@ import axios from "axios";
 import {
   Loader2, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle, XCircle,
   Database, ExternalLink, Filter, ChevronDown, ChevronRight, Activity,
-  ShieldCheck, FileWarning, Clock,
+  ShieldCheck, FileWarning, Clock, Zap, Lock, X,
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -66,6 +66,7 @@ const SOURCE_CHIP = {
  */
 export default function NidpBackfillPanel() {
   const [tab, setTab] = useState("matrix");
+  const [triggerOpen, setTriggerOpen] = useState(false);
 
   return (
     <div className="space-y-4" data-testid="backfill-panel">
@@ -88,10 +89,19 @@ export default function NidpBackfillPanel() {
             <t.icon className="w-4 h-4" /> {t.label}
           </button>
         ))}
+        <button
+          data-testid="backfill-trigger-open"
+          onClick={() => setTriggerOpen(true)}
+          className="ml-auto mb-1.5 flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
+        >
+          <Zap className="w-3.5 h-3.5" /> Trigger backfill
+        </button>
       </div>
 
       {tab === "matrix" && <ReadinessMatrix />}
       {tab === "runs"   && <BackfillRuns />}
+
+      {triggerOpen && <TriggerModal onClose={() => setTriggerOpen(false)} />}
     </div>
   );
 }
@@ -576,6 +586,258 @@ function RunDetail({ detail }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ─── Trigger Modal ──────────────────────────────────────────────────
+const DAILY_INGESTERS = [
+  { id: "bhavcopy",     label: "NSE Equity Bhavcopy (prices_eod)" },
+  { id: "delivery",     label: "NSE Delivery Data" },
+  { id: "index_close",  label: "NSE Index Bhavcopy" },
+  { id: "fno_bhavcopy", label: "NSE F&O Bhavcopy" },
+];
+
+const ROLLING_SERVICES = [
+  { id: "nse_calendar",       label: "NSE Holiday Calendar (one-shot)" },
+  { id: "index_constituents", label: "Index Constituents" },
+  { id: "bulk_deals",         label: "Bulk Deals" },
+  { id: "block_deals",        label: "Block Deals" },
+  { id: "corporate_actions",  label: "Corporate Actions" },
+  { id: "rbi_yields",         label: "RBI G-Sec Yields" },
+  { id: "fii_dii",            label: "FII / DII Flows" },
+];
+
+
+function TriggerModal({ onClose }) {
+  const [mode, setMode] = useState("daily");
+  const [health, setHealth] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const today    = new Date();
+  const ninetyAgo = new Date(today.getTime() - 90 * 24 * 3600 * 1000);
+  const fmtDate  = d => d.toISOString().slice(0, 10);
+
+  const [form, setForm] = useState({
+    start_date: fmtDate(ninetyAgo),
+    end_date:   fmtDate(today),
+    ingesters:  ["fno_bhavcopy"],
+    services:   ["bulk_deals", "block_deals", "corporate_actions", "rbi_yields"],
+    wipe_first: false,
+    politeness_ms: 4000,
+    parallel: 1,
+    skip_existing: true,
+  });
+
+  useEffect(() => {
+    axios.get(`${BF}/trigger/health`, { withCredentials: true })
+      .then(r => setHealth(r.data))
+      .catch(e => setHealth({ ok: false, reason: formatApiError(e) }));
+  }, []);
+
+  const toggleArr = (key, id) => {
+    setForm(f => {
+      const s = new Set(f[key]);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return { ...f, [key]: [...s] };
+    });
+  };
+
+  const submit = async () => {
+    setSubmitting(true); setError(null); setResult(null);
+    try {
+      const body = mode === "daily" ? {
+        start_date: form.start_date,
+        end_date:   form.end_date,
+        ingesters:  form.ingesters,
+        wipe_first: form.wipe_first,
+        politeness_ms: form.politeness_ms,
+        parallel: form.parallel,
+      } : {
+        start_date: form.start_date,
+        end_date:   form.end_date,
+        services:   form.services,
+        skip_existing: form.skip_existing,
+      };
+      const r = await axios.post(`${BF}/trigger/${mode}`, body, { withCredentials: true });
+      setResult(r.data);
+    } catch (e) {
+      setError(formatApiError(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-16 px-4"
+         onClick={onClose} data-testid="backfill-trigger-modal">
+      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700"
+           onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-indigo-600" />
+            <h3 className="font-semibold">Trigger backfill on NIDP VM</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700" data-testid="backfill-trigger-close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* SSH health */}
+          {health && !health.ok && (
+            <div className="flex items-start gap-2 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700"
+                 data-testid="backfill-trigger-ssh-down">
+              <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">SSH bridge not configured</div>
+                <div className="opacity-80 mt-0.5 break-all">{health.reason}</div>
+              </div>
+            </div>
+          )}
+          {health?.ok && (
+            <div className="flex items-start gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700"
+                 data-testid="backfill-trigger-ssh-ok">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <div className="font-mono text-[10px] truncate">{health.vm_echo?.split("\n").join(" · ")}</div>
+            </div>
+          )}
+
+          {/* Mode tabs */}
+          <div className="flex items-center gap-1 border-b border-slate-200">
+            {[
+              { id: "daily",   label: "Daily NSE (per-trading-day)",   blurb: "bhavcopy · delivery · index · F&O — uses nidp.services.backfill" },
+              { id: "rolling", label: "Rolling + reference",            blurb: "bulk/block/CA/RBI/calendar/constituents — uses nidp.cli backfill" },
+            ].map(m => (
+              <button
+                key={m.id}
+                data-testid={`backfill-mode-${m.id}`}
+                onClick={() => setMode(m.id)}
+                title={m.blurb}
+                className={cls(
+                  "px-3 py-1.5 -mb-px text-xs border-b-2 transition",
+                  mode === m.id
+                    ? "border-indigo-500 text-indigo-700 font-medium"
+                    : "border-transparent text-slate-500 hover:text-slate-800",
+                )}
+              >{m.label}</button>
+            ))}
+          </div>
+
+          {/* Window */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs text-slate-600 space-y-1">
+              <span>Start date</span>
+              <input type="date" value={form.start_date}
+                     data-testid="trigger-start-date"
+                     onChange={e => setForm({ ...form, start_date: e.target.value })}
+                     className="w-full px-2 py-1.5 border rounded-md text-sm" />
+            </label>
+            <label className="text-xs text-slate-600 space-y-1">
+              <span>End date</span>
+              <input type="date" value={form.end_date}
+                     data-testid="trigger-end-date"
+                     onChange={e => setForm({ ...form, end_date: e.target.value })}
+                     className="w-full px-2 py-1.5 border rounded-md text-sm" />
+            </label>
+          </div>
+
+          {/* Per-mode body */}
+          {mode === "daily" ? (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-slate-700">Ingesters</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {DAILY_INGESTERS.map(ing => (
+                  <label key={ing.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={form.ingesters.includes(ing.id)}
+                           data-testid={`trigger-ingester-${ing.id}`}
+                           onChange={() => toggleArr("ingesters", ing.id)} />
+                    {ing.label}
+                  </label>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-3 pt-2 text-xs text-slate-600">
+                <label className="space-y-1">
+                  <span>Politeness (ms)</span>
+                  <input type="number" value={form.politeness_ms} min={500} step={500}
+                         data-testid="trigger-politeness-ms"
+                         onChange={e => setForm({ ...form, politeness_ms: parseInt(e.target.value, 10) || 4000 })}
+                         className="w-full px-2 py-1 border rounded text-xs" />
+                </label>
+                <label className="space-y-1">
+                  <span>Parallel workers</span>
+                  <input type="number" value={form.parallel} min={1} max={8}
+                         data-testid="trigger-parallel"
+                         onChange={e => setForm({ ...form, parallel: parseInt(e.target.value, 10) || 1 })}
+                         className="w-full px-2 py-1 border rounded text-xs" />
+                </label>
+                <label className="flex items-end gap-1.5">
+                  <input type="checkbox" checked={form.wipe_first}
+                         data-testid="trigger-wipe-first"
+                         onChange={e => setForm({ ...form, wipe_first: e.target.checked })} />
+                  <span>wipe window first</span>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-slate-700">Services</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {ROLLING_SERVICES.map(s => (
+                  <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={form.services.includes(s.id)}
+                           data-testid={`trigger-service-${s.id}`}
+                           onChange={() => toggleArr("services", s.id)} />
+                    {s.label}
+                  </label>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-xs pt-2 cursor-pointer">
+                <input type="checkbox" checked={form.skip_existing}
+                       data-testid="trigger-skip-existing"
+                       onChange={e => setForm({ ...form, skip_existing: e.target.checked })} />
+                Skip dates already succeeded (resumable)
+              </label>
+            </div>
+          )}
+
+          {/* Result / error */}
+          {error && (
+            <div className="flex items-start gap-2 px-3 py-2 bg-rose-50 border border-rose-200 rounded text-xs text-rose-700"
+                 data-testid="backfill-trigger-error">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+            </div>
+          )}
+          {result && (
+            <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800"
+                 data-testid="backfill-trigger-success">
+              <div className="font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Backfill kicked off
+              </div>
+              <div className="opacity-80 mt-0.5 font-mono text-[10px]">log: {result.log_path}</div>
+              <div className="opacity-80 mt-0.5">Watch progress under the <b>Backfill Runs</b> tab — auto-polls while RUNNING.</div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t flex items-center justify-end gap-2 bg-slate-50">
+          <button onClick={onClose} className="px-3 py-1.5 text-xs border rounded">cancel</button>
+          <button
+            data-testid="backfill-trigger-submit"
+            disabled={submitting || !health?.ok ||
+              (mode === "daily" && form.ingesters.length === 0) ||
+              (mode === "rolling" && form.services.length === 0)}
+            onClick={submit}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+            kick off
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
