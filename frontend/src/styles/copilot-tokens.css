@@ -1,0 +1,129 @@
+/* ============================================================
+   Nivesh Copilot — Intelligence Layer design tokens
+   Doc 06 (Design System). Add this once at the root.
+   Existing Tailwind/Shadcn tokens remain untouched.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --cp-surface-base: #FFFFFF;
+  --cp-surface-1:    #F7F8FA;
+  --cp-surface-2:    #EDEFF3;
+  --cp-border-subtle:#E4E7EC;
+
+  /* Text */
+  --cp-text-primary:   #0E141B;
+  --cp-text-secondary: #4A5460;
+
+  /* Accent + states */
+  --cp-accent-brand:   #2962FF;
+  --cp-state-positive: #0E9F6E;
+  --cp-state-negative: #E0344A;
+  --cp-state-caution:  #F59E0B;
+  --cp-state-info:     #0EA5E9;
+
+  /* Intelligence mark (AI-generated content) */
+  --cp-intelligence-glow: linear-gradient(135deg, #2962FF, #7C3AED);
+
+  /* Typography */
+  --cp-font-display: 'Outfit', 'Inter', system-ui, sans-serif;
+  --cp-font-body:    'Figtree', 'Inter', system-ui, sans-serif;
+  --cp-font-mono:    'JetBrains Mono', 'IBM Plex Mono', monospace;
+
+  /* Spacing scale (4-px base) */
+  --cp-space-1:  4px;
+  --cp-space-2:  8px;
+  --cp-space-3: 12px;
+  --cp-space-4: 16px;
+  --cp-space-5: 20px;
+  --cp-space-6: 24px;
+  --cp-space-8: 32px;
+  --cp-space-10:40px;
+  --cp-space-14:56px;
+  --cp-space-18:72px;
+
+  /* Radii */
+  --cp-radius-sm: 4px;
+  --cp-radius-md: 8px;
+  --cp-radius-lg: 12px;
+  --cp-radius-xl: 16px;
+
+  /* Motion */
+  --cp-motion-std:   180ms cubic-bezier(0.4, 0, 0.2, 1);
+  --cp-motion-tick:  320ms cubic-bezier(0.4, 0, 0.2, 1);
+  --cp-motion-shim:  1600ms ease-in-out infinite;
+
+  /* Data viz palette (12-step, categorical, perceptually uniform) */
+  --cp-viz-1:  #3D5AFE;
+  --cp-viz-2:  #1DE9B6;
+  --cp-viz-3:  #FFC400;
+  --cp-viz-4:  #FF4081;
+  --cp-viz-5:  #00BCD4;
+  --cp-viz-6:  #8BC34A;
+  --cp-viz-7:  #FF5722;
+  --cp-viz-8:  #9C27B0;
+  --cp-viz-9:  #03A9F4;
+  --cp-viz-10: #FF9800;
+  --cp-viz-11: #4CAF50;
+  --cp-viz-12: #E91E63;
+}
+
+.dark {
+  --cp-surface-base: #0B0F14;
+  --cp-surface-1:    #11161D;
+  --cp-surface-2:    #171D26;
+  --cp-border-subtle:#1F2630;
+  --cp-text-primary:   #E8ECF1;
+  --cp-text-secondary: #9AA4B2;
+  --cp-accent-brand:   #4D86FF;
+  --cp-state-positive: #34D399;
+  --cp-state-negative: #F87171;
+  --cp-state-caution:  #FBBF24;
+  --cp-state-info:     #38BDF8;
+}
+
+/* Tabular numerals on any element marked .cp-num */
+.cp-num {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Skeleton shimmer */
+@keyframes cp-shimmer {
+  0%   { background-position: -400px 0; opacity: 0.4; }
+  50%  { opacity: 0.7; }
+  100% { background-position: 400px 0; opacity: 0.4; }
+}
+.cp-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--cp-surface-1) 0%,
+    var(--cp-surface-2) 50%,
+    var(--cp-surface-1) 100%
+  );
+  background-size: 800px 100%;
+  animation: cp-shimmer var(--cp-motion-shim);
+}
+
+/* Live-tick fade — used by LiveValue */
+@keyframes cp-tick-up   { 0% { color: var(--cp-state-positive); } 100% { color: inherit; } }
+@keyframes cp-tick-down { 0% { color: var(--cp-state-negative); } 100% { color: inherit; } }
+.cp-tick-up   { animation: cp-tick-up   var(--cp-motion-tick) ease-out; }
+.cp-tick-down { animation: cp-tick-down var(--cp-motion-tick) ease-out; }
+
+/* Intelligence mark badge (used by AgentRibbon icon) */
+.cp-intel-mark {
+  background: var(--cp-intelligence-glow);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Reduced-motion overrides — Doc 06 §6.4 */
+@media (prefers-reduced-motion: reduce) {
+  .cp-shimmer,
+  .cp-tick-up,
+  .cp-tick-down {
+    animation: none !important;
+  }
+}

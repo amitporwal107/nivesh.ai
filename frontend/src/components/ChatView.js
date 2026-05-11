@@ -17,6 +17,9 @@ import CopilotPromptCard from "@/components/copilot/CopilotPromptCard";
 import SaveAsPlanCard, { shouldShowSavePlan } from "@/components/copilot/SaveAsPlanCard";
 import ChartBlock from "@/components/copilot/ChartBlock";
 import { parseCopilotChartBlocks } from "@/lib/parseCopilotChartBlocks";
+import { AgentPicker, ModelPicker, useAgentRoute } from "@/components/copilot/AgentModelPickers";
+import AgentRibbon from "@/components/copilot/shared/AgentRibbon";
+import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -218,6 +221,11 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [showSidebar, setShowSidebar] = useState(typeof window !== "undefined" ? window.innerWidth >= 768 : true);
+  // Intelligence Layer (Phase B): agent + model picker state, current-turn agent
+  const [selectedAgentId, setSelectedAgentId] = useState("auto");
+  const [selectedModelId, setSelectedModelId] = useState(null);   // populated by ModelPicker on mount
+  const [currentTurnAgent, setCurrentTurnAgent] = useState(null);  // shown in the "thinking" ribbon
+  const routeIntent = useAgentRoute();
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
@@ -326,6 +334,85 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
     if (!text || sending || streaming) return;
 
     setInput("");
+
+    // ── Intelligence Layer slash-command dispatcher (Phase B) ───
+    // Recognised commands → call /api/copilot/widgets/* and append
+    // the widget envelope as a synthetic assistant turn. No LLM call.
+    //   /fundcard <scheme name>
+    //   /market
+    //   /compare <code1>,<code2>[,<code3>][,<code4>]
+    //   /sip <monthly_budget> [moderate|aggressive|conservative]
+    const slashMatch = text.match(/^\/(\w+)(?:\s+(.+))?$/i);
+    if (slashMatch) {
+      const cmd = slashMatch[1].toLowerCase();
+      const arg = (slashMatch[2] || "").trim();
+      const tempUserMsg = { message_id: `temp_user_${Date.now()}`, role: "user", content: text, created_at: new Date().toISOString() };
+      setMessages((prev) => [...prev, tempUserMsg]);
+      setSending(true);
+      try {
+        let url = null;
+        let body = null;
+        if (cmd === "fundcard" || cmd === "fund") {
+          if (!arg) throw new Error("Usage: /fundcard <scheme name>");
+          url = `${API}/copilot/widgets/fund_card`; body = { query: arg };
+        } else if (cmd === "market" || cmd === "brief") {
+          url = `${API}/copilot/widgets/market_brief`; body = {};
+        } else if (cmd === "compare") {
+          const codes = arg.split(",").map((s) => s.trim()).filter(Boolean);
+          if (codes.length < 2) throw new Error("Usage: /compare <code1>,<code2>[,<code3>]");
+          url = `${API}/copilot/widgets/compare_funds`; body = { scheme_codes: codes };
+        } else if (cmd === "sip") {
+          const parts = arg.split(/\s+/);
+          const budget = parseFloat(parts[0] || "0");
+          const risk = (parts[1] || "Moderate");
+          if (!budget) throw new Error("Usage: /sip <monthly_budget> [conservative|moderate|aggressive]");
+          url = `${API}/copilot/widgets/sip_plan`; body = { monthly_budget: budget, risk_label: risk };
+        } else {
+          throw new Error(`Unknown command: /${cmd}. Try /fundcard, /market, /compare, /sip.`);
+        }
+        const r = await axios.post(url, body, { withCredentials: true });
+        const envelope = r.data;
+        setMessages((prev) => [
+          ...prev,
+          {
+            message_id: `msg_widget_${Date.now()}`,
+            role: "assistant",
+            content: "",
+            widget: envelope,
+            agent: envelope?.agent,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } catch (err) {
+        const errMsg = err?.response?.data?.detail || err.message || "Command failed";
+        setMessages((prev) => [
+          ...prev,
+          {
+            message_id: `msg_err_${Date.now()}`,
+            role: "assistant",
+            content: `_${errMsg}_`,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } finally {
+        setSending(false);
+        inputRef.current?.focus();
+      }
+      return;
+    }
+
+    // ── Determine current-turn agent (Auto-route vs manual override) ──
+    let turnAgent = null;
+    if (selectedAgentId === "auto") {
+      const r = await routeIntent(text);
+      turnAgent = r?.agent || null;
+    } else {
+      // Look up the manually selected agent (we can derive from the picker list later;
+      // for now show a minimal placeholder until the next render hydrates it).
+      turnAgent = { id: selectedAgentId, label: selectedAgentId.replace(/_/g, " "), icon: "compass" };
+    }
+    setCurrentTurnAgent(turnAgent);
+
     setSending(true);
     setStreaming(true);
     setStreamingContent("");
@@ -340,7 +427,12 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
       const response = await fetch(`${API}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, session_id: activeSessionId }),
+        body: JSON.stringify({
+          message: text,
+          session_id: activeSessionId,
+          model: selectedModelId,           // Phase B: model picker hint
+          agent_id: turnAgent?.id || null,  // Phase B: agent metadata for telemetry
+        }),
         credentials: "include",
         signal: controller.signal,
       });
@@ -403,10 +495,17 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
               await new Promise(r => setTimeout(r, 200));
               setMessages((prev) => [
                 ...prev,
-                { message_id: aiMsgId || `msg_stream_${Date.now()}`, role: "assistant", content: finalContent, created_at: new Date().toISOString() },
+                {
+                  message_id: aiMsgId || `msg_stream_${Date.now()}`,
+                  role: "assistant",
+                  content: finalContent,
+                  agent: turnAgent,   // Phase B: stamp the routed agent onto the message
+                  created_at: new Date().toISOString(),
+                },
               ]);
               setStreamingContent("");
               setStreaming(false);
+              setCurrentTurnAgent(null);
             }
           } catch {
             // skip malformed SSE lines
@@ -442,7 +541,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
       // Refresh suggestions after a message completes — portfolio signals may have shifted
       fetchSuggestedPrompts();
     }
-  }, [sending, streaming, activeSessionId, fetchSessions, fetchSuggestedPrompts]);
+  }, [sending, streaming, activeSessionId, selectedAgentId, selectedModelId, routeIntent, fetchSessions, fetchSuggestedPrompts]);
 
   const handleSend = (e) => {
     if (e) e.preventDefault();
@@ -756,22 +855,49 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
                         </div>
                       )}
                       <div className={`max-w-[85%] sm:max-w-[75%]`}>
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ duration: 0.35, delay: 0.05 }}
-                          className={`px-4 py-3 text-sm leading-relaxed ${
-                            isUser
-                              ? "chat-user-bubble whitespace-pre-wrap shadow-sm"
-                              : "chat-ai-bubble chat-markdown shadow-sm"
-                          }`}
-                        >
-                          {!isUser ? (
-                            <MarkdownMessage content={msg.content} />
-                          ) : (
-                            msg.content
-                          )}
-                        </motion.div>
+                        {/* Agent ribbon — Phase B (above bubble) */}
+                        {!isUser && msg.agent && (
+                          <div className="mb-1.5">
+                            <AgentRibbon agent={msg.agent} compact />
+                          </div>
+                        )}
+                        {/* Embedded widget (Phase B) — if present, render the
+                            envelope; bubble content shows alongside as prose. */}
+                        {!isUser && msg.widget ? (
+                          <div data-testid={`msg-widget-${msg.message_id}`}>
+                            <WidgetRenderer
+                              envelope={msg.widget}
+                              embedded="chat"
+                              onAction={(action, payload) => {
+                                if (action === "suggestion" && payload?.suggestion) {
+                                  sendMessageWithText(payload.suggestion);
+                                }
+                              }}
+                            />
+                            {msg.content && (
+                              <div className="chat-ai-bubble chat-markdown shadow-sm px-4 py-3 text-sm leading-relaxed mt-2">
+                                <MarkdownMessage content={msg.content} />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: 0.35, delay: 0.05 }}
+                            className={`px-4 py-3 text-sm leading-relaxed ${
+                              isUser
+                                ? "chat-user-bubble whitespace-pre-wrap shadow-sm"
+                                : "chat-ai-bubble chat-markdown shadow-sm"
+                            }`}
+                          >
+                            {!isUser ? (
+                              <MarkdownMessage content={msg.content} />
+                            ) : (
+                              msg.content
+                            )}
+                          </motion.div>
+                        )}
                         {/* Save-as-Plan CTA (high-intent responses only) */}
                         {!isUser && msg.message_id !== "temp_ai" && shouldShowSavePlan(msg.content, prevUser) && (
                           <SaveAsPlanCard onNavigateToPlanBoard={onNavigateToPlanBoard} />
@@ -857,7 +983,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
                 data-testid="chat-input"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="What would you like to improve about your portfolio?"
+                placeholder="What would you like to improve about your portfolio?  ·  try /fundcard, /market, /compare, /sip"
                 disabled={sending && streaming}
                 className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
               />
@@ -870,6 +996,17 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
                 <Send className="w-4 h-4" strokeWidth={2} />
               </Button>
             </form>
+            {/* Phase B: agent + model pickers, current-turn ribbon */}
+            <div className="flex items-center flex-wrap gap-2 mt-1.5">
+              <AgentPicker value={selectedAgentId} onChange={setSelectedAgentId} />
+              <ModelPicker value={selectedModelId} onChange={setSelectedModelId} />
+              {currentTurnAgent && (
+                <div className="ml-auto text-[10px] text-slate-400 flex items-center gap-1.5">
+                  <span className="cp-shimmer w-1.5 h-1.5 rounded-full" />
+                  Handing off to {currentTurnAgent.label}…
+                </div>
+              )}
+            </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
               AI-generated guidance for educational purposes. Consult a SEBI-registered advisor for investment decisions.
             </p>

@@ -1,0 +1,60 @@
+{
+  "summary": "Phase A+B Copilot Intelligence Layer end-to-end testing complete. Backend: 45/45 pytest cases PASS (23 contract + 22 live integration). Frontend: ChatView pickers, agent ribbon, all 3 slash widgets (/market, /sip, /fundcard) render correctly with the new envelope schema. /api/copilot/agents returns 7 specs; /api/copilot/models/picker returns 3 with gpt-4o is_default=true (legacy /api/copilot/models also present, no collision). Agent router correctly classifies all 6 canonical intents (tax/market/mf/portfolio/risk/report) via live HTTP. gpt-4o one-shot returns valid {text, agent_id, model_id}. market_brief returns kind=market_brief with agent.id=market_strategist + 1 live NIDP index (Bank Nifty) + FII/DII. sip_plan with monthly_budget=50000 risk=Moderate returns exactly 3 allocations totaling 50000. fund_card with query='Parag Parikh' correctly 404s when no MF master match (proper FastAPI detail contract). compare_funds with invalid scheme_codes returns 404 with detail. All endpoints are auth-gated (401 without session_token cookie). Frontend ChatView: agent-picker-toggle, model-picker-toggle, chat-input all present; agent picker shows 7 entries (agent-picker-{id}); model picker shows 3 entries with default button label = 'GPT-4o'. Slash commands route client-side and render proper widgets with FreshnessChip (LIVE/NIDP badge) and AgentRibbon. /fundcard 404 path shows a graceful chat-bubble error: \"No mutual fund matched 'Parag Parikh'. Try a fuller scheme...\".",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Market Brief suggestion chips",
+        "issue": "The 4 suggestion chips rendered under MarketBriefWidget (\"Impact on my portfolio\", \"Which sectors should I trim?\", \"Set an alert on Nifty 50\", \"FII/DII trends over 5 days\") are visible and clickable but do NOT carry a data-testid matching the spec pattern `suggestion-*`. Search for `[data-testid^=\"suggestion-\"]` returned 0 matches. Add stable data-testids so automation can verify the suggestion-chip dispatcher.",
+        "affected_selectors": ["[data-testid^=\"suggestion-\"]"]
+      },
+      {
+        "flow": "FreshnessChip popover",
+        "issue": "Clicking the freshness chip ('LIVE · NIDP') did not surface a popover containing the words 'source' or 'updated/last updated' — only 'confidence' was detected in DOM text post-click. The popover may require hover instead of click, or it's not rendering source/lastUpdated metadata. Verify SourcePopover.jsx wiring: it should expose source array + lastUpdated timestamp + confidence on hover/click.",
+        "affected_selectors": ["[data-testid*=\"freshness\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Copilot drawer (right side panel) hosting ChatView",
+        "issues": [
+          "The drawer is narrow (~360px) which causes the FundCard/MarketBrief widget content to clip on the right (e.g., 'Compare these' button text gets truncated). Consider increasing default drawer width or making widget content horizontally scrollable.",
+          "Top header text 'AI Financial Advisor' gets truncated to 'AI Finan...' in narrow drawer — add title attribute or use ellipsis-with-tooltip pattern."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_copilot_phase_ab.py",
+    "/app/backend/tests/test_copilot_phase_ab_integration.py",
+    "/app/test_reports/pytest/iter61_phase_ab.xml",
+    "/app/test_reports/pytest/iter61_integration.xml"
+  ],
+  "action_items": [
+    "Frontend (LOW): Add data-testid attributes to MarketBriefWidget suggestion chips matching spec pattern `suggestion-<slug>` so chip dispatcher can be E2E-verified.",
+    "Frontend (LOW): Verify FreshnessChip → SourcePopover renders source array AND lastUpdated timestamp (not just confidence). May need hover trigger or click-to-open behavior plus data-testid on popover container.",
+    "Frontend (LOW): Drawer-hosted ChatView is space-constrained — widgets clip on the right; consider responsive width or horizontal-scroll within widget cards.",
+    "No backend action items — all 45 tests pass and contracts match the design doc."
+  ],
+  "critical_code_review_comments": [
+    "Auth-gating order: FastAPI Pydantic validation runs BEFORE the auth dependency on /api/copilot/widgets/fund_card (a body with too-short query returns 422 instead of 401 when unauthenticated). This is FastAPI's default behaviour and a known framework quirk — if strict 'auth-first' is required, move auth to a middleware or use Depends ordering tricks. Otherwise document the behaviour. Not a security issue (no data leaks) but worth noting for API contract clarity.",
+    "FreshnessChip popover: SourcePopover.jsx should expose all three fields (source[], lastUpdated, confidence) consistently — currently only confidence appears to render in the DOM post-click. Worth adding a data-testid='source-popover' wrapper and 'source-popover-{source,updated,confidence}' inner testids for stable verification."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_copilot_phase_ab_integration.py"
+  ],
+  "success_rate": {
+    "backend": "100% (45/45 — 23 unit contract + 22 live integration)",
+    "frontend": "92% (pickers, slash dispatcher, widget render, agent ribbon, freshness chip badge all work; suggestion chip testids + popover content fields are the only gaps)"
+  },
+  "test_credentials": "session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b (aporwal107@gmail.com, is_admin=true)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Integration test file at /app/backend/tests/test_copilot_phase_ab_integration.py (run with `python -m pytest backend/tests/test_copilot_phase_ab_integration.py -v` from /app). Uses REACT_APP_BACKEND_URL + hard-coded admin session_token. The /fundcard slash for 'Parag Parikh' currently 404s because mf_master doesn't contain that scheme name — the UI handles this gracefully with a chat-bubble error. If main agent seeds Parag Parikh into mf_master, the widget-fund-card test will start hitting the success path. Suggestion chips on MarketBriefWidget exist visually but lack data-testid='suggestion-*' attributes; FreshnessChip popover renders 'confidence' text but appears to be missing the source array + lastUpdated rendering — recheck SourcePopover.jsx after main-agent fix.",
+  "rca of the issue": "No critical issues found. Two minor frontend gaps: (1) suggestion-chip testids missing — RCA: MarketBriefWidget.jsx renders the suggestion chips via .map() but doesn't attach data-testid={`suggestion-${slug}`}; mitigation: add the attribute. (2) FreshnessChip popover content gap — RCA: clicking the chip opens some content (the word 'confidence' is in DOM) but 'source' and 'lastUpdated/last' keywords are absent; mitigation: confirm SourcePopover.jsx renders all three fields and is triggered on click (not hover-only)."
+}
