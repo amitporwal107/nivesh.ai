@@ -11,7 +11,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://portfolio-ai-68.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://nidp-backfill-ui.preview.emergentagent.com").rstrip("/")
 ADMIN_TOKEN = "3352751a-cc8a-4bcb-bf50-81a377c6b40b"
 
 REQUIRED_FEEDS = [

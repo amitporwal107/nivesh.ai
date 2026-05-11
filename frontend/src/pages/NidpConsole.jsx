@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft, Database, PlayCircle, Activity, Server,
   ShieldCheck, TrendingUp, Award, BarChart3, Sparkles, History,
+  HardDriveDownload,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import NidpCatalogPanel      from "@/components/admin/NidpCatalogPanel";
@@ -15,6 +16,7 @@ import NidpTrendPanel        from "@/components/admin/NidpTrendPanel";
 import NidpGrafanaEmbed      from "@/components/admin/NidpGrafanaEmbed";
 import NidpDqAiPanel         from "@/components/admin/NidpDqAiPanel";
 import NidpReplayPanel       from "@/components/admin/NidpReplayPanel";
+import NidpBackfillPanel     from "@/components/admin/NidpBackfillPanel";
 
 const TABS = [
   { id: "catalog",       label: "Data Catalog",    icon: Database,
@@ -29,6 +31,8 @@ const TABS = [
     blurb: "CRUD on quality expectations · review AI-proposed business rules · generate strict expectations per feed." },
   { id: "replay",        label: "Replay (90d)",    icon: History,
     blurb: "Historical Data Quality replay & backtesting — re-run governance for the last 90 days, calibrate thresholds, simulate failures." },
+  { id: "backfill",      label: "Backfill Readiness", icon: HardDriveDownload,
+    blurb: "Per-feed source/cadence/coverage readiness matrix · cert status · in-flight backfill runs. Use this before triggering a 90-day replay." },
   { id: "certification", label: "Certification",   icon: Award,
     blurb: "90-day calendar tracker · certification status · eligibility criteria per domain." },
   { id: "trends",        label: "Trends",          icon: TrendingUp,
@@ -161,6 +165,12 @@ export default function NidpConsole() {
         {tab === "replay" && (
           <div data-testid="nidp-tab-panel-replay">
             <NidpReplayPanel />
+          </div>
+        )}
+
+        {tab === "backfill" && (
+          <div data-testid="nidp-tab-panel-backfill">
+            <NidpBackfillPanel />
           </div>
         )}
 

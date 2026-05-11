@@ -26,7 +26,7 @@
     "backend": "100% (15/15 pytest)",
     "frontend": "100% — all 6 tabs render, no console errors, all /api/admin/nidp/* calls return 200"
   },
-  "test_credentials": "Admin session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b for aporwal107@gmail.com (is_admin=true). Verified via /api/auth/me.",
+  "test_credentials": "Admin session_token=nidp-backfill-ui for aporwal107@gmail.com (is_admin=true). Verified via /api/auth/me.",
   "seed_data_creation": "None — endpoints already returning real VM TimescaleDB data; amfi_circulars execute call spawned a real run on the VM (idempotent and safe).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

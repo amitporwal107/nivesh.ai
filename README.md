@@ -807,7 +807,7 @@ V3_SWEEP_CONCURRENCY  → default 8
 
 Frontend:
 ```
-REACT_APP_BACKEND_URL=https://portfolio-ai-68.preview.emergentagent.com
+REACT_APP_BACKEND_URL=https://nidp-backfill-ui.preview.emergentagent.com
 ```
 
 ---

@@ -53,7 +53,7 @@
     "backend": "100% (41/41 — 26 unit + 15 endpoint contract)",
     "frontend": "85% (tab/subtab nav, policy display, history empty state work; validation error banner shows [object Object] instead of message)"
   },
-  "test_credentials": "session_token=3352751a-cc8a-4bcb-bf50-81a377c6b40b (aporwal107@gmail.com, admin)",
+  "test_credentials": "session_token=nidp-backfill-ui (aporwal107@gmail.com, admin)",
   "seed_data_creation": "none",
   "retest_needed": true,
   "main_agent_can_self_test": true,

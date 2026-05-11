@@ -1,146 +1,162 @@
 <analysis>**original_problem_statement**: 
 Build an AI-powered autonomous financial advisor (Agentic Wealth System) for the Indian market. PRODUCT REQUIREMENTS: Implement portfolio parsing, multi-factor risk insights, live equity pricing, scenario simulation, and compliance. The application is an MFD (Mutual Fund Distributor) operating system. 
-*Recent Focus:* Implementing actual CAS transaction parsing instead of unit-delta SIP estimation, building a Claude Vision API alternative to the CAS Connect SDK, updating Indian MF Tax calculations to 2024-2025 rules, and fixing various environment/impersonation bugs.
+*Recent Focus:* Building NIDP (Nivesh Intelligence Data Platform) infrastructure, specifically a Historical Replay and Backtesting Engine for 90-day validation of Data Quality AI expectations, and a Backfill Orchestrator to populate historical equity data so the replay is meaningful.
 
 **User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A functional MFD OS supporting CAS PDF ingestion via  and a newly built  alternative (toggleable in Admin UI). It features an MFD onboarding wizard, Client 360 dashboard, V3 portfolio scoring engine, updated 2024-25 Indian MF Tax Snapshot rules, holding CSV/XLSX export, and detailed metric transparency modals.
+A FastAPI backend + React frontend with a TimescaleDB data plane. A NIDP VM running pipelines, with a DaaS API serving intelligence and managing backend processes. An AI Data Quality Governance system (Expectations and Smells) is live. A 90-Day Historical Replay engine is fully integrated and tested. A new Backfill Orchestrator was just implemented on the backend to fetch missing historical data for the last 65 trading days to ensure the 90-day replay uses real, robust feed data.
 
 **Last working item**: 
-    - Last item agent was working: Highlighted the undated holdings warning in the Tax Snapshot UI. The agent explained to the user that indicative tax is correctly computing to ₹0 when holdings lack a , and added clearer UI indicators to explain that a re-parse is needed to populate allotment dates for accurate tax calculations.
-    - Status: USER VERIFICATION PENDING
-    - Agent Testing Done: Y
-    - Which testing method agent to use? Frontend testing agent / screenshot tool
+    - Last item agent was working: Building the Backfill Orchestrator. The agent created the  schema (Migration 045), built the backend orchestrator , integrated it into the VM DaaS API (), and created the pod proxy route (). The backfill process was successfully kicked off in the background on the VM.
+    - Status: IN PROGRESS
+    - Agent Testing Done: N (For Frontend)
+    - Which testing method agent to use? Frontend testing agent or screenshot tool (to verify the missing React UI).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-  Issue 1: Google OAuth  on Gmail Sync (P1)
-     - Attempted fixes: Main agent verified backend URI logic. 
-     - Next debug checklist: User needs to add  to their GCP Console Authorized redirect URIs.
-     - Why fix this issue and what will be achieved with the fix? Unblocks Gmail CAS sync testing.
-     - Status: BLOCKED / USER VERIFICATION PENDING
-     - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix? frontend
-     - Blocked on other issue: User action required on GCP Console.
-
-  Issue 2: Tax Calculator - SIP = multiple tax lots (P1)
-     - Attempted fixes: Tax calculator currently averages  at the portfolio level.
-     - Next debug checklist: Refactor  and  to use per-installment transaction data from the newly persisted structured CAS JSON rather than the aggregated holdings table.
-     - Why fix this issue and what will be achieved with the fix? Provides 100% accurate tax harvesting at the individual SIP lot level.
+  Issue 1: Missing UI for Backfill Orchestrator (P0)
+     - Attempted fixes: Agent wired up the backend proxy routes () but the session ended before adding the coverage warning and progress tracker to the React Frontend ( or a new ).
+     - Next debug checklist: Check  and wire up polling to  to show backfill progress and prevent triggering a replay if historical coverage is missing.
+     - Why fix this issue and what will be achieved with the fix? Completes the user's request to add a coverage indicator to the Replay UI and ensure a clean 90-day database is visually confirmed before replaying.
      - Status: NOT STARTED
      - Is recurring issue? N
-     - Should Test frontend/backend/both after fix? both
+     - Should Test frontend/backend/both after fix? frontend
      - Blocked on other issue: None
 
+  Issue 2: MFD Client Onboarding & Whitelisting Logic (P1)
+     - Attempted fixes: Deferred to focus on NIDP infrastructure migration.
+     - Next debug checklist: Update  to auto-insert client email into , ensure  creation.
+     - Why fix this issue and what will be achieved with the fix? Critical product blocker for MFD Client 360 views. 
+     - Status: BLOCKED (Deferred by user)
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? both
+     - Blocked on other issue: User priority
+
+  Issue 3: Google OAuth  on Gmail Sync (P2)
+     - Attempted fixes: Added instructions in  for users.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? frontend
+     - Blocked on other issue: User action
+
 **In progress Task List**: 
-None
+  Task 1: Auto-trigger Replay post-Backfill (P0)
+     - Where to resume: Modify the frontend UI to listen for the backfill SUCCESS status and automatically kick off the  API call if requested by the user.
+     - What will be achieved with this? Seamless user experience for data governance backtesting.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? frontend
+     - Blocked on something: Needs Backfill UI (Issue 1) to be completed first.
+
+  Task 2: Migrate NIDP PostgreSQL to TimescaleDB (P1)
+     - Where to resume: Advanced hypertable optimization.
+     - What will be achieved with this? High-volume time-series DB performance.
+     - Status: BLOCKED (Deferred by User until feeds are stable for 90 days).
+     - Should Test frontend/backend/both after fix? backend
+     - Blocked on something: Deferred by User
 
 **Upcoming and Future Tasks**
-  - P0: Risk Profiling Overhaul (Capture Capacity, Tolerance, Horizon during onboarding -> Map to 5 actionable buckets and define specific asset allocations).
-  - P0: Caching for snapshot scoring (Redis) and action plans. (Postponed during this session but flagged as P0 by user).
-  - P1: Phase 3 Gmail Auto-Sync: Duplicate CAS detection (file_hash + statement_period_end) and 6h polling fallback.
+  - P0: Risk Profiling Overhaul (Capture Capacity, Tolerance, Horizon -> Map to asset allocations).
+  - P1: Phase 3 Gmail Auto-Sync: Duplicate CAS detection and polling.
   - P1: Pass B of HNI Upgrade: Benchmark + Alpha tracking.
-  - P2: WhatsApp Integration (Twilio / Meta API) - currently using  links.
-  - P2: One-click PDF client report.
-  - P2: User onboarding OTP validation (Email/Phone) - User requested to Leave it for now.
+  - P2: WhatsApp Integration (Twilio / Meta API).
+  - P2: Tax Calculator - Refactor to SIP lot-level granularity tracking.
+  - P2: GCP Cloud Storage Archive Sync: Add cron line to  the  to a coldline GCP bucket.
 
 **Completed work in this session**
-- Wired CAS Transaction extraction & raw JSON DB persistence (DONE)
-- Added Skip for now option in MFD Onboarding CAS upload step (DONE)
-- Built  CAS Parser alternative (via Emergent LLM Key) with Admin toggle (DONE)
-- Implemented  fail-fast logic for Claude API limit exhaustion (DONE)
-- Fixed Postgres Neon DB connection URLs for both Preview & Production ( DB collection) (DONE)
-- Fixed bug where Advisor (SELF profile) leaked into client metrics and dashboard lists (DONE)
-- Fixed Portfolio Health ring stuck on Scoring... fallback state (DONE)
-- Fixed MFD avatar/impersonation state persisting after exiting Client 360 view by forcing  refresh (DONE)
-- Added CAS Connect/Claude Upload widgets to the Dashboard empty state (DONE)
-- Updated  (Section 7A) with comprehensive documentation on all Scoring rules and logic (DONE)
-- Added CSV & XLSX holdings export endpoints and UI buttons (DONE)
-- Implemented  and  UI explainer modals (DONE)
-- Updated  to match latest Indian MF 2024-25 rules (Equity STCG 20%, LTCG 12.5%, Debt Slab post-Apr-2023, 1.25L Exemption Harvest Picks) (DONE)
+- Built end-to-end NIDP 90-Day Replay Engine (Migration 044, , pod proxy routing) (DONE)
+- Built  UI and fixed  422 display bug (DONE)
+- Shifted Replay Engine architecture to run natively on the VM DaaS API, solving local pod  connection 502/500 errors (DONE)
+- Wired  to use  reading from active AI expectations table (DONE)
+- Fixed 404 & 500 errors on AI  API calls (DONE)
+- Created the backend NIDP Backfill Orchestrator + Migration 045 (DONE)
 
 **Earlier issues found/mentioned but not fixed**
 None.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: Google OAuth .
+  - Issue recurrence in previous fork: Google OAuth 
   - Recurrence count: 3
-  - Status: BLOCKED / USER VERIFICATION PENDING
-  Note: Still waiting on user to configure GCP.
+  - Status: USER VERIFICATION PENDING
 
 **Code Architecture**
--  &  (Claude Vision PDF ingestion)
--  (Indian MF 2024-25 tax logic)
--  (FastAPI streaming for CSV/Excel)
--  (System configuration and environment variable overrides)
--  (Impersonation and Session Management)
+- : Python replay engine logic.
+- : Python backfill orchestrator logic.
+- : VM-side API routers (, , ).
+- : Pod-side FastAPI proxy routers (, ).
+- : React UI dashboard components (, etc).
 
 **Key Technical Concepts**
-- LLM Vision API parsing, Postgres Connection Pooling (Neon ), React Context Impersonation state clearing, Streaming file downloads (CSV/OpenPyXL), Indian MF Taxation mechanics.
+- TimescaleDB, DaaS API, React Mixed-Content Iframe bypasses, Historical Replay/Backtesting logic, Asynchronous Data Backfilling, Pod-to-VM HTTP proxy architecture.
 
 **key DB schema**
-  - : Stores  and  which OVERRIDE local  variables for datastores. Also stores .
-  - : Caches the raw extracted JSON from casparser or Claude Vision.
+  - , : Stores outputs of backtesting execution.
+  - , : Tracks background data ingestion progress.
+  - : AI-generated business rules.
 
 **changes in tech stack**
-  - Added  (already available) for Excel exports. Uses  (via Emergent LLM key) for Anthropic Claude Sonnet 4.5 vision parsing.
+  - Architecture shift: Replay and Backfill heavy-lifting shifted completely to the GCE VM via DaaS API. The Pod environment purely proxies commands via HTTP.
 
 **All files of reference** 
-  -  (Claude Vision integration)
-  -  (UI for Claude upload)
-  -  (Export logic)
-  -  (Export UI)
-  -  (Health scoring explainer modal)
-  -  (Tax scoring explainer modal)
-  -  (Heavily updated with Section 7A Scoring Reference)
-  -  (DB connection logic)
+  -  &  (Created)
+  -  (Created)
+  -  &  (Created)
+  -  &  (Created/Updated)
+  -  (Created/Updated)
 
 **Areas that need refactoring**
-  - : Needs refactoring to calculate holdings across distinct buy-lots (SIP installments) rather than computing based on average .
+  - The UI for the Backfill Orchestrator is missing entirely.  should be updated to display a data coverage warning and backfill progress before allowing a replay execution.
 
 **key api endpoints**
-  -  (Public route to read active parser)
-  - 
-  - 
-  - 
+  -  (Proxy)
+  -  (Proxy)
+  -  (VM side)
+  -  (VM side)
 
 **Critical Info for New Agent** 
-- **Parser Toggle**: The backend can toggle between  and  via the Admin UI. This toggle is stored in .
-- **Emergent LLM Key Exhaustion**: If Claude Vision CAS uploads hang or fail rapidly, the key's  budget is exhausted. The agent implemented a fast-fail  to show a clear UI warning instead of entering a retry loop.
-- **Datastore Configurations**: Postgres and Redis URLs are fetched from  or . Local  fallbacks are mostly ignored in deployed environments. The Neon Postgres URL uses  and .
-- **Impersonation**: When returning to the MFD Advisor dashboard from a Client 360 view,  MUST be triggered to update the  so the top-nav avatar switches back from the client's name to the advisor's name.
-- **Tax Undated Holdings**: If a CAS file was uploaded via legacy OCR fallback, the  is . The tax calculator puts these in an undated bucket and correctly displays ₹0 indicative tax. Re-parsing the file using Claude or Casparser is required to extract dates.
+- The backend for the Backfill Orchestrator is up and running in the VM background.
+- You must build the frontend implementation (React) to display backfill progress, integrating with . 
+- The user specifically requested a coverage indicator in the Replay UI so they aren't surprised by data failures.
+- Testing should prioritize the frontend screenshot tool or  for UI components.
 
 **documents and test reports created in this job** 
   - 
-  - 
-  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (User) Provided checklist of Indian 2024-25 MF Tax rules. Asked if app adheres to them.
- - (Agent) Audited & updated  and  to match new rules. Added harvest/loss picks and an explainer modal.
- - (User) Uploaded screenshot asking why the indicative tax is coming as zero.
- - (Agent) Explained that indicative tax is exactly ₹0 because the holdings in the screenshot lack a  (undated). Offered to highlight this constraint more clearly.
- - (User) ok just highlight that issue
- - (Agent) Updated the Tax Snapshot UI to strongly visually highlight that a re-parse is needed to populate dates for the ₹0 tax calculation.
+ - (User) Asked if the replay was using real feed data and where feeds are stored.
+ - (Agent) Explained the data depth. MF has 20 years, but equities only have ~3 months, resulting in freshness failures over a 90-day window. Proposed a backfill orchestrator.
+ - (User) Requested the backfill orchestrator and a UI coverage warning so replays only run on clean, historical data.
+ - (Agent) Built the Backfill backend and DaaS proxy routes, kicked off the backfill on the VM, and finished the backend portion.
+ - (PENDING IMPLEMENTATION) Build the Backfill Frontend UI to poll progress and warn users of missing data in the .
 
 **Project Health Check:**
-Healthy. 
+- Broken: None.
+- Mocked: The Frontend UI for Backfill progress tracking does not exist yet.
 
 **3rd Party Integrations** 
- - CAS Parser API (casparser.in)
- - Anthropic Claude Sonnet 4.5 Vision (via Emergent LLM Key)
- - Google OAuth (Gmail Sync)
+ - OpenAI GPT-4o (Uses User API Key or Emergent LLM Key)
+ - GCP Compute Engine & OS Login
+ - FRED API (User API Key)
 
 **Testing status**
-  - Testing agent used after significant changes: YES
+  - Testing agent used after significant changes: YES (Iter 60 passed for Replay engine)
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: None
-  - Known regressions: None
+  - Test files created: 
+  - Known regressions: None detected.
 
 **Credentials to test flow:**
-Check  for  and  logins.
+Check . 
 
 **What agent forgot to execute**
-- Did not implement SIP lot-level tax granularity (Rule 7 of the user's tax checklist) as it requires pulling data from the new CAS parsed JSON arrays rather than the flat holdings view. Left for future implementation.</analysis>
+- The agent forgot to implement the React UI components for the Backfill Orchestrator (Issue 1) and the data coverage warning in the replay panel, despite promising it to the user.
+
+**Debugging checklist for current issue**
+    Issue: Implement UI for Backfill Progress and Data Coverage
+
+    Frontend files to check: 
+    -  (Add a pre-replay coverage check UI and hook into )
+  
+    Backend files to check:
+    -  (Verify it proxies to the VM correctly)
+    
+    Testing Method: Use screenshot tool to view the Replay Panel tab and check if the Backfill coverage/progress UI renders correctly.</analysis>

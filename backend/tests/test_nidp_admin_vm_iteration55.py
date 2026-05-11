@@ -6,7 +6,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://portfolio-ai-68.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://nidp-backfill-ui.preview.emergentagent.com").rstrip("/")
 ADMIN_SESSION = "3352751a-cc8a-4bcb-bf50-81a377c6b40b"  # aporwal107@gmail.com
 EXPECTED_VM_URL = "http://34.47.191.39:8090"
 

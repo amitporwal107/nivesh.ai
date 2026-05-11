@@ -22,7 +22,7 @@ import requests
 
 BASE_URL = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "https://portfolio-ai-68.preview.emergentagent.com",
+    "https://nidp-backfill-ui.preview.emergentagent.com",
 ).rstrip("/")
 ADMIN_TOKEN = os.environ["NIVESH_TEST_ADMIN_TOKEN"]
 USER_TOKEN = os.environ["NIVESH_TEST_USER_TOKEN"]
