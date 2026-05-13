@@ -413,3 +413,123 @@ async def sip_plan(request: Request, payload: SipPlanRequest):
         ],
     )
     return env.model_dump()
+
+
+# ── 10. Risk Suitability ────────────────────────────────────────────
+
+@router.post("/risk_suitability")
+async def risk_suitability_widget(request: Request):
+    """Portfolio risk rating vs user's risk profile.
+
+    Calls services.copilot_tools.risk.get_risk_suitability() which computes
+    equity %, small/mid-cap exposure, weighted portfolio beta from DAAS
+    volatility_20d, and flags misalignments vs the user's stored risk profile
+    (conservative / moderate / aggressive).
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.risk import get_risk_suitability
+        result = await get_risk_suitability(user_id)
+    except Exception as exc:
+        logger.warning("risk_suitability widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="risk_suitability",
+            title="Risk Suitability",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="risk_analyst", label="Risk Analyst", version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    _RATING_COLOR = {
+        "LOW": "#10B981", "MEDIUM": "#F59E0B",
+        "HIGH": "#EF4444", "VERY HIGH": "#DC2626",
+    }
+
+    data = {
+        "risk_rating": result.risk_rating,
+        "risk_score": result.risk_score_0_to_10,
+        "user_profile_category": result.user_profile_category,
+        "misalignment": result.misalignment,
+        "misalignment_count": len(result.misalignment),
+        "rating_color": _RATING_COLOR.get(result.risk_rating, "#94A3B8"),
+        **result.data,
+        "rows": result.rows,
+    }
+
+    confidence = max(0, min(99, int(85 - len(result.misalignment) * 5)))
+    env = WidgetEnvelope(
+        kind="risk_suitability",
+        title=f"Risk Suitability · {result.risk_rating}",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings", "user_profile", "DAAS"],
+        ),
+        agent=AgentInfo(id="risk_analyst", label="Risk Analyst",
+                        version="v1", confidence=confidence),
+        data=data,
+        primary_cta={"label": "How do I reduce my risk?", "action": "reduce_risk"},
+        suggestions=[
+            "What is my portfolio beta?",
+            "Rebalance to match my risk profile",
+            "Show my VaR breakdown",
+        ],
+    )
+    return env.model_dump()
+
+
+# ── 11. Portfolio VaR ───────────────────────────────────────────────
+
+@router.post("/portfolio_var")
+async def portfolio_var_widget(request: Request):
+    """Parametric Value at Risk for the user's portfolio.
+
+    Calls services.copilot_tools.risk.get_portfolio_var() which computes
+    weighted daily volatility using DAAS volatility_20d for stocks and
+    equity_allocation_pct proxies for MFs, then returns 1-day and 10-day
+    VaR at 95% and 99% confidence.
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.risk import get_portfolio_var
+        result = await get_portfolio_var(user_id, confidence=0.95)
+    except Exception as exc:
+        logger.warning("portfolio_var widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="portfolio_var",
+            title="Portfolio VaR",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="risk_analyst", label="Risk Analyst", version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    data = {
+        "risk_rating": result.risk_rating,
+        "risk_score": result.risk_score_0_to_10,
+        **result.data,
+        "rows": result.rows,
+    }
+
+    env = WidgetEnvelope(
+        kind="portfolio_var",
+        title="Portfolio VaR · 95% Confidence",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings", "DAAS"],
+        ),
+        agent=AgentInfo(id="risk_analyst", label="Risk Analyst",
+                        version="v1", confidence=82),
+        data=data,
+        primary_cta={"label": "How do I reduce my VaR?", "action": "reduce_var"},
+        suggestions=[
+            "What drives my portfolio risk?",
+            "Show my most volatile holding",
+            "Add a hedge to my portfolio",
+        ],
+    )
+    return env.model_dump()

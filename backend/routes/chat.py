@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
+import os
 import uuid
 import json
 import logging
@@ -18,6 +19,22 @@ from services.copilot_charts import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Feature flag: set USE_LANGGRAPH_AGENT=true to route investor chat through
+# the LangGraph multi-agent graph instead of the RAG orchestrator.
+_USE_LANGGRAPH = os.environ.get("USE_LANGGRAPH_AGENT", "").lower() in ("1", "true", "yes")
+
+if _USE_LANGGRAPH:
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
+        from langchain_core.messages import HumanMessage as _HumanMessage
+        logger.info("LangGraph copilot agent ENABLED")
+    except Exception as _lg_err:
+        logger.warning("LangGraph import failed (%s) — falling back to RAG", _lg_err)
+        _USE_LANGGRAPH = False
+
 router = APIRouter(prefix="/api")
 
 _plan_manager = ActionPlanManager()
@@ -991,30 +1008,69 @@ async def stream_chat(request: Request):
             meta = {"session_id": session_id, "user_msg_id": user_msg_id, "ai_msg_id": ai_msg_id}
             yield f"data: {json.dumps({'type': 'meta', **meta})}\n\n"
 
-            # ── Single-portfolio (investor) path: route through the RAG
-            # orchestrator, fake-stream the prose char-by-char so the UI
-            # animation stays the same. The full prose + chart_spec are
-            # known up-front (single LLM call, not a stream), so we just
-            # chunk the result for the existing token-by-token consumer.
+            # ── Single-portfolio (investor) path ─────────────────────────────
             if not advisor_mode:
                 await _ensure_plan_for_actionable_question(user_id, message)
-                from services import copilot_rag
-                rag_result = await copilot_rag.answer(
-                    user_id=user_id, message=message, history=history,
-                )
-                prose = rag_result.get("prose") or ""
-                chart_spec = rag_result.get("chart_spec")
-                if chart_spec:
-                    prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
 
-                # Chunk the prose into ~24-char tokens so the UI animation
-                # still feels like a stream. No real network benefit, but
-                # the existing frontend renderer expects token deltas.
-                CHUNK = 24
-                for i in range(0, len(prose), CHUNK):
-                    tok = prose[i:i + CHUNK]
-                    full_response += tok
-                    yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+                if _USE_LANGGRAPH:
+                    # ── LangGraph multi-agent path ──────────────────────────
+                    graph = _get_copilot_graph()
+                    lg_config = {"configurable": {"thread_id": session_id}}
+                    lg_input = {
+                        "messages": [_HumanMessage(content=message)],
+                        "user_id": user_id,
+                        "session_id": session_id,
+                    }
+                    prose = ""
+                    async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
+                        kind = event.get("event", "")
+                        # Stream tokens as they come from any LLM node
+                        if kind == "on_chat_model_stream":
+                            chunk = event.get("data", {}).get("chunk")
+                            if chunk and hasattr(chunk, "content") and chunk.content:
+                                prose += chunk.content
+                                yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+                        # After graph finishes, grab the final response text
+                        elif kind == "on_chain_end" and event.get("name") == "LangGraph":
+                            output = event.get("data", {}).get("output", {})
+                            final_resp = output.get("response")
+                            if final_resp and not prose:
+                                # fallback: response was not streamed token-by-token
+                                prose = getattr(final_resp, "text", "") or str(final_resp)
+
+                    # If nothing was streamed (all models returned at once), chunk now
+                    if prose and not full_response:
+                        CHUNK = 24
+                        for i in range(0, len(prose), CHUNK):
+                            tok = prose[i:i + CHUNK]
+                            full_response += tok
+                            yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+                    else:
+                        full_response = prose
+
+                else:
+                    # ── RAG orchestrator path (default) ─────────────────────
+                    # Fake-stream the prose char-by-char so the UI animation
+                    # stays the same. The full prose + chart_spec are
+                    # known up-front (single LLM call, not a stream), so we just
+                    # chunk the result for the existing token-by-token consumer.
+                    from services import copilot_rag
+                    rag_result = await copilot_rag.answer(
+                        user_id=user_id, message=message, history=history,
+                    )
+                    prose = rag_result.get("prose") or ""
+                    chart_spec = rag_result.get("chart_spec")
+                    if chart_spec:
+                        prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
+
+                    # Chunk the prose into ~24-char tokens so the UI animation
+                    # still feels like a stream. No real network benefit, but
+                    # the existing frontend renderer expects token deltas.
+                    CHUNK = 24
+                    for i in range(0, len(prose), CHUNK):
+                        tok = prose[i:i + CHUNK]
+                        full_response += tok
+                        yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
             else:
                 # Advisor (cross-client) mode — legacy book-block path.
                 full_context = portfolio_context

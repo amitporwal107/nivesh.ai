@@ -3,6 +3,11 @@ import FundCardWidget from "./FundCardWidget";
 import MarketBriefWidget from "./MarketBriefWidget";
 import CompareTableWidget from "./CompareTableWidget";
 import SipPlanWidget from "./SipPlanWidget";
+import RebalancePlanWidget from "./RebalancePlanWidget";
+import TaxHarvestWidget from "./TaxHarvestWidget";
+import StressTestWidget from "./StressTestWidget";
+import SectorRotationWidget from "./SectorRotationWidget";
+import OverlapRevealWidget from "./OverlapRevealWidget";
 import SkeletonCard from "../shared/SkeletonCard";
 
 /**
@@ -20,10 +25,15 @@ const WidgetRenderer = ({ envelope, onAction, embedded = "chat", testId }) => {
   }
   const common = { envelope, onAction, embedded, testId };
   switch (envelope.kind) {
-    case "fund_card":      return <FundCardWidget    {...common} />;
-    case "market_brief":   return <MarketBriefWidget {...common} />;
-    case "compare_table":  return <CompareTableWidget {...common} />;
-    case "sip_plan":       return <SipPlanWidget     {...common} />;
+    case "fund_card":       return <FundCardWidget       {...common} />;
+    case "market_brief":    return <MarketBriefWidget    {...common} />;
+    case "compare_table":   return <CompareTableWidget   {...common} />;
+    case "sip_plan":        return <SipPlanWidget        {...common} />;
+    case "rebalance_plan":  return <RebalancePlanWidget  {...common} />;
+    case "tax_harvest":     return <TaxHarvestWidget     {...common} />;
+    case "stress_test":     return <StressTestWidget     {...common} />;
+    case "sector_rotation": return <SectorRotationWidget {...common} />;
+    case "overlap_reveal":  return <OverlapRevealWidget  {...common} />;
     default:
       // Unknown kind — render a small "preview" so it isn't silently dropped.
       return (
