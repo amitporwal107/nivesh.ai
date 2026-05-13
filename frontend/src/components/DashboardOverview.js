@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import axios from "axios";
-import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown, ChevronUp, Zap, Activity } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, AlertTriangle, RefreshCw, Calendar, Sparkles, ArrowUpRight, ArrowDownRight, BarChart3, Info, Flag, ChevronDown, ChevronUp, Zap, Activity, MessageSquare, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -125,9 +125,182 @@ const HeatmapCell = (props) => {
   );
 };
 
+// ── What Changed Today strip ──────────────────────────────────────────
+const WhatChangedStrip = () => {
+  const [cards, setCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    axios.post(`${API}/copilot/widgets/market_brief`, {}, { withCredentials: true })
+      .then((r) => {
+        const d = r.data?.data || {};
+        const built = [];
+        (d.indices || []).slice(0, 3).forEach((idx) => {
+          const up = idx.change_pct >= 0;
+          built.push({
+            label: idx.name,
+            value: `${up ? "+" : ""}${idx.change_pct?.toFixed(2)}%`,
+            sub: idx.value?.toLocaleString("en-IN", { maximumFractionDigits: 0 }),
+            positive: up,
+            source: "NSE · Live",
+          });
+        });
+        if (d.fii_dii) {
+          const net = d.fii_dii.net_cr;
+          built.push({
+            label: "FII / DII net",
+            value: `${net >= 0 ? "+" : ""}₹${Math.abs(net).toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`,
+            sub: net >= 0 ? "Inflow" : "Outflow",
+            positive: net >= 0,
+            source: "Provisional",
+          });
+        }
+        if (d.summary_bullets?.length) {
+          built.push({
+            label: "Market pulse",
+            value: d.summary_bullets[0]?.slice(0, 40) + (d.summary_bullets[0]?.length > 40 ? "…" : ""),
+            sub: "AI summary",
+            positive: null,
+            source: "NIDP",
+          });
+        }
+        setCards(built);
+      })
+      .catch(() => setCards([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="flex gap-3 overflow-x-auto pb-1">
+      {[1,2,3].map((i) => (
+        <div key={i} className="flex-shrink-0 w-40 h-20 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
+      ))}
+    </div>
+  );
+  if (!cards.length) return null;
+
+  return (
+    <div data-testid="what-changed-strip">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">What changed today</span>
+        <button
+          onClick={() => { window.location.hash = "chat"; setTimeout(() => document.querySelector('[data-testid="chat-input"]')?.focus(), 200); }}
+          className="text-[11px] text-[color:var(--cp-accent-brand,#2962FF)] hover:underline flex items-center gap-1"
+        >
+          Open full brief in Chat <ChevronRight className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-thin">
+        {cards.map((c, i) => (
+          <div
+            key={i}
+            className="flex-shrink-0 w-44 rounded-xl border border-[color:var(--cp-border-subtle)] bg-white dark:bg-slate-800 p-3 space-y-1"
+          >
+            <div className="text-[10px] text-slate-400 truncate">{c.label}</div>
+            <div className={`text-sm font-semibold cp-num truncate ${c.positive === true ? "text-emerald-600 dark:text-emerald-400" : c.positive === false ? "text-rose-600 dark:text-rose-400" : "text-slate-700 dark:text-slate-200"}`}>
+              {c.value}
+            </div>
+            {c.sub && <div className="text-[10px] text-slate-500 truncate">{c.sub}</div>}
+            <div className="text-[9px] text-slate-400 truncate">{c.source}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ── Top 3 Next Actions strip ──────────────────────────────────────────
+const PRIORITY_DOTS = { HIGH: "●●●●", MED: "●●●○", LOW: "●●○○" };
+const PRIORITY_COLOR = {
+  HIGH: "text-rose-600 dark:text-rose-400",
+  MED:  "text-amber-600 dark:text-amber-400",
+  LOW:  "text-slate-400",
+};
+
+const NextActionsStrip = ({ analytics }) => {
+  const actions = useMemo(() => {
+    if (!analytics) return [];
+    const list = [];
+
+    // Action 1 — Regular → Direct switch
+    if (analytics.annual_cost_leak > 5000) {
+      list.push({
+        priority: "HIGH",
+        title: `Switch Regular → Direct plans`,
+        impact: `Save ~₹${Math.round(analytics.annual_cost_leak / 1000)}K/yr`,
+        chatPrompt: "Help me switch my regular mutual fund plans to direct plans",
+        insightsTab: null,
+      });
+    }
+
+    // Action 2 — Equity overweight rebalance
+    const eqPct = analytics.asset_allocation?.find((a) => a.name === "equity" || a.name === "mutual_fund")?.percentage;
+    if (eqPct && eqPct > 75) {
+      list.push({
+        priority: "MED",
+        title: `Reduce equity overweight (${eqPct.toFixed(0)}% → ~65%)`,
+        impact: "Lower drawdown risk",
+        chatPrompt: "Help me rebalance my portfolio — I'm overweight on equity",
+        insightsTab: null,
+      });
+    }
+
+    // Action 3 — LTCG harvest
+    if (analytics.health_score?.overall < 80) {
+      list.push({
+        priority: "LOW",
+        title: "Harvest LTCG below ₹1L exemption",
+        impact: "Tax-free gains before year-end",
+        chatPrompt: "What LTCG can I harvest before year-end?",
+        insightsTab: "tax",
+      });
+    }
+
+    return list.slice(0, 3);
+  }, [analytics]);
+
+  if (!actions.length) return null;
+
+  return (
+    <div data-testid="next-actions-strip">
+      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Top actions</div>
+      <div className="space-y-2">
+        {actions.map((a, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 p-3 rounded-xl border border-[color:var(--cp-border-subtle)] bg-white dark:bg-slate-800"
+          >
+            <span className={`text-[10px] font-bold flex-shrink-0 ${PRIORITY_COLOR[a.priority]}`}>
+              {PRIORITY_DOTS[a.priority]}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-slate-800 dark:text-slate-100 truncate">{a.title}</div>
+              <div className="text-[11px] text-slate-500">{a.impact}</div>
+            </div>
+            <button
+              onClick={() => {
+                if (a.insightsTab) { window.location.hash = `insights/${a.insightsTab}`; return; }
+                window.location.hash = "chat";
+                setTimeout(() => {
+                  const inp = document.querySelector('[data-testid="chat-input"]');
+                  if (inp) { inp.value = a.chatPrompt; inp.dispatchEvent(new Event("input", { bubbles: true })); inp.focus(); }
+                }, 200);
+              }}
+              className="flex-shrink-0 flex items-center gap-1 text-[11px] text-[color:var(--cp-accent-brand,#2962FF)] hover:underline"
+            >
+              <MessageSquare className="w-3 h-3" /> Chat
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }) => {
   const { fmt, fmtShort, displayMode, setDisplayMode } = useNumberFormat();
   const [drilldown, setDrilldown] = useState(null);
+  const [hsVersion, setHsVersion] = useState("v2");
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
   // CAS parser provider was previously read here to branch the upload
@@ -257,6 +430,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         </div>
       </motion.div>
 
+      {/* ─── WHAT CHANGED TODAY ─── */}
+      <WhatChangedStrip />
+
+      {/* ─── TOP 3 NEXT ACTIONS ─── */}
+      <NextActionsStrip analytics={analytics} />
+
       {/* ─── KPI CARDS (5 across) ─── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
@@ -304,24 +483,48 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
         ))}
       </div>
 
-      {/* ─── HEALTH SCORE + RECOMMENDATIONS ─── */}
+      {/* ─── HEALTH SCORE 2.0 + RECOMMENDATIONS ─── */}
       {analytics.health_score && analytics.health_score.overall > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Health Score */}
+          {/* Health Score 2.0 */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
             <Card className="bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 rounded-2xl shadow-none h-full" data-testid="health-score-card">
               <CardContent className="p-6">
-                <div className="flex items-center gap-1">
-                  <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-4" style={{ fontFamily: "'Outfit', sans-serif" }}>Portfolio Health</h3>
-                  <InfoTooltip text={explanations.health_overall || "Overall portfolio health score based on diversification, risk management, cost efficiency, and performance."}>
-                    <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 cursor-help mb-4 ml-1" />
-                  </InfoTooltip>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-1">
+                    <h3 className="text-sm font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                      Health Score {hsVersion === "v2" ? "2.0" : "1.0"}
+                    </h3>
+                    <InfoTooltip text={hsVersion === "v2"
+                      ? (explanations.health_overall || "5-factor portfolio health: Diversification, Risk fit, Cost efficiency, Tax efficiency, Performance.")
+                      : "4-factor portfolio health: Diversification, Risk management, Cost efficiency, Performance."}>
+                      <Info className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600 cursor-help ml-1" />
+                    </InfoTooltip>
+                  </div>
+                  {/* v1 / v2 toggle pill */}
+                  <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5 gap-0.5">
+                    {["v1", "v2"].map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => setHsVersion(v)}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                          hsVersion === v
+                            ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm"
+                            : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex items-center justify-center mb-4">
                   <div className="relative w-28 h-28">
                     <svg className="w-28 h-28 transform -rotate-90" viewBox="0 0 100 100">
                       <circle cx="50" cy="50" r="42" fill="none" stroke="#E2E8F0" strokeWidth="8" />
-                      <circle cx="50" cy="50" r="42" fill="none" stroke={analytics.health_score.overall >= 70 ? "#10B981" : analytics.health_score.overall >= 50 ? "#F59E0B" : "#EF4444"} strokeWidth="8" strokeLinecap="round"
+                      <circle cx="50" cy="50" r="42" fill="none"
+                        stroke={analytics.health_score.overall >= 70 ? "#10B981" : analytics.health_score.overall >= 50 ? "#F59E0B" : "#EF4444"}
+                        strokeWidth="8" strokeLinecap="round"
                         strokeDasharray={`${analytics.health_score.overall * 2.64} 264`} />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -331,16 +534,29 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                   </div>
                 </div>
                 <div className="space-y-2">
-                  {[
-                    { label: "Diversification", val: analytics.health_score.diversification, color: "#3B82F6", tooltip: explanations.health_diversification },
-                    { label: "Risk Management", val: analytics.health_score.risk, color: "#10B981", tooltip: explanations.health_risk },
-                    { label: "Cost Efficiency", val: analytics.health_score.cost_efficiency, color: "#F59E0B", tooltip: explanations.health_cost },
-                    { label: "Performance", val: analytics.health_score.performance, color: "#8B5CF6", tooltip: explanations.health_performance },
-                  ].map(item => (
+                  {(hsVersion === "v1" ? [
+                    { label: "Diversification",  val: analytics.health_score.diversification,  color: "#3B82F6", tooltip: explanations.health_diversification },
+                    { label: "Risk management",  val: analytics.health_score.risk,             color: "#10B981", tooltip: explanations.health_risk },
+                    { label: "Cost efficiency",  val: analytics.health_score.cost_efficiency,  color: "#F59E0B", tooltip: explanations.health_cost },
+                    { label: "Performance",      val: analytics.health_score.performance,      color: "#8B5CF6", tooltip: explanations.health_performance },
+                  ] : [
+                    { label: "Diversification",  val: analytics.health_score.diversification,  color: "#3B82F6", tooltip: explanations.health_diversification },
+                    { label: "Risk fit",          val: analytics.health_score.risk,             color: "#10B981", tooltip: explanations.health_risk },
+                    { label: "Cost efficiency",   val: analytics.health_score.cost_efficiency,  color: "#F59E0B", tooltip: explanations.health_cost },
+                    { label: "Tax efficiency ★",  val: (() => {
+                        const base = analytics.health_score.tax_efficiency ?? null;
+                        if (base != null) return base;
+                        const costPct = analytics.health_score.cost_efficiency ?? 50;
+                        const regularPct = analytics.regular_plan_pct ?? 0;
+                        return Math.max(20, Math.round(costPct * 0.6 + (100 - regularPct) * 0.4));
+                      })(), color: "#14B8A6", tooltip: "Tax efficiency: regular→direct switch savings + LTCG exemption utilisation.", isNew: true },
+                    { label: "Performance",       val: analytics.health_score.performance,      color: "#8B5CF6", tooltip: explanations.health_performance },
+                  ]).map(item => (
                     <div key={item.label}>
                       <div className="flex justify-between text-[10px] mb-0.5">
                         <span className="text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
                           {item.label}
+                          {item.isNew && <span className="ml-1 text-[9px] font-bold text-teal-600 bg-teal-50 dark:bg-teal-900/30 px-1 rounded">NEW</span>}
                           {item.tooltip && <InfoTooltip text={item.tooltip}><Info className="w-2.5 h-2.5 text-slate-400 hover:text-slate-600 cursor-help" /></InfoTooltip>}
                         </span>
                         <span className="font-medium text-slate-700 dark:text-slate-300">{item.val}</span>
@@ -351,6 +567,12 @@ const DashboardOverview = ({ analytics, insights, holdings, loading, onRefresh }
                     </div>
                   ))}
                 </div>
+                <button
+                  onClick={() => { window.location.hash = "chat"; }}
+                  className="mt-4 w-full text-[11px] text-[color:var(--cp-accent-brand,#2962FF)] hover:underline text-left"
+                >
+                  Explain my score in Chat →
+                </button>
               </CardContent>
             </Card>
           </motion.div>

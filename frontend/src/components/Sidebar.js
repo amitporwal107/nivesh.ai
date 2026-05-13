@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import {
   LayoutDashboard, Briefcase, Lightbulb, TrendingUp, Target, Users,
-  Sparkles, Menu, X, ArrowLeft, User, Globe2, FlaskConical,
+  Sparkles, Menu, X, ArrowLeft, User, Globe2, FlaskConical, MessageSquare,
 } from "lucide-react";
 
 /**
@@ -28,7 +28,8 @@ import {
 // Retail (non-MFD) primary nav.
 const RETAIL_NAV = [
   { id: "overview",         label: "Dashboard",       icon: LayoutDashboard },
-  { id: "market",           label: "Market",          icon: Globe2, badge: "NEW" },
+  { id: "chat",             label: "Nivesh AI",       icon: MessageSquare, badge: "NEW" },
+  { id: "market",           label: "Market",          icon: Globe2 },
   { id: "strategy_builder", label: "Strategy Builder", icon: FlaskConical, badge: "BETA" },
   { id: "plan_board",       label: "Plan Board",      icon: TrendingUp, badge: "V2"  },
   { id: "portfolio",        label: "Portfolio",       icon: Briefcase },

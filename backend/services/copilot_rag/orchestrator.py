@@ -21,6 +21,10 @@ from typing import Any, Dict, List, Optional
 from . import retrievers as R
 from . import chart_specs as C
 from .intent_router import Intent, classify_intent
+from services.copilot_tools import technical as T
+from services.copilot_tools import fundamental as F
+from services.copilot_tools import mf as MF
+from services.copilot_tools import portfolio as PORT
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,53 @@ def _format_rows_for_llm(retrieval: R.Retrieval, intent: Intent) -> str:
                 f"({r['deviation_pp']:+.1f}pp) — share {r['share_of_fresh_pct']:.0f}%{amt_part} "
                 f"· suggest: {r['fund_class']}"
             )
+        elif intent.name == "mf_analysis":
+            r1y = r.get("return_1y")
+            r3y = r.get("return_3y")
+            sh = r.get("sharpe_1y")
+            mdd = r.get("max_drawdown_1y")
+            ter = r.get("ter")
+            rank = r.get("composite_rank")
+            name = r.get("scheme_name") or r["scheme_code"]
+            r1y_str = f" ret_1y={r1y:+.1f}%" if r1y is not None else ""
+            r3y_str = f" ret_3y={r3y:+.1f}%" if r3y is not None else ""
+            sh_str = f" sharpe={sh:.2f}" if sh is not None else ""
+            mdd_str = f" maxdd={mdd:.1f}%" if mdd is not None else ""
+            ter_str = f" TER={ter:.2f}%" if ter is not None else ""
+            rank_str = f" rank=#{rank}" if rank is not None else ""
+            lines.append(
+                f"  - {name}:{r1y_str}{r3y_str}{sh_str}{mdd_str}{ter_str}{rank_str}"
+            )
+        elif intent.name == "fundamental_analysis":
+            pe = r.get("pe_ttm")
+            roe = r.get("roe_pct")
+            de = r.get("debt_to_equity")
+            ps = r.get("piotroski_score")
+            az = r.get("altman_z_score")
+            val = r.get("valuation_signal") or "unknown"
+            rev_g = r.get("revenue_growth_yoy_pct")
+            pat_g = r.get("pat_growth_yoy_pct")
+            pe_part = f" PE={pe:.1f}x" if pe is not None else " PE=N/A"
+            roe_part = f" ROE={roe:.1f}%" if roe is not None else ""
+            de_part = f" D/E={de:.2f}" if de is not None else ""
+            ps_part = f" Piotroski={ps}/9" if ps is not None else ""
+            az_part = f" AltmanZ={az:.2f}" if az is not None else ""
+            g_part = f" rev_g={rev_g:+.1f}% pat_g={pat_g:+.1f}%" if rev_g is not None and pat_g is not None else ""
+            lines.append(
+                f"  - {r['symbol']}:{pe_part}{roe_part}{de_part}{g_part}{ps_part}{az_part} "
+                f"valuation={val} — {r.get('summary', '')}"
+            )
+        elif intent.name == "technical_analysis":
+            sig_str = "; ".join((r.get("signals") or [])[:3])
+            rsi = r.get("rsi14")
+            macd_val = r.get("macd")
+            rsi_part = f" RSI={rsi:.0f}" if rsi is not None else ""
+            macd_part = f" MACD={macd_val:.2f}" if macd_val is not None else ""
+            ret = r.get("return_20d_pct")
+            ret_part = f" ret20d={ret:+.1f}%" if ret is not None else ""
+            lines.append(
+                f"  - {r['symbol']}:{rsi_part}{macd_part}{ret_part} — {r.get('summary', '')} [{sig_str}]"
+            )
         elif intent.name == "plan":
             rc = ",".join((r.get("reason_codes") or [])[:3])
             rt = (r.get("reason_text") or "").strip()
@@ -100,6 +151,49 @@ def _format_rows_for_llm(retrieval: R.Retrieval, intent: Intent) -> str:
             lines.append(
                 f"  - {r['action_type']} {r['asset_name']} "
                 f"₹{r['amount_rs']:,.0f} [{rc}]{tax_part}{reason_part}"
+            )
+        elif intent.name == "portfolio_perf":
+            xirr = r.get("xirr_pct")
+            ret = r.get("return_pct")
+            xirr_part = f" XIRR={xirr:+.1f}%" if xirr is not None else ""
+            ret_part = f" abs_ret={ret:+.1f}%" if ret is not None else ""
+            inv = r.get("invested_rs")
+            cur = r.get("current_rs")
+            inv_part = f" invested=₹{inv:,.0f}" if inv is not None else ""
+            cur_part = f" current=₹{cur:,.0f}" if cur is not None else ""
+            lines.append(
+                f"  - {r.get('name', 'Portfolio')}:{xirr_part}{ret_part}{inv_part}{cur_part}"
+            )
+        elif intent.name == "stress_test":
+            drop = r.get("drop_pct")
+            loss = r.get("loss_rs")
+            curr = r.get("current_rs")
+            drop_part = f" drop={drop:+.0f}%" if drop is not None else ""
+            loss_part = f" loss=₹{loss:,.0f}" if loss is not None else ""
+            curr_part = f" now=₹{curr:,.0f}" if curr is not None else ""
+            lines.append(f"  - {r.get('name', '')}:{drop_part}{loss_part}{curr_part}")
+        elif intent.name == "tax":
+            gain = r.get("capital_gain", r.get("gain_rs", 0))
+            tax  = r.get("tax_if_sold", 0)
+            gt   = r.get("gain_type", "")
+            days = r.get("holding_days", 0)
+            cat  = r.get("asset_category", r.get("asset_type", ""))
+            grandf = " [grandfathered]" if r.get("is_grandfathered") else ""
+            exempt = " [EXEMPT]" if r.get("is_exempt") else ""
+            harvest = r.get("tax_saved_if_harvested", 0)
+            harvest_part = f" harvest-saving=₹{harvest:,.0f}" if harvest > 0 else ""
+            lines.append(
+                f"  - {r.get('name', '')} [{gt}/{cat}] "
+                f"gain=₹{gain:+,.0f} tax-if-sold=₹{tax:,.0f} "
+                f"held={days}d{grandf}{exempt}{harvest_part}"
+            )
+        elif intent.name == "rebalance":
+            amt = r.get("amount_rs")
+            amt_part = f" ₹{amt:,.0f}" if amt else ""
+            lines.append(
+                f"  - {r.get('action', '')} {r.get('asset', '')}{amt_part} "
+                f"({r.get('current_pct', 0):.0f}%→{r.get('target_pct', 0):.0f}%): "
+                f"{r.get('reason', '')}"
             )
         else:
             lines.append(f"  - {json.dumps(r, default=str)[:200]}")
@@ -171,11 +265,186 @@ async def _retrieve(intent: Intent, user_id: str) -> R.Retrieval:
                 fresh.summary = "no saved plan — fresh suggestions: " + fresh.summary
                 return fresh
         return plan
+    if intent.name == "mf_analysis":
+        # MF queries: if scheme codes detected use them; otherwise route to
+        # the category leaderboard based on keywords in the message.
+        msg_l = (intent.raw or "").lower()
+        symbols = (intent.extras or {}).get("symbols", [])
+
+        # Detect category from message
+        cat = None
+        if "large cap" in msg_l or "largecap" in msg_l:
+            cat = "Large Cap"
+        elif "mid cap" in msg_l or "midcap" in msg_l:
+            cat = "Mid Cap"
+        elif "small cap" in msg_l or "smallcap" in msg_l:
+            cat = "Small Cap"
+        elif "flexi" in msg_l or "multi cap" in msg_l:
+            cat = "Flexi Cap"
+        elif "debt" in msg_l or "bond" in msg_l:
+            cat = "Debt"
+        elif "hybrid" in msg_l or "balanced" in msg_l:
+            cat = "Hybrid"
+        elif "index" in msg_l or "etf" in msg_l:
+            cat = "Index"
+
+        # Detect preferred metric
+        metric = "composite_rank"
+        if "sharpe" in msg_l:
+            metric = "sharpe_1y"
+        elif "return" in msg_l or "performance" in msg_l:
+            metric = "return_1y"
+        elif "3 year" in msg_l or "3y" in msg_l or "three year" in msg_l:
+            metric = "return_3y"
+
+        if cat:
+            top_funds = await MF.get_top_funds(cat, metric=metric, limit=5)
+            rows = [
+                {
+                    "scheme_code": r.scheme_code,
+                    "scheme_name": r.data.get("scheme_name"),
+                    "category": r.data.get("category"),
+                    "return_1y": r.data.get("return_1y"),
+                    "return_3y": r.data.get("return_3y"),
+                    "sharpe_1y": r.data.get("sharpe_1y"),
+                    "max_drawdown_1y": r.data.get("max_drawdown_1y"),
+                    "composite_rank": r.data.get("composite_rank"),
+                    "ter": r.data.get("ter"),
+                    "summary": r.summary,
+                    "signals": r.signals,
+                }
+                for r in top_funds if r.ok
+            ]
+            ok_count = len(rows)
+            summary = f"Top {cat} funds by {metric} — {ok_count} results"
+        else:
+            rows = []
+            summary = "MF query — no category identified; please specify (large cap, debt, hybrid, etc.)"
+
+        return R.Retrieval(
+            ok=bool(rows),
+            summary=summary,
+            rows=rows,
+            reason="no_category" if not rows else None,
+        )
+
+    if intent.name == "fundamental_analysis":
+        symbols = (intent.extras or {}).get("symbols", [])
+        if symbols:
+            results = await F.get_fundamental_comparison(symbols[:3])
+            rows = [
+                {
+                    "symbol": r.symbol,
+                    "ok": r.ok,
+                    "summary": r.summary,
+                    "signals": r.signals,
+                    "pe_ttm": r.data.get("pe_ttm"),
+                    "pb": r.data.get("pb"),
+                    "roe_pct": r.data.get("roe_pct"),
+                    "debt_to_equity": r.data.get("debt_to_equity"),
+                    "revenue_growth_yoy_pct": r.data.get("revenue_growth_yoy_pct"),
+                    "pat_growth_yoy_pct": r.data.get("pat_growth_yoy_pct"),
+                    "piotroski_score": r.data.get("piotroski_score"),
+                    "altman_z_score": r.data.get("altman_z_score"),
+                    "valuation_signal": r.data.get("valuation_signal"),
+                    "sector": r.data.get("sector"),
+                    "sector_median_pe": r.data.get("sector_median_pe"),
+                    "promoter_pct": r.data.get("promoter_pct"),
+                    "fii_pct_change_qoq": r.data.get("fii_pct_change_qoq"),
+                }
+                for r in results
+            ]
+            ok_count = sum(1 for r in results if r.ok)
+            summary = f"Fundamental analysis for {', '.join(symbols[:3])} — {ok_count}/{len(results)} with data"
+        else:
+            rows = []
+            summary = "fundamental query but no symbol identified — please specify a stock name"
+        return R.Retrieval(
+            ok=bool(rows and any(r["ok"] for r in rows)),
+            summary=summary,
+            rows=rows,
+            reason="no_symbol" if not rows else None,
+        )
+
+    if intent.name == "technical_analysis":
+        symbols = (intent.extras or {}).get("symbols", [])
+        if symbols:
+            results = await T.get_technical_comparison(symbols[:3])  # cap at 3 symbols
+            rows = [
+                {
+                    "symbol": r.symbol,
+                    "ok": r.ok,
+                    "summary": r.summary,
+                    "signals": r.signals,
+                    "rsi14": r.data.get("rsi14"),
+                    "macd": r.data.get("macd"),
+                    "close": r.data.get("close"),
+                    "sma20": r.data.get("sma20"),
+                    "sma50": r.data.get("sma50"),
+                    "return_20d_pct": r.data.get("return_20d_pct"),
+                    "vol_z20": r.data.get("vol_z20"),
+                }
+                for r in results
+            ]
+            ok_count = sum(1 for r in results if r.ok)
+            summary = f"Technical analysis for {', '.join(symbols[:3])} — {ok_count}/{len(results)} with data"
+        else:
+            # No symbol extracted — ask user to specify
+            rows = []
+            summary = "technical query but no symbol identified"
+        return R.Retrieval(
+            ok=bool(rows and any(r["ok"] for r in rows)),
+            summary=summary,
+            rows=rows,
+            reason="no_symbol" if not rows else None,
+        )
     if intent.name == "tax":
-        # Tax retrieval not yet implemented — surface a typed reason so
-        # the LLM tells the user what's coming, doesn't fabricate.
-        return R.Retrieval(ok=False, reason="tax_retriever_pending",
-                           summary="tax retrieval is not yet wired (LTCG/STCG split coming)")
+        # Use full report for complete picture; harvest candidates for harvest-specific queries
+        tax_kws = ("harvest", "loss", "sell for tax", "save tax")
+        is_harvest_query = any(kw in (intent.raw or "").lower() for kw in tax_kws)
+        if is_harvest_query:
+            result = await PORT.get_tax_harvest_candidates(user_id)
+        else:
+            result = await PORT.get_full_tax_report(user_id)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "portfolio_perf":
+        result = await PORT.get_portfolio_xirr(user_id)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "stress_test":
+        scenario = (intent.extras or {}).get("scenario", "covid_2020")
+        result = await PORT.run_stress_test(user_id, scenario=scenario)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "rebalance":
+        result = await PORT.get_rebalance_plan(user_id)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
     # generic / fallback
     return await R.portfolio_summary(user_id)
 

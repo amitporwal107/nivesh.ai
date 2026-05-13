@@ -1,95 +1,70 @@
-# Portfolio Sync Contract (Step 1)
+# Portfolio Sync Contract
 
-This defines the **local exporter payload contract** for pushing user holdings
-into NIDP's portfolio bridge without changing existing NSDL-CAS storage.
+_Status: **Implemented** (2026-05-12) — see [PORTFOLIO_HOLDINGS_SYNC.md](PORTFOLIO_HOLDINGS_SYNC.md) for the full technical reference._
 
-## 1) Payload schema
+---
 
-Canonical JSON schema file:
-- `backend/nidp/contracts/portfolio_holdings_snapshot_v1.schema.json`
+## What was planned here
 
-Version: `v1`
+This document originally described a push-based HTTP contract where the Nivesh app would POST a JSON payload to a sync adapter. That design was superseded by a **pull-based DB-to-DB sync** during implementation, which is cleaner, requires no new HTTP surface, and reuses the existing Nivesh Postgres tables (`portfolio_snapshot_master`, `portfolio_snapshot_holdings`, `instrument_master`).
 
-## 2) Delivery pattern
+---
 
-- Transport: HTTPS POST from local app (or batch worker) to a sync adapter.
-- Idempotency key:
-  - `external_user_id + snapshot_date + (isin|symbol|amfi_scheme_code)`
-- Frequency:
-  - Initial backfill: historical snapshots as available.
-  - Steady state: daily end-of-day (or on CAS refresh event).
+## What was actually built
 
-## 3) DB mapping target
+The sync is implemented as an NIDP service (`nidp.services.portfolio_holdings_sync`) that:
 
-For each holding in payload, insert/upsert into:
-- `portfolio.user_holdings_snapshot`
+1. Opens two asyncpg pools: **Nivesh Postgres** (source) and **NIDP Postgres** (destination).
+2. Reads `portfolio_snapshot_master JOIN client_user_map` to find clients with email mappings.
+3. Fetches their holdings via `portfolio_snapshot_holdings JOIN instrument_master`.
+4. Normalises instrument types to NIDP asset classes.
+5. Upserts into `portfolio.user_holdings_snapshot` with SHA-256 hash deduplication.
+6. Records every run in `portfolio.sync_audit_log`.
 
-Mapped columns:
-- `external_user_id` → `external_user_id`
-- `snapshot_date`    → `snapshot_date`
-- `source_system`    → `source_system`
-- `asset_class`      → `asset_class`
-- `symbol` / `isin` / `amfi_scheme_code` → same
-- `instrument_name`  → `instrument_name`
-- `quantity` / `avg_buy_price` / `market_value_inr` / `weight_pct` → same
-- `metadata_json`    → `metadata_json`
+The email bridge (`client_user_map`) is populated automatically on every CAS upload by `cas_snapshot_engine._persist_pg_snapshot()`.
 
-## 4) Validation rules
+---
 
-Hard validation:
-- `external_user_id` required.
-- `snapshot_date` valid date.
-- At least 1 holding.
-- `market_value_inr >= 0`.
-- `weight_pct` in `[0,100]` when present.
+## Payload contract (for reference only)
 
-Soft validation:
-- Prefer at least one identity field among `isin`, `symbol`, `amfi_scheme_code`.
-- Unknown fields rejected (`additionalProperties=false`) to avoid contract drift.
+The original JSON payload schema is preserved below. It is **not used** by the current implementation but documents the canonical field set that `portfolio.user_holdings_snapshot` expects.
 
-## 5) Example payload
+### Canonical holding fields
 
-```json
-{
-  "external_user_id": "user_abc123",
-  "snapshot_date": "2026-05-10",
-  "source_system": "nsdl_cas",
-  "holdings": [
-    {
-      "asset_class": "EQUITY",
-      "symbol": "RELIANCE",
-      "isin": "INE002A01018",
-      "amfi_scheme_code": null,
-      "instrument_name": "Reliance Industries Ltd",
-      "quantity": 12,
-      "avg_buy_price": 2410.5,
-      "market_value_inr": 35520.0,
-      "weight_pct": 14.32,
-      "metadata_json": {"folio": "NA"}
-    },
-    {
-      "asset_class": "MUTUAL_FUND",
-      "symbol": null,
-      "isin": "INF200K01XY4",
-      "amfi_scheme_code": "120503",
-      "instrument_name": "SBI Bluechip Fund Direct Growth",
-      "quantity": 245.112,
-      "avg_buy_price": 68.23,
-      "market_value_inr": 18340.54,
-      "weight_pct": 7.39,
-      "metadata_json": {"folio": "FOLIO-1234"}
-    }
-  ]
-}
-```
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `external_user_id` | `TEXT` | Yes | Email address |
+| `snapshot_date` | `DATE` | Yes | ISO format `YYYY-MM-DD` |
+| `source_system` | `TEXT` | Yes | `nivesh_cas` for CAS-derived holdings |
+| `asset_class` | `TEXT` | Yes | `EQUITY \| MF \| ETF \| GOLD \| DEBT \| CASH \| OTHER` |
+| `symbol` | `TEXT` | Conditional | NSE symbol; required for equities |
+| `isin` | `TEXT` | Conditional | ISIN; preferred identity for all types |
+| `amfi_scheme_code` | `TEXT` | Conditional | AMFI code; required for mutual funds |
+| `instrument_name` | `TEXT` | No | Human label |
+| `quantity` | `NUMERIC` | Yes | Units held |
+| `avg_buy_price` | `NUMERIC` | No | NULL when unavailable (not in Nivesh PG) |
+| `market_value_inr` | `NUMERIC` | Yes | Current market value ≥ 0 |
+| `weight_pct` | `NUMERIC` | No | 0–100; computed from total_value if absent |
+| `metadata_json` | `JSONB` | No | Arbitrary extra fields |
 
-## 6) Handoff to Step 2
+At least one of `isin`, `symbol`, `amfi_scheme_code` must be non-null per holding for the security-resolution pass (`portfolio_intelligence_sync`) to match against `ref.security_master`.
 
-After payload lands in `portfolio.user_holdings_snapshot`, execute:
+---
+
+## Idempotency key
+
+`(external_user_id, snapshot_date, COALESCE(isin,''), COALESCE(symbol,''), COALESCE(amfi_scheme_code,''), source_system)`
+
+This is the unique index on `portfolio.user_holdings_snapshot` (migration 042). Duplicate writes upsert — the later run wins on all numeric fields.
+
+---
+
+## After holdings land
+
+`portfolio_intelligence_sync` must run next to resolve holdings to `ref.security_master` and compute `portfolio.user_intelligence_snapshot`. Run it as:
 
 ```bash
-python -m nidp.cli ingest portfolio_intelligence_sync
+python -m nidp.services.portfolio_intelligence_sync
+# or chain it:
+python -m nidp.services.portfolio_holdings_sync --run-intel
 ```
-
-This resolves holdings to `ref.security_master` and computes
-`portfolio.user_intelligence_snapshot`.

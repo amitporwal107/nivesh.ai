@@ -138,6 +138,94 @@ _PLAN = re.compile(
     re.IGNORECASE,
 )
 
+_MF = re.compile(
+    r"\b("
+    # Explicit MF terms
+    r"mutual\s+fund|mutual\s+funds|mf\b|sip\b|nav\b|"
+    r"scheme\b|amfi|amc\b|"
+    # Product types
+    r"index\s+fund|etf\b|elss|nfo\b|"
+    r"flexi\s*cap|multi\s*cap|"
+    r"direct\s+plan|regular\s+plan|growth\s+option|idcw|dividend\s+option|"
+    # Risk metrics in fund context (Sharpe alone also triggers)
+    r"sharpe\s+ratio|sortino|max\s+draw|"
+    # Fund-specific actions
+    r"fund\s+(?:performance|return|compare|overlap|recommendation|house|manager)|"
+    r"top\s+(?:fund|scheme|sip|mf)|best\s+(?:fund|scheme|sip)|"
+    r"compare\s+(?:fund|scheme|mf|sip)|overlap\b|"
+    # Common fund name fragments that users type
+    r"bluechip|blue\s*chip|flexi\s*cap|"
+    r"mirae|quant\s+(?:fund|small|flex)|parag\s+parikh|"
+    r"axis\s+(?:blue|long|small|mid|flex)|hdfc\s+(?:top|mid|small|flex)|"
+    r"sbi\s+(?:blue|contra|small|flex|magnum)|icici\s+pru|nippon|kotak\s+(?:flex|small)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Second-pass check for "large/mid/small cap funds" (not bare stocks) context
+_MF_CATEGORY = re.compile(
+    r"\b(large|mid|small|multi|flexi)\s*[\-\s]?cap\s+(?:fund|scheme|mf|sip|mutual|invest)",
+    re.IGNORECASE,
+)
+
+_FUNDAMENTAL = re.compile(
+    r"\b("
+    r"fundamental(?:s|ly|al\s+analysis|s?\s+strong|s?\s+weak)?|"
+    r"pe\s*ratio|pe\b|p/e|price[\s-]to[\s-]earnings?|"
+    r"pb\b|p/b|price[\s-]to[\s-]book|"
+    r"roe\b|return\s+on\s+equity|"
+    r"debt[\s-]to[\s-]equity|d/e\s*ratio|leverage|"
+    r"piotroski|altman|z[\s-]score|f[\s-]score|"
+    r"undervalued|overvalued|fairly[\s-]valued|valuation|"
+    r"revenue\s+growth|profit\s+growth|pat\s+growth|eps\s+growth|"
+    r"promoter\s+holding|fii\s+buying|dii\s+buying|shareholding|"
+    r"financially\s+(?:strong|weak|sound|healthy)|"
+    r"quality\s+(?:stock|company|business)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_TECHNICAL = re.compile(
+    r"\b("
+    r"technical(?:s|ly|al\s+analysis|s?\s+strong|s?\s+weak)?|"
+    r"rsi|macd|moving\s+average|sma|ema|bollinger|atr|"
+    r"chart(?:\s+says?|pattern|signal)?|"
+    r"momentum|breakout|oversold|overbought|"
+    r"support|resistance|trend(?:ing)?|"
+    r"buy\s+signal|sell\s+signal|technically"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_STRESS_TEST = re.compile(
+    r"\b("
+    r"stress\s*test|stress\s+scenario|crash\s+scenario|"
+    r"what\s+if\s+(?:market|nifty|sensex|equity|portfolio)\s+(?:crashes?|falls?|drops?|tanks?)|"
+    r"covid\s*(?:crash|scenario|2020)?|gfc\b|2008[\s\-]+(?:style|crash|crisis|scenario)|"
+    r"rate\s+shock|simulate\s+(?:crash|drop|fall|scenario)|"
+    r"portfolio\s+(?:under|in\s+a)\s+(?:crash|crisis|downturn)|"
+    r"market\s+crash|bear\s+market\s+(?:impact|scenario|simulation)|"
+    r"(?:how\s+much|what)\s+(?:would|will)\s+i\s+lose|"
+    r"downside\s+(?:risk|scenario)|tail\s+risk"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_PORTFOLIO_PERF = re.compile(
+    r"\b("
+    r"(?:my\s+)?(?:portfolio|overall)\s+(?:xirr|return|cagr|performance|gain|growth)|"
+    r"xirr\b|"
+    r"how\s+(?:is|are)\s+(?:my|the)\s+(?:portfolio|investments?)\s+(?:doing|performing|growing)|"
+    r"(?:total|overall|net)\s+(?:return|gain|profit|xirr|cagr)\s+(?:on\s+)?(?:my\s+)?(?:portfolio|investments?)|"
+    r"portfolio\s+(?:performance|summary|health|snapshot|breakdown|analytics)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Regex to capture a stock symbol mentioned in technical queries
+# Matches uppercase 2-10 letter tokens that look like NSE symbols
+_STOCK_SYMBOL = re.compile(r"\b([A-Z]{2,10}(?:BANK|FIN|IND|LTD|AUTO)?)\b")
+
 _CHART_REQUEST = re.compile(
     r"\b(show|chart|plot|graph|visuali[sz]e|compare|breakdown|donut|pie|bar)\b",
     re.IGNORECASE,
@@ -186,10 +274,114 @@ def _extract_grouping(text: str) -> Optional[str]:
     return None
 
 
+def _extract_symbols(text: str) -> List[str]:
+    """Extract likely NSE stock symbols from user message.
+
+    Only tokens that look like ticker symbols are kept: 3-12 uppercase letters,
+    not in the English stopword set.
+    """
+    _STOPWORDS = {
+        # articles, prepositions, pronouns
+        "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN",
+        "HER", "WAS", "ONE", "OUR", "OUT", "DAY", "GET", "HAS", "HIM",
+        "HIS", "HOW", "ITS", "MAY", "NOW", "OLD", "OWN", "SAY", "SHE",
+        "TWO", "USE", "WAY", "WHO", "YES", "YET", "ANY", "HAD", "LET",
+        "PUT", "TOO", "SET", "NEW", "WHO", "MAN", "WHY", "GOT", "DID",
+        "LET", "FAR", "FEW", "FUN", "GOD", "HIT", "HOT", "JOB", "KEY",
+        # financial / query words that are not tickers
+        "RSI", "SMA", "EMA", "ATR", "MACD", "VWAP", "ADX", "OBV",
+        "BUY", "SELL", "TOP", "LOW", "HIGH", "OPEN", "CLOSE",
+        "WHAT", "DOES", "SHOW", "GIVE", "TELL", "KNOW", "LOOK", "FIND",
+        "GOOD", "BEST", "WELL", "ALSO", "JUST", "EVEN", "THAN", "THEN",
+        "INTO", "OVER", "WITH", "FROM", "THIS", "THAT", "THEY", "THEM",
+        "HAVE", "WILL", "BEEN", "WERE", "WHEN", "MUCH", "EACH", "LIKE",
+        "SOME", "MAKE", "VERY", "MORE", "ONLY", "BOTH", "BACK", "MOST",
+        "SAID", "MANY", "SAME", "TAKE", "COME", "WENT", "COME", "GOES",
+        "ABOUT", "AFTER", "AGAIN", "ALONG", "AMONG", "BEING", "BELOW",
+        "COULD", "DOING", "EVERY", "FIRST", "FOUND", "GOING", "GREAT",
+        "MIGHT", "NEVER", "OTHER", "RIGHT", "SHALL", "SINCE", "STILL",
+        "THERE", "THOSE", "THREE", "TODAY", "UNDER", "UNTIL", "USING",
+        "WATCH", "WHERE", "WHICH", "WHILE", "WHOSE", "WOULD", "YEARS",
+        "ABOVE", "BASED", "BREAK", "CARRY", "CHECK", "CHOSE", "CLEAR",
+        "EARLY", "FALSE", "GIVEN", "HAPPY", "HEAVY", "LATER", "LIGHT",
+        "LOWER", "MAJOR", "MEANS", "MOVED", "OFTEN", "ORDER", "PLACE",
+        "POINT", "POWER", "PRICE", "READY", "SMALL", "SOUND", "SPACE",
+        "SPENT", "STAND", "START", "STOCK", "STUDY", "THING", "THINK",
+        "TRADE", "TRUST", "TREND", "USUAL", "VALUE", "WATCH", "WORLD",
+        "STRONG", "SIGNAL", "MARKET", "SECTOR", "BUYING", "STRONG",
+        "ASKING", "CHARTS", "MOVING", "SAYING", "SEEING", "TRYING",
+        "BEARISH", "BULLISH", "BREAKOUT", "OVERBOUGHT", "OVERSOLD",
+        "ANALYSIS", "INDICATOR", "MOMENTUM", "TECHNICALLY",
+        "COMPARE", "BETWEEN", "VERSUS", "AGAINST", "STOCKS", "FUNDS",
+        "RATIO", "SCORE", "PEERS", "GROWTH", "REVENUE", "BUYING",
+        "SIGNAL", "PIOTROSKI", "ALTMAN", "PROFIT", "EQUITY", "DEBT",
+        "HOLDING", "SECTOR", "MARKET", "COMPANY", "ANALYSIS",
+    }
+    tokens = _STOCK_SYMBOL.findall(text.upper())
+    return [t for t in tokens if t not in _STOPWORDS and len(t) >= 3]
+
+
 def classify_intent(message: str) -> Intent:
     """Top-level entry point. Returns an Intent with name + slots."""
     msg = (message or "").strip()
     chart = bool(_CHART_REQUEST.search(msg))
+
+    # ── 0a. MF performance / analytics questions ─────────────────────
+    # Must fire before fundamental — "Sharpe ratio of this fund" → MF,
+    # not fundamental (Sharpe in stock context is rare).
+    if _MF.search(msg) or _MF_CATEGORY.search(msg):
+        symbols = _extract_symbols(msg)
+        return Intent(
+            name="mf_analysis",
+            chart_requested=chart,
+            raw=msg,
+            extras={"symbols": symbols},
+        )
+
+    # ── 0b. Fundamental analysis questions ───────────────────────────
+    # Must fire before technical so "Is RELIANCE fundamentally strong?"
+    # routes to fundamentals, not the technical intent.
+    if _FUNDAMENTAL.search(msg):
+        symbols = _extract_symbols(msg)
+        return Intent(
+            name="fundamental_analysis",
+            chart_requested=chart,
+            raw=msg,
+            extras={"symbols": symbols},
+        )
+
+    # ── 0b. Technical analysis questions ─────────────────────────────
+    if _TECHNICAL.search(msg):
+        symbols = _extract_symbols(msg)
+        return Intent(
+            name="technical_analysis",
+            chart_requested=chart,
+            raw=msg,
+            extras={"symbols": symbols},
+        )
+
+    # ── 0d. Portfolio XIRR / overall performance ──────────────────────
+    # Must fire before ranking — "how is my portfolio performing" should
+    # return overall XIRR, not a ranked list of individual holdings.
+    if _PORTFOLIO_PERF.search(msg):
+        return Intent(name="portfolio_perf", chart_requested=False, raw=msg)
+
+    # ── 0e. Stress test / crash scenario ─────────────────────────────
+    if _STRESS_TEST.search(msg):
+        # Extract scenario keyword
+        msg_l = msg.lower()
+        if "gfc" in msg_l or "2008" in msg_l:
+            scenario = "gfc_2008"
+        elif "rate" in msg_l and ("shock" in msg_l or "hike" in msg_l):
+            scenario = "rate_shock"
+        else:
+            scenario = "covid_2020"
+        return Intent(
+            name="stress_test",
+            chart_requested=False,
+            raw=msg,
+            extras={"scenario": scenario},
+        )
 
     # ── 1. Concentration / breakdown questions ────────────────────────
     # Tells us "show me my X distribution" — answer with a single
