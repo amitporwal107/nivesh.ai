@@ -1,6 +1,6 @@
 # NIDP — Data Platform Status
 
-_Last updated: 2026-05-06_
+_Last updated: 2026-05-12_
 
 A single-page snapshot of what the Nivesh Intelligence Data Platform is fetching, storing, processing — and what isn't done yet. Each section ends with a verification snippet you can paste straight into `psql` or a shell.
 
@@ -27,6 +27,8 @@ NIDP is an isolated subproject under `backend/nidp/`. It runs **13 ingester serv
 | 11 | `fred_macro` | FRED CSV (`fredgraph.csv?id=<series>`) | Daily, ~21:00 IST | `nidp.fred_macro_observations` | 8 curated US macro series. |
 | 12 | `yfinance_backfill` | Yahoo Finance per-symbol chart API | **Manual / event-driven** | `nidp.prices_eod` (`source='YFINANCE'`) | Backfill only — fills the long-tail history bhavcopy doesn't cover (older years, missing days). |
 | 13 | `snapshot_builder` | Reads from above tables | Daily, ~22:00 IST after all ingesters | `nidp.market_daily_snapshot`, `nidp.stock_daily_snapshot` | Per-(symbol,date) row with OHLCV + delivery + flows + index membership + upcoming corporate actions. |
+| 14 | `portfolio_holdings_sync` | Nivesh Postgres (`portfolio_snapshot_master`, `portfolio_snapshot_holdings`, `instrument_master`, `client_user_map`) | Daily, 23:00 IST + on every CAS upload (fire-and-forget) | `portfolio.user_holdings_snapshot`, `portfolio.client_master`, `portfolio.sync_audit_log` | Bridges client holdings from the Nivesh app into NIDP. SHA-256 dedup skips no-op re-runs. Email identity mapped via `client_user_map`. See [PORTFOLIO_HOLDINGS_SYNC.md](../backend/nidp/docs/PORTFOLIO_HOLDINGS_SYNC.md). |
+| 15 | `portfolio_intelligence_sync` | `portfolio.user_holdings_snapshot` | Daily, 23:30 IST (after #14) | `portfolio.holding_security_map`, `portfolio.user_intelligence_snapshot` | Resolves each holding against `ref.security_master`; computes equity/MF weights, sector concentration, beta, RSI, correlation pairs, quality tier (PLATINUM/GOLD/SILVER/REVIEW). |
 
 ### Verify (run on the VM)
 
@@ -167,7 +169,7 @@ SELECT failure_class, count(*)
 | **Cloud Scheduler triggers (12)** | Script ready (`setup_schedules.sh`); not yet activated for all jobs | Daily fires at IST evening (~19:00–22:00). yfinance is event-driven only. |
 | **GitHub-push → Cloud Build** | YAMLs + script ready (`setup_github_triggers.sh`); 14 triggers fire on push to nidp branch | One per service + 1 for migrations. Migration trigger uses IAP-tunnelled SSH. Auth issue resolved (commit `b97052b`). |
 | **Local validation loop** | Working | `./test_locally.sh` brings up Postgres + Redpanda + Schema Registry, runs full Kafka path. ~60s per service. |
-| **Migrations** | 12 SQL files; 023 latest | Applied via `phase6_robust.sh` (idempotent). Wired into `build_on_gcp.sh` so a code rebuild also applies pending SQL. |
+| **Migrations** | 46 SQL files (NIDP) + 20 (Nivesh Postgres); 046 latest | Applied via `phase6_robust.sh` (idempotent). Wired into `build_on_gcp.sh` so a code rebuild also applies pending SQL. New: migrations 042–046 add the intelligence layer + portfolio bridge + sync audit. |
 | **Storage backend** | GCS bucket `nidp-raw-niveshdataintelligence` | Pluggable: LocalDisk for tests, S3 supported, GCS in prod. |
 | **Event bus** | Redpanda (Kafka-compatible) on VM, port 9092 | Built-in Schema Registry on container port 8081 — published to host after listener fix. |
 | **Database** | TimescaleDB-pg16 on VM, port 5433 | 8 GB RAM is the bottleneck if all containers are up at once. |
@@ -211,6 +213,7 @@ Ordered by P0 → P3.
 
 ### P1 — NIDP → app integration (this week)
 
+- [x] **Portfolio holdings sync** — `portfolio_holdings_sync` service implemented (2026-05-12). Bridges Nivesh Postgres → NIDP `portfolio.user_holdings_snapshot` → `portfolio_intelligence_sync`. Fires on CAS upload + daily 23:00 cron. See [PORTFOLIO_HOLDINGS_SYNC.md](../backend/nidp/docs/PORTFOLIO_HOLDINGS_SYNC.md).
 - [ ] Replace existing Nivesh dashboard's signal proxies with reads from `nidp.market_daily_snapshot` / `nidp.stock_daily_snapshot`.
   - Removes the `^TNX` US-yield bug (use `rbi_yields.10Y` instead).
   - Removes broken FII/DII path.
@@ -520,3 +523,42 @@ A green NIDP looks like:
 - `market_daily_snapshot` ≥ 5; `stock_daily_snapshot` ≈ 14k; `feed_snapshot` ≥ 60 (12 daily × 5 days)
 - `v_market_session.last_close_date` = yesterday or today IST
 - Validation findings: zero BLOCK; FIX/WARN < 5
+
+### Portfolio sync health check
+
+```bash
+sudo docker exec -i nidp-postgres psql -U postgres -d nidp <<'SQL'
+\echo === PORTFOLIO SYNC — CLIENT REGISTRY ===
+SELECT external_user_id,
+       last_sync_at::timestamp(0) AS last_sync,
+       ROUND(EXTRACT(EPOCH FROM (NOW() - last_sync_at)) / 3600, 1) AS hours_ago
+  FROM portfolio.client_master
+ ORDER BY last_sync_at DESC NULLS LAST;
+
+\echo === PORTFOLIO SYNC — LATEST RUN PER CLIENT ===
+SELECT external_user_id, snapshot_date, status,
+       holdings_upserted, synced_at::timestamp(0)
+  FROM portfolio.sync_audit_log sal
+ WHERE synced_at = (
+     SELECT max(synced_at) FROM portfolio.sync_audit_log
+      WHERE external_user_id = sal.external_user_id
+ )
+ ORDER BY synced_at DESC;
+
+\echo === PORTFOLIO HOLDINGS COUNT PER CLIENT ===
+SELECT external_user_id, snapshot_date, count(*) AS holdings,
+       round(sum(market_value_inr)) AS total_value_inr
+  FROM portfolio.user_holdings_snapshot
+ GROUP BY 1, 2
+ ORDER BY 2 DESC, 1;
+
+\echo === INTELLIGENCE SNAPSHOT — QUALITY TIERS ===
+SELECT external_user_id, snapshot_date, quality_tier,
+       round(total_market_value_inr) AS value_inr,
+       round(equity_weight_pct, 1)   AS eq_pct,
+       round(mf_weight_pct, 1)       AS mf_pct,
+       computed_at::timestamp(0)
+  FROM portfolio.user_intelligence_snapshot
+ ORDER BY snapshot_date DESC, external_user_id;
+SQL
+```

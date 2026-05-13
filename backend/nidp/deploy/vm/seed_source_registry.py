@@ -36,6 +36,7 @@ SEEDS = [
     ('Price Adjuster',                'price_adjuster',          'derived://nidp/price_adjuster',                                                   'DERIVED',  1.00, 'daily',     '0 23 * * 1-5'),
     ('Intelligence Layer Materializer','intelligence_layer',     'derived://nidp/intelligence_layer',                                               'DERIVED',  1.00, 'daily',     '15 23 * * 1-5'),
     ('Portfolio Intelligence Sync',   'portfolio_intelligence_sync', 'derived://nidp/portfolio_intelligence_sync',                                  'DERIVED',  1.00, 'daily',     '30 23 * * 1-5'),
+    ('Portfolio Holdings Sync',      'portfolio_holdings_sync',     'derived://nivesh_pg/portfolio_holdings',                                          'DERIVED',  1.00, 'daily',     '0 23 * * 1-5'),
 ]
 
 

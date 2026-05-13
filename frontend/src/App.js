@@ -8,7 +8,9 @@ import { NumberFormatProvider } from "@/context/NumberFormatContext";
 import { Toaster } from "@/components/ui/sonner";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
+import Chat from "@/pages/Chat";
 import NidpConsole from "@/pages/NidpConsole";
+import NiveshV2 from "@/pages/NiveshV2";
 import CasCallback from "@/pages/CasCallback";
 import CasConnect from "@/pages/CasConnect";
 import Privacy from "@/pages/Privacy";
@@ -34,7 +36,10 @@ function AppRouter() {
       <Route path="/cas-callback" element={<CasCallback />} />
       <Route path="/cas-connect/:token" element={<CasConnect />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      <Route path="/chat/:threadId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
+      <Route path="/v2" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -351,6 +351,8 @@ async def _resolve_instrument_id(conn, holding: Dict[str, Any]) -> Optional[str]
 async def _persist_pg_snapshot(
     *,
     user_id: str,
+    email: Optional[str],
+    display_name: Optional[str],
     snapshot_date: str,
     holdings: List[Dict[str, Any]],
     aggs: Dict[str, Any],
@@ -368,15 +370,30 @@ async def _persist_pg_snapshot(
         snap_date = date.fromisoformat((snapshot_date or "")[:10])
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # Keep email → user_id mapping fresh so the NIDP portfolio sync
+                # agent can join on email as the canonical external_user_id.
+                if email:
+                    await conn.execute(
+                        """
+                        INSERT INTO client_user_map (client_id, email, display_name, updated_at)
+                        VALUES ($1, $2, $3, NOW())
+                        ON CONFLICT (client_id) DO UPDATE SET
+                            email        = EXCLUDED.email,
+                            display_name = EXCLUDED.display_name,
+                            updated_at   = NOW()
+                        """,
+                        user_id, email, display_name,
+                    )
+
                 row = await conn.fetchrow(
                     """
                     INSERT INTO portfolio_snapshot_master
                         (client_id, snapshot_date, total_value, total_invested)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (client_id, snapshot_date) DO UPDATE SET
-                        total_value = EXCLUDED.total_value,
+                        total_value   = EXCLUDED.total_value,
                         total_invested = EXCLUDED.total_invested,
-                        updated_at = NOW()
+                        updated_at    = NOW()
                     RETURNING id
                     """,
                     user_id, snap_date, total_value, total_invested,
@@ -473,13 +490,31 @@ async def create_cas_snapshot(
         upsert=True,
     )
 
-    # Mirror into the relational portfolio_snapshot tables (migration 012)
+    # Mirror into the relational portfolio_snapshot tables (migration 012).
+    # Pull email + display_name from Mongo so client_user_map stays in sync
+    # for the NIDP portfolio sync agent.
+    _user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
     await _persist_pg_snapshot(
         user_id=user_id,
+        email=(_user_doc or {}).get("email"),
+        display_name=(_user_doc or {}).get("name"),
         snapshot_date=snapshot_date,
         holdings=holdings,
         aggs=aggs,
     )
+
+    # Trigger NIDP portfolio sync immediately so intelligence is fresh for
+    # this client without waiting for the 23:00 scheduled run.
+    # Fire-and-forget — a NIDP outage must never block the CAS upload response.
+    try:
+        from services import nidp_query_client as _nqc
+        if _nqc.is_configured():
+            import asyncio as _asyncio
+            _asyncio.ensure_future(
+                _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug("NIDP portfolio sync trigger skipped (query client not configured)")
 
     # If this snapshot is now the latest → mirror to the live holdings table
     if is_latest:

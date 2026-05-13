@@ -7,21 +7,30 @@ import {
   TrendingUp, Shield, MessageSquare, AlertCircle, Lock,
   CheckCircle2, ArrowRight, Sparkles, Target, AlertTriangle,
   Plus, LineChart, Layers, Briefcase, Wallet, Quote,
-  ShieldCheck, RefreshCw,
+  ShieldCheck, RefreshCw, Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const Landing = () => {
   const { loginWithGoogle, authError, setAuthError, googleClientId } = useAuth();
   const [loggingIn, setLoggingIn] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState(
+    () => localStorage.getItem("nivesh_version") || "1.0"
+  );
   const navigate = useNavigate();
   const loginAnchorRef = useRef(null);
+
+  const handleVersionSelect = (v) => {
+    setSelectedVersion(v);
+    localStorage.setItem("nivesh_version", v);
+  };
 
   const handleGoogleSuccess = async (credentialResponse) => {
     setLoggingIn(true);
     try {
       await loginWithGoogle(credentialResponse.credential);
-      navigate("/dashboard", { replace: true });
+      const v = localStorage.getItem("nivesh_version");
+      navigate(v === "2.0" ? "/v2" : "/dashboard", { replace: true });
     } catch {
       /* authError set inside loginWithGoogle */
     } finally {
@@ -257,6 +266,30 @@ const Landing = () => {
 
         {/* Login anchor (inline, reachable from CTA) */}
         <div ref={loginAnchorRef} className="mt-12 flex flex-col items-center gap-4" data-testid="hero-login-anchor">
+          {/* Version selector */}
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700">
+            <button
+              onClick={() => handleVersionSelect("1.0")}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                selectedVersion === "1.0"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              }`}
+            >
+              Nivesh Classic
+            </button>
+            <button
+              onClick={() => handleVersionSelect("2.0")}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                selectedVersion === "2.0"
+                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/30"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              }`}
+            >
+              <Zap className="w-3 h-3" /> AI Copilot 2.0 β
+            </button>
+          </div>
+
           {googleClientId ? (
             <div data-testid="hero-google-login">
               <GoogleLogin

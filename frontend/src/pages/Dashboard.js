@@ -244,9 +244,7 @@ const Dashboard = () => {
       case "portfolio_legacy":
         return withUploadCta(<PortfolioView holdings={holdings} onRefresh={fetchData} portfolios={portfolios} />);
       case "chat":
-        // Legacy: if someone still lands on #chat, open the drawer instead of rendering inline
-        if (!copilotOpen) setCopilotOpen(true);
-        return withUploadCta(<DashboardOverview analytics={analytics} insights={insights} holdings={holdings} loading={dataLoading} onRefresh={fetchData} />);
+        return <ChatView onNavigateToPlanBoard={() => setActiveTab("plan_board")} />;
       case "insights":
         return withUploadCta(<InsightsView insights={insights} onRefresh={fetchData} copilotEnabled={userProfile?.copilot_enabled} riskProfile={userProfile?.risk_profile?.category} />);
       case "goals":
