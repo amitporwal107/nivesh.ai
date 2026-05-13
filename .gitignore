@@ -451,3 +451,6 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# nivesh-app deploy secrets
+deploy/nivesh-app/.env.prod

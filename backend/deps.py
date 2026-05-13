@@ -21,6 +21,10 @@ OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 GMAIL_REDIRECT_URI = os.environ.get("GMAIL_REDIRECT_URI", "")
+# Cookie security: set COOKIE_SECURE=false on HTTP-only preview/dev deploys.
+# SameSite=None requires Secure=True (HTTPS); use lax for HTTP.
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none")
 ADMIN_EMAIL = "priyankamantri@gmail.com"
 # Co-admin / founder accounts that should always be seeded on a fresh
 # deploy, irrespective of which Mongo we land on. Both lands as

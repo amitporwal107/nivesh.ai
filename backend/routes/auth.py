@@ -5,7 +5,7 @@ import uuid
 import httpx
 import logging
 
-from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist
+from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -82,12 +82,13 @@ async def google_auth(request: Request, response: Response):
     })
 
     # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+    # COOKIE_SECURE / COOKIE_SAMESITE come from env — set to false/lax on HTTP-only deploys.
     response.set_cookie(
         key="session_token",
         value=session_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
         max_age=7 * 24 * 3600
     )
@@ -128,7 +129,7 @@ async def logout(request: Request, response: Response):
         sess = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0, "user_id": 1})
         uid = (sess or {}).get("user_id")
         await db.user_sessions.delete_many({"session_token": session_token})
-    response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
+    response.delete_cookie(key="session_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE)
     if uid:
         try:
             from services import audit
