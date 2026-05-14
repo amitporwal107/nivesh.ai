@@ -2,9 +2,56 @@
 
 **Project:** `niveshdataintelligence`
 **Region:** `asia-south1`
-**Last updated:** 2026-05-09
+**Last updated:** 2026-05-14
 
 This guide covers everything needed to deploy the full NIDP stack from scratch, redeploy after a code change, and manage day-to-day operations.
+
+---
+
+## Live VM Reference
+
+| VM | External IP | nip.io domain | Machine type | Zone |
+|---|---|---|---|---|
+| `nivesh-app-vm` | `34.100.186.141` | `34.100.186.141.nip.io` | e2-standard-4 | asia-south1-a |
+| `nidp-stack-vm` | `34.93.60.254` | `34.93.60.254.nip.io` | e2-standard-4 | asia-south1-a |
+
+### Fully Qualified Service URLs
+
+**`nivesh-app-vm` (Main Application)**
+
+| Service | URL |
+|---|---|
+| App (root) | `http://34.100.186.141.nip.io/` |
+| V2 React Frontend | `http://34.100.186.141.nip.io/v2/` |
+| Backend API | `http://34.100.186.141.nip.io/api/` |
+| Health check | `http://34.100.186.141.nip.io/health` |
+| Grafana (proxied) | `http://34.100.186.141.nip.io/api/admin/nidp/grafana/` |
+
+**`nidp-stack-vm` (NIDP Data Plane)**
+
+| Service | URL |
+|---|---|
+| DaaS API | `http://34.93.60.254.nip.io:8083` |
+| DaaS API docs | `http://34.93.60.254.nip.io:8083/docs` |
+| DaaS API health | `http://34.93.60.254.nip.io:8083/health` |
+| Query API | `http://34.93.60.254.nip.io:8090` |
+| Grafana dashboard | `http://34.93.60.254.nip.io:3000/d/nidp-job-health/nidp-job-health` |
+
+**GCP Console Links**
+
+| Console | URL |
+|---|---|
+| Logs Explorer | `https://console.cloud.google.com/logs/query?project=niveshdataintelligence` |
+| Monitoring Dashboards | `https://console.cloud.google.com/monitoring/dashboards?project=niveshdataintelligence` |
+| Cloud Run Services | `https://console.cloud.google.com/run?project=niveshdataintelligence` |
+| Cloud Build History | `https://console.cloud.google.com/cloud-build/builds?project=niveshdataintelligence` |
+| GCE VM Instances | `https://console.cloud.google.com/compute/instances?project=niveshdataintelligence` |
+| Cloud Scheduler | `https://console.cloud.google.com/cloudscheduler?project=niveshdataintelligence` |
+
+**Google OAuth redirect URI** (must be registered in [OAuth Console](https://console.cloud.google.com/apis/credentials?project=niveshdataintelligence)):
+```
+http://34.100.186.141.nip.io/api/oauth/gmail/callback
+```
 
 ---
 
