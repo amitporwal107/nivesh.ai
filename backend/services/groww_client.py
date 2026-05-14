@@ -79,7 +79,7 @@ async def search_slug(scheme_name: str) -> Optional[str]:
                     slug = h["search_id"]
                     break
         except Exception as e:  # noqa: BLE001
-            logger.warning("groww search failed for %s: %s", scheme_name!r, e)
+            logger.warning("groww search failed for %s: %s", scheme_name, e)
         _search_cache[key] = slug
         return slug
 

@@ -101,7 +101,7 @@ async def upsert_equity(
         )
         return row["instrument_id"] if row else None
     except Exception as e:  # noqa: BLE001
-        logger.warning("upsert_equity failed for %s: %s", name!r, e)
+        logger.warning("upsert_equity failed for %s: %s", name, e)
         return None
 
 
@@ -353,7 +353,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
     scheme_name = data.get("scheme_name") or ""
     isin = data.get("isin")
     if not imid or not scheme_name:
-        logger.warning("MC persist: missing imid/scheme_name (%s / %s)", imid!r, scheme_name!r)
+        logger.warning("MC persist: missing imid/scheme_name (%s / %s)", imid, scheme_name)
         return None
 
     async with pool.acquire() as conn:
@@ -399,7 +399,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
             if row:
                 mf_id = row["instrument_id"]
         if mf_id is None:
-            logger.info("MC persist: no existing fund for %s (isin=%s) — skipping", scheme_name!r, isin)
+            logger.info("MC persist: no existing fund for %s (isin=%s) — skipping", scheme_name, isin)
             return None
 
         # Ensure a metadata row exists (insert skeleton if missing).

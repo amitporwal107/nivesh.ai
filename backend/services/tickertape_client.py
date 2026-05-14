@@ -47,10 +47,10 @@ async def _fetch_html(url: str) -> Optional[str]:
             r = await c.get(url)
             if r.status_code == 200 and "<html" in r.text[:500].lower():
                 return r.text
-            logger.warning(f"tickertape fetch {url!r} → HTTP {r.status_code}")
+            logger.warning("tickertape fetch %s → HTTP %s", url, r.status_code)
             return None
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"tickertape fetch {url!r} failed: {e}")
+            logger.warning("tickertape fetch %s failed: %s", url, e)
             return None
 
 
@@ -271,7 +271,7 @@ async def fetch_fund_by_url(url: str) -> Optional[Dict[str, Any]]:
         return None
     data = _parse_next_data(html)
     if not data:
-        logger.warning(f"tickertape: no __NEXT_DATA__ in {url}")
+        logger.warning("tickertape: no __NEXT_DATA__ in %s", url)
         return None
     payload = _build_scrape(data, url)
     if not payload or not payload.get("scheme_name"):

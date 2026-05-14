@@ -865,7 +865,7 @@ class ActionPlanManager:
             if leak > 0:
                 leaks.append({"holding": reg, "leak": leak})
         total_leak = sum(item["leak"] for item in leaks)
-        logger.info("[Rule 6] Total Regular→Direct cost leak: ₹%s/yr across %s funds", total_leak:,.0f, len(leaks))
+        logger.info("[Rule 6] Total Regular→Direct cost leak: ₹%s/yr across %s funds", f"{total_leak:,.0f}", len(leaks))
         leak_cfg = rules_cfg["rule_6_cost_leak_switch"]["params"]
         leak_threshold = float(leak_cfg.get("total_leak_threshold_rs", 10000.0))
         max_switches = int(leak_cfg.get("max_switches", 3))

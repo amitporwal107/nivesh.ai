@@ -129,7 +129,7 @@ def calculate_holding_period_days(buy_date) -> Optional[int]:
             buy_dt = buy_dt.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - buy_dt).days
     except Exception as e:
-        logger.warning(f"Error parsing buy_date {buy_date!r}: {e}")
+        logger.warning("Error parsing buy_date %s: %s", buy_date, e)
         return None
 
 
@@ -307,7 +307,7 @@ def calculate_tax_impact(
         }
 
     except Exception as e:
-        logger.error(f"Tax calculation error: {e}")
+        logger.error("Tax calculation error: %s", e)
         return _empty_tax_result(f"Calculation error: {e}")
 
 

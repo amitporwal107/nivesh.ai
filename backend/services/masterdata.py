@@ -450,7 +450,7 @@ def validate_and_enrich_holdings(holdings: list) -> list:
                         old_qty, old_price = qty, parsed_price
                         h["current_price"] = round(master_price, 4)
                         h["quantity"] = round(parsed_value / master_price, 4) if master_price > 0 else 0
-                        logger.info("Fixed swap: %s qty=%s→%s nav=%s→%s", name[:30], old_qty, h['quantity']:.3f, old_price, master_price)
+                        logger.info("Fixed swap: %s qty=%s→%s nav=%s→%s", name[:30], old_qty, f"{h['quantity']:.3f}", old_price, master_price)
                     else:
                         old_price = parsed_price
                         h["current_price"] = round(master_price, 4)
