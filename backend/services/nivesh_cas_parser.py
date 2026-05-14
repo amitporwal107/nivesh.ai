@@ -215,12 +215,31 @@ def parse_with_nivesh(content: bytes, password: str = "") -> Optional[Dict[str, 
     try:
         decrypted = _decrypt_pdf(content, password or "")
     except Exception as e:
-        logger.error(f"NIVESH: PDF decryption failed: {e}")
+        logger.error("NIVESH: PDF decryption failed: %s", e)
         raise
+
+    # 1b) Fast-path: try casparser library first for text-based PDFs.
+    # Digitally generated NSDL/CDSL/CAMS PDFs parse in < 1 s this way,
+    # saving Document AI cost and latency entirely.
+    try:
+        import casparser as _cp
+        import time as _t
+        t0 = _t.monotonic()
+        _raw = _cp.read_cas_pdf(io.BytesIO(decrypted), password or "", output="dict")
+        from helpers.parsing import convert_casparser_to_holdings
+        if convert_casparser_to_holdings(_raw):
+            logger.info("NIVESH: casparser fast-path hit in %.2fs — skipping Document AI", _t.monotonic() - t0)
+            # Return in the same shape as the normalizer so callers work unchanged
+            from services.nivesh_cas_normalizer import normalize_casparser_dict
+            return normalize_casparser_dict(_raw)
+    except ImportError:
+        pass
+    except Exception as _e:
+        logger.info("NIVESH: casparser fast-path failed (%s), proceeding to Document AI", _e)
 
     # 2) Document AI: split into chunks if large
     chunks = _split_pdf(decrypted)
-    logger.info(f"NIVESH: Document AI processing {len(chunks)} chunk(s)")
+    logger.info("NIVESH: Document AI processing %s chunk(s)", len(chunks))
 
     chunk_results: List[Dict[str, Any]] = [None] * len(chunks)  # type: ignore
     if len(chunks) == 1:
@@ -235,7 +254,7 @@ def parse_with_nivesh(content: bytes, password: str = "") -> Optional[Dict[str, 
                 try:
                     chunk_results[idx] = fut.result()
                 except Exception as e:  # noqa: BLE001
-                    logger.error(f"NIVESH: chunk {idx} failed: {e}")
+                    logger.error("NIVESH: chunk %s failed: %s", idx, e)
                     raise
 
     docai_output = _merge_chunks(chunk_results)

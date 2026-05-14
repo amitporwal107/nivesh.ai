@@ -1113,7 +1113,7 @@ def normalize(docai_output: Dict[str, Any]) -> Dict[str, Any]:
     extras = _recover_missed_mf_demat(text, out["holdings"]["mutual_funds_demat"])
     if extras:
         out["holdings"]["mutual_funds_demat"].extend(extras)
-        logger.info(f"NIVESH normalizer: recovered {len(extras)} MF-demat rows from text")
+        logger.info("NIVESH normalizer: recovered %s MF-demat rows from text", len(extras))
 
     logger.info(
         f"NIVESH normalizer: depository={depository} tables={len(tables)} "
@@ -1183,3 +1183,70 @@ def _recover_missed_mf_demat(text: str, already: List[Dict[str, Any]]) -> List[D
         )
         seen.add(isin)
     return extras
+
+
+# ── casparser fast-path ───────────────────────────────────────────────
+def normalize_casparser_dict(cas_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a casparser library output dict to the Claude/CAS-Connect schema.
+
+    Used by ``nivesh_cas_parser.parse_with_nivesh`` when casparser handles
+    a text-based PDF in < 1 s, bypassing Document AI entirely.
+    """
+    mutual_fund_folios: List[Any] = []
+    for folio in cas_data.get("folios") or []:
+        folio_num = (folio.get("folio") or folio.get("folio_number") or "").strip()
+        amc = (folio.get("amc") or "").strip()
+        for scheme in folio.get("schemes") or []:
+            units = float(scheme.get("close_calculated") or scheme.get("close") or 0)
+            if units <= 0:
+                continue
+            valuation = scheme.get("valuation") or {}
+            nav = float(valuation.get("nav") or 0)
+            current_value = round(units * nav, 2) if nav else 0
+
+            total_cost = 0.0
+            total_purchase_units = 0.0
+            for tx in scheme.get("transactions") or []:
+                tx_type = (tx.get("type") or "").upper()
+                tx_amount = float(tx.get("amount") or 0)
+                tx_units = float(tx.get("units") or 0)
+                if tx_type in (
+                    "PURCHASE", "PURCHASE_SIP", "SWITCH_IN", "SWITCH_IN_MERGER",
+                    "NEW_FUND_OFFER", "REINVESTMENT", "SYSTEMATIC_INVESTMENT",
+                ):
+                    if tx_amount > 0 and tx_units > 0:
+                        total_cost += abs(tx_amount)
+                        total_purchase_units += abs(tx_units)
+
+            avg_cost = round(total_cost / total_purchase_units, 4) if total_purchase_units > 0 else 0
+
+            mutual_fund_folios.append({
+                "fund_name": (scheme.get("scheme") or "").strip(),
+                "isin": (scheme.get("isin") or "").strip(),
+                "folio_number": folio_num,
+                "amc": amc,
+                "num_units": round(units, 4),
+                "current_nav_inr": round(nav, 4),
+                "current_value_inr": round(current_value, 2),
+                "avg_cost_per_unit_inr": avg_cost,
+                "total_cost_inr": round(total_cost, 2),
+            })
+
+    return {
+        "statement_info": {},
+        "investor_info": {},
+        "portfolio_summary": {"total_value_inr": 0, "asset_allocation": []},
+        "portfolio_value_trend": [],
+        "accounts": [],
+        "holdings": {
+            "equities": [],
+            "preference_shares": [],
+            "sovereign_gold_bonds": [],
+            "mutual_funds_demat": [],
+            "mutual_fund_folios": mutual_fund_folios,
+        },
+        "transactions": {
+            "demat_transactions": [],
+            "mutual_fund_transactions": [],
+        },
+    }

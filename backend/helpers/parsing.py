@@ -305,6 +305,44 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
     except Exception:  # noqa: BLE001
         pass
 
+    # ── Fast pre-flight: casparser library (text-based PDFs, < 1 s) ─────
+    # Most NSDL / CDSL / CAMS e-CAS PDFs are digitally generated text PDFs.
+    # casparser extracts them in under a second — far faster than Document AI
+    # (5–30 s) or Claude Vision. Run it first; skip the expensive chain on hit.
+    try:
+        import casparser as _casparser
+        import time as _time
+        _t0 = _time.monotonic()
+        _cas_data = await asyncio.to_thread(
+            _casparser.read_cas_pdf, io.BytesIO(content), password or "", "dict"
+        )
+        _fast_holdings = convert_casparser_to_holdings(_cas_data)
+        if _fast_holdings:
+            _elapsed = _time.monotonic() - _t0
+            logger.info(
+                "parse_cas_pdf_with_data: casparser fast-path hit — %d holdings in %.2fs, skipping chain",
+                len(_fast_holdings), _elapsed,
+            )
+            try:
+                from services.masterdata import validate_and_enrich_holdings
+                _fast_holdings = validate_and_enrich_holdings(_fast_holdings)
+            except Exception:
+                pass
+            return _fast_holdings, _normalize_casparser_folios(_cas_data), _cas_data, "casparser_lib"
+        logger.info("parse_cas_pdf_with_data: casparser fast-path: no holdings (image PDF), proceeding to chain")
+    except Exception as _e:
+        err_lower = str(_e).lower()
+        if any(tok in err_lower for tok in ["password", "incorrect", "decrypt", "protected"]):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Wrong CAS PDF password. Enter your PAN in UPPERCASE "
+                    "(e.g. ABCDE1234F). All RTAs — CDSL, NSDL, CAMS, KFintech — "
+                    "use PAN as the password."
+                ),
+            )
+        logger.info("parse_cas_pdf_with_data: casparser fast-path failed (%s), proceeding to chain", _e)
+
     budget_error = None
     password_error = None
     for provider in chain:
@@ -447,6 +485,40 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
             )
     except Exception:  # noqa: BLE001
         pass
+
+    # ── Fast pre-flight: casparser library (text-based PDFs, < 1 s) ─────
+    try:
+        import casparser as _casparser
+        import time as _time
+        _t0 = _time.monotonic()
+        _cas_data = await asyncio.to_thread(
+            _casparser.read_cas_pdf, io.BytesIO(content), password or "", "dict"
+        )
+        _fast_holdings = convert_casparser_to_holdings(_cas_data)
+        if _fast_holdings:
+            logger.info(
+                "parse_cas_pdf: casparser fast-path hit — %d holdings in %.2fs",
+                len(_fast_holdings), _time.monotonic() - _t0,
+            )
+            try:
+                from services.masterdata import validate_and_enrich_holdings
+                _fast_holdings = validate_and_enrich_holdings(_fast_holdings)
+            except Exception:
+                pass
+            return _fast_holdings
+        logger.info("parse_cas_pdf: casparser fast-path: no holdings (image PDF), proceeding to chain")
+    except Exception as _e:
+        err_lower = str(_e).lower()
+        if any(tok in err_lower for tok in ["password", "incorrect", "decrypt", "protected"]):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Wrong CAS PDF password. Enter your PAN in UPPERCASE "
+                    "(e.g. ABCDE1234F). All RTAs — CDSL, NSDL, CAMS, KFintech — "
+                    "use PAN as the password."
+                ),
+            )
+        logger.info("parse_cas_pdf: casparser fast-path failed (%s), proceeding to chain", _e)
 
     for provider in chain:
         fn = handlers.get(provider)
