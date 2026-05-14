@@ -50,6 +50,7 @@ class WidgetType(str, Enum):
     STOCK_SCREENER = "stock_screener"
     FUND_COMPARISON = "fund_comparison"
     GOAL_TRACKER = "goal_tracker"
+    SIP_PLAN = "sip_plan"
     NONE = "none"
 
 

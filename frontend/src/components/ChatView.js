@@ -140,12 +140,31 @@ const _THINKING_PHRASES = [
   "Drafting the recommendation…",
 ];
 
-const StreamingIndicator = () => {
+const _TOOL_LABELS = {
+  get_portfolio_summary: "Loading portfolio…",
+  get_sip_projection: "Computing SIP projection…",
+  get_user_goals: "Fetching your goals…",
+  sip_projection: "Computing SIP projection…",
+  get_top_funds: "Ranking mutual funds…",
+  get_fundamental_comparison: "Pulling fundamental data…",
+  get_technical_comparison: "Fetching technical signals…",
+  get_full_tax_report: "Calculating tax impact…",
+  get_tax_harvest_candidates: "Scanning for harvest candidates…",
+  get_portfolio_xirr: "Computing XIRR…",
+  run_stress_test: "Running stress test…",
+  get_rebalance_plan: "Building rebalance plan…",
+};
+
+const StreamingIndicator = ({ toolName }) => {
   const [idx, setIdx] = React.useState(0);
   React.useEffect(() => {
+    if (toolName) return; // don't rotate when showing a specific tool
     const t = setInterval(() => setIdx((i) => (i + 1) % _THINKING_PHRASES.length), 2200);
     return () => clearInterval(t);
-  }, []);
+  }, [toolName]);
+  const label = toolName
+    ? (_TOOL_LABELS[toolName] || `Running ${toolName.replace(/_/g, " ")}…`)
+    : _THINKING_PHRASES[idx];
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -169,14 +188,14 @@ const StreamingIndicator = () => {
           </div>
           <AnimatePresence mode="wait">
             <motion.span
-              key={idx}
+              key={toolName || idx}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.25 }}
               className="text-xs text-slate-500 dark:text-slate-400 italic"
             >
-              {_THINKING_PHRASES[idx]}
+              {label}
             </motion.span>
           </AnimatePresence>
         </div>
@@ -278,6 +297,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
+  const [thinkingTool, setThinkingTool] = useState(null); // active tool name from SSE thinking events
   const [loadingMessages, setLoadingMessages] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -356,6 +376,19 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
     init();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchSessions, fetchMessages, fetchSuggestedPrompts]);
+
+  // In v2Mode: consume any pending message that was queued via sessionStorage
+  // (e.g. from the V2 home screen AI input before navigating to the copilot screen)
+  useEffect(() => {
+    if (!v2Mode) return;
+    const pending = sessionStorage.getItem("v2_pending_chat_message");
+    if (!pending) return;
+    sessionStorage.removeItem("v2_pending_chat_message");
+    // Small delay so ChatView is fully mounted before sending
+    const t = setTimeout(() => sendMessageWithText(pending), 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v2Mode]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -507,6 +540,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
     setSending(true);
     setStreaming(true);
     setStreamingContent("");
+    setThinkingTool(null);
 
     const tempUserMsg = { message_id: "temp_user", role: "user", content: text, created_at: new Date().toISOString() };
     setMessages((prev) => [...prev, tempUserMsg]);
@@ -542,6 +576,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
       let aiMsgId = "";
       let tokenQueue = [];
       let rendering = false;
+      let pendingWidget = null; // set when server emits a widget SSE event
 
       const renderTokens = () => {
         if (rendering || tokenQueue.length === 0) return;
@@ -577,9 +612,16 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                   : m
                 )
               );
+            } else if (data.type === "thinking") {
+              setThinkingTool(data.status === "start" ? (data.tool || null) : null);
             } else if (data.type === "token") {
+              setThinkingTool(null); // tool done once tokens start
               tokenQueue.push(data.content);
               renderTokens();
+            } else if (data.type === "widget") {
+              // Agent produced a structured widget — store it and attach to
+              // the final message when the done event fires.
+              pendingWidget = { kind: data.widget_type, ...(data.data || {}) };
             } else if (data.type === "done" || data.type === "error") {
               // Flush remaining tokens
               const remaining = tokenQueue.join("");
@@ -594,12 +636,15 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                   role: "assistant",
                   content: finalContent,
                   agent: turnAgent,   // Phase B: stamp the routed agent onto the message
+                  ...(pendingWidget ? { widget: pendingWidget } : {}),
                   created_at: new Date().toISOString(),
                 },
               ]);
               setStreamingContent("");
               setStreaming(false);
               setCurrentTurnAgent(null);
+              setThinkingTool(null);
+              pendingWidget = null;
             }
           } catch {
             // skip malformed SSE lines
@@ -1007,7 +1052,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                         </div>
                       </div>
                     ) : null)}
-                    {streaming && !streamingContent && <StreamingIndicator />}
+                    {streaming && !streamingContent && <StreamingIndicator toolName={thinkingTool} />}
                     {streaming && streamingContent && (
                       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 justify-start">
                         <div className="w-8 h-8 bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
@@ -1243,7 +1288,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                 )}
 
                 {/* Thinking indicator (before first token arrives) */}
-                {streaming && !streamingContent && <StreamingIndicator />}
+                {streaming && !streamingContent && <StreamingIndicator toolName={thinkingTool} />}
 
                 <div ref={messagesEndRef} />
               </div>

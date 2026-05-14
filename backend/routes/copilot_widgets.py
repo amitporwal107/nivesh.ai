@@ -365,56 +365,110 @@ async def compare_funds(request: Request, payload: CompareRequest):
 class SipPlanRequest(BaseModel):
     monthly_budget: float = Field(..., gt=0, le=10_000_000)
     risk_label: Optional[str] = "Moderate"   # Conservative | Moderate | Aggressive
+    years: Optional[int] = Field(default=10, ge=1, le=40)
+    goal_amount: Optional[float] = Field(default=None, ge=0)
+    step_up_pct: Optional[float] = Field(default=0.0, ge=0.0, le=0.5)
+
+
+# Fund split templates by risk band — used for allocation labels only;
+# amounts come from the SIP projection tool.
+_SPLITS = {
+    "Conservative": [
+        ("Nifty 50 Index Fund", 0.30, "equity"),
+        ("Short-term Debt Fund", 0.45, "debt"),
+        ("Hybrid Equity Savings", 0.25, "balanced"),
+    ],
+    "Moderate": [
+        ("Flexi-Cap Fund (Parag Parikh)", 0.50, "equity"),
+        ("Nifty Next 50 Index Fund", 0.30, "equity"),
+        ("Short-term Debt Fund", 0.20, "debt"),
+    ],
+    "Aggressive": [
+        ("Flexi-Cap Fund (Parag Parikh)", 0.45, "equity"),
+        ("Small-Cap Index Fund", 0.30, "equity"),
+        ("Mid-Cap Growth Fund", 0.25, "equity"),
+    ],
+}
+
+_RATE_BY_CATEGORY = {"equity": 0.12, "debt": 0.07, "balanced": 0.10}
 
 
 @router.post("/sip_plan")
 async def sip_plan(request: Request, payload: SipPlanRequest):
-    """Suggest a 3-bucket SIP allocation envelope. Deterministic split
-    by risk label for Phase B; Phase C will pull from the Advisor agent
-    using the user's actual risk profile + drift."""
+    """SIP allocation envelope backed by the sip.py projection engine."""
     await get_current_user(request)
     rl = (payload.risk_label or "Moderate").title()
-    splits = {
-        "Conservative": [("Nifty 50 Index", 0.30), ("Short-term Debt", 0.45), ("Hybrid Equity Savings", 0.25)],
-        "Moderate":     [("Flexi-Cap (Parag Parikh)", 0.50), ("Nifty Next 50 Index", 0.30), ("Short-term Debt", 0.20)],
-        "Aggressive":   [("Flexi-Cap (Parag Parikh)", 0.45), ("Small-Cap Index", 0.30), ("Mid-Cap Growth", 0.25)],
-    }
-    plan = splits.get(rl, splits["Moderate"])
-    allocations = [
-        SipPlanAllocation(
-            scheme_name=name,
-            monthly_amount=round(payload.monthly_budget * pct / 100) * 100,
-            rationale=f"Allocates {int(pct*100)}% of the monthly budget to {name}.",
-        )
-        for name, pct in plan
+    plan = _SPLITS.get(rl, _SPLITS["Moderate"])
+    years = payload.years or 10
+
+    # Build per-fund allocations using the projection tool for accurate FV
+    try:
+        from services.copilot_tools.sip import get_sip_projection
+        sip_available = True
+    except ImportError:
+        sip_available = False
+
+    allocations = []
+    portfolio_fv = 0.0
+    for scheme_name, pct, cat in plan:
+        bucket_amount = payload.monthly_budget * pct
+        rationale_rate = _RATE_BY_CATEGORY.get(cat, 0.10)
+        if sip_available:
+            proj = await get_sip_projection(
+                monthly_amount=bucket_amount,
+                years=years,
+                annual_rate=rationale_rate,
+                goal_amount=payload.goal_amount * pct if payload.goal_amount else None,
+                step_up_pct=payload.step_up_pct or 0.0,
+                fund_category=cat,
+            )
+            fv_str = f"→ ~₹{proj.data['future_value']:,.0f} in {years}yr" if proj.ok else ""
+            portfolio_fv += proj.data.get("future_value", 0) if proj.ok else 0
+        else:
+            fv_str = ""
+        allocations.append(SipPlanAllocation(
+            scheme_name=scheme_name,
+            monthly_amount=round(bucket_amount / 100) * 100,
+            rationale=f"{int(pct * 100)}% of budget · {cat.title()} {fv_str}".strip(),
+        ))
+
+    # Build why_these including overall projection summary
+    fv_display = f"₹{portfolio_fv / 1e7:.1f}Cr" if portfolio_fv >= 1e7 else (
+        f"₹{portfolio_fv / 1e5:.1f}L" if portfolio_fv >= 1e5 else f"₹{portfolio_fv:,.0f}"
+    )
+    why_these = [
+        f"Aligned to {rl} risk profile across {len(plan)} buckets",
+        "Blends index + active funds for cost-efficiency and alpha potential",
+        f"Projected corpus in {years}yr: ~{fv_display} (before tax, at assumed CAGR)",
     ]
+    if payload.step_up_pct and payload.step_up_pct > 0:
+        why_these.append(f"{int(payload.step_up_pct * 100)}% annual step-up applied to each bucket")
+    counter_points = [
+        "Replace flexi-cap with a value/contra fund if you already hold one",
+        "STCG applies if equity units redeemed within 12 months",
+    ]
+    if payload.goal_amount:
+        counter_points.insert(0, "Re-run projection if your goal amount or horizon changes")
 
     data = SipPlanData(
         monthly_budget=payload.monthly_budget,
         allocations=allocations,
-        why_these=[
-            f"Aligned to {rl} risk band",
-            "Mixes index + actively managed funds for cost/alpha balance",
-            "Debt sleeve sized for liquidity + drawdown buffer",
-        ],
-        counter_points=[
-            "Replace flexi-cap with a value/contra fund if you already hold one",
-            "Tax: STCG applies if held < 12 months",
-        ],
+        why_these=why_these,
+        counter_points=counter_points,
     )
     env = WidgetEnvelope(
         kind="sip_plan",
-        title=f"SIP plan · ₹{int(payload.monthly_budget):,}/month",
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["nivesh.advisor"]),
-        agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
-                        version="v1", confidence=78),
+        title=f"SIP plan · ₹{int(payload.monthly_budget):,}/month · {years}yr",
+        freshness=FreshnessChip(state="live", last_updated=_iso_now(),
+                                source=["nivesh.sip_engine"]),
+        agent=AgentInfo(id="goal_planner", label="Goal Planner",
+                        version="v2", confidence=82),
         data=data.model_dump(),
         primary_cta={"label": "Set up SIP", "action": "setup_sip"},
         suggestions=[
-            "Compare these picks",
-            "Tax impact",
-            "Run a stress test on this plan",
+            f"What if I increase SIP by 10% every year?",
+            "Compare these fund picks",
+            "Show tax impact of this plan",
         ],
     )
     return env.model_dump()

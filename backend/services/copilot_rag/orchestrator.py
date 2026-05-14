@@ -517,6 +517,16 @@ async def answer(
     retrieval = await _retrieve(intent, user_id)
     _attach_chart(retrieval, intent)
     payload_text = _format_rows_for_llm(retrieval, intent)
+
+    # Inject live market context when NIDP_COPILOT_ENABLED=true (fails open)
+    try:
+        from services.nidp_context import get_market_context
+        market_ctx = await get_market_context()
+        if market_ctx:
+            payload_text = payload_text + "\n\n" + market_ctx
+    except Exception as _nidp_exc:
+        logger.debug("NIDP context injection skipped: %s", _nidp_exc)
+
     prose = await _llm_prose(payload_text, message, history)
     return {
         "prose": prose,

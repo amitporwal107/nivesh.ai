@@ -30,6 +30,7 @@ if _USE_LANGGRAPH:
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
         from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
         from langchain_core.messages import HumanMessage as _HumanMessage
+        from langchain_core.messages import AIMessage as _AIMessage
         logger.info("LangGraph copilot agent ENABLED")
     except Exception as _lg_err:
         logger.warning("LangGraph import failed (%s) — falling back to RAG", _lg_err)
@@ -1015,27 +1016,55 @@ async def stream_chat(request: Request):
                     # ── LangGraph multi-agent path ──────────────────────────
                     graph = _get_copilot_graph()
                     lg_config = {"configurable": {"thread_id": session_id}}
+
+                    # Inject conversation history so context survives server
+                    # restarts — MemorySaver is in-process only; MongoDB is
+                    # the authoritative store.  We pre-populate the LangGraph
+                    # messages list with the last 10 turns (20 messages) from
+                    # the DB, then append the new human message.
+                    lg_messages = []
+                    for m in history[-20:]:
+                        if m["role"] == "user":
+                            lg_messages.append(_HumanMessage(content=m["content"]))
+                        elif m["role"] == "assistant":
+                            lg_messages.append(_AIMessage(content=m["content"]))
+                    lg_messages.append(_HumanMessage(content=message))
+
                     lg_input = {
-                        "messages": [_HumanMessage(content=message)],
+                        "messages": lg_messages,
                         "user_id": user_id,
                         "session_id": session_id,
                     }
                     prose = ""
+                    widget_envelope: Optional[Dict] = None
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
+                        # Emit thinking indicators for tool calls so frontend can show progress
+                        if kind == "on_tool_start":
+                            tool_name = event.get("name") or event.get("data", {}).get("input", {}).get("name", "tool")
+                            yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'start'})}\n\n"
+                        elif kind == "on_tool_end":
+                            tool_name = event.get("name") or "tool"
+                            yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'end'})}\n\n"
                         # Stream tokens as they come from any LLM node
-                        if kind == "on_chat_model_stream":
+                        elif kind == "on_chat_model_stream":
                             chunk = event.get("data", {}).get("chunk")
                             if chunk and hasattr(chunk, "content") and chunk.content:
                                 prose += chunk.content
                                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
-                        # After graph finishes, grab the final response text
+                        # After graph finishes, grab the final response + widget
                         elif kind == "on_chain_end" and event.get("name") == "LangGraph":
                             output = event.get("data", {}).get("output", {})
                             final_resp = output.get("response")
-                            if final_resp and not prose:
-                                # fallback: response was not streamed token-by-token
-                                prose = getattr(final_resp, "text", "") or str(final_resp)
+                            if final_resp:
+                                if not prose:
+                                    # fallback: response was not streamed token-by-token
+                                    prose = getattr(final_resp, "text", "") or str(final_resp)
+                                # Extract widget envelope when the agent produced one
+                                wt = getattr(final_resp, "widget_type", None)
+                                wd = getattr(final_resp, "widget_data", None)
+                                if wt and wt != "none" and wd:
+                                    widget_envelope = {"widget_type": wt, "data": wd}
 
                     # If nothing was streamed (all models returned at once), chunk now
                     if prose and not full_response:
@@ -1046,6 +1075,11 @@ async def stream_chat(request: Request):
                             yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
                     else:
                         full_response = prose
+
+                    # Emit widget envelope after prose so the frontend can
+                    # render the structured widget alongside the text answer.
+                    if widget_envelope:
+                        yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
 
                 else:
                     # ── RAG orchestrator path (default) ────────────────────

@@ -184,16 +184,36 @@ async def save_quick_setup(request: Request, body: QuickSetupInput):
     horizon_years = {"short": 3, "medium": 5, "long": 10, "very_long": 20}[body.investment_horizon]
     projection = None
     if body.monthly_investment and body.monthly_investment > 0:
-        monthly_rate = expected_return / 12
-        months = horizon_years * 12
-        fv = body.monthly_investment * (((1 + monthly_rate) ** months - 1) / monthly_rate) * (1 + monthly_rate) if monthly_rate > 0 else body.monthly_investment * months
-        projection = {
-            "monthly_sip": body.monthly_investment,
-            "years": horizon_years,
-            "total_invested": round(body.monthly_investment * months),
-            "projected_value": round(fv),
-            "expected_annual_return": round(expected_return * 100, 1),
-        }
+        try:
+            from services.copilot_tools.sip import get_sip_projection, calculate_sip_fv
+            sip_result = await get_sip_projection(
+                monthly_amount=float(body.monthly_investment),
+                years=horizon_years,
+                annual_rate=expected_return,
+            )
+            if sip_result.ok:
+                projection = {
+                    "monthly_sip": body.monthly_investment,
+                    "years": horizon_years,
+                    "total_invested": sip_result.data["invested_amount"],
+                    "projected_value": sip_result.data["future_value"],
+                    "wealth_gained": sip_result.data["wealth_gained"],
+                    "multiplier": sip_result.data["multiplier"],
+                    "expected_annual_return": round(expected_return * 100, 1),
+                    "yearly_projection": sip_result.rows,
+                }
+        except Exception as _sip_err:
+            logger.warning("sip_projection fallback: %s", _sip_err)
+            monthly_rate = expected_return / 12
+            months = horizon_years * 12
+            fv = body.monthly_investment * (((1 + monthly_rate) ** months - 1) / monthly_rate) * (1 + monthly_rate) if monthly_rate > 0 else body.monthly_investment * months
+            projection = {
+                "monthly_sip": body.monthly_investment,
+                "years": horizon_years,
+                "total_invested": round(body.monthly_investment * months),
+                "projected_value": round(fv),
+                "expected_annual_return": round(expected_return * 100, 1),
+            }
     goal_labels = {"retirement": "retirement corpus", "house": "dream home", "education": "education fund", "travel": "travel goals", "wealth": "long-term wealth", "emergency": "emergency fund"}
     goal_label = goal_labels.get(body.goal, "financial goal")
     insights = []
