@@ -41,6 +41,8 @@ services:
       POSTGRES_USER:     ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB:       ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - /opt/nivesh/data/postgres:/var/lib/postgresql/data
     networks: [nivesh-prod]
@@ -76,7 +78,9 @@ services:
     volumes:
       - /opt/nivesh/repo/backend:/app/backend
       - /opt/nivesh/data/app:/app/data
-    networks: [nivesh-prod]
+    networks: [nivesh-prod, nidp-bridge]
+    extra_hosts:
+      - "host-gateway:host-gateway"
     logging: *default-logging
     depends_on:
       mongodb:  { condition: service_healthy }
@@ -93,7 +97,12 @@ services:
     image: nivesh/frontend:prod
     container_name: nivesh-frontend
     restart: unless-stopped
-    ports: ["80:80"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/nivesh/ssl:/etc/nginx/ssl:ro
+      - ./nginx.conf:/etc/nginx/conf.d/app.conf:ro
     networks: [nivesh-prod]
     logging: *default-logging
     depends_on:
@@ -122,3 +131,6 @@ services:
 networks:
   nivesh-prod:
     name: nivesh-prod
+  nidp-bridge:
+    name: nidp-bridge
+    external: true
