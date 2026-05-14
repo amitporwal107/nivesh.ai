@@ -75,6 +75,7 @@ services:
     env_file: /opt/nivesh/.env.prod
     volumes:
       - /opt/nivesh/repo/backend:/app/backend
+      - /opt/nivesh/data/app:/app/data
     networks: [nivesh-prod]
     logging: *default-logging
     depends_on:

@@ -333,8 +333,9 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
                 password_error = HTTPException(
                     status_code=400,
                     detail=(
-                        "Wrong CAS PDF password. Please re-enter your PAN "
-                        "(format: ABCDE1234F) and try again."
+                        "Wrong CAS PDF password. Try: (1) your PAN e.g. ABCDE1234F, "
+                        "or (2) PAN + date of birth as DDMMYYYY e.g. ABCDE1234F01011990 "
+                        "(NSDL/CAMS use this format)."
                     ),
                 )
                 logger.warning(f"parse_cas_pdf_with_data: password error on {provider} — aborting chain")
@@ -476,8 +477,9 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "Wrong CAS PDF password. Please re-enter your PAN "
-                        "(format: ABCDE1234F) and try again."
+                        "Wrong CAS PDF password. Try: (1) your PAN e.g. ABCDE1234F, "
+                        "or (2) PAN + date of birth as DDMMYYYY e.g. ABCDE1234F01011990 "
+                        "(NSDL/CAMS use this format)."
                     ),
                 )
             logger.warning(f"parse_cas_pdf: {provider} failed ({e}), trying next")

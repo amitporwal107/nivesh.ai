@@ -289,16 +289,20 @@ const GmailImport = ({ onRefresh }) => {
                                       <p className="text-[10px] text-slate-400">{(att.size / 1024).toFixed(0)} KB</p>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      <div className="flex items-center gap-1">
-                                        <Lock className="w-3 h-3 text-slate-400" />
-                                        <input
-                                          type="password"
-                                          placeholder="Password"
-                                          value={passwordMap[key] || ""}
-                                          onChange={(e) => setPasswordMap(prev => ({ ...prev, [key]: e.target.value }))}
-                                          className="w-24 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-300 placeholder:text-slate-400"
-                                          data-testid={`gmail-password-${i}-${ai}`}
-                                        />
+                                      <div className="flex flex-col gap-0.5">
+                                        <div className="flex items-center gap-1">
+                                          <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                          <input
+                                            type="password"
+                                            placeholder="PDF password"
+                                            autoComplete="new-password"
+                                            value={passwordMap[key] || ""}
+                                            onChange={(e) => setPasswordMap(prev => ({ ...prev, [key]: e.target.value }))}
+                                            className="w-28 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-300 placeholder:text-slate-400"
+                                            data-testid={`gmail-password-${i}-${ai}`}
+                                          />
+                                        </div>
+                                        <p className="text-[9px] text-slate-400 pl-4">PAN · or PAN+DDMMYYYY</p>
                                       </div>
                                       {email.already_imported ? (
                                         <span className="flex items-center gap-1 text-xs text-emerald-600">
