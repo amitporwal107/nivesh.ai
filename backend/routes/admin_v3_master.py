@@ -303,7 +303,7 @@ async def v3_master_funds(request: Request, limit: int = 0):
     try:
         await pg_client.get_pool()
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"v3-master-funds: pg unavailable → {e}")
+        logger.warning("v3-master-funds: pg unavailable → %s", e)
         raise HTTPException(status_code=503, detail="Postgres not configured") from e
     funds = await _fetch_master_funds(limit=limit if limit > 0 else None)
     by_cat: Dict[str, int] = {}

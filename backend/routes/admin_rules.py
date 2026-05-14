@@ -249,5 +249,5 @@ async def test_prompt(name: str, request: Request) -> Dict[str, Any]:
             return {"system": system[:2000], "user": user_text,
                     "response": resp.choices[0].message.content, "error": None}
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"prompt test failed: {e}")
+        logger.warning("prompt test failed: %s", e)
         return {"system": system[:2000], "user": user_text, "response": None, "error": str(e)}

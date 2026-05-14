@@ -234,7 +234,7 @@ def parse_equities(text: str) -> List[Dict]:
         else:
             i += 1
 
-    logger.info(f"Equities: parsed {len(holdings)} holdings")
+    logger.info("Equities: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -306,7 +306,7 @@ def parse_mf_demat(text: str) -> List[Dict]:
         else:
             i += 1
 
-    logger.info(f"MF Demat: parsed {len(holdings)} holdings")
+    logger.info("MF Demat: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -375,7 +375,7 @@ def parse_sgb(text: str) -> List[Dict]:
         else:
             i += 1
 
-    logger.info(f"SGB: parsed {len(holdings)} holdings")
+    logger.info("SGB: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -506,7 +506,7 @@ def parse_mf_folios(text: str) -> List[Dict]:
                 "sector": _classify_sector(name),
             })
 
-    logger.info(f"MF Folios: parsed {len(holdings)} holdings")
+    logger.info("MF Folios: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -585,7 +585,7 @@ def parse_cdsl_equities(text: str) -> List[Dict]:
         else:
             i += 1
 
-    logger.info(f"CDSL Equities: parsed {len(holdings)} holdings")
+    logger.info("CDSL Equities: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -683,7 +683,7 @@ def parse_cdsl_mf_folios(text: str) -> List[Dict]:
         else:
             i += 1
 
-    logger.info(f"CDSL MF Folios: parsed {len(holdings)} holdings")
+    logger.info("CDSL MF Folios: parsed %d holdings", len(holdings))
     return holdings
 
 
@@ -700,11 +700,11 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
     try:
         images = convert_from_bytes(content, **kwargs)
     except Exception as e:
-        logger.error(f"PDF to image conversion failed: {e}")
+        logger.error("PDF to image conversion failed: %s", e)
         return []
 
     total_pages = len(images)
-    logger.info(f"CAS PDF: {total_pages} pages")
+    logger.info("CAS PDF: %d pages", total_pages)
 
     # ── Phase 1: Quick scan first 2 pages (low DPI) to detect CAS type + summary ──
     scan_texts = []
@@ -714,11 +714,11 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
     scan_combined = "\n".join(scan_texts)
     is_cdsl = len(re.findall(r'C\s*D\s*S\s*L', scan_combined)) > 2
     cas_type = "CDSL" if is_cdsl else "NSDL"
-    logger.info(f"Detected CAS type: {cas_type}")
+    logger.info("Detected CAS type: %s", cas_type)
 
     # Extract summary totals from first 2-3 pages
     summary = _extract_summary(scan_combined, cas_type)
-    logger.info(f"Summary: {summary}")
+    logger.info("Summary: %s", summary)
 
     # ── Phase 2: Identify holdings pages ──
     holdings_pages = []
@@ -735,7 +735,7 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         if is_holdings_page:
             holdings_pages.append(i)
 
-    logger.info(f"Holdings pages identified: {[p+1 for p in holdings_pages]} (of {total_pages})")
+    logger.info("Holdings pages identified: %s (of %d)", [p+1 for p in holdings_pages], total_pages)
 
     # ── Phase 3: OCR holdings pages at TWO DPI levels (200 + 300) for maximum recall.
     # Different DPIs catch different rows depending on font density / page noise.
@@ -752,7 +752,7 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
                 hires_images[p] = hi_imgs[0]
                 page_texts_300[p] = ocr_page(hi_imgs[0])
     except Exception as e:
-        logger.warning(f"300 DPI re-render failed: {e}")
+        logger.warning("300 DPI re-render failed: %s", e)
 
     ordered_texts_200 = [page_texts_200[i] for i in sorted(page_texts_200.keys())]
     ordered_texts_300 = [page_texts_300[i] for i in sorted(page_texts_300.keys())] if page_texts_300 else []
@@ -807,9 +807,9 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         from services.cas_parser_tables import parse_pages_via_tables
         holdings_page_imgs = [images[i] for i in holdings_pages]
         holdings_tbl = parse_pages_via_tables(holdings_page_imgs)
-        logger.info(f"img2table pass: {len(holdings_tbl)} holdings")
+        logger.info("img2table pass: %d holdings", len(holdings_tbl))
     except Exception as e:
-        logger.warning(f"img2table pass failed ({e}); using text-only result")
+        logger.warning("img2table pass failed (%s); using text-only result", e)
 
     # ── Phase 4c: Merge text + table parses. A single ISIN can appear multiple
     # times (different folios of the same fund = distinct holdings), so we key
@@ -882,7 +882,7 @@ def parse_nsdl_cas_image(content: bytes, password: str = "") -> List[Dict]:
         else:
             collapsed[tk] = dict(h)
     holdings = list(collapsed.values())
-    logger.info(f"After ISIN-dedup: {len(holdings)} unique ISINs")
+    logger.info("After ISIN-dedup: %d unique ISINs", len(holdings))
 
     # ── Phase 5: Apply learned OCR corrections ──
     from services.ocr_correction import apply_corrections
@@ -990,9 +990,9 @@ def _validate_against_summary(holdings: list, summary: dict):
     expected = summary.get("total", 0)
     if expected > 0:
         coverage = total_parsed / expected
-        logger.info(f"Validation: parsed ₹{total_parsed:,.0f} / expected ₹{expected:,.0f} ({coverage:.0%})")
+        logger.info("Validation: parsed %.0f / expected %.0f (%.0f%%)", total_parsed, expected, coverage * 100)
     else:
-        logger.info(f"Validation: parsed ₹{total_parsed:,.0f} (no summary total to compare)")
+        logger.info("Validation: parsed %.0f (no summary total to compare)", total_parsed)
 
 
 def _parse_nsdl_cas(page_texts: list) -> List[Dict]:
@@ -1002,7 +1002,7 @@ def _parse_nsdl_cas(page_texts: list) -> List[Dict]:
     for i, text in enumerate(page_texts):
         if TRANSACTION_MARKER.search(text) and i > 3:
             holdings_end_page = i
-            logger.info(f"NSDL transaction section at page {i+1}")
+            logger.info("NSDL transaction section at page %d", i+1)
             break
 
     combined = "\n".join(page_texts[1:holdings_end_page])
@@ -1099,5 +1099,5 @@ def _deduplicate(all_holdings: list) -> list:
         if key[0]:
             seen.add(key)
         unique.append(h)
-    logger.info(f"CAS local OCR: {len(all_holdings)} total → {len(unique)} unique holdings")
+    logger.info("CAS local OCR: %d total -> %d unique holdings", len(all_holdings), len(unique))
     return unique

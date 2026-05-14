@@ -117,11 +117,11 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
                 json={"expiry_minutes": max(5, min(expiry_minutes, 60))},
             )
     except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning(f"CAS Parser token mint failed: {e}")
+        logger.warning("CAS Parser token mint failed: %s", e)
         return None
 
     if resp.status_code >= 400:
-        logger.warning(f"CAS Parser token mint HTTP {resp.status_code}: {resp.text[:200]}")
+        logger.warning("CAS Parser token mint HTTP %s: %s", resp.status_code, resp.text[:200])
         return None
 
     try:
@@ -174,22 +174,22 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
                 data={"password": password or ""},
             )
     except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning(f"CAS Parser API network error: {e}")
+        logger.warning("CAS Parser API network error: %s", e)
         return None
 
     if resp.status_code >= 400:
-        logger.warning(f"CAS Parser API HTTP {resp.status_code}: {resp.text[:300]}")
+        logger.warning("CAS Parser API HTTP %s: %s", resp.status_code, resp.text[:300])
         return None
 
     try:
         data = resp.json()
     except Exception as e:
-        logger.warning(f"CAS Parser API non-JSON response: {e}")
+        logger.warning("CAS Parser API non-JSON response: %s", e)
         return None
 
     # The API uses {"status": "failed", "msg": "..."} for logical errors
     if isinstance(data, dict) and data.get("status") == "failed":
-        logger.warning(f"CAS Parser API failed: {data.get('msg')}")
+        logger.warning("CAS Parser API failed: %s", data.get('msg'))
         return None
 
     return data
@@ -469,7 +469,7 @@ def map_api_response_to_holdings(data: dict) -> List[Dict]:
                 "sector": "Retirement",
             })
 
-    logger.info(f"CAS API → {len(holdings)} holdings mapped")
+    logger.info("CAS API → %s holdings mapped", len(holdings))
     return holdings
 
 

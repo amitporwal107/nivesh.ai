@@ -71,7 +71,7 @@ async def fetch_scheme_history(scheme_code: str) -> Optional[dict]:
             "return_1y": return_1y,
         }
     except Exception as e:
-        logger.warning(f"mfapi.in fetch failed for {scheme_code}: {e}")
+        logger.warning("mfapi.in fetch failed for %s: %s", scheme_code, e)
         return None
 
 

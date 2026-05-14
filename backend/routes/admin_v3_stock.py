@@ -68,7 +68,7 @@ async def put_v3_stock_weights(request: Request, payload: StockWeightsPayload):
     for dim, wmap in cfg.items():
         stock_scoring.set_weights(dim, {k: int(round(v)) for k, v in wmap.items()})
     await stock_scoring.persist_to_db(db)
-    logger.info(f"v3-stock-weights updated; dimensions={list(cfg)}")
+    logger.info("v3-stock-weights updated; dimensions=%s", list(cfg))
     return {"status": "ok", "weights": stock_scoring.get_full_config()}
 
 
@@ -93,7 +93,7 @@ async def trigger_v3_stock_refresh(request: Request, symbol: Optional[str] = Non
     subset = [symbol.upper()] if symbol else None
     job_label = "stock_refresh_manual" if symbol else "nifty100_refresh"
     result = await _gs.refresh_nifty_100(symbols_subset=subset, job_name=job_label)
-    logger.info(f"v3-stock-refresh done: {result.get('succeeded', 0)}/{result.get('total', 0)}")
+    logger.info("v3-stock-refresh done: %s/%s", result.get('succeeded', 0), result.get('total', 0))
     return result
 
 
@@ -130,7 +130,7 @@ async def get_v3_stock_master(
                 limit,
             )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"v3-stock-master fetch failed: {e}")
+        logger.warning("v3-stock-master fetch failed: %s", e)
         return {"funds": [], "total": 0, "error": str(e)}
 
     out = []

@@ -147,7 +147,7 @@ async def project_health(user_id: str) -> Optional[Dict[str, Any]]:
             if _mutate_for_action(shadow, act):
                 mutated += 1
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"projection mutate failed for {act.get('action_id')}: {e}")
+            logger.warning("projection mutate failed for %s: %s", act.get('action_id'), e)
 
     # Compute projected Health against shadow holdings
     projected_payload = None
@@ -156,7 +156,7 @@ async def project_health(user_id: str) -> Optional[Dict[str, Any]]:
             projected_hr = await _build_health_from_holdings(user_id, shadow)
             projected_payload = projected_hr.to_dict()
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"projection build_from_holdings failed: {e}")
+            logger.warning("projection build_from_holdings failed: %s", e)
 
     # Delta (per-component)
     delta_total = None

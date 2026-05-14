@@ -79,7 +79,7 @@ async def _log_job_row(
                 duration_ms, error_msg,
             )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[{job_name}] audit log write failed: {e}")
+        logger.warning("[%s] audit log write failed: %s", job_name, e)
 
 
 async def _last_success(job_name: str) -> Optional[Dict[str, Any]]:
@@ -154,7 +154,7 @@ async def _process_one_analytics(iid: str, sem: asyncio.Semaphore) -> Tuple[str,
             await pipeline_progress.tick("analytics_sweep", processed_delta=1)
             return iid, "ok"
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"[analytics_sweep] {iid} failed: {e}")
+            logger.warning("[analytics_sweep] %s failed: %s", iid, e)
             await pipeline_progress.tick("analytics_sweep", processed_delta=0, failed_delta=1)
             return iid, "failed"
 
@@ -264,7 +264,7 @@ async def _compute_and_cache_scores(iid: str) -> Tuple[str, str]:
         })
         return iid, "ok"
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"[v3_rescore] {iid} failed: {e}")
+        logger.warning("[v3_rescore] %s failed: %s", iid, e)
         return iid, "failed"
 
 

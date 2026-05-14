@@ -68,7 +68,7 @@ def add_isin_correction(garbled_isin: str, correct_isin: str, context: str = "")
                     db["patterns"].append(pattern)
 
     _save_corrections(db)
-    logger.info(f"Learned ISIN correction: {garbled_isin} → {correct_isin}")
+    logger.info("Learned ISIN correction: %s → %s", garbled_isin, correct_isin)
 
 
 def add_name_correction(garbled_name: str, correct_name: str, isin: str = ""):
@@ -82,7 +82,7 @@ def add_name_correction(garbled_name: str, correct_name: str, isin: str = ""):
     }
     db["stats"]["total_corrections"] += 1
     _save_corrections(db)
-    logger.info(f"Learned name correction: '{garbled_name}' → '{correct_name}'")
+    logger.info("Learned name correction: '%s' → '%s'", garbled_name, correct_name)
 
 
 def apply_corrections(holdings: list) -> list:
@@ -103,7 +103,7 @@ def apply_corrections(holdings: list) -> list:
             h["ticker"] = correction["correct"]
             correction["times_applied"] = correction.get("times_applied", 0) + 1
             applied += 1
-            logger.debug(f"Auto-corrected ISIN: {isin} → {correction['correct']}")
+            logger.debug("Auto-corrected ISIN: %s → %s", isin, correction['correct'])
             continue
 
         # 2. Pattern-based ISIN correction
@@ -120,7 +120,7 @@ def apply_corrections(holdings: list) -> list:
                 if new_isin != isin:
                     h["ticker"] = new_isin
                     applied += 1
-                    logger.debug(f"Pattern-corrected ISIN: {isin} → {new_isin}")
+                    logger.debug("Pattern-corrected ISIN: %s → %s", isin, new_isin)
 
         # 3. Name correction
         name_key = name.lower().strip()
@@ -149,7 +149,7 @@ def apply_corrections(holdings: list) -> list:
     if applied > 0:
         db["stats"]["auto_applied"] += applied
         _save_corrections(db)
-        logger.info(f"Applied {applied} learned corrections")
+        logger.info("Applied %s learned corrections", applied)
 
     return holdings
 
@@ -187,7 +187,7 @@ def seed_known_corrections():
     for garbled, correct, isin in known_name_corrections:
         add_name_correction(garbled, correct, isin)
 
-    logger.info(f"Seeded {len(known_isin_corrections)} ISIN + {len(known_name_corrections)} name corrections")
+    logger.info("Seeded %s ISIN + %s name corrections", len(known_isin_corrections), len(known_name_corrections))
 
 
 def get_correction_stats() -> dict:

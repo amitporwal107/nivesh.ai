@@ -1,0 +1,10 @@
+# Terraform state and local overrides — never commit
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# SA keys copied here for apply runs
+*.json

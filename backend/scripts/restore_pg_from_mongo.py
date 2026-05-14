@@ -55,7 +55,7 @@ async def _restore_all() -> dict:
         logger.error("MONGO_URL not set — aborting")
         return {"ok": False, "reason": "no_mongo_url"}
 
-    logger.info(f"Connecting to Mongo db={db_name}")
+    logger.info("Connecting to Mongo db=%s", db_name)
     client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
     db = client[db_name]
 
@@ -73,7 +73,7 @@ async def _restore_all() -> dict:
         return {"ok": False, "reason": "pg_pool_unavailable"}
 
     total = await db.fund_holdings_cache.count_documents({})
-    logger.info(f"Found {total} cached scrape payloads in fund_holdings_cache")
+    logger.info("Found %s cached scrape payloads in fund_holdings_cache", total)
     if total == 0:
         logger.info("Nothing to restore. Exiting.")
         return {"ok": True, "restored": 0, "failed": 0, "skipped": 0}
@@ -83,7 +83,7 @@ async def _restore_all() -> dict:
     async for doc in cursor:
         scheme_name = doc.get("scheme_name") or doc.get("metadata", {}).get("scheme_name") or "?"
         if not doc.get("valid", True):
-            logger.debug(f"SKIP invalid scrape: {scheme_name}")
+            logger.debug("SKIP invalid scrape: %s", scheme_name)
             skipped += 1
             continue
         try:
@@ -91,13 +91,13 @@ async def _restore_all() -> dict:
             if mf_id:
                 restored += 1
                 if restored % 10 == 0:
-                    logger.info(f"  …restored {restored}/{total}")
+                    logger.info("  …restored %s/%s", restored, total)
             else:
                 failed += 1
-                logger.warning(f"persist_scrape returned None for {scheme_name[:60]}")
+                logger.warning("persist_scrape returned None for %s", scheme_name[:60])
         except Exception as e:
             failed += 1
-            logger.warning(f"FAIL {scheme_name[:60]}: {e}")
+            logger.warning("FAIL %s: %s", scheme_name[:60], e)
 
     logger.info(
         f"Restore complete: {restored} restored, {failed} failed, {skipped} skipped "
@@ -118,7 +118,7 @@ def main() -> int:
         logger.warning("Interrupted by user")
         return 130
     except Exception as e:
-        logger.exception(f"Unhandled failure: {e}")
+        logger.exception("Unhandled failure: %s", e)
         return 1
     return 0 if result.get("ok") else 2
 

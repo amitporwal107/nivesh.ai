@@ -65,7 +65,7 @@ async def put_v3_weights(request: Request, payload: WeightsPayload):
         for dim, wmap in dims.items():
             v3_weights.set_weights(cat, dim, {k: int(round(v)) for k, v in wmap.items()})
     await v3_weights.save_to_db(db)
-    logger.info(f"v3-weights updated; categories={list(cfg)}")
+    logger.info("v3-weights updated; categories=%s", list(cfg))
     return {"status": "ok", "weights": v3_weights.get_full_config()}
 
 

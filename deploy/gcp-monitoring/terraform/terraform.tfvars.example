@@ -1,0 +1,25 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# Never commit terraform.tfvars — it contains resource IDs.
+
+project_id = "niveshdataintelligence"
+region     = "asia-south1"
+
+# Create notification channels in Cloud Console first, then paste IDs here.
+# Console: Monitoring → Alerting → Notification channels
+# Format: "projects/niveshdataintelligence/notificationChannels/1234567890"
+notification_channel_ids = [
+  # "projects/niveshdataintelligence/notificationChannels/REPLACE_ME",
+]
+
+# ── Alert thresholds (optional — these are the defaults) ─────────────────────
+# main_app_error_spike_threshold  = 10    # 5xx per 5-minute window
+# main_app_latency_threshold_ms   = 5000  # P99 latency in ms
+# main_app_auth_failure_threshold = 5     # 401/403 per 5-minute window
+
+# nidp_error_spike_threshold      = 5
+# nidp_latency_threshold_ms       = 30000
+# nidp_auth_failure_threshold     = 3
+
+# admin_error_spike_threshold     = 5
+# admin_latency_threshold_ms      = 3000
+# admin_auth_failure_threshold    = 3

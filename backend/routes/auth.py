@@ -6,6 +6,7 @@ import httpx
 import logging
 
 from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
+from core.logging_config import mask_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -41,13 +42,13 @@ async def google_auth(request: Request, response: Response):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Google token verification failed: {e}")
+        logger.error("Google token verification failed: %s", type(e).__name__)
         raise HTTPException(status_code=401, detail="Failed to verify Google token")
 
     # Whitelist Check
     whitelist_entry = await check_whitelist(email)
     if not whitelist_entry:
-        logger.warning(f"Access denied for non-whitelisted email: {email}")
+        logger.warning("Access denied — email not whitelisted: %s", mask_email(email))
         raise HTTPException(
             status_code=403,
             detail="Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin."

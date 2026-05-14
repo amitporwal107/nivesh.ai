@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 
 from deps import db, require_admin
+from core.logging_config import mask_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")
@@ -150,8 +151,8 @@ async def create_user(request: Request) -> Dict[str, Any]:
     )
 
     logger.info(
-        f"admin[{admin.get('email')}] created user {email} "
-        f"(user_id={user_id}, is_admin={is_admin})"
+        "admin[%s] created user (user_id=%s, is_admin=%s)",
+        mask_email(admin.get("email", "")), user_id, is_admin,
     )
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return {"ok": True, "user": user_doc}
@@ -208,7 +209,7 @@ async def update_user(user_id: str, request: Request) -> Dict[str, Any]:
                 {"$set": {"is_admin": updates["is_admin"]}},
                 upsert=True,
             )
-    logger.info(f"admin[{admin.get('email')}] updated user {user_id}: {updates}")
+    logger.info("admin[%s] updated user %s: %s", mask_email(admin.get('email', '')), user_id, updates)
     return {"ok": True, "updates": updates}
 
 
@@ -217,7 +218,7 @@ async def invalidate_user_sessions(user_id: str, request: Request) -> Dict[str, 
     """Force-logout a user from all devices by deleting their sessions."""
     admin = await require_admin(request)
     result = await db.user_sessions.delete_many({"user_id": user_id})
-    logger.info(f"admin[{admin.get('email')}] invalidated {result.deleted_count} sessions for user {user_id}")
+    logger.info("admin[%s] invalidated %s sessions for user %s", mask_email(admin.get('email', '')), result.deleted_count, user_id)
     return {"ok": True, "deleted_sessions": result.deleted_count}
 
 
@@ -283,7 +284,7 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
             res = await db[col].delete_many({"user_id": user_id})
             deleted[col] = res.deleted_count
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"reset_portfolio: skip {col} for {user_id}: {e}")
+            logger.warning("reset_portfolio: skip %s for %s: %s", col, user_id, e)
             deleted[col] = 0
 
     # Reset onboarding flags on user_profiles
@@ -324,9 +325,9 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
                         if cursor == 0:
                             break
                 except Exception as e:  # noqa: BLE001
-                    logger.info(f"redis scan/delete skipped for pattern {pat}: {e}")
+                    logger.info("redis scan/delete skipped for pattern %s: %s", pat, e)
     except Exception as e:  # noqa: BLE001
-        logger.info(f"Redis client unavailable, skipping cache flush: {e}")
+        logger.info("Redis client unavailable, skipping cache flush: %s", e)
 
     # Audit
     total_deleted = sum(deleted.values())
@@ -345,7 +346,7 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
     try:
         await db.audit_log.insert_one(audit_doc)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"audit log insert failed: {e}")
+        logger.warning("audit log insert failed: %s", e)
 
     logger.info(
         f"admin[{admin.get('email')}] reset portfolio for user {user_id} "

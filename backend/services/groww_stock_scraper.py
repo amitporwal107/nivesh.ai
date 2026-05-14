@@ -70,13 +70,13 @@ async def _fetch_html(session: aiohttp.ClientSession, url: str) -> Optional[str]
                     last_err = f"HTTP {resp.status}"
                     # fall through to retry
                 else:
-                    logger.debug(f"{url} → HTTP {resp.status} (not retryable)")
+                    logger.debug("%s → HTTP %s (not retryable)", url, resp.status)
                     return None
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             last_err = str(e)[:120]
         if attempt < RETRY_ATTEMPTS - 1:
             await asyncio.sleep(RETRY_BACKOFF_BASE_S * (2 ** attempt))
-    logger.info(f"Fetch gave up on {url} after {RETRY_ATTEMPTS} attempts: {last_err}")
+    logger.info("Fetch gave up on %s after %s attempts: %s", url, RETRY_ATTEMPTS, last_err)
     return None
 
 
@@ -144,7 +144,7 @@ async def _cache_get(slug: str) -> Optional[Dict[str, Any]]:
         if raw:
             return json.loads(raw)
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"cache_get failed: {e}")
+        logger.debug("cache_get failed: %s", e)
     return None
 
 
@@ -157,7 +157,7 @@ async def _cache_put(slug: str, payload: Dict[str, Any]) -> None:
         await r.setex(f"groww:stock:{slug}", REDIS_CACHE_TTL_S,
                       json.dumps(payload, default=str))
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"cache_put failed: {e}")
+        logger.debug("cache_put failed: %s", e)
 
 
 # ── 2. Per-stock fundamentals scrape (with cache) ─────────────────────
@@ -648,7 +648,7 @@ async def _log_stock_refresh(
                 duration_ms, error_msg,
             )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"stock_refresh audit write failed: {e}")
+        logger.warning("stock_refresh audit write failed: %s", e)
 
 
 async def refresh_nifty_100(
@@ -719,7 +719,7 @@ async def refresh_nifty_100(
                         succeeded.append(con["nse_symbol"])
                         await pipeline_progress.tick(progress_key, processed_delta=1)
                     except Exception as e:  # noqa: BLE001
-                        logger.warning(f"{con['nse_symbol']} refresh failed: {e}")
+                        logger.warning("%s refresh failed: %s", con['nse_symbol'], e)
                         failed.append({"symbol": con["nse_symbol"], "reason": str(e)[:200]})
                         await pipeline_progress.tick(progress_key, processed_delta=0, failed_delta=1)
 
@@ -772,7 +772,7 @@ async def search_groww_by_symbol(
                 return None
             data = await resp.json(content_type=None)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"groww search for {symbol} failed: {e}")
+        logger.warning("groww search for %s failed: %s", symbol, e)
         return None
     items = (data.get("data") or {}).get("content") or []
     sym_u = symbol.upper()
@@ -899,7 +899,7 @@ async def refresh_user_stocks(user_id: str) -> Dict[str, Any]:
                                 await score_and_persist(conn, sym, prim)
                         extra_succeeded.append(sym)
                     except Exception as e:  # noqa: BLE001
-                        logger.warning(f"search-scrape {sym} failed: {e}")
+                        logger.warning("search-scrape %s failed: %s", sym, e)
                         extra_failed.append({"symbol": sym, "reason": str(e)[:200]})
 
             await asyncio.gather(*[_search_worker(s) for s in missing])

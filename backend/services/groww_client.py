@@ -50,7 +50,7 @@ async def fetch_page(slug: str) -> Optional[str]:
             r.raise_for_status()
             return r.text
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"groww fetch failed for {slug}: {e}")
+        logger.warning("groww fetch failed for %s: %s", slug, e)
         return None
 
 
@@ -79,7 +79,7 @@ async def search_slug(scheme_name: str) -> Optional[str]:
                     slug = h["search_id"]
                     break
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"groww search failed for {scheme_name!r}: {e}")
+            logger.warning("groww search failed for %s: %s", scheme_name!r, e)
         _search_cache[key] = slug
         return slug
 
@@ -452,7 +452,7 @@ def parse_page(html: str) -> Optional[Dict[str, Any]]:
         try:
             return parse_next_data(nd)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"parse_next_data failed: {e}; falling back to HTML")
+            logger.warning("parse_next_data failed: %s; falling back to HTML", e)
     return parse_html_fallback(html)
 
 

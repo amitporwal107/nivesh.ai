@@ -101,7 +101,7 @@ def _delete_cas_file(file_path: Optional[str]) -> bool:
             p.unlink()
             return True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"cas file delete failed: {e}")
+        logger.warning("cas file delete failed: %s", e)
     return False
 
 
@@ -478,7 +478,7 @@ async def _handle_invite_oauth_callback(request: Request, code: str, state: str,
             GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier,
         )
     except Exception as e:  # noqa: BLE001
-        logger.error(f"client-invite token exchange failed: {e}")
+        logger.error("client-invite token exchange failed: %s", e)
         return RedirectResponse(url=f"/cas-connect/{token}?error=token_exchange")
 
     # Capture the client's email (fallback only — client-details step
@@ -525,7 +525,7 @@ async def client_scan_emails(token: str):
     try:
         emails = scan_for_cas_emails(service, max_results=30)
     except Exception as e:  # noqa: BLE001
-        logger.error(f"client-invite scan failed: {e}")
+        logger.error("client-invite scan failed: %s", e)
         raise HTTPException(500, f"Gmail scan failed: {e}") from e
 
     # Refresh tokens if rotated
@@ -595,7 +595,7 @@ async def client_import_selected(
         try:
             content = download_attachment(service, mid, aid)
         except Exception as e:  # noqa: BLE001
-            logger.error(f"client-invite download failed: {e}")
+            logger.error("client-invite download failed: %s", e)
             continue
 
         # Persist the raw PDF before kicking off the parse so the MFD
@@ -654,7 +654,7 @@ async def _cascade_reparse_failed_files(
             continue
 
         fname = f.get("filename") or "cas.pdf"
-        logger.info(f"Cascade re-parse: queuing {fname} ({fid[:8]}) with same password")
+        logger.info("Cascade re-parse: queuing %s (%s) with same password", fname, fid[:8])
         await db.client_cas_invites.update_one(
             {"invite_token": token, "processed_files.file_id": fid},
             {"$set": {
@@ -717,7 +717,7 @@ async def _process_client_cas(
                         f"{len(sips_detected)} SIP patterns from {filename}"
                     )
                 except Exception as txn_err:  # noqa: BLE001
-                    logger.warning(f"Transaction extraction failed: {txn_err}")
+                    logger.warning("Transaction extraction failed: %s", txn_err)
 
             # Persist raw parsed payload so the MFD can view it later
             # without re-parsing the PDF, AND so we have an audit trail.
@@ -747,7 +747,7 @@ async def _process_client_cas(
                         f"({parser_source}, {len(transactions)} txns)"
                     )
                 except Exception as p_err:  # noqa: BLE001
-                    logger.warning(f"Failed to persist parsed CAS response: {p_err}")
+                    logger.warning("Failed to persist parsed CAS response: %s", p_err)
 
             # Persist as a date-stamped snapshot (not a flat holdings overwrite)
             snap = await create_cas_snapshot(
@@ -770,14 +770,14 @@ async def _process_client_cas(
                     txn_result = await _cas_txns.persist_transactions_and_sips(
                         db, shadow_uid, raw_cas_data, source="CAS_PDF"
                     )
-                    logger.info(f"Persisted transactions: {txn_result}")
+                    logger.info("Persisted transactions: %s", txn_result)
                 except Exception as txn_err:  # noqa: BLE001
-                    logger.warning(f"Transaction persistence failed: {txn_err}")
+                    logger.warning("Transaction persistence failed: %s", txn_err)
         else:
             status = "error"
             err = "Parser returned no holdings"
     except Exception as e:  # noqa: BLE001
-        logger.error(f"client-invite parse failed: {e}")
+        logger.error("client-invite parse failed: %s", e)
         status = "error"
         # Friendlier error for the common "budget exhausted" case.
         emsg = str(e)
@@ -824,7 +824,7 @@ async def _process_client_cas(
         try:
             await _cascade_reparse_failed_files(token, shadow_uid, password, exclude_file_id=file_id)
         except Exception as ce:  # noqa: BLE001
-            logger.warning(f"Cascade re-parse error: {ce}")
+            logger.warning("Cascade re-parse error: %s", ce)
 
 
 @public_router.get("/{token}/status")

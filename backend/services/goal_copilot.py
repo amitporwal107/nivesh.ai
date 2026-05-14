@@ -150,12 +150,12 @@ async def load_history(goal_id: str, user_id: str, limit: int = 20) -> List[Dict
         if isinstance(d.get("extracted_params"), str):
             try:
                 d["extracted_params"] = json.loads(d["extracted_params"])
-            except Exception:
+            except json.JSONDecodeError:
                 pass
         if isinstance(d.get("engine_output"), str):
             try:
                 d["engine_output"] = json.loads(d["engine_output"])
-            except Exception:
+            except json.JSONDecodeError:
                 pass
         out.append(d)
     return out
@@ -312,5 +312,5 @@ async def clear_history(goal_id: str, user_id: str) -> int:
     # asyncpg returns "DELETE N"
     try:
         return int(res.split()[-1])
-    except Exception:
+    except (ValueError, IndexError):
         return 0

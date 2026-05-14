@@ -162,7 +162,7 @@ def _decrypt_and_render_pdf(content: bytes, password: str = "",
     if total_pages == 0:
         raise ValueError("PDF has 0 pages — file is corrupted or password rejected")
     if total_pages > MAX_PAGES:
-        logger.warning(f"CAS PDF has {total_pages} pages — capping at {MAX_PAGES}")
+        logger.warning("CAS PDF has %s pages — capping at %s", total_pages, MAX_PAGES)
 
     images = convert_from_bytes(content, **kwargs)[:MAX_PAGES]
     out: List[bytes] = []
@@ -303,7 +303,7 @@ async def parse_with_claude_vision(content: bytes, password: str = "") -> Option
     try:
         page_pngs = _decrypt_and_render_pdf(content, password=password)
     except Exception as e:
-        logger.error(f"PDF render failed: {e}")
+        logger.error("PDF render failed: %s", e)
         raise
 
     if not page_pngs:
@@ -337,16 +337,16 @@ async def parse_with_claude_vision(content: bytes, password: str = "") -> Option
                 # Re-raise so gather() cancels the rest — no point continuing.
                 raise
             except asyncio.TimeoutError:
-                logger.warning(f"Claude batch {batch_id} timed out after {PER_BATCH_TIMEOUT}s")
+                logger.warning("Claude batch %s timed out after %ss", batch_id, PER_BATCH_TIMEOUT)
                 return None
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"Claude batch {batch_id} failed: {e}")
+                logger.warning("Claude batch %s failed: %s", batch_id, e)
                 return None
 
     try:
         results = await asyncio.gather(*[_run_batch(b, c) for b, c in batches])
     except BudgetExceededError as e:
-        logger.error(f"Claude Vision aborted: {e}")
+        logger.error("Claude Vision aborted: %s", e)
         raise
 
     aggregate: Dict[str, Any] = {}

@@ -115,10 +115,10 @@ def _load_amfi() -> Dict[str, dict]:
                         _amfi_cache[isin_growth] = entry
                     if isin_reinv.startswith("INF"):
                         _amfi_cache[isin_reinv] = entry
-            logger.info(f"Loaded {len(_amfi_cache)} AMFI MF ISINs from CSV")
+            logger.info("Loaded %s AMFI MF ISINs from CSV", len(_amfi_cache))
             return _amfi_cache
         except Exception as e:
-            logger.warning(f"AMFI CSV load failed: {e}. Falling back to legacy format.")
+            logger.warning("AMFI CSV load failed: %s. Falling back to legacy format.", e)
 
     # Legacy fallback: semicolon-separated NAVAll.txt
     if os.path.exists(AMFI_LEGACY_PATH):
@@ -147,7 +147,7 @@ def _load_amfi() -> Dict[str, dict]:
                         _amfi_cache[isin_growth] = entry
                     if isin_reinv.startswith("INF"):
                         _amfi_cache[isin_reinv] = entry
-        logger.info(f"Loaded {len(_amfi_cache)} AMFI MF ISINs from legacy NAVAll.txt")
+        logger.info("Loaded %s AMFI MF ISINs from legacy NAVAll.txt", len(_amfi_cache))
     else:
         logger.warning("No AMFI masterdata source found")
 
@@ -162,7 +162,7 @@ def _load_nse() -> Dict[str, dict]:
 
     _nse_cache = {}
     if not os.path.exists(NSE_BHAV_PATH):
-        logger.warning(f"NSE BhavCopy not found: {NSE_BHAV_PATH}")
+        logger.warning("NSE BhavCopy not found: %s", NSE_BHAV_PATH)
         return _nse_cache
 
     with open(NSE_BHAV_PATH, encoding="utf-8", errors="ignore") as f:
@@ -182,7 +182,7 @@ def _load_nse() -> Dict[str, dict]:
                 "name": name, "symbol": symbol, "price": price, "series": series,
             }
 
-    logger.info(f"Loaded {len(_nse_cache)} NSE securities (BhavCopy)")
+    logger.info("Loaded %s NSE securities (BhavCopy)", len(_nse_cache))
     return _nse_cache
 
 
@@ -197,7 +197,7 @@ def _load_equity_master() -> Dict[str, dict]:
 
     _equity_master_cache = {}
     if not os.path.exists(EQUITY_LIST_PATH):
-        logger.warning(f"NSE Equity List not found: {EQUITY_LIST_PATH}")
+        logger.warning("NSE Equity List not found: %s", EQUITY_LIST_PATH)
         return _equity_master_cache
 
     with open(EQUITY_LIST_PATH, encoding="utf-8", errors="ignore") as f:
@@ -219,7 +219,7 @@ def _load_equity_master() -> Dict[str, dict]:
                 "face_value": face_value,
             }
 
-    logger.info(f"Loaded {len(_equity_master_cache)} NSE equity master rows")
+    logger.info("Loaded %s NSE equity master rows", len(_equity_master_cache))
     return _equity_master_cache
 
 
@@ -234,7 +234,7 @@ def _load_sgb() -> Dict[str, dict]:
 
     _sgb_cache = {}
     if not os.path.exists(SGB_CSV_PATH):
-        logger.warning(f"SGB CSV not found: {SGB_CSV_PATH}")
+        logger.warning("SGB CSV not found: %s", SGB_CSV_PATH)
         return _sgb_cache
 
     def _num(s: str) -> float:
@@ -263,7 +263,7 @@ def _load_sgb() -> Dict[str, dict]:
                 "low_52w": _num(row.get("52W L", "")),
             }
 
-    logger.info(f"Loaded {len(_sgb_cache)} SGB rows")
+    logger.info("Loaded %s SGB rows", len(_sgb_cache))
     return _sgb_cache
 
 
@@ -309,7 +309,7 @@ def _build_name_index() -> Dict[str, List[Tuple[str, str]]]:
         if info["symbol"]:
             _name_index.setdefault(info["symbol"].lower(), []).append((isin, "eq_master"))
 
-    logger.info(f"Name index: {len(_name_index)} unique names")
+    logger.info("Name index: %s unique names", len(_name_index))
     return _name_index
 
 
@@ -444,33 +444,33 @@ def validate_and_enrich_holdings(holdings: list) -> list:
                     if abs(master_price - parsed_price) / max(master_price, 1) > 0.01:
                         old_price = parsed_price
                         h["current_price"] = round(master_price, 4)
-                        logger.info(f"NAV updated (API, qty preserved): {name[:30]} nav={old_price}→{master_price} qty={qty}")
+                        logger.info("NAV updated (API, qty preserved): %s nav=%s→%s qty=%s", name[:30], old_price, master_price, qty)
                 elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.2:
                     if qty > 0 and abs(qty - master_price) / max(master_price, 1) < 0.1:
                         old_qty, old_price = qty, parsed_price
                         h["current_price"] = round(master_price, 4)
                         h["quantity"] = round(parsed_value / master_price, 4) if master_price > 0 else 0
-                        logger.info(f"Fixed swap: {name[:30]} qty={old_qty}→{h['quantity']:.3f} nav={old_price}→{master_price}")
+                        logger.info("Fixed swap: %s qty=%s→%s nav=%s→%s", name[:30], old_qty, h['quantity']:.3f, old_price, master_price)
                     else:
                         old_price = parsed_price
                         h["current_price"] = round(master_price, 4)
                         if parsed_value > 0:
                             h["quantity"] = round(parsed_value / master_price, 4)
-                        logger.info(f"NAV corrected: {name[:30]} nav={old_price}→{master_price}")
+                        logger.info("NAV corrected: %s nav=%s→%s", name[:30], old_price, master_price)
 
             # Fix equity price using NSE data
             if asset_type == "equity" and master["source"] == "nse" and master_price > 0:
                 if is_api_parsed:
                     # API data is reliable — only update current_price, preserve quantity
                     h["current_price"] = round(master_price, 2)
-                    logger.info(f"Equity CMP updated (API): {name[:30]} cmp→{master_price}")
+                    logger.info("Equity CMP updated (API): %s cmp→%s", name[:30], master_price)
                 elif parsed_price > 0 and abs(master_price - parsed_price) / max(master_price, 1) > 0.3:
                     if parsed_value > 0:
                         new_qty = round(parsed_value / master_price)
                         h["quantity"] = new_qty
                         h["current_price"] = round(master_price, 2)
                         h["buy_price"] = round(master_price, 2)
-                        logger.info(f"Equity price fix: {name[:30]} price→{master_price}, qty→{new_qty}")
+                        logger.info("Equity price fix: %s price→%s, qty→%s", name[:30], master_price, new_qty)
                 elif parsed_price == 0 and parsed_value == 0 and qty == 0:
                     h["current_price"] = round(master_price, 2)
                     h["buy_price"] = round(master_price, 2)
@@ -488,7 +488,7 @@ def validate_and_enrich_holdings(holdings: list) -> list:
             match = find_isin_by_name(name, asset_type)
             if match:
                 new_isin, info = match
-                logger.info(f"Name match: '{name[:30]}' → {new_isin} ({info['name'][:30]}) score={info['score']}")
+                logger.info("Name match: '%s' → %s (%s) score=%s", name[:30], new_isin, info['name'][:30], info['score'])
                 h["ticker"] = new_isin
                 h["name"] = info["name"]
                 if info["price"] > 0:

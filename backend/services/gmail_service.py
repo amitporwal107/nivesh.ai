@@ -111,7 +111,7 @@ def get_gmail_credentials(token_doc: dict) -> Credentials:
                 creds.refresh(GoogleRequest())
                 logger.info("Gmail token refreshed successfully")
             except Exception as e:
-                logger.error(f"Gmail token refresh failed: {e}")
+                logger.error("Gmail token refresh failed: %s", e)
                 raise
 
     return creds
@@ -155,9 +155,9 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
                     all_message_ids.add(m["id"])
                     all_messages.append(m)
         except Exception as e:
-            logger.warning(f"Gmail search failed for query '{query}': {e}")
+            logger.warning("Gmail search failed for query '%s': %s", query, e)
 
-    logger.info(f"Gmail scan: {len(all_messages)} unique emails found from {len(queries)} queries")
+    logger.info("Gmail scan: %s unique emails found from %s queries", len(all_messages), len(queries))
 
     if not all_messages:
         return []
@@ -177,7 +177,7 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
             # Check for PDF attachments
             attachments = _find_pdf_attachments(msg.get("payload", {}))
             if not attachments:
-                logger.debug(f"Email '{subject[:40]}' from '{sender[:30]}' has no PDF attachments, skipping")
+                logger.debug("Email '%s' from '%s' has no PDF attachments, skipping", subject[:40], sender[:30])
                 continue
 
             # Score confidence
@@ -199,7 +199,7 @@ def scan_for_cas_emails(service, max_results: int = 30) -> list:
                 "confidence": confidence,
             })
         except Exception as e:
-            logger.warning(f"Failed to process email {msg_meta['id']}: {e}")
+            logger.warning("Failed to process email %s: %s", msg_meta['id'], e)
 
     # Sort by confidence then date
     cas_emails.sort(key=lambda x: x["confidence"], reverse=True)

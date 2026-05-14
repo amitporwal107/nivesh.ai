@@ -137,7 +137,7 @@ class ActionPlanManager:
         Returns:
             Complete action plan with status="preview"
         """
-        logger.info(f"Generating plan for user {user_id}")
+        logger.info("Generating plan for user %s", user_id)
         
         # 1. Generate signals
         portfolio_data = {
@@ -155,9 +155,9 @@ class ActionPlanManager:
         
         # Score MFs
         mf_investments = portfolio_intelligence.get("mf_investments", [])
-        logger.info(f"Found {len(mf_investments)} MF investments in portfolio intelligence")
+        logger.info("Found %s MF investments in portfolio intelligence", len(mf_investments))
         resolved_count = sum(1 for mf in mf_investments if mf.get("resolved"))
-        logger.info(f"Resolved MF investments: {resolved_count}")
+        logger.info("Resolved MF investments: %s", resolved_count)
         
         # Build normalized name lookup for holdings
         holding_lookup = {
@@ -167,7 +167,7 @@ class ActionPlanManager:
         
         for mf in mf_investments:
             if not mf.get("resolved"):
-                logger.debug(f"Skipping unresolved MF: {mf.get('scheme_name', 'Unknown')[:40]}")
+                logger.debug("Skipping unresolved MF: %s", mf.get('scheme_name', 'Unknown')[:40])
                 continue
             
             # Try normalized name matching
@@ -175,21 +175,21 @@ class ActionPlanManager:
             holding = holding_lookup.get(normalized_scheme)
             
             if not holding:
-                logger.warning(f"No matching holding found for MF: {mf.get('scheme_name', 'Unknown')[:40]}")
+                logger.warning("No matching holding found for MF: %s", mf.get('scheme_name', 'Unknown')[:40])
                 continue
             
             try:
                 exit_result = await decision_engine.calculate_mf_exit_score(mf, portfolio_intelligence, holding)
-                logger.info(f"MF Exit Score: {mf.get('scheme_name', 'Unknown')[:40]} = {exit_result['exit_score']} (action: {exit_result['action']})")
+                logger.info("MF Exit Score: %s = %s (action: %s)", mf.get('scheme_name', 'Unknown')[:40], exit_result['exit_score'], exit_result['action'])
                 
                 # Lower threshold: include even HOLD recommendations in candidates
                 if exit_result["exit_score"] >= 4.0:  # Was filtering only "EXIT", now include score >= 4
                     exit_candidates.append(exit_result)
                     logger.info("  → Added to exit_candidates (score >= 4.0)")
                 else:
-                    logger.debug(f"  → Skipped (score {exit_result['exit_score']} < 4.0)")
+                    logger.debug("  → Skipped (score %s < 4.0)", exit_result['exit_score'])
             except Exception as e:
-                logger.error(f"Error scoring MF {mf.get('scheme_name', 'Unknown')}: {e}")
+                logger.error("Error scoring MF %s: %s", mf.get('scheme_name', 'Unknown'), e)
                 logger.exception(e)
                 continue
         
@@ -220,7 +220,7 @@ class ActionPlanManager:
         # Sort by exit score (highest first)
         exit_candidates = sorted(exit_candidates, key=lambda x: x["exit_score"], reverse=True)
         
-        logger.info(f"Generated {len(exit_candidates)} MF exit candidates")
+        logger.info("Generated %s MF exit candidates", len(exit_candidates))
         
         # 3. Apply V2 Action Generation Rules (6 core rules)
         actions = await self._apply_action_rules(
@@ -381,7 +381,7 @@ class ActionPlanManager:
             },
         }
         
-        logger.info(f"Plan generated: {plan_id} with {len(actions)} actions · score={portfolio_score} · conf={confidence_score}")
+        logger.info("Plan generated: %s with %s actions · score=%s · conf=%s", plan_id, len(actions), portfolio_score, confidence_score)
         return plan
     
     # ══════════════════════════════════════════════════════════════════════
@@ -420,7 +420,7 @@ class ActionPlanManager:
             raise ValueError(f"Plan {plan_id} not found or already active")
         
         plan = await db.action_plans.find_one({"plan_id": plan_id}, {"_id": 0})
-        logger.info(f"Plan {plan_id} saved as active")
+        logger.info("Plan %s saved as active", plan_id)
         return plan
     
     async def get_active_plan(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -474,7 +474,7 @@ class ActionPlanManager:
         # Convert Decimal objects to float for MongoDB compatibility
         plan_clean = convert_decimals_to_float(plan)
         await db.action_plans.insert_one(plan_clean)
-        logger.info(f"Plan {plan['plan_id']} created in DB")
+        logger.info("Plan %s created in DB", plan['plan_id'])
         return plan_clean
     
     # ══════════════════════════════════════════════════════════════════════
@@ -674,7 +674,7 @@ class ActionPlanManager:
                     }}
                 )
                 archived_count += 1
-                logger.info(f"Auto-archived plan {plan['plan_id']} (completed >30 days ago)")
+                logger.info("Auto-archived plan %s (completed >30 days ago)", plan['plan_id'])
         
         return archived_count
     
@@ -799,7 +799,7 @@ class ActionPlanManager:
         rule_1_enabled = rules_cfg["rule_1_regular_to_direct"]["enabled"]
         rule_6_enabled = rules_cfg["rule_6_cost_leak_switch"]["enabled"]
         reg_dir_pairs = self._find_regular_direct_pairs(mf_holdings)
-        logger.info(f"[Rule 1/6] Found {len(reg_dir_pairs)} Regular/Direct pairs")
+        logger.info("[Rule 1/6] Found %s Regular/Direct pairs", len(reg_dir_pairs))
 
         # Rule 1: Exit Regular when Direct exists for same fund
         for pair in (reg_dir_pairs if rule_1_enabled else []):
@@ -865,7 +865,7 @@ class ActionPlanManager:
             if leak > 0:
                 leaks.append({"holding": reg, "leak": leak})
         total_leak = sum(item["leak"] for item in leaks)
-        logger.info(f"[Rule 6] Total Regular→Direct cost leak: ₹{total_leak:,.0f}/yr across {len(leaks)} funds")
+        logger.info("[Rule 6] Total Regular→Direct cost leak: ₹%s/yr across %s funds", total_leak:,.0f, len(leaks))
         leak_cfg = rules_cfg["rule_6_cost_leak_switch"]["params"]
         leak_threshold = float(leak_cfg.get("total_leak_threshold_rs", 10000.0))
         max_switches = int(leak_cfg.get("max_switches", 3))
@@ -928,7 +928,7 @@ class ActionPlanManager:
         # Use >= so exactly-at-threshold (e.g. 15.0%) still triggers, consistent
         # with the Insights path. Prevents the "CRITICAL flag but no action" UX.
         over_concentrated_amcs = [(amc, pct) for amc, pct in amc_exposure.items() if pct >= amc_threshold] if rule_2_enabled else []
-        logger.info(f"[Rule 2] AMC exposure: {amc_exposure}; over-concentrated: {over_concentrated_amcs}")
+        logger.info("[Rule 2] AMC exposure: %s; over-concentrated: %s", amc_exposure, over_concentrated_amcs)
 
         for amc_name, amc_pct in sorted(over_concentrated_amcs, key=lambda x: x[1], reverse=True):
             # Find all MF investments in this AMC (not yet exited). Works for
@@ -983,8 +983,10 @@ class ActionPlanManager:
                     exited_ids.add(mf["instrument_id"])
                 priority_counter[0] += 1
                 current_pct -= (mf.get("amount_rs", 0) / total_pv * 100) if total_pv > 0 else 0
-                logger.info(f"[Rule 2] EXIT for AMC concentration: {mf.get('scheme_name','')[:40]} "
-                            f"(new AMC pct ≈ {current_pct:.1f}%)")
+                logger.info(
+                    "[Rule 2] EXIT for AMC concentration: %.40s (new AMC pct ~%.1f%%)",
+                    mf.get("scheme_name", ""), current_pct,
+                )
 
         # ── RULE 2b (NEW): MF Category Concentration > threshold ────────────
         # User-flagged guardrail: no single category (Mid Cap, Large Cap, etc.)
@@ -1017,7 +1019,7 @@ class ActionPlanManager:
                 if v / total_mf_value * 100 >= CAT_CONCENTRATION_THRESHOLD and cn != "Uncategorised"
             ]
             over_cats.sort(key=lambda x: -x[1])
-            logger.info(f"[Rule 2b] Category exposure over {CAT_CONCENTRATION_THRESHOLD}%: {over_cats}")
+            logger.info("[Rule 2b] Category exposure over %s%: %s", CAT_CONCENTRATION_THRESHOLD, over_cats)
             for cat_name, cat_pct in over_cats:
                 ranked_funds: List[Dict[str, Any]] = []
                 for mf in cat_funds[cat_name]:
@@ -1071,7 +1073,7 @@ class ActionPlanManager:
         rule_3_enabled = rules_cfg["rule_3_underperformer_replacement"]["enabled"]
         max_replacements = int(rules_cfg["rule_3_underperformer_replacement"]["params"].get("max_replacements", 2))
         underperformers = self._find_underperformers(mf_investments, portfolio_intelligence, exit_candidates) if rule_3_enabled else []
-        logger.info(f"[Rule 3] Found {len(underperformers)} underperforming funds")
+        logger.info("[Rule 3] Found %s underperforming funds", len(underperformers))
         for under in underperformers[:max_replacements]:
             mf = under["mf"]
             if mf.get("instrument_id") in exited_ids:
@@ -1128,7 +1130,7 @@ class ActionPlanManager:
                 )
                 actions.append(add_action)
                 priority_counter[0] += 1
-                logger.info(f"[Rule 3] Replace {mf.get('scheme_name','')[:30]} → {replacement.get('scheme_name','')[:30]}")
+                logger.info("[Rule 3] Replace %s → %s", mf.get('scheme_name','')[:30], replacement.get('scheme_name','')[:30])
 
         # ── RULE 4: Different-Fund Overlap > threshold ──────────────────────
         rule_4_enabled = rules_cfg["rule_4_different_fund_overlap"]["enabled"]
@@ -1205,7 +1207,7 @@ class ActionPlanManager:
             if victim_cand and victim_cand.get("instrument_id"):
                 exited_ids.add(victim_cand["instrument_id"])
             priority_counter[0] += 1
-            logger.info(f"[Rule 4] EXIT for overlap: {victim_name[:40]} vs {partner_name[:40]}")
+            logger.info("[Rule 4] EXIT for overlap: %s vs %s", victim_name[:40], partner_name[:40])
             # Limit to N overlap resolutions to keep plan concise
             if sum(1 for a in actions if "OVERLAP_CONSOLIDATION" in (a.get("reason_codes") or [])) >= max_overlap_exits:
                 break
@@ -1245,7 +1247,7 @@ class ActionPlanManager:
                 )
                 actions.append(add_action)
                 priority_counter[0] += 1
-                logger.info(f"[Rule 5] ADD debt fund: {debt_suggestion.get('fund_name','')}")
+                logger.info("[Rule 5] ADD debt fund: %s", debt_suggestion.get('fund_name',''))
 
         # ── CUSTOM RULES (Phase 2) ──────────────────────────────────────────
         # Custom rules are evaluated last so built-ins take priority.
@@ -1268,7 +1270,7 @@ class ActionPlanManager:
                 )
                 actions.extend(custom_actions)
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"custom rules evaluation failed: {e}")
+                logger.warning("custom rules evaluation failed: %s", e)
 
         # Fallback: if no actions produced by rules, fall back to top exit candidates
         if not actions and exit_candidates:
@@ -1368,10 +1370,10 @@ class ActionPlanManager:
             try:
                 matched = bool(safe_eval(expr, ctx))
             except SafeEvalError as e:
-                logger.warning(f"[Custom:{rid}] expression error: {e}")
+                logger.warning("[Custom:%s] expression error: %s", rid, e)
                 continue
             if not matched:
-                logger.info(f"[Custom:{rid}] condition not met")
+                logger.info("[Custom:%s] condition not met", rid)
                 continue
 
             action_type = rule.get("action_type", "FLAG_ONLY")
@@ -1392,7 +1394,7 @@ class ActionPlanManager:
                     "custom_rule_id": rid,
                 })
                 priority_counter[0] += 1
-                logger.info(f"[Custom:{rid}] FLAG: {reason_text[:60]}")
+                logger.info("[Custom:%s] FLAG: %s", rid, reason_text[:60])
                 continue
 
             if action_type == "ADD_DEBT_FUND":
@@ -1405,7 +1407,7 @@ class ActionPlanManager:
                 add_action["custom_rule_id"] = rid
                 out.append(add_action)
                 priority_counter[0] += 1
-                logger.info(f"[Custom:{rid}] ADD_DEBT_FUND: {debt.get('fund_name','')}")
+                logger.info("[Custom:%s] ADD_DEBT_FUND: %s", rid, debt.get('fund_name',''))
                 continue
 
             if action_type == "EXIT_HIGHEST_EXIT_SCORE":
@@ -1449,7 +1451,7 @@ class ActionPlanManager:
                         exited_ids.add(mf["instrument_id"])
                     priority_counter[0] += 1
                     exits_made += 1
-                    logger.info(f"[Custom:{rid}] EXIT {mf.get('scheme_name','')[:40]}")
+                    logger.info("[Custom:%s] EXIT %s", rid, mf.get('scheme_name','')[:40])
 
         return out
 
@@ -1716,7 +1718,7 @@ class ActionPlanManager:
             from services import tax_calculator
             tax_impact = tax_calculator.calculate_tax_impact(holding)
         except Exception as _e:
-            logger.debug(f"tax_calculator failed for minimal action: {_e}")
+            logger.debug("tax_calculator failed for minimal action: %s", _e)
             tax_impact = None
         return {
             "action_id": f"act_{uuid4().hex[:8]}",
@@ -1766,7 +1768,7 @@ class ActionPlanManager:
                 from services import tax_calculator as _tc
                 tax_impact = _tc.calculate_tax_impact(holding, exit_amount_rs=exit_amount) or {}
             except Exception as _e:
-                logger.debug(f"fallback tax_impact calc failed: {_e}")
+                logger.debug("fallback tax_impact calc failed: %s", _e)
                 tax_impact = {}
         
         tax_liability = tax_impact.get("tax_liability", 0)
@@ -1879,7 +1881,7 @@ class ActionPlanManager:
         new_plan["status"] = STATUS_ACTIVE
         await self.create_plan(new_plan)
         
-        logger.info(f"Plan refreshed: v{new_version}")
+        logger.info("Plan refreshed: v%s", new_version)
         return new_plan
     
     # ══════════════════════════════════════════════════════════════════════

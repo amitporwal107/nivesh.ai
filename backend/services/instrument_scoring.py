@@ -251,7 +251,7 @@ class QualityScorer:
                     scores.append(7.0)
                 else:  # Highly overvalued
                     scores.append(9.0)
-            except:
+            except (ValueError, TypeError):
                 scores.append(5.0)
         
         # 2. ROE - Return on Equity (profitability) (30%)
@@ -270,7 +270,7 @@ class QualityScorer:
                     scores.append(7.0)
                 else:  # Poor
                     scores.append(9.0)
-            except:
+            except (ValueError, TypeError):
                 scores.append(5.0)
         
         # 3. Debt to Equity (25%) - Financial health
@@ -287,7 +287,7 @@ class QualityScorer:
                     scores.append(7.0)
                 else:  # Very high debt (risky)
                     scores.append(9.0)
-            except:
+            except (ValueError, TypeError):
                 scores.append(5.0)
         
         # 4. Return Performance (20%) - Buy price vs current price
@@ -309,7 +309,7 @@ class QualityScorer:
                         scores.append(7.0)
                     else:  # Significant loss
                         scores.append(9.0)
-            except:
+            except (ValueError, TypeError):
                 pass
         
         # If we have fundamental data, calculate average
@@ -319,7 +319,7 @@ class QualityScorer:
         
         # No fundamental data available - return neutral
         # This means stock won't be flagged for EXIT based on quality alone
-        logger.warning(f"No fundamental data for stock: {stock_data.get('name', 'Unknown')}")
+        logger.warning("No fundamental data for stock: %s", stock_data.get('name', 'Unknown'))
         return 5.0  # Neutral - neither good nor bad
 
 

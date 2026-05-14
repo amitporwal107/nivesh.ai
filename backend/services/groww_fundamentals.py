@@ -43,13 +43,13 @@ async def fetch_stock_fundamentals(nse_symbol: str) -> Optional[Dict[str, Any]]:
     try:
         cached = await redis.get(cache_key)
         if cached:
-            logger.info(f"Cache HIT for {nse_symbol}")
+            logger.info("Cache HIT for %s", nse_symbol)
             return json.loads(cached)
     except Exception as e:
-        logger.warning(f"Redis cache read failed for {nse_symbol}: {e}")
+        logger.warning("Redis cache read failed for %s: %s", nse_symbol, e)
     
     # Cache MISS - fetch from Groww
-    logger.info(f"Cache MISS for {nse_symbol}, fetching from Groww...")
+    logger.info("Cache MISS for %s, fetching from Groww...", nse_symbol)
     
     try:
         # Groww stock detail endpoint
@@ -63,7 +63,7 @@ async def fetch_stock_fundamentals(nse_symbol: str) -> Optional[Dict[str, Any]]:
             
             async with session.get(url, headers=headers, timeout=10) as response:
                 if response.status != 200:
-                    logger.error(f"Groww API error for {nse_symbol}: {response.status}")
+                    logger.error("Groww API error for %s: %s", nse_symbol, response.status)
                     return None
                 
                 data = await response.json()
@@ -79,17 +79,17 @@ async def fetch_stock_fundamentals(nse_symbol: str) -> Optional[Dict[str, Any]]:
                             CACHE_EXPIRY_SECONDS,
                             json.dumps(fundamentals)
                         )
-                        logger.info(f"Cached fundamentals for {nse_symbol} (24h TTL)")
+                        logger.info("Cached fundamentals for %s (24h TTL)", nse_symbol)
                     except Exception as e:
-                        logger.warning(f"Redis cache write failed: {e}")
+                        logger.warning("Redis cache write failed: %s", e)
                 
                 return fundamentals
     
     except aiohttp.ClientError as e:
-        logger.error(f"HTTP error fetching {nse_symbol}: {e}")
+        logger.error("HTTP error fetching %s: %s", nse_symbol, e)
         return None
     except Exception as e:
-        logger.error(f"Unexpected error fetching {nse_symbol}: {e}")
+        logger.error("Unexpected error fetching %s: %s", nse_symbol, e)
         return None
 
 
@@ -124,11 +124,11 @@ def _parse_groww_data(data: Dict[str, Any], symbol: str) -> Optional[Dict[str, A
             fundamentals["cached_at"] = datetime.now(timezone.utc).isoformat()
             return fundamentals
         else:
-            logger.warning(f"Insufficient fundamental data for {symbol}")
+            logger.warning("Insufficient fundamental data for %s", symbol)
             return None
     
     except Exception as e:
-        logger.error(f"Error parsing Groww data for {symbol}: {e}")
+        logger.error("Error parsing Groww data for %s: %s", symbol, e)
         return None
 
 
@@ -161,7 +161,7 @@ async def bulk_fetch_fundamentals(nse_symbols: list[str]) -> Dict[str, Dict[str,
         if isinstance(result, dict):
             fundamentals_map[symbol] = result
         elif isinstance(result, Exception):
-            logger.error(f"Failed to fetch {symbol}: {result}")
+            logger.error("Failed to fetch %s: %s", symbol, result)
     
     return fundamentals_map
 
@@ -179,11 +179,11 @@ async def refresh_cache_for_user(user_id: str):
     symbols = [h["nse_symbol"] for h in holdings if h.get("nse_symbol")]
     
     if not symbols:
-        logger.info(f"No stock holdings for user {user_id}")
+        logger.info("No stock holdings for user %s", user_id)
         return
     
-    logger.info(f"Refreshing fundamentals for {len(symbols)} stocks")
+    logger.info("Refreshing fundamentals for %s stocks", len(symbols))
     fundamentals_map = await bulk_fetch_fundamentals(symbols)
-    logger.info(f"Successfully fetched {len(fundamentals_map)}/{len(symbols)} stocks")
+    logger.info("Successfully fetched %s/%s stocks", len(fundamentals_map), len(symbols))
     
     return fundamentals_map

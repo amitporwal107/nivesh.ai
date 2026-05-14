@@ -30,9 +30,9 @@ DRAIN_BATCH = 30
 async def _drain_job():
     try:
         result = await fund_data_resolver.drain_queue(max_items=DRAIN_BATCH)
-        logger.info(f"scheduler drain: {result}")
+        logger.info("scheduler drain: %s", result)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"scheduler drain error: {e}")
+        logger.warning("scheduler drain error: %s", e)
 
 
 async def _stale_refresh_job():
@@ -86,12 +86,12 @@ async def _stale_refresh_job():
                 phase="enqueue",
                 message=f"queued {queued}/{len(rows)} stale fund(s)",
             )
-        logger.info(f"scheduler stale_refresh: {queued} funds requeued")
+        logger.info("scheduler stale_refresh: %s funds requeued", queued)
         await pipeline_progress.finish(
             "stale_refresh", "ok", total=queued, processed=queued, failed=0,
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"stale_refresh error: {e}")
+        logger.warning("stale_refresh error: %s", e)
         await pipeline_progress.finish("stale_refresh", "failed",
                                         error_msg=str(e), processed=queued, failed=0)
 
@@ -121,7 +121,7 @@ async def _amfi_navs_job():
             f"skipped={res.get('skipped_no_match')} dur_ms={res.get('duration_ms')}"
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"amfi_navs error: {e}")
+        logger.warning("amfi_navs error: %s", e)
 
 
 async def _analytics_sweep_job():
@@ -132,9 +132,9 @@ async def _analytics_sweep_job():
     try:
         from services.nav_analytics_sweep import run_analytics_sweep
         res = await run_analytics_sweep()
-        logger.info(f"analytics_sweep {res}")
+        logger.info("analytics_sweep %s", res)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"analytics_sweep error: {e}")
+        logger.warning("analytics_sweep error: %s", e)
 
 
 async def _v3_rescore_job():
@@ -145,9 +145,9 @@ async def _v3_rescore_job():
     try:
         from services.nav_analytics_sweep import run_v3_rescore
         res = await run_v3_rescore()
-        logger.info(f"v3_rescore {res}")
+        logger.info("v3_rescore %s", res)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"v3_rescore error: {e}")
+        logger.warning("v3_rescore error: %s", e)
 
 
 async def _stock_nifty100_refresh_job():
@@ -166,7 +166,7 @@ async def _stock_nifty100_refresh_job():
             f"dur={res.get('duration_s')}s"
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"nifty100_refresh error: {e}")
+        logger.warning("nifty100_refresh error: %s", e)
 
 
 async def _benchmark_refresh_job():
@@ -179,9 +179,9 @@ async def _benchmark_refresh_job():
         from services import benchmark_index as _bm
         results = await _bm.refresh_all()
         ok = sum(1 for r in results if r.get("ok"))
-        logger.info(f"benchmark_refresh: {ok}/{len(results)} indices refreshed")
+        logger.info("benchmark_refresh: %s/%s indices refreshed", ok, len(results))
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"benchmark_refresh error: {e}")
+        logger.warning("benchmark_refresh error: %s", e)
 
 
 async def _macro_intelligence_job():
@@ -201,7 +201,7 @@ async def _macro_intelligence_job():
             f"insight='{state.get('insight')}'"
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"macro_intelligence error: {e}")
+        logger.warning("macro_intelligence error: %s", e)
 
 
 async def _portfolio_snapshot_job():
@@ -216,7 +216,7 @@ async def _portfolio_snapshot_job():
             f"failed={res.get('failed')} date={res.get('date')}"
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"portfolio_snapshot error: {e}")
+        logger.warning("portfolio_snapshot error: %s", e)
 
 
 async def _gmail_auto_import_job():
@@ -228,9 +228,9 @@ async def _gmail_auto_import_job():
     try:
         from services.gmail_auto_import import auto_import_all_users
         res = await auto_import_all_users()
-        logger.info(f"gmail_auto_import: {res}")
+        logger.info("gmail_auto_import: %s", res)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"gmail_auto_import error: {e}")
+        logger.warning("gmail_auto_import error: %s", e)
 
 
 def start():

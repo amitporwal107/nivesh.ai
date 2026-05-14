@@ -7,8 +7,14 @@ from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from core.logging_config import (
+    get_correlation_id,
+    set_request_context,
+    reset_request_context,
+)
 
 logger = logging.getLogger(__name__)
+_req_logger = logging.getLogger("nivesh.access")
 
 # ── Rate Limiter ──
 
@@ -61,9 +67,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             max_req = 300
 
         if not rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60):
+            logger.warning(
+                "Rate limit exceeded",
+                extra={"path": path, "max_req": max_req, "window_s": 60},
+            )
+            cid = get_correlation_id() or getattr(
+                getattr(request, "state", None), "correlation_id", ""
+            )
+            import time as _time
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Too many requests. Please wait a moment."},
+                content={
+                    "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                    "status": 429,
+                    "error": "RATE_LIMIT_ERROR",
+                    "code": "RATE-001",
+                    "message": "Too many requests. Please wait a moment.",
+                    "details": [],
+                    "correlationId": cid,
+                    "path": path,
+                },
             )
 
         return await call_next(request)
@@ -122,6 +145,99 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# ── Request Logging ──────────────────────────────────────────────────────────
+# Logs every HTTP request once at completion with all 14 GCP dashboard fields.
+# Runs outermost (after CorrelationMiddleware so correlationId is already set)
+# so it measures the true total latency including all inner middleware.
+
+# Admin-prefixed paths are tagged as admin-app; everything else is the main app.
+_ADMIN_PREFIXES = ("/api/admin",)
+
+
+def _classify_application(path: str) -> str:
+    for prefix in _ADMIN_PREFIXES:
+        if path.startswith(prefix):
+            return "admin-app"
+    return "nivesh-main-app"
+
+
+def _extract_trace_id(request: Request) -> str:
+    """Parse X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE"""
+    header = request.headers.get("X-Cloud-Trace-Context", "")
+    if header and "/" in header:
+        return header.split("/")[0]
+    return ""
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Emit one structured access log per request with all required GCP fields.
+
+    Also populates per-request context vars (application, traceId) so that
+    every *inner* log call during that request automatically inherits them —
+    no need to pass them manually.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        path = request.url.path
+        application = _classify_application(path)
+        trace_id = _extract_trace_id(request)
+        cid = getattr(getattr(request, "state", None), "correlation_id", "") or get_correlation_id()
+
+        tokens = set_request_context(
+            correlation_id=cid,
+            trace_id=trace_id,
+            application=application,
+            endpoint=path,
+        )
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed = int((time.monotonic() - start) * 1000)
+            _req_logger.error(
+                "%s %s → unhandled exception",
+                request.method, path,
+                extra={
+                    "application": application,
+                    "endpoint": path,
+                    "httpStatus": 500,
+                    "responseTimeMs": elapsed,
+                    "correlationId": cid,
+                    "traceId": trace_id,
+                    "eventType": "REQUEST",
+                },
+            )
+            raise
+        finally:
+            reset_request_context(tokens)
+
+        elapsed = int((time.monotonic() - start) * 1000)
+        status = response.status_code
+
+        # Choose log level based on status code.
+        if status >= 500:
+            log_fn = _req_logger.error
+        elif status >= 400:
+            log_fn = _req_logger.warning
+        else:
+            log_fn = _req_logger.info
+
+        log_fn(
+            "%s %s %d (%dms)",
+            request.method, path, status, elapsed,
+            extra={
+                "application": application,
+                "endpoint": path,
+                "httpStatus": status,
+                "responseTimeMs": elapsed,
+                "correlationId": cid,
+                "traceId": trace_id,
+                "eventType": "REQUEST",
+            },
+        )
+        return response
+
+
 # ── Env Validation ──
 
 def validate_env():
@@ -137,7 +253,7 @@ def validate_env():
 
     if missing:
         msg = "Missing required environment variables:\n" + "\n".join(missing)
-        logger.critical(msg)
+        logger.critical("Startup check failed — missing env vars: %s", missing)
         raise RuntimeError(msg)
 
     # Warn for optional but important

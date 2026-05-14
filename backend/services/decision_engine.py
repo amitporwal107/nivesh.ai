@@ -89,9 +89,9 @@ async def calculate_stock_exit_score(
             if fundamentals:
                 # Merge fundamentals into stock_holding for scoring
                 stock_holding = {**stock_holding, **fundamentals}
-                logger.info(f"Fetched fundamentals for {stock_holding['name']}: P/E={fundamentals.get('pe_ratio')}, ROE={fundamentals.get('roe')}")
+                logger.info("Fetched fundamentals for %s: P/E=%s, ROE=%s", stock_holding['name'], fundamentals.get('pe_ratio'), fundamentals.get('roe'))
         except Exception as e:
-            logger.warning(f"Failed to fetch fundamentals for {nse_symbol}: {e}")
+            logger.warning("Failed to fetch fundamentals for %s: %s", nse_symbol, e)
     
     # Calculate tax impact
     tax_result = tax_calculator.calculate_tax_impact(stock_holding)

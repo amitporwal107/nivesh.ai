@@ -260,7 +260,7 @@ class AIEngine:
             text = response.choices[0].message.content
             return self._apply_guardrails(text)
         except Exception as e:
-            logger.error(f"OpenAI chat failed: {e}")
+            logger.error("OpenAI chat failed: %s", e)
             raise
 
     async def chat_stream(self, message: str, portfolio_context: str, history: list, session_id: str,
@@ -296,7 +296,7 @@ class AIEngine:
                 if delta and delta.content:
                     yield delta.content
         except Exception as e:
-            logger.error(f"OpenAI chat stream failed: {e}")
+            logger.error("OpenAI chat stream failed: %s", e)
             raise
 
     async def analyze_allocation(self, holdings_data: str) -> dict:
@@ -423,7 +423,7 @@ Schema:
             logger.error("Allocation analysis returned non-JSON")
             return {"error": "Failed to parse allocation response"}
         except Exception as e:
-            logger.error(f"Allocation analysis failed: {e}")
+            logger.error("Allocation analysis failed: %s", e)
             raise
 
     async def analyze_portfolio(self, portfolio_text: str, session_id: str) -> dict:
@@ -445,7 +445,7 @@ Schema:
                 raise ValueError("AI response missing 'insights' field")
             return parsed
         except Exception as e:
-            logger.error(f"OpenAI analysis failed: {e}")
+            logger.error("OpenAI analysis failed: %s", e)
             raise
 
     async def parse_cas_text(self, text: str, session_id: str) -> list:
@@ -463,7 +463,7 @@ Schema:
             result = response.choices[0].message.content
             return self._parse_json_array(result)
         except Exception as e:
-            logger.error(f"OpenAI CAS text parse failed: {e}")
+            logger.error("OpenAI CAS text parse failed: %s", e)
             raise
 
     async def parse_cas_images(self, image_data_list: list, page_range: str, session_id: str) -> list:
@@ -496,7 +496,7 @@ Schema:
             result = response.choices[0].message.content
             return self._parse_json_array(result)
         except Exception as e:
-            logger.error(f"OpenAI CAS image parse failed: {e}")
+            logger.error("OpenAI CAS image parse failed: %s", e)
             raise
 
     async def parse_cas_document(self, file_contents: list, page_range: str, session_id: str) -> list:

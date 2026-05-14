@@ -40,7 +40,7 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
-        logger.info(f"CAS PDF received: {len(content)} bytes, task {task_id}")
+        logger.info("CAS PDF received: %s bytes, task %s", len(content), task_id)
         try:
             from services import audit as _audit
             await _audit.record(
@@ -113,7 +113,7 @@ async def upload_portfolio_raw(request: Request):
     # Magic-byte + extension validation (size already capped above)
     validate_upload(content, filename)
 
-    logger.info(f"Raw upload received: {len(content)} bytes, filename: {filename}")
+    logger.info("Raw upload received: %s bytes, filename: %s", len(content), filename)
 
     if filename.endswith(".pdf"):
         task_id = f"task_{uuid.uuid4().hex[:12]}"
@@ -193,7 +193,7 @@ async def casparser_access_token(request: Request):
     token_payload = generate_access_token(expiry_minutes=60)
     if not token_payload:
         raise HTTPException(status_code=502, detail="Failed to mint CAS Parser access token")
-    logger.info(f"Minted CAS Parser access token for user={user['user_id']}")
+    logger.info("Minted CAS Parser access token for user=%s", user['user_id'])
     return token_payload
 
 
@@ -215,7 +215,7 @@ async def portfolio_import_from_connect(request: Request):
         from services.masterdata import validate_and_enrich_holdings
         holdings = validate_and_enrich_holdings(holdings)
     except Exception as e:
-        logger.info(f"Masterdata enrichment skipped: {e}")
+        logger.info("Masterdata enrichment skipped: %s", e)
 
     saved = await save_holdings(user["user_id"], holdings, "CAS Connect")
 
@@ -227,7 +227,7 @@ async def portfolio_import_from_connect(request: Request):
             db, user["user_id"], parsed_data, source="CAS Connect"
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Transaction extraction skipped: {e}")
+        logger.warning("Transaction extraction skipped: %s", e)
 
     cas_type = (parsed_data.get("meta") or {}).get("cas_type", "")
     investor_name = (parsed_data.get("investor") or {}).get("name", "")
@@ -250,7 +250,7 @@ async def portfolio_import_from_connect(request: Request):
 async def _process_cas_background(content: bytes, user_id: str, task_id: str, portfolio_id: str = "", password: str = ""):
     """Background task for CAS PDF processing."""
     try:
-        logger.info(f"Background CAS task {task_id}: password={'provided' if password else 'none'}, size={len(content)}")
+        logger.info("Background CAS task %s: password=%s, size=%s", task_id, 'provided' if password else 'none', len(content))
         await db.upload_tasks.update_one(
             {"task_id": task_id},
             {"$set": {"status": "processing", "message": "Parsing CAS PDF with AI..."}}
@@ -265,13 +265,13 @@ async def _process_cas_background(content: bytes, user_id: str, task_id: str, po
         await save_holdings(user_id, parsed, "CAS PDF", task_id, portfolio_id)
     except HTTPException as he:
         error_msg = he.detail if hasattr(he, 'detail') else str(he)
-        logger.error(f"Background CAS processing HTTPException: {error_msg}")
+        logger.error("Background CAS processing HTTPException: %s", error_msg)
         await db.upload_tasks.update_one(
             {"task_id": task_id},
             {"$set": {"status": "error", "message": error_msg, "count": 0, "holdings": []}}
         )
     except Exception as e:
-        logger.error(f"Background CAS processing error: {e}")
+        logger.error("Background CAS processing error: %s", e)
         error_msg = str(e)
         if "password" in error_msg.lower() or "decrypt" in error_msg.lower() or "encrypted" in error_msg.lower():
             error_msg = "PDF is password-protected. Please provide the correct password."

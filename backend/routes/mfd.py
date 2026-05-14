@@ -650,7 +650,7 @@ async def tax_summary(profile_id: str, request: Request):
                     if nn2:
                         fifo_lots_by_name.setdefault(nn2, live)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"FIFO tax-state build failed for {shadow}: {e}")
+        logger.warning("FIFO tax-state build failed for %s: %s", shadow, e)
 
     def _resolve_lots(h: Dict[str, Any], qty: float, bp: float) -> List[Dict[str, Any]]:
         """Return per-lot {qty, buy_price, buy_dt, days_held} records.

@@ -39,7 +39,7 @@ def _llm_circuit_open() -> bool:
 def _llm_circuit_trip() -> None:
     global _LLM_CB_UNTIL
     _LLM_CB_UNTIL = time.time() + _CB_COOLDOWN_S
-    logger.warning(f"LLM circuit tripped for {_CB_COOLDOWN_S}s")
+    logger.warning("LLM circuit tripped for %ss", _CB_COOLDOWN_S)
 
 
 def llm_circuit_reset() -> None:
@@ -332,7 +332,7 @@ async def rate_portfolio_categories(metrics: Dict[str, Any]) -> List[Dict[str, A
                 o["reason"] = str(updates[o["category"]])[:300]
     except Exception as e:  # noqa: BLE001
         _llm_circuit_trip()
-        logger.info(f"category AI reason-upgrade skipped: {e}")
+        logger.info("category AI reason-upgrade skipped: %s", e)
 
     out.sort(key=lambda x: (x["rating"], -x["invested_rs"]))
     return out
@@ -382,5 +382,5 @@ async def rate_fund(fund_detail: Dict[str, Any]) -> Dict[str, Any]:
         return {"rating": rating, "reason": str(data.get("reason", ""))[:400]}
     except Exception as e:  # noqa: BLE001
         _llm_circuit_trip()
-        logger.warning(f"AI rate_fund failed: {e}")
+        logger.warning("AI rate_fund failed: %s", e)
         return {"rating": None, "reason": f"LLM error: {e}"}

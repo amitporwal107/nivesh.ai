@@ -77,7 +77,7 @@ async def _fetch_fresh_token() -> Optional[str]:
         return token
 
     except Exception as exc:
-        logger.error(f"Failed to refresh Morningstar token via Playwright: {exc}")
+        logger.error("Failed to refresh Morningstar token via Playwright: %s", exc)
         return None
 
 
@@ -171,13 +171,13 @@ async def search_stock_morningstar(
                 logger.warning("Morningstar token expired (401) — will refresh on next call")
                 return None
             if resp.status_code != 200:
-                logger.warning(f"Morningstar screener HTTP {resp.status_code} for '{term}'")
+                logger.warning("Morningstar screener HTTP %s for '%s'", resp.status_code, term)
                 return None
 
             data   = resp.json()
             rows   = data.get("rows") or []
     except Exception as exc:
-        logger.error(f"Morningstar search error for '{term}': {exc}")
+        logger.error("Morningstar search error for '%s': %s", term, exc)
         return None
 
     if not rows:
@@ -235,13 +235,13 @@ async def batch_refresh_stock_morningstar(
             data = await search_stock_morningstar(name, token=token)
             if data:
                 results[sym] = data
-                logger.info(f"  MS {sym}: {data['morningstar_rating']}★ ({data['ms_name']})")
+                logger.info("  MS %s: %s★ (%s)", sym, data['morningstar_rating'], data['ms_name'])
             else:
-                logger.debug(f"  MS {sym}: no rating found")
+                logger.debug("  MS %s: no rating found", sym)
 
             await asyncio.sleep(0.3)   # polite delay between calls
         except Exception as exc:
-            logger.warning(f"  MS {sym}: error — {exc}")
+            logger.warning("  MS %s: error — %s", sym, exc)
 
-    logger.info(f"Morningstar refresh complete: {len(results)}/{len(holdings)} rated")
+    logger.info("Morningstar refresh complete: %s/%s rated", len(results), len(holdings))
     return results

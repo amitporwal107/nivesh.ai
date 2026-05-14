@@ -334,7 +334,7 @@ def map_to_holdings(claude_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if h: _apply_buy_date(h, r, by_pair, by_isin); out.append(h)
 
     n_dated = sum(1 for h in out if h.get("buy_date"))
-    logger.info(f"Claude → {len(out)} holdings mapped ({n_dated} with buy_date)")
+    logger.info("Claude → %s holdings mapped (%s with buy_date)", len(out), n_dated)
     return out
 
 

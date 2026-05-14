@@ -474,13 +474,13 @@ async def generate_insights(request: Request):
     try:
         rule_cfg = await _rc.get_config()
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"rules_config unavailable for insights: {e}")
+        logger.warning("rules_config unavailable for insights: %s", e)
         rule_cfg = _rc.DEFAULTS
 
     try:
         intelligence = await compute_portfolio_intelligence(user_id)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"portfolio_intelligence unavailable: {e}")
+        logger.warning("portfolio_intelligence unavailable: %s", e)
         intelligence = None
 
     analysis = _deterministic_insights(holdings, deep_analytics, allocation_data, rule_cfg, intelligence)
@@ -553,12 +553,12 @@ async def get_analysis(request: Request):
             analysis = {}
         analysis["portfolio_health"] = hr.to_dict()
     except _asyncio.TimeoutError:
-        logger.warning(f"portfolio_health compute >12s for user {user['user_id']} — returning null, background task will warm the cache")
+        logger.warning("portfolio_health compute >12s for user %s — returning null, background task will warm the cache", user['user_id'])
         if analysis is None:
             analysis = {}
         analysis["portfolio_health"] = None
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"attach portfolio_health to /insights/analysis failed: {e}")
+        logger.warning("attach portfolio_health to /insights/analysis failed: %s", e)
     return analysis
 
 
@@ -605,7 +605,7 @@ async def v3_portfolio_summary(request: Request):
             )
             health_payload = hr.to_dict()
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"Portfolio Health (no MF) failed for {uid}: {e}")
+            logger.warning("Portfolio Health (no MF) failed for %s: %s", uid, e)
             health_payload = None
         return {"coverage_pct": 0, "funds": [], "portfolio": {},
                 "engine_version": v3_scoring.ENGINE_VERSION,
@@ -655,7 +655,7 @@ async def v3_portfolio_summary(request: Request):
     try:
         pi = await pintel.compute_portfolio_intelligence(uid)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"portfolio_intelligence fetch for HAS failed: {e}")
+        logger.warning("portfolio_intelligence fetch for HAS failed: %s", e)
     if pi and pi.get("pairwise_overlap"):
         # Index mf_investments by instrument_id for value lookup.
         inv_value_by_iid = {m["instrument_id"]: m["amount_rs"]
@@ -735,7 +735,7 @@ async def v3_portfolio_summary(request: Request):
                         "rank": i, "total": total, "sub_category": sub,
                     }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"v3-portfolio category-rank build failed: {e}")
+        logger.warning("v3-portfolio category-rank build failed: %s", e)
 
     for m in mf_investments:
         iid = m.get("instrument_id")
@@ -862,7 +862,7 @@ async def v3_portfolio_summary(request: Request):
                 # Surface peer-universe size for observability (UI debug only).
                 switch_decision_dict["_n_candidates"] = len(peers)
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"switch_decision_engine failed for {name}: {e}")
+                logger.warning("switch_decision_engine failed for %s: %s", name, e)
                 switch_decision_dict = None
 
         entry = {
@@ -1055,7 +1055,7 @@ async def v3_portfolio_summary(request: Request):
         )
         health_payload = health_result.to_dict()
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Portfolio Health build failed for {uid}: {e}")
+        logger.warning("Portfolio Health build failed for %s: %s", uid, e)
         health_payload = {
             "health_score": None,
             "low_confidence": True,

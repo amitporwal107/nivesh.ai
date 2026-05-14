@@ -88,7 +88,7 @@ async def get_enriched_holdings(request: Request, fresh: bool = False):
         # straight from the holdings collection so the user at least sees
         # their portfolio, with an `_enrichment_error` flag so frontend can
         # surface a soft warning later if we add one.
-        logger.exception(f"holdings-enriched enrichment failed for {user_id}: {e}")
+        logger.exception("holdings-enriched enrichment failed for %s: %s", user_id, e)
         try:
             raw = await db.holdings.find(
                 {"user_id": user_id}, {"_id": 0},
@@ -139,7 +139,7 @@ async def get_enriched_holdings(request: Request, fresh: bool = False):
                 "_enrichment_error": str(e)[:200],
             }
         except Exception as inner:  # noqa: BLE001
-            logger.exception(f"holdings-enriched fallback also failed: {inner}")
+            logger.exception("holdings-enriched fallback also failed: %s", inner)
             raise HTTPException(
                 status_code=500,
                 detail="Portfolio enrichment temporarily unavailable. Try ?fresh=true.",
@@ -202,7 +202,7 @@ async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
     try:
         funds = await _fetch_master_funds(limit=None)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"switch-candidates: master funds unavailable → {e}")
+        logger.warning("switch-candidates: master funds unavailable → %s", e)
         return {"candidates": [], "category": None, "source_quality": None}
 
     # Resolve current holding's category via fuzzy name match
@@ -444,7 +444,7 @@ async def refresh_stock_morningstar(request: Request):
     from services.morningstar_stock_client import batch_refresh_stock_morningstar
     from services import pg_client
 
-    logger.info(f"Refreshing Morningstar ratings for {len(unique_items)} stocks…")
+    logger.info("Refreshing Morningstar ratings for %s stocks…", len(unique_items))
     ratings = await batch_refresh_stock_morningstar(unique_items)
 
     if not ratings:

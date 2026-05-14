@@ -101,7 +101,7 @@ async def upsert_equity(
         )
         return row["instrument_id"] if row else None
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"upsert_equity failed for {name!r}: {e}")
+        logger.warning("upsert_equity failed for %s: %s", name!r, e)
         return None
 
 
@@ -325,7 +325,7 @@ async def persist_scrape(data: Dict[str, Any]) -> Optional[uuid.UUID]:
         try:
             await persist_scrape(sibling_copy)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"sibling persist failed for {sibling.get('slug')}: {e}")
+            logger.warning("sibling persist failed for %s: %s", sibling.get('slug'), e)
 
     return mf_id
 
@@ -353,7 +353,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
     scheme_name = data.get("scheme_name") or ""
     isin = data.get("isin")
     if not imid or not scheme_name:
-        logger.warning(f"MC persist: missing imid/scheme_name ({imid!r} / {scheme_name!r})")
+        logger.warning("MC persist: missing imid/scheme_name (%s / %s)", imid!r, scheme_name!r)
         return None
 
     async with pool.acquire() as conn:
@@ -399,7 +399,7 @@ async def persist_moneycontrol_scrape(data: Dict[str, Any]) -> Optional[uuid.UUI
             if row:
                 mf_id = row["instrument_id"]
         if mf_id is None:
-            logger.info(f"MC persist: no existing fund for {scheme_name!r} (isin={isin}) — skipping")
+            logger.info("MC persist: no existing fund for %s (isin=%s) — skipping", scheme_name!r, isin)
             return None
 
         # Ensure a metadata row exists (insert skeleton if missing).
@@ -513,7 +513,7 @@ async def log_scrape_attempt(
                 holdings_count, validation_issues, source, duration_ms,
             )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"scrape audit log insert failed: {e}")
+        logger.warning("scrape audit log insert failed: %s", e)
 
 
 # ── Reads for dashboard + fallback ───────────────────────────────────────

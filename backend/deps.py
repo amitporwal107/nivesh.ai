@@ -7,6 +7,7 @@ import logging
 
 from repository import UserRepository, SessionRepository, PortfolioRepository, HoldingRepository
 from services.ai_engine import AIEngine
+from core.logging_config import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def get_current_user(request: Request) -> dict:
             from services import mfd_workspace
             effective_user_id = await mfd_workspace.resolve_effective_user(session_doc)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"profile impersonation failed, falling back: {e}")
+            logger.warning("Profile impersonation failed, falling back: %s", e)
 
     user_doc = await db.users.find_one({"user_id": effective_user_id}, {"_id": 0})
     if not user_doc:
@@ -163,7 +164,7 @@ async def seed_admin_and_whitelist():
                 "email": email, "status": "invited", "is_admin": True,
                 "invited_at": now, "registered_at": None, "invited_by": "system",
             })
-            logger.info(f"Seeded founder whitelist: {email}")
+            logger.info("Seeded founder whitelist: %s", mask_email(email))
         elif not existing_wl.get("is_admin"):
             await db.whitelisted_users.update_one({"email": email}, {"$set": {"is_admin": True}})
 
@@ -182,7 +183,7 @@ async def seed_admin_and_whitelist():
                 "created_at": now,
                 "updated_at": now,
             })
-            logger.info(f"Seeded founder user: {email} ({user_id})")
+            logger.info("Seeded founder user: %s (%s)", mask_email(email), user_id)
         else:
             user_id = existing_user["user_id"]
             await db.users.update_one(

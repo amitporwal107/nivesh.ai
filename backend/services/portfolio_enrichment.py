@@ -353,7 +353,7 @@ async def build_enriched_portfolio(
                 sort=[("snapshot_date", -1)],
             )
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"snapshot self-heal probe failed for {user_id}: {e}")
+            logger.debug("snapshot self-heal probe failed for %s: %s", user_id, e)
             latest_snap = None
         if latest_snap and latest_snap.get("snapshot_date"):
             try:
@@ -415,7 +415,7 @@ async def build_enriched_portfolio(
                             isin_to_symbol_backfill[r["isin"]] = r["nse_symbol"]
                             symbols.append(r["nse_symbol"])
                 except Exception as e:  # noqa: BLE001
-                    logger.debug(f"isin→symbol backfill skipped: {e}")
+                    logger.debug("isin→symbol backfill skipped: %s", e)
             if symbols:
                 async with pool.acquire() as conn:
                     rows = await conn.fetch(
@@ -452,7 +452,7 @@ async def build_enriched_portfolio(
                         "morningstar_rating": int(r["morningstar_rating"]) if r["morningstar_rating"] is not None else None,
                     }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"enriched_portfolio: stock score join failed: {e}")
+        logger.warning("enriched_portfolio: stock score join failed: %s", e)
 
     # Load MF V3 scores via the existing v3_portfolio endpoint's logic
     mf_scores_by_name: Dict[str, Dict[str, Any]] = {}
@@ -497,7 +497,7 @@ async def build_enriched_portfolio(
                         "morningstar_rating": prim.get("morningstar_rating"),
                     }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"enriched_portfolio: MF V3 join failed: {e}")
+        logger.warning("enriched_portfolio: MF V3 join failed: %s", e)
 
     # Category rank (sub_category partition, Direct-plan only, ranked by
     # quality_score desc). Keyed by instrument_id so per-row lookup is
@@ -525,14 +525,14 @@ async def build_enriched_portfolio(
                         "rank": i, "total": total, "sub_category": sub,
                     }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"enriched_portfolio: category rank build failed: {e}")
+        logger.warning("enriched_portfolio: category rank build failed: %s", e)
 
     # Portfolio Health (for risk drivers + totals)
     try:
         hr = await ph.build_portfolio_health(user_id)
         health_payload = hr.to_dict()
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"enriched_portfolio: health failed: {e}")
+        logger.warning("enriched_portfolio: health failed: %s", e)
         health_payload = None
 
     # Build per-holding rows
@@ -795,9 +795,9 @@ async def build_enriched_portfolio(
                                 **d.get("impact", {}),
                             }
                     except Exception as e:  # noqa: BLE001
-                        logger.debug(f"decision engine skipped for {h.get('name')}: {e}")
+                        logger.debug("decision engine skipped for %s: %s", h.get('name'), e)
             except Exception as e:  # noqa: BLE001
-                logger.debug(f"switch_cost compute failed for {h.get('name')}: {e}")
+                logger.debug("switch_cost compute failed for %s: %s", h.get('name'), e)
 
         enriched.append({
             "holding_id": h.get("holding_id"),
@@ -934,7 +934,7 @@ async def build_enriched_portfolio(
                     ),
                 }
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"target_weight_pct hydration skipped: {e}")
+        logger.debug("target_weight_pct hydration skipped: %s", e)
         # Strip the temp key so it doesn't leak into the response
         for row in enriched:
             row.pop("_target_bucket", None)
@@ -1060,7 +1060,7 @@ async def build_enriched_portfolio(
             health_projected = round(float(proj.get("projected") or 0), 1) or None
             health_delta = round(float(proj.get("delta_total") or 0), 2) or None
     except Exception as e:  # noqa: BLE001
-        logger.info(f"enriched_portfolio: projection skipped: {e}")
+        logger.info("enriched_portfolio: projection skipped: %s", e)
 
     portfolio_impact = {
         "pending_actions": sum(impact_counts.values()),
@@ -1108,7 +1108,7 @@ async def build_enriched_portfolio(
                     {"$set": {"nse_symbol": sym}},
                 )
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"nse_symbol backfill persist skipped: {e}")
+            logger.debug("nse_symbol backfill persist skipped: %s", e)
 
     # Cache for 5 minutes — refresh-fundamentals and refresh-prices evict this key.
     try:

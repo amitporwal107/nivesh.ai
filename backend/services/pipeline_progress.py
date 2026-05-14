@@ -84,7 +84,7 @@ async def start(job: str, total: Optional[int] = None, phase: Optional[str] = No
     try:
         await redis_client.cache_set(_key(job), payload, ttl_s=TTL_RUNNING_S)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.start({job}) failed: {e}")
+        logger.warning("pipeline_progress.start(%s) failed: %s", job, e)
 
 
 async def tick(
@@ -122,7 +122,7 @@ async def tick(
         cur["updated_at"] = _now_iso()
         await redis_client.cache_set(_key(job), cur, ttl_s=TTL_RUNNING_S)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.tick({job}) failed: {e}")
+        logger.warning("pipeline_progress.tick(%s) failed: %s", job, e)
 
 
 async def set_phase(job: str, phase: str, message: Optional[str] = None) -> None:
@@ -138,7 +138,7 @@ async def set_phase(job: str, phase: str, message: Optional[str] = None) -> None
         cur["updated_at"] = _now_iso()
         await redis_client.cache_set(_key(job), cur, ttl_s=TTL_RUNNING_S)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.set_phase({job}) failed: {e}")
+        logger.warning("pipeline_progress.set_phase(%s) failed: %s", job, e)
 
 
 async def finish(
@@ -175,7 +175,7 @@ async def finish(
         }
         await redis_client.cache_set(_key(job), payload, ttl_s=TTL_DONE_S)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.finish({job}) failed: {e}")
+        logger.warning("pipeline_progress.finish(%s) failed: %s", job, e)
 
 
 def _seconds_since(iso: Optional[str]) -> Optional[float]:
@@ -214,7 +214,7 @@ async def read(job: str) -> Optional[Dict[str, Any]]:
     try:
         rec = await redis_client.cache_get(_key(job))
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.read({job}) failed: {e}")
+        logger.warning("pipeline_progress.read(%s) failed: %s", job, e)
         return None
     return _decorate(rec) if rec else None
 
@@ -235,4 +235,4 @@ async def clear(job: str) -> None:
     try:
         await redis_client.cache_del(_key(job))
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pipeline_progress.clear({job}) failed: {e}")
+        logger.warning("pipeline_progress.clear(%s) failed: %s", job, e)

@@ -113,7 +113,7 @@ async def _ms_rating_coverage() -> Dict[str, Any]:
         pct = (rated / total * 100.0) if total > 0 else 0.0
         return {"total": total, "rated": rated, "pct": round(pct, 1)}
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"MS coverage check failed: {e}")
+        logger.warning("MS coverage check failed: %s", e)
         return {"total": 0, "rated": 0, "pct": 0.0}
 
 
@@ -150,7 +150,7 @@ async def data_health_summary(request: Request) -> Dict[str, Any]:
     try:
         ps = await nav_analytics_sweep.pipeline_status()
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"data-health pipeline_status failed: {e}")
+        logger.warning("data-health pipeline_status failed: %s", e)
         ps = {"jobs": {}, "scrape_queue": {"queued": 0, "done": 0, "failed": 0}}
 
     issues: List[Dict[str, Any]] = []
@@ -276,7 +276,7 @@ async def _run_step(name: str, coro_fn) -> Dict[str, Any]:
         return {"step": name, "ok": False, "error": "timeout",
                 "duration_s": _RUN_ALL_TIMEOUT_S}
     except Exception as e:  # noqa: BLE001
-        logger.exception(f"data-health run-all step {name} failed")
+        logger.exception("data-health run-all step %s failed", name)
         return {"step": name, "ok": False, "error": str(e)[:300],
                 "duration_s": (datetime.now(timezone.utc) - start).total_seconds()}
 

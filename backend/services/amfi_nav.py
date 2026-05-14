@@ -70,11 +70,11 @@ async def fetch_nav_data() -> dict:
 
         _nav_cache = nav_map
         _cache_timestamp = time.time()
-        logger.info(f"AMFI NAV loaded: {len(nav_map)} entries")
+        logger.info("AMFI NAV loaded: %d entries", len(nav_map))
         return nav_map
 
     except Exception as e:
-        logger.error(f"Failed to fetch AMFI NAV: {e}")
+        logger.error("Failed to fetch AMFI NAV: %s", e)
         return _nav_cache  # Return stale cache if available
 
 

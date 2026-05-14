@@ -76,9 +76,9 @@ async def _fetch_html(url: str) -> Optional[str]:
             r = await c.get(url)
             if r.status_code == 200 and "<html" in r.text[:500].lower():
                 return r.text
-            logger.warning(f"moneycontrol {url!r} → HTTP {r.status_code}")
+            logger.warning("moneycontrol %s → HTTP %s", url!r, r.status_code)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"moneycontrol fetch failed: {url!r} — {e}")
+            logger.warning("moneycontrol fetch failed: %s — %s", url!r, e)
     return None
 
 
@@ -224,7 +224,7 @@ async def search_fund(scheme_name: str) -> Optional[Dict[str, str]]:
                 txt = txt[1:-1]
             data = json.loads(txt)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"search_fund({scheme_name!r}) failed: {e}")
+            logger.warning("search_fund(%s) failed: %s", scheme_name!r, e)
             return None
 
     hits = data if isinstance(data, list) else (data.get("data") or [])

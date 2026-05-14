@@ -378,9 +378,9 @@ def generate_signals(portfolio_data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 # Add detector priority for sorting
                 signal["_priority"] = detector.priority
                 signals.append(signal)
-                logger.info(f"Signal detected: {signal['type']} - {signal['severity']}")
+                logger.info("Signal detected: %s - %s", signal['type'], signal['severity'])
         except Exception as e:
-            logger.error(f"Error in {detector.signal_type} detector: {e}")
+            logger.error("Error in %s detector: %s", detector.signal_type, e)
             continue
     
     # Sort by severity (HIGH > MEDIUM > LOW) then by priority
@@ -391,7 +391,7 @@ def generate_signals(portfolio_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     for s in signals:
         s.pop("_priority", None)
     
-    logger.info(f"Generated {len(signals)} signals")
+    logger.info("Generated %s signals", len(signals))
     return signals
 
 

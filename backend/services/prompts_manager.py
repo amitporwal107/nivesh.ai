@@ -61,7 +61,7 @@ def _bootstrap_defaults() -> None:
             used_in=["services/ai_engine.parse_cas"],
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"prompts_manager bootstrap (ai_engine): {e}")
+        logger.warning("prompts_manager bootstrap (ai_engine): %s", e)
 
     register(
         "insights_system_prompt",
@@ -138,7 +138,7 @@ async def get(name: str, **format_kwargs: Any) -> str:
         try:
             return text.format(**format_kwargs)
         except (KeyError, IndexError) as e:
-            logger.warning(f"prompt {name} format error: {e} — returning raw")
+            logger.warning("prompt %s format error: %s — returning raw", name, e)
             return text
     return text
 

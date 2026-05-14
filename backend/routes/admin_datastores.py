@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 
 from deps import db, require_admin
+from core.logging_config import mask_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -82,7 +83,7 @@ async def datastore_status(request: Request) -> Dict[str, Any]:
                     except Exception:
                         pg_counts[key] = None
     except Exception as e:
-        logger.debug(f"pg_counts failed: {e}")
+        logger.debug("pg_counts failed: %s", e)
 
     # Redis key count + sample
     redis_info: Dict[str, Any] = {"configured": False}
@@ -133,7 +134,7 @@ async def datastore_control(service: str, action: str, request: Request) -> Dict
         raise HTTPException(status_code=400, detail=f"action must be one of {sorted(_ALLOWED_ACTIONS)}")
 
     cmd = f"{_SUPERVISORCTL} {action} {service}"
-    logger.info(f"[admin={user.get('email')}] datastore control: {cmd}")
+    logger.info("[admin=%s] datastore control: %s", mask_email(user.get('email', '')), cmd)
     result = await _run_cmd(cmd, timeout=30)
 
     # Refetch supervisor status after action
@@ -163,7 +164,7 @@ async def restore_pg_from_mongo(request: Request) -> Dict[str, Any]:
     Safe to re-run (upsert-based).
     """
     user = await require_admin(request)
-    logger.info(f"[admin={user.get('email')}] triggered restore_pg_from_mongo")
+    logger.info("[admin=%s] triggered restore_pg_from_mongo", mask_email(user.get('email', '')))
     cmd = "cd /app/backend && /root/.venv/bin/python -m scripts.restore_pg_from_mongo"
     result = await _run_cmd(cmd, timeout=120)
     # Parse last summary line from stdout
@@ -188,7 +189,7 @@ async def apply_pg_schema(request: Request) -> Dict[str, Any]:
     in `schema_migrations`. Safe to re-run on every deploy.
     """
     user = await require_admin(request)
-    logger.info(f"[admin={user.get('email')}] applying PG migrations")
+    logger.info("[admin=%s] applying PG migrations", mask_email(user.get('email', '')))
     try:
         from scripts.post_deploy_migrate import phase_apply_migrations, phase_hydrate_secrets
         await phase_hydrate_secrets()
@@ -205,7 +206,7 @@ async def mirror_pg_to_mongo(request: Request) -> Dict[str, Any]:
     collections. Production deploys restore from these snapshots.
     """
     user = await require_admin(request)
-    logger.info(f"[admin={user.get('email')}] triggered mirror_pg_to_mongo")
+    logger.info("[admin=%s] triggered mirror_pg_to_mongo", mask_email(user.get('email', '')))
     try:
         from scripts import mirror_pg_to_mongo as m
         return await m.run()
@@ -237,7 +238,7 @@ async def post_deploy_migrate(request: Request) -> Dict[str, Any]:
         skip.append("analytics_sweep")
     if body.get("skip_rescore", False):
         skip.append("v3_rescore")
-    logger.info(f"[admin={user.get('email')}] post_deploy_migrate skip={skip}")
+    logger.info("[admin=%s] post_deploy_migrate skip=%s", mask_email(user.get('email', '')), skip)
     try:
         from scripts.post_deploy_migrate import run_all
         # Timeout hard-capped to 10 minutes (NAV history restore + sweep + rescore).
@@ -262,7 +263,7 @@ async def groww_bootstrap(request: Request) -> Dict[str, Any]:
     Returns immediately with a job summary; progress visible in `scrape_audit_log`.
     """
     user = await require_admin(request)
-    logger.info(f"[admin={user.get('email')}] triggered Groww bootstrap")
+    logger.info("[admin=%s] triggered Groww bootstrap", mask_email(user.get('email', '')))
 
     # 1) Collect unique MF scheme names from all holdings
     pipeline: List[Dict[str, Any]] = [
@@ -330,7 +331,7 @@ async def groww_progress(request: Request) -> Dict[str, Any]:
                     for r in rows
                 ]
     except Exception as e:
-        logger.debug(f"recent_audit fetch failed: {e}")
+        logger.debug("recent_audit fetch failed: %s", e)
 
     return {
         "queue": {"pending": queue_pending, "done": queue_done, "failed": queue_failed},

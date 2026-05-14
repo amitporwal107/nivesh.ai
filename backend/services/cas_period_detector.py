@@ -94,7 +94,7 @@ def detect_statement_period(content: bytes) -> Tuple[Optional[str], Optional[str
             except Exception:  # noqa: BLE001
                 continue
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"period-detector: text extract failed: {e}")
+        logger.debug("period-detector: text extract failed: %s", e)
         return None, None
 
     if not text:

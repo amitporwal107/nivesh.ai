@@ -49,7 +49,7 @@ async def get_client() -> Optional[aioredis.Redis]:
         logger.info("Redis connected")
         return _client
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Redis init failed: {e}")
+        logger.warning("Redis init failed: %s", e)
         _client = None
         _last_url = None
         return None
@@ -91,7 +91,7 @@ async def get_holdings(instrument_key: str) -> Optional[Dict[str, Any]]:
         raw = await c.get(_key("holdings", instrument_key))
         return json.loads(raw) if raw else None
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis get_holdings failed: {e}")
+        logger.warning("redis get_holdings failed: %s", e)
         return None
 
 
@@ -105,7 +105,7 @@ async def set_holdings(
         await c.set(_key("holdings", instrument_key), json.dumps(data), ex=ttl_s)
         return True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis set_holdings failed: {e}")
+        logger.warning("redis set_holdings failed: %s", e)
         return False
 
 
@@ -116,7 +116,7 @@ async def get_slug(instrument_key: str) -> Optional[str]:
     try:
         return await c.get(_key("slug", instrument_key))
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis get_slug failed: {e}")
+        logger.warning("redis get_slug failed: %s", e)
         return None
 
 
@@ -128,7 +128,7 @@ async def set_slug(instrument_key: str, slug: str) -> bool:
         await c.set(_key("slug", instrument_key), slug)
         return True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis set_slug failed: {e}")
+        logger.warning("redis set_slug failed: %s", e)
         return False
 
 
@@ -141,7 +141,7 @@ async def cache_get(key: str) -> Optional[Any]:
         raw = await c.get(f"nivesh:cache:{key}")
         return json.loads(raw) if raw else None
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis cache_get failed: {e}")
+        logger.warning("redis cache_get failed: %s", e)
         return None
 
 
@@ -153,7 +153,7 @@ async def cache_set(key: str, value: Any, ttl_s: int = 300) -> bool:
         await c.set(f"nivesh:cache:{key}", json.dumps(value, default=str), ex=ttl_s)
         return True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis cache_set failed: {e}")
+        logger.warning("redis cache_set failed: %s", e)
         return False
 
 
@@ -165,5 +165,5 @@ async def cache_del(key: str) -> bool:
         await c.delete(f"nivesh:cache:{key}")
         return True
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"redis cache_del failed: {e}")
+        logger.warning("redis cache_del failed: %s", e)
         return False

@@ -71,7 +71,7 @@ async def get_pool() -> Optional[asyncpg.Pool]:
         logger.info("Postgres pool initialized")
         return _pool
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Postgres pool init failed: {e}")
+        logger.warning("Postgres pool init failed: %s", e)
         _pool = None
         _last_url = None
         return None
@@ -133,7 +133,7 @@ async def lookup_instrument(
             row = await conn.fetchrow(sql, *args)
             return dict(row) if row else None
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pg lookup_instrument failed: {e}")
+        logger.warning("pg lookup_instrument failed: %s", e)
         return None
 
 
@@ -153,7 +153,7 @@ async def search_mf_by_name(name_query: str, limit: int = 5) -> List[Dict[str, A
             rows = await conn.fetch(sql, pattern, limit)
             return [dict(r) for r in rows]
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pg search_mf_by_name failed: {e}")
+        logger.warning("pg search_mf_by_name failed: %s", e)
         return []
 
 
@@ -173,7 +173,7 @@ async def latest_nav(instrument_id: int) -> Optional[Dict[str, Any]]:
                 return None
             return {"nav": float(row["nav"]), "nav_date": row["nav_date"].isoformat()}
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pg latest_nav failed: {e}")
+        logger.warning("pg latest_nav failed: %s", e)
         return None
 
 
@@ -196,5 +196,5 @@ async def latest_nav_by_uuid(instrument_id) -> Optional[Dict[str, Any]]:
                 "nav_date": row["nav_date"].isoformat() if row["nav_date"] else None,
             }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pg latest_nav_by_uuid failed: {e}")
+        logger.warning("pg latest_nav_by_uuid failed: %s", e)
         return None

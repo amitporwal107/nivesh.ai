@@ -233,7 +233,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
             "components": hr.to_dict().get("components"),
         }
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Portfolio Health compute failed for {user['user_id']}: {e}")
+        logger.warning("Portfolio Health compute failed for %s: %s", user['user_id'], e)
         health_payload = {
             "overall": 0, "grade": "N/A",
             "diversification": 0, "risk": 0, "cost_efficiency": 0, "performance": 0,
@@ -303,7 +303,7 @@ async def refresh_equity_prices(request: Request):
             await refresh_user_stocks(uid)
             await _fdr.scrape_user_mfs_inline(uid)
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"refresh-prices bg enrichment failed: {e}")
+            logger.warning("refresh-prices bg enrichment failed: %s", e)
     _asyncio.create_task(_bg())
 
     return {"message": "Prices refreshed", **stats}
@@ -445,7 +445,7 @@ async def get_user_stock_scores(request: Request):
                 symbols,
             )
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"stock-scores fetch failed: {e}")
+        logger.warning("stock-scores fetch failed: %s", e)
         return {"holdings": [], "coverage": 0, "error": str(e)}
 
     by_sym = {r["nse_symbol"]: r for r in rows}
@@ -905,5 +905,5 @@ Return STRICT JSON only."""
 
         return result
     except Exception as e:
-        logger.error(f"Allocation analysis failed: {e}")
+        logger.error("Allocation analysis failed: %s", e)
         return {"error": f"Analysis failed: {str(e)}"}

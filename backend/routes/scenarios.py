@@ -324,7 +324,7 @@ async def suggest_scenarios(request: Request):
                 })
             scenarios = scenarios[:5]
     except Exception as e:  # noqa: BLE001
-        logger.info(f"intelligence scenario augmentation skipped: {e}")
+        logger.info("intelligence scenario augmentation skipped: %s", e)
 
     return {"scenarios": scenarios, "context": ctx}
 

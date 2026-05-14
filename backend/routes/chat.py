@@ -67,7 +67,7 @@ async def _active_plan_context(user_id: str) -> str:
     try:
         plan = await _plan_manager.get_active_plan(user_id)
     except Exception as e:
-        logger.debug(f"active plan context fetch failed: {e}")
+        logger.debug("active plan context fetch failed: %s", e)
         plan = None
 
     if not plan or not plan.get("actions"):
@@ -161,9 +161,9 @@ async def _ensure_plan_for_actionable_question(user_id: str, message: str) -> No
         # generate_plan returns a "preview" plan; activate it so get_active_plan picks it up.
         plan["status"] = "active"
         await _plan_manager.create_plan(plan)
-        logger.info(f"chat: auto-generated action plan for {user_id} (actions={len(plan.get('actions') or [])})")
+        logger.info("chat: auto-generated action plan for %s (actions=%s)", user_id, len(plan.get('actions') or []))
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"chat auto-plan-gen failed for {user_id}: {e}")
+        logger.warning("chat auto-plan-gen failed for %s: %s", user_id, e)
 
 
 
@@ -633,7 +633,7 @@ async def _compute_portfolio_intelligence_context(user_id: str,
         return ctx
 
     except Exception as e:
-        logger.warning(f"Failed to compute intelligence context: {e}")
+        logger.warning("Failed to compute intelligence context: %s", e)
         return ""
 
 
@@ -866,7 +866,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 invalid=validated["invalid_specs"],
             )
         except Exception as e:  # noqa: BLE001
-            logger.error(f"RAG chat error: {e}", exc_info=True)
+            logger.error("RAG chat error: %s", e, exc_info=True)
             ai_response = (
                 "I'm having trouble connecting to my AI engine right now. "
                 "Please try again in a moment."
@@ -888,7 +888,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 system_override=system_override,
             )
         except Exception as e:  # noqa: BLE001
-            logger.error(f"LLM error (advisor): {e}")
+            logger.error("LLM error (advisor): %s", e)
             ai_response = "I'm having trouble connecting to my AI engine right now. Please try again in a moment."
         validated = validate_chart_blocks(ai_response)
         ai_response = validated["clean_text"]
@@ -1111,7 +1111,7 @@ async def stream_chat(request: Request):
             yield f"data: {json.dumps({'type': 'done', 'content': full_response, 'chart_count': validated['valid_count']})}\n\n"
 
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.error("Stream error: %s", e)
             error_msg = "I'm having trouble connecting right now. Please try again."
             # Save error response
             ai_msg_doc = {

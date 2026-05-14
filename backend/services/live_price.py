@@ -56,7 +56,7 @@ def _load_isin_map_from_local() -> Dict[str, str]:
     except FileNotFoundError:
         logger.debug("Local equity_list.csv not found at %s", _LOCAL_EQUITY_CSV)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Local equity CSV read failed: {e}")
+        logger.warning("Local equity CSV read failed: %s", e)
     return mapping
 
 
@@ -81,9 +81,9 @@ async def _load_isin_map() -> Dict[str, str]:
                         isin = row[6].strip()
                         if isin.startswith("INE"):
                             mapping[isin] = symbol
-                logger.info(f"Loaded {len(mapping)} equity ISIN mappings from NSE")
+                logger.info("Loaded %s equity ISIN mappings from NSE", len(mapping))
         except Exception as e:
-            logger.warning(f"Failed to fetch NSE equity list: {e}")
+            logger.warning("Failed to fetch NSE equity list: %s", e)
 
         # ETF list: Symbol,Underlying,SecurityName,DateofListing,MarketLot,ISINNumber,FaceValue
         try:
@@ -99,9 +99,9 @@ async def _load_isin_map() -> Dict[str, str]:
                         if isin and isin not in mapping:
                             mapping[isin] = symbol
                             etf_count += 1
-                logger.info(f"Loaded {etf_count} ETF ISIN mappings from NSE")
+                logger.info("Loaded %s ETF ISIN mappings from NSE", etf_count)
         except Exception as e:
-            logger.warning(f"Failed to fetch NSE ETF list: {e}")
+            logger.warning("Failed to fetch NSE ETF list: %s", e)
 
     # Network fetch may fail in sandboxes / weekends — fall back to the
     # bundled equity_list.csv so resolution still works offline.
@@ -109,7 +109,7 @@ async def _load_isin_map() -> Dict[str, str]:
         local = _load_isin_map_from_local()
         if local:
             mapping = local
-            logger.info(f"ISIN map loaded from local equity_list.csv ({len(mapping)} rows)")
+            logger.info("ISIN map loaded from local equity_list.csv (%s rows)", len(mapping))
 
     if mapping:
         _isin_to_symbol = mapping
@@ -175,7 +175,7 @@ def _batch_fetch_prices(symbols: List[str]) -> Dict[str, float]:
                     pass
 
     except Exception as e:
-        logger.error(f"yfinance batch download failed: {e}")
+        logger.error("yfinance batch download failed: %s", e)
 
     return prices
 

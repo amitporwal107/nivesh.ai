@@ -281,7 +281,7 @@ def parse_equity_table(df: pd.DataFrame) -> List[Dict]:
                 "current_price": round(price, 2), "sector": "Other",
             })
 
-    logger.info(f"[table] Equity: parsed {len(holdings)} holdings")
+    logger.info("[table] Equity: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -321,7 +321,7 @@ def parse_mf_demat_table(df: pd.DataFrame) -> List[Dict]:
                 "sector": _classify_sector(name),
             })
 
-    logger.info(f"[table] MF Demat: parsed {len(holdings)} holdings")
+    logger.info("[table] MF Demat: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -368,7 +368,7 @@ def parse_sgb_table(df: pd.DataFrame) -> List[Dict]:
                 "sector": "Gold",
             })
 
-    logger.info(f"[table] SGB: parsed {len(holdings)} holdings")
+    logger.info("[table] SGB: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -490,7 +490,7 @@ def parse_mf_folio_table(df: pd.DataFrame) -> List[Dict]:
                 "sector": _classify_sector(name),
             })
 
-    logger.info(f"[table] MF Folios: parsed {len(holdings)} holdings")
+    logger.info("[table] MF Folios: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -541,7 +541,7 @@ def parse_cdsl_equity_table(df: pd.DataFrame) -> List[Dict]:
                 "sector": _classify_sector(name) if asset_type != "equity" else "Other",
             })
 
-    logger.info(f"[table] CDSL Equity: parsed {len(holdings)} holdings")
+    logger.info("[table] CDSL Equity: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -596,7 +596,7 @@ def parse_cdsl_mf_folio_table(df: pd.DataFrame) -> List[Dict]:
                 "sector": _classify_sector(name),
             })
 
-    logger.info(f"[table] CDSL MF Folios: parsed {len(holdings)} holdings")
+    logger.info("[table] CDSL MF Folios: parsed %s holdings", len(holdings))
     return holdings
 
 
@@ -624,7 +624,7 @@ def extract_tables_from_image(pil_image, n_threads: int = 4) -> list:
         )
         return tables
     except Exception as e:
-        logger.warning(f"img2table extract failed: {e}")
+        logger.warning("img2table extract failed: %s", e)
         return []
 
 
@@ -635,19 +635,19 @@ def parse_pages_via_tables(pil_images: list) -> List[Dict]:
         try:
             tables = extract_tables_from_image(img)
         except Exception as e:
-            logger.warning(f"Page {page_idx+1} table extract error: {e}")
+            logger.warning("Page %s table extract error: %s", page_idx+1, e)
             continue
 
         if not tables:
             continue
 
-        logger.info(f"Page {page_idx+1}: {len(tables)} tables found")
+        logger.info("Page %s: %s tables found", page_idx+1, len(tables))
         for tbl_idx, tbl in enumerate(tables):
             df = tbl.df
             if df.empty or df.shape[0] < 2:
                 continue
             kind = classify_table(df)
-            logger.info(f"  Table {tbl_idx}: {df.shape} kind={kind}")
+            logger.info("  Table %s: %s kind=%s", tbl_idx, df.shape, kind)
 
             if kind == 'equity':
                 all_holdings.extend(parse_equity_table(df))

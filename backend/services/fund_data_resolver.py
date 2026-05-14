@@ -98,7 +98,7 @@ async def _persist_all(instrument_key: str, data: Dict[str, Any]) -> None:
     try:
         await pg_writer.persist_scrape(payload)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"pg_writer.persist_scrape failed for {instrument_key}: {e}")
+        logger.warning("pg_writer.persist_scrape failed for %s: %s", instrument_key, e)
 
 
 async def _queue_scrape(instrument_key: str, scheme_name: str, slug: Optional[str]) -> None:
@@ -302,7 +302,7 @@ async def drain_queue(max_items: int = 20, delay_between_s: float = 3.0,
                     failed += 1
                     await pipeline_progress.tick("drain_queue", processed_delta=0, failed_delta=1)
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"drain: {item.get('instrument_key')} error: {e}")
+                logger.warning("drain: %s error: %s", item.get('instrument_key'), e)
                 failed += 1
                 await pipeline_progress.tick("drain_queue", processed_delta=0, failed_delta=1)
             await asyncio.sleep(delay_between_s)

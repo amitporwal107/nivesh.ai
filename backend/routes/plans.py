@@ -121,7 +121,7 @@ async def get_active_plan(request: Request):
         await plan_manager.auto_archive_old_completed_plans(user_id)
     except Exception as e:
         # Don't fail the request if auto-archive fails
-        logger.warning(f"Auto-archive failed: {e}")
+        logger.warning("Auto-archive failed: %s", e)
     
     plan = await plan_manager.get_active_plan(user_id)
     
@@ -176,7 +176,7 @@ async def get_active_plan_health_projection(request: Request):
         from services import portfolio_health_projection as _phproj
         result = await _phproj.project_health(user["user_id"])
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"health projection failed: {e}")
+        logger.warning("health projection failed: %s", e)
         return {"available": False, "reason": str(e)}
     if result is None:
         return {"available": False, "reason": "No active plan or no holdings."}

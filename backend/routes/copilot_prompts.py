@@ -315,7 +315,7 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
                 ]
             ctx["fund_count"] = len(intel.get("dedup_holdings") or intel.get("holdings") or [])
     except Exception as e:
-        logger.debug(f"portfolio_intelligence unavailable: {e}")
+        logger.debug("portfolio_intelligence unavailable: %s", e)
 
     # If intelligence didn't give allocation, fall back to holdings-based calc
     if ctx["total_value"] <= 0:
@@ -380,7 +380,7 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
                 if "UNDERPERFORMER_REPLACEMENT" in (a.get("reason_codes") or [])
             )
     except Exception as e:
-        logger.debug(f"active plan read failed: {e}")
+        logger.debug("active plan read failed: %s", e)
 
     return ctx
 

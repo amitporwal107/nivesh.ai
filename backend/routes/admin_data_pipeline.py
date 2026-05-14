@@ -106,13 +106,13 @@ _running: Dict[str, bool] = {}
 async def _run_bg(job_name: str, coro_factory) -> None:
     """Run a job coroutine in the background, guarding against double-run."""
     if _running.get(job_name):
-        logger.info(f"[{job_name}] already running — skipping duplicate trigger")
+        logger.info("[%s] already running — skipping duplicate trigger", job_name)
         return
     _running[job_name] = True
     try:
         await coro_factory()
     except Exception as e:  # noqa: BLE001
-        logger.exception(f"[{job_name}] background run failed: {e}")
+        logger.exception("[%s] background run failed: %s", job_name, e)
     finally:
         _running[job_name] = False
 

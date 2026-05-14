@@ -10,6 +10,10 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Structured JSON logging must be configured before any module acquires a logger.
+from core.logging_config import configure_logging
+configure_logging(service="nivesh-api")
+
 # Ensure poppler-utils is installed (needed for image-based CAS PDFs)
 try:
     subprocess.run(["which", "pdftoppm"], check=True, capture_output=True)
@@ -17,7 +21,7 @@ except subprocess.CalledProcessError:
     subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
     subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
 
-from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, validate_env
+from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, validate_env
 
 # Validate env on startup
 validate_env()
@@ -75,11 +79,13 @@ from routes.market_events import router as market_events_router  # Market Event 
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 
-# Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from core.correlation import CorrelationMiddleware
+from core.error_handlers import register_error_handlers
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="nivesh.ai API", version="2.0")
+register_error_handlers(app)
 
 # Include all routers
 app.include_router(auth_router)
@@ -140,10 +146,15 @@ async def root():
     return {"message": "nivesh.ai API"}
 
 
-# Middleware (Starlette runs middleware in REVERSE add order, so headers
-# wrap the rate-limiter to ensure 429 responses also carry security headers).
+# Middleware (Starlette runs middleware in REVERSE add order).
+# Execution order on request:
+#   Correlation → RequestLogging → RateLimit → SecurityHeaders → route
+# CorrelationMiddleware is outermost so the ID is available to all layers.
+# RequestLoggingMiddleware wraps everything below it to measure true latency.
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(CorrelationMiddleware)
 
 _cors_env = os.environ.get('CORS_ORIGINS', '')
 _cors_origin_regex: str | None = None
@@ -185,7 +196,7 @@ async def startup_seed():
             cas_api_client.set_override(use_sandbox=cas_cfg["use_sandbox"])
         logger.info("Secrets + feature flags + V3 weights hydrated from DB")
     except Exception as e:
-        logger.warning(f"Config hydrate failed: {e}")
+        logger.warning("Config hydrate failed: %s", e)
     # Start MF scheduler. PG-dependent jobs (drain / v3_rescore /
     # nifty100_refresh) wrap their own work in try/except so if Postgres
     # is misconfigured or temporarily down they degrade gracefully —
@@ -195,33 +206,33 @@ async def startup_seed():
         from services import mf_scheduler
         mf_scheduler.start()
     except Exception as e:
-        logger.warning(f"MF scheduler start failed: {e}")
+        logger.warning("MF scheduler start failed: %s", e)
     # Portfolio snapshot indexes (cheap, idempotent)
     try:
         from services import portfolio_snapshot as _snap
         await _snap.ensure_indexes()
     except Exception as e:
-        logger.warning(f"portfolio_snapshot index ensure failed: {e}")
+        logger.warning("portfolio_snapshot index ensure failed: %s", e)
     # Benchmark Index Data Service — run migration 014 once on startup,
     # idempotent. The daily refresh job is wired into mf_scheduler.
     try:
         from services import benchmark_index as _bm
         await _bm.ensure_schema()
     except Exception as e:
-        logger.warning(f"benchmark schema ensure failed: {e}")
+        logger.warning("benchmark schema ensure failed: %s", e)
     # Macro Intelligence Layer — apply migration 016 once on startup.
     # The daily ingest+regime job is wired into mf_scheduler at 18:35 IST.
     try:
         from services import macro_engine as _macro
         await _macro.ensure_schema()
     except Exception as e:
-        logger.warning(f"macro schema ensure failed: {e}")
+        logger.warning("macro schema ensure failed: %s", e)
     # Identity uniqueness indexes (email_norm / mobile_norm / pan_norm)
     try:
         from services import identity_uniqueness as _iu
         await _iu.ensure_identity_indexes()
     except Exception as e:
-        logger.warning(f"identity index ensure failed: {e}")
+        logger.warning("identity index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.
@@ -233,7 +244,7 @@ async def startup_seed():
         # us until the operator fixes the secrets doc.
         raise
     except Exception as e:
-        logger.warning(f"datastore isolation audit failed: {e}")
+        logger.warning("datastore isolation audit failed: %s", e)
 
 
 @app.on_event("shutdown")
