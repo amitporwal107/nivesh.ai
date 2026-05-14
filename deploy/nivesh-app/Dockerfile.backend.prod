@@ -1,0 +1,47 @@
+# Production backend image — uses uv for fast dependency resolution.
+# uv is 10-100x faster than pip and resolves conflicts cleanly.
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/backend
+
+WORKDIR /app/backend
+
+# OS deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gcc libpq-dev \
+        libxml2-dev libxslt-dev \
+        curl jq tzdata \
+        libmagic1 poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast Rust-based pip replacement)
+RUN pip install --quiet uv
+
+# Copy requirements and resolve with uv.
+# Two known inter-requirement conflicts in requirements.txt are handled via --override:
+#   1. openai==1.99.9  vs  langchain-openai>=1.2 (needs openai>=2.26)
+#   2. pdfminer.six==20240706  vs  pdfplumber (needs pdfminer.six>=20251230)
+# emergentintegrations lives on a private index so installed separately.
+COPY backend/requirements.txt /tmp/requirements.txt
+
+RUN grep -v '^emergentintegrations' /tmp/requirements.txt \
+        > /tmp/requirements_uv.txt && \
+    printf 'openai>=2.26.0\npdfminer.six>=20251230\n' > /tmp/overrides.txt && \
+    uv pip install --system --no-cache \
+        --override /tmp/overrides.txt \
+        -r /tmp/requirements_uv.txt
+
+RUN uv pip install --system --no-cache \
+        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+        emergentintegrations || true
+
+# Source is mounted at runtime via docker-compose volume (no code baked in).
+# The image only carries OS libs + Python deps — rebuild only when requirements change.
+
+EXPOSE 8001
+
+CMD ["python", "-m", "uvicorn", "server:app", \
+     "--host", "0.0.0.0", "--port", "8001", "--workers", "4"]

@@ -1,0 +1,123 @@
+# Production Docker Compose for the nivesh-app VM.
+# All services run on the internal `nivesh-prod` network.
+# Only Nginx is exposed externally (port 80).
+#
+# Managed by deploy.sh — do not run manually without reading that script.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ── Data stores ─────────────────────────────────────────────────────────────
+
+  mongodb:
+    image: mongo:7
+    container_name: nivesh-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB}
+    volumes:
+      - /opt/nivesh/data/mongo:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nivesh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - /opt/nivesh/data/postgres:/var/lib/postgresql/data
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nivesh-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - /opt/nivesh/data/redis:/data
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Application ─────────────────────────────────────────────────────────────
+
+  backend:
+    image: nivesh/backend:prod
+    container_name: nivesh-backend
+    restart: unless-stopped
+    env_file: /opt/nivesh/.env.prod
+    volumes:
+      - /opt/nivesh/repo/backend:/app/backend
+    networks: [nivesh-prod]
+    logging: *default-logging
+    depends_on:
+      mongodb:  { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    image: nivesh/frontend:prod
+    container_name: nivesh-frontend
+    restart: unless-stopped
+    ports: ["80:80"]
+    networks: [nivesh-prod]
+    logging: *default-logging
+    depends_on:
+      backend: { condition: service_healthy }
+
+  # ── DB migration runner (runs once, exits) ───────────────────────────────────
+  migrate:
+    image: nivesh/backend:prod
+    container_name: nivesh-migrate
+    restart: "no"
+    env_file: /opt/nivesh/.env.prod
+    command: >
+      bash -c "
+        echo 'Running PostgreSQL migrations...' &&
+        for f in /app/backend/migrations/*.sql; do
+          echo \"Applying \$f\" &&
+          psql \"${POSTGRES_URL}\" -f \"\$f\" 2>&1 | grep -v 'already exists' || true;
+        done &&
+        echo 'Migrations done.'
+      "
+    networks: [nivesh-prod]
+    depends_on:
+      postgres: { condition: service_healthy }
+    profiles: ["migrate"]
+
+networks:
+  nivesh-prod:
+    name: nivesh-prod
