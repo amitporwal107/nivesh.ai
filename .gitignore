@@ -454,3 +454,4 @@ credentials.json
 
 # nivesh-app deploy secrets
 deploy/nivesh-app/.env.prod
+frontend/node_modules/.cache/default-development/44.pack
