@@ -90,6 +90,8 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "quality_gate",                "cadence": "daily"},
     # Intelligence layer (NIDP Phase 2 — security_master/dq/features/graph/events/analytics)
     {"ingester": "intelligence_layer",          "cadence": "daily"},
+    # Portfolio sync pipeline (Nivesh PG → NIDP → intelligence)
+    {"ingester": "portfolio_holdings_sync",     "cadence": "daily"},
     {"ingester": "portfolio_intelligence_sync", "cadence": "daily"},
 ]
 

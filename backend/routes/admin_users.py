@@ -364,6 +364,37 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
     }
 
 
+@router.post("/users/{user_id}/restore-holdings")
+async def restore_holdings_from_snapshot(user_id: str, request: Request) -> Dict[str, Any]:
+    """Re-mount the latest CAS snapshot into db.holdings for a user whose
+    holdings collection is empty despite a snapshot existing.
+
+    Safe to call multiple times — it replaces (not appends) the holdings."""
+    admin = await require_admin(request)
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    from services import cas_snapshot_engine as _eng
+    latest_date = await _eng.get_latest_snapshot_date(user_id)
+    if not latest_date:
+        raise HTTPException(status_code=404, detail="No CAS snapshot with holdings found for this user")
+
+    snap = await _eng.load_snapshot_into_holdings(user_id, latest_date)
+    holdings_loaded = len(snap.get("holdings") or [])
+    logger.info(
+        "admin[%s] restored holdings for %s (%s) from snapshot %s: %d holdings",
+        admin.get("email"), user_id, user.get("email"), latest_date, holdings_loaded,
+    )
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "user_email": user.get("email"),
+        "snapshot_date": latest_date,
+        "holdings_loaded": holdings_loaded,
+    }
+
+
 # ── Identity uniqueness ────────────────────────────────────────────────
 @router.get("/identity/duplicates")
 async def list_identity_duplicates(request: Request):

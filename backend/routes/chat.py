@@ -34,7 +34,6 @@ if _USE_LANGGRAPH:
     except Exception as _lg_err:
         logger.warning("LangGraph import failed (%s) — falling back to RAG", _lg_err)
         _USE_LANGGRAPH = False
-
 router = APIRouter(prefix="/api")
 
 _plan_manager = ActionPlanManager()
@@ -67,7 +66,7 @@ async def _active_plan_context(user_id: str) -> str:
     try:
         plan = await _plan_manager.get_active_plan(user_id)
     except Exception as e:
-        logger.debug("active plan context fetch failed: %s", e)
+        logger.debug(f"active plan context fetch failed: {e}")
         plan = None
 
     if not plan or not plan.get("actions"):
@@ -161,9 +160,9 @@ async def _ensure_plan_for_actionable_question(user_id: str, message: str) -> No
         # generate_plan returns a "preview" plan; activate it so get_active_plan picks it up.
         plan["status"] = "active"
         await _plan_manager.create_plan(plan)
-        logger.info("chat: auto-generated action plan for %s (actions=%s)", user_id, len(plan.get('actions') or []))
+        logger.info(f"chat: auto-generated action plan for {user_id} (actions={len(plan.get('actions') or [])})")
     except Exception as e:  # noqa: BLE001
-        logger.warning("chat auto-plan-gen failed for %s: %s", user_id, e)
+        logger.warning(f"chat auto-plan-gen failed for {user_id}: {e}")
 
 
 
@@ -633,7 +632,7 @@ async def _compute_portfolio_intelligence_context(user_id: str,
         return ctx
 
     except Exception as e:
-        logger.warning("Failed to compute intelligence context: %s", e)
+        logger.warning(f"Failed to compute intelligence context: {e}")
         return ""
 
 
@@ -866,7 +865,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 invalid=validated["invalid_specs"],
             )
         except Exception as e:  # noqa: BLE001
-            logger.error("RAG chat error: %s", e, exc_info=True)
+            logger.error(f"RAG chat error: {e}", exc_info=True)
             ai_response = (
                 "I'm having trouble connecting to my AI engine right now. "
                 "Please try again in a moment."
@@ -888,7 +887,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 system_override=system_override,
             )
         except Exception as e:  # noqa: BLE001
-            logger.error("LLM error (advisor): %s", e)
+            logger.error(f"LLM error (advisor): {e}")
             ai_response = "I'm having trouble connecting to my AI engine right now. Please try again in a moment."
         validated = validate_chart_blocks(ai_response)
         ai_response = validated["clean_text"]
@@ -1049,11 +1048,7 @@ async def stream_chat(request: Request):
                         full_response = prose
 
                 else:
-                    # ── RAG orchestrator path (default) ─────────────────────
-                    # Fake-stream the prose char-by-char so the UI animation
-                    # stays the same. The full prose + chart_spec are
-                    # known up-front (single LLM call, not a stream), so we just
-                    # chunk the result for the existing token-by-token consumer.
+                    # ── RAG orchestrator path (default) ────────────────────
                     from services import copilot_rag
                     rag_result = await copilot_rag.answer(
                         user_id=user_id, message=message, history=history,
@@ -1063,9 +1058,7 @@ async def stream_chat(request: Request):
                     if chart_spec:
                         prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
 
-                    # Chunk the prose into ~24-char tokens so the UI animation
-                    # still feels like a stream. No real network benefit, but
-                    # the existing frontend renderer expects token deltas.
+                    # Chunk prose into ~24-char tokens for frontend animation.
                     CHUNK = 24
                     for i in range(0, len(prose), CHUNK):
                         tok = prose[i:i + CHUNK]
@@ -1111,7 +1104,7 @@ async def stream_chat(request: Request):
             yield f"data: {json.dumps({'type': 'done', 'content': full_response, 'chart_count': validated['valid_count']})}\n\n"
 
         except Exception as e:
-            logger.error("Stream error: %s", e)
+            logger.error(f"Stream error: {e}")
             error_msg = "I'm having trouble connecting right now. Please try again."
             # Save error response
             ai_msg_doc = {

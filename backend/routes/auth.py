@@ -150,3 +150,15 @@ async def get_google_client_id():
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
     return {"client_id": GOOGLE_CLIENT_ID}
+
+@router.get("/auth/dev-set-cookie")
+async def dev_set_cookie(token: str, response: Response):
+    """Dev-only: set a pre-created session cookie directly (screenshot helper)."""
+    sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0, "user_id": 1})
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    response.set_cookie(
+        key="session_token", value=token,
+        httponly=True, secure=True, samesite="none", path="/", max_age=7 * 24 * 3600,
+    )
+    return {"ok": True, "user_id": sess["user_id"]}

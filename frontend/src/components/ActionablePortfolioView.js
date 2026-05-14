@@ -4,11 +4,13 @@ import { toast } from "sonner";
 import {
   AlertTriangle, TrendingUp, TrendingDown, Shield, Zap, RefreshCw,
   Download, Filter, ChevronDown, ChevronRight, Info, X, Calendar,
+  Sparkles, MessageSquare,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import DecisionCard from "./insights/DecisionCard";
+import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import DiscoverInternationalView from "./insights/DiscoverInternationalView";
 import PortfolioBuilderView from "./insights/PortfolioBuilderView";
 import { Globe } from "lucide-react";
@@ -56,28 +58,28 @@ const fmtSnapDate = (iso) => {
 // Score band (Strong / Good / Average / Weak) — user-approved Feb 2026.
 // `inverted` flips colours for Exit-score where LOW = GOOD.
 const scoreBand = (v, inverted = false) => {
-  if (v == null) return { label: "—", tone: "text-slate-400 bg-slate-50", hex: "#CBD5E1" };
+  if (v == null) return { label: "—", tone: "text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800", hex: "#CBD5E1" };
   const good = inverted ? v < 20 : v >= 80;
   const ok   = inverted ? v < 40 : v >= 60;
   const avg  = inverted ? v < 60 : v >= 40;
-  if (good) return { label: "Strong",  tone: "text-emerald-700 bg-emerald-50", hex: "#10B981" };
-  if (ok)   return { label: "Good",    tone: "text-lime-700 bg-lime-50",       hex: "#84CC16" };
-  if (avg)  return { label: "Average", tone: "text-amber-700 bg-amber-50",     hex: "#F59E0B" };
-  return    { label: "Weak",     tone: "text-rose-700 bg-rose-50",      hex: "#EF4444" };
+  if (good) return { label: "Strong",  tone: "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30", hex: "#10B981" };
+  if (ok)   return { label: "Good",    tone: "text-lime-700 dark:text-lime-400 bg-lime-50 dark:bg-lime-900/30",             hex: "#84CC16" };
+  if (avg)  return { label: "Average", tone: "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30",         hex: "#F59E0B" };
+  return    { label: "Weak",     tone: "text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30",                   hex: "#EF4444" };
 };
 
 const BADGE_STYLE = {
-  EXIT:   { bg: "bg-rose-100 text-rose-800 border-rose-200" },
-  SWITCH: { bg: "bg-amber-100 text-amber-800 border-amber-200" },
-  ADD:    { bg: "bg-emerald-100 text-emerald-800 border-emerald-200" },
-  HOLD:   { bg: "bg-slate-100 text-slate-700 border-slate-200" },
-  REVIEW: { bg: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  EXIT:   { bg: "bg-rose-100 dark:bg-rose-900/30 text-rose-800 dark:text-rose-400 border-rose-200 dark:border-rose-800" },
+  SWITCH: { bg: "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800" },
+  ADD:    { bg: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800" },
+  HOLD:   { bg: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700" },
+  REVIEW: { bg: "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800" },
 };
 
 const ALERT_TONE = {
-  danger:  "border-rose-200 bg-rose-50 text-rose-800",
-  warning: "border-amber-200 bg-amber-50 text-amber-800",
-  info:    "border-sky-200 bg-sky-50 text-sky-800",
+  danger:  "border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300",
+  warning: "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300",
+  info:    "border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-900/20 text-sky-800 dark:text-sky-300",
 };
 
 const ASSET_TABS = [
@@ -102,7 +104,7 @@ const FILTERS = [
 ];
 
 const ScorePill = ({ value, inverted = false }) => {
-  if (value == null) return <span className="text-slate-300">—</span>;
+  if (value == null) return <span className="text-slate-400 dark:text-slate-600">—</span>;
   const b = scoreBand(value, inverted);
   return (
     <span
@@ -144,18 +146,18 @@ const DualRating = ({ morningstar, nivesh }) => (
   <span className="inline-flex items-center gap-1.5 flex-shrink-0" data-testid="dual-rating">
     <span className="inline-flex items-center gap-0.5 text-[9px]"
           title={morningstar != null ? `Morningstar: ${morningstar}/5` : "Morningstar not yet scraped"}>
-      <span className="text-slate-400 font-semibold mr-0.5">MS</span>
+      <span className="text-slate-500 dark:text-slate-400 font-semibold mr-0.5">MS</span>
       {morningstar != null
         ? <StarRating value={morningstar} label="Morningstar Rating" starColor="text-sky-500" />
-        : <span className="text-slate-300 italic">—</span>}
+        : <span className="text-slate-400 dark:text-slate-600 italic">—</span>}
     </span>
-    <span className="text-slate-200">·</span>
+    <span className="text-slate-300 dark:text-slate-600">·</span>
     <span className="inline-flex items-center gap-0.5 text-[9px]"
           title={nivesh != null ? `Nivesh (composite-derived): ${nivesh}/5` : "Not scored yet"}>
-      <span className="text-emerald-600 font-semibold mr-0.5">N</span>
+      <span className="text-emerald-600 dark:text-emerald-400 font-semibold mr-0.5">N</span>
       {nivesh != null
         ? <StarRating value={nivesh} label="Nivesh Rating" starColor="text-amber-400" />
-        : <span className="text-slate-300 italic">—</span>}
+        : <span className="text-slate-400 dark:text-slate-600 italic">—</span>}
     </span>
   </span>
 );
@@ -223,15 +225,13 @@ const resolveAlertCta = (alert, ctx) => {
 };
 
 const SUB_STYLE = {
-  Keep:        "bg-slate-100 text-slate-700 border-slate-200",
-  Watch:       "bg-sky-50 text-sky-700 border-sky-200",
-  Review:      "bg-amber-50 text-amber-700 border-amber-200",
-  Rebalance:   "bg-indigo-50 text-indigo-700 border-indigo-200",
-  // SWITCH sub-flavours — visually distinct so users don't confuse a
-  // pure cost optimisation with a fund-quality concern.
-  "To Direct": "bg-teal-50 text-teal-700 border-teal-200",     // good fund, cheaper plan
-  "To Peer":   "bg-amber-100 text-amber-800 border-amber-200", // switch to different fund
-  "Reduce":    "bg-orange-50 text-orange-700 border-orange-200", // diversification trim
+  Keep:        "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700",
+  Watch:       "bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-800",
+  Review:      "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+  Rebalance:   "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800",
+  "To Direct": "bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-800",
+  "To Peer":   "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800",
+  "Reduce":    "bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800",
 };
 
 const ActionBadge = ({ badge }) => {
@@ -492,6 +492,210 @@ const exportCSV = (rows) => {
   document.body.removeChild(a);
 };
 
+// ── Holding Intelligence Drawer ──────────────────────────────────────────────
+const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
+  const [envelope, setEnvelope] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!holding) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setEnvelope(null);
+    axios.post(
+      `${API}/copilot/widgets/fund_card`,
+      { query: holding.ticker || holding.name },
+      { withCredentials: true },
+    )
+      .then((r) => { if (!cancelled) setEnvelope(r.data); })
+      .catch((e) => { if (!cancelled) setError(e.response?.data?.detail || null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [holding?.holding_id]);
+
+  return (
+    <AnimatePresence>
+      {holding && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="fixed right-0 top-0 z-50 h-full w-full max-w-[480px] bg-white dark:bg-slate-900 shadow-2xl flex flex-col"
+            data-testid="holding-intelligence-drawer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-slate-100 dark:border-slate-800">
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-emerald-500" /> Holding Intelligence
+                </div>
+                <div className="font-semibold text-slate-900 dark:text-white truncate">{holding.name}</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  {[holding.asset_type?.replace("_", " "), holding.ticker].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg flex-shrink-0"
+                data-testid="intelligence-drawer-close"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Quick KPIs from holding data */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Current Value", value: fmtINR(holding.value_rs) },
+                  { label: "P&L", value: fmtPct(holding.pnl_pct), color: (holding.pnl_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600" },
+                  { label: "XIRR", value: fmtPct(holding.xirr_pct, 1), color: (holding.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600" },
+                  { label: "Qty / Units", value: String(holding.quantity ?? "—") },
+                ].map((kpi) => (
+                  <div key={kpi.label} className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">{kpi.label}</div>
+                    <div className={`font-semibold text-sm ${kpi.color || "text-slate-900 dark:text-white"}`}>{kpi.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Fund card widget (MF only) */}
+              {loading && (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-16 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />
+                  ))}
+                </div>
+              )}
+              {!loading && error && (
+                <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  {error}
+                </div>
+              )}
+              {!loading && !error && envelope && (
+                <WidgetRenderer envelope={envelope} embedded="drawer" />
+              )}
+            </div>
+
+            {/* Footer CTA */}
+            <div className="p-5 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => {
+                  onClose();
+                  const prompt = `Tell me more about ${holding.name} — should I hold, buy more, or sell?`;
+                  window.location.hash = "chat";
+                  setTimeout(() => {
+                    const inp = document.querySelector('[data-testid="chat-input"]');
+                    if (inp) {
+                      inp.value = prompt;
+                      inp.dispatchEvent(new Event("input", { bubbles: true }));
+                      inp.focus();
+                    }
+                  }, 200);
+                }}
+                className="w-full flex items-center justify-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 rounded-xl py-2.5 text-sm font-semibold transition-colors"
+                data-testid="intelligence-drawer-chat-cta"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Discuss in Chat
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+// ── Portfolio Risk Panel (TASK-062) ─────────────────────────────────────────
+const _RATING_CHIP = {
+  LOW:        "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800",
+  MEDIUM:     "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800",
+  HIGH:       "text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800",
+  "VERY HIGH":"text-red-800 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800",
+};
+
+function PortfolioRiskPanel() {
+  const [suitability, setSuitability] = useState(null);
+  const [varData, setVarData]         = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const BACKEND = process.env.REACT_APP_BACKEND_URL;
+
+  useEffect(() => {
+    Promise.all([
+      axios.post(`${BACKEND}/api/copilot/widgets/risk_suitability`, {}, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/portfolio_var`,    {}, { withCredentials: true }).catch(() => null),
+    ]).then(([s, v]) => {
+      if (s) setSuitability(s.data?.data || s.data);
+      if (v) setVarData(v.data?.data || v.data);
+    }).finally(() => setLoading(false));
+  }, [BACKEND]);
+
+  if (loading) return <div className="h-16 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />;
+  if (!suitability && !varData) return null;
+
+  const rating  = suitability?.risk_rating || varData?.risk_rating || "MEDIUM";
+  const chipCls = _RATING_CHIP[rating] || _RATING_CHIP.MEDIUM;
+  const misalignments = suitability?.misalignment || [];
+
+  return (
+    <div
+      className="rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-[#111] p-4 flex flex-wrap items-center gap-4"
+      data-testid="portfolio-risk-panel"
+    >
+      {/* Rating chip */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Shield className="w-4 h-4 text-slate-400" />
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Risk</span>
+        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${chipCls}`}>{rating}</span>
+      </div>
+
+      {/* Suitability metrics */}
+      {suitability && (
+        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-zinc-400 flex-wrap">
+          <span>Equity <strong className="text-slate-800 dark:text-white">{suitability.equity_pct?.toFixed(0)}%</strong></span>
+          <span>Small/Mid <strong className="text-slate-800 dark:text-white">{suitability.small_mid_pct?.toFixed(0)}%</strong></span>
+          {suitability.portfolio_beta != null && (
+            <span>β <strong className="text-slate-800 dark:text-white">{suitability.portfolio_beta?.toFixed(2)}</strong></span>
+          )}
+          <span>Profile <strong className="text-slate-800 dark:text-white capitalize">{suitability.user_profile_category}</strong></span>
+        </div>
+      )}
+
+      {/* VaR metrics */}
+      {varData && (
+        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-zinc-400 flex-wrap">
+          <span className="flex items-center gap-1">
+            <TrendingDown className="w-3 h-3 text-rose-400" />
+            1d VaR <strong className="text-rose-600 dark:text-rose-400">
+              ₹{Math.round(varData.var_1d_95_rs || 0).toLocaleString("en-IN")}
+            </strong>
+          </span>
+          <span>Annual vol <strong className="text-slate-800 dark:text-white">{varData.portfolio_annual_vol_pct?.toFixed(1)}%</strong></span>
+        </div>
+      )}
+
+      {/* Misalignment alerts */}
+      {misalignments.length > 0 && (
+        <div className="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 ml-auto">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          {misalignments.length} misalignment{misalignments.length > 1 ? "s" : ""} · check Risk tab
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function ActionablePortfolioView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -502,6 +706,7 @@ export default function ActionablePortfolioView() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState({ key: "value_rs", dir: "desc" });
   const [switchTarget, setSwitchTarget] = useState(null);
+  const [intelligenceTarget, setIntelligenceTarget] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [snapInfo, setSnapInfo] = useState(null); // { current_snapshot_date, is_default_latest, latest_snapshot_date }
   const [discoverOpen, setDiscoverOpen] = useState(false);
@@ -692,19 +897,17 @@ export default function ActionablePortfolioView() {
   };
 
   const th = (label, key) => (
-    <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap cursor-pointer select-none"
+    <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap cursor-pointer select-none"
         onClick={() => setSortBy({ key, dir: sortBy.key === key && sortBy.dir === "desc" ? "asc" : "desc" })}>
       {label}{sortBy.key === key && <span className="ml-1">{sortBy.dir === "desc" ? "↓" : "↑"}</span>}
     </th>
   );
 
-  if (loading) return <div className="p-10 text-center text-slate-500">Loading portfolio…</div>;
+  if (loading) return <div className="p-10 text-center text-slate-500 dark:text-zinc-500">Loading portfolio…</div>;
   if (!data || !data.holdings.length) {
-    // Empty state — show the AI Portfolio Builder so the advisor can
-    // propose a starting portfolio while CAS upload is pending.
     return (
       <div className="p-4 sm:p-6 max-w-4xl mx-auto" data-testid="portfolio-empty-state">
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 mb-4 text-[12px] text-slate-600">
+        <div className="rounded-md border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-800 px-4 py-3 mb-4 text-[12px] text-slate-600 dark:text-slate-400">
           No holdings yet. Upload a CAS to import existing investments — or use the AI Portfolio Builder below to propose a starting portfolio from the risk profile + goals on file.
         </div>
         <PortfolioBuilderView />
@@ -715,18 +918,18 @@ export default function ActionablePortfolioView() {
   const t = data.totals || {};
   const lastRefreshed = new Date().toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   return (
-    <div className="p-4 sm:p-6 space-y-5" data-testid="actionable-portfolio-view">
+    <div className="p-4 sm:p-6 space-y-5 bg-[#F8FAFC] dark:bg-[#09090B] -m-4 sm:-m-6 lg:-m-8 min-h-screen" data-testid="actionable-portfolio-view">
       {/* Page Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-2" data-testid="portfolio-header">
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-4 sm:pt-6 px-4 sm:px-6 lg:px-8 pb-2" data-testid="portfolio-header">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Portfolio</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Portfolio</h1>
             {snapInfo?.current_snapshot_date && (
               <span
                 className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                   snapInfo.is_default_latest
-                    ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                    : "bg-amber-50 text-amber-800 border-amber-200"
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800"
+                    : "bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800"
                 }`}
                 title={
                   snapInfo.is_default_latest
@@ -741,12 +944,10 @@ export default function ActionablePortfolioView() {
               </span>
             )}
           </div>
-          <p className="text-[12px] text-slate-500 mt-0.5">
-            {t.count || 0} holdings across {Object.entries(assetCounts).filter(([k,v]) => k !== "all" && v > 0).length} asset classes
-            <span className="mx-1.5 text-slate-300">·</span>
-            Last refreshed {lastRefreshed}
-            <span className="mx-1.5 text-slate-300">·</span>
-            <span className={(data.coverage_pct || 0) >= 80 ? "text-emerald-600" : "text-amber-600"}>{fmtPct(data.coverage_pct)} scored</span>
+          <p className="text-[12px] text-slate-500 dark:text-zinc-500 mt-0.5">
+            {t.count || 0} holdings · {Object.entries(assetCounts).filter(([k,v]) => k !== "all" && v > 0).length} asset classes
+            <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+            <span className={(data.coverage_pct || 0) >= 80 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>{fmtPct(data.coverage_pct)} scored</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -758,117 +959,75 @@ export default function ActionablePortfolioView() {
             className={discoverOpen ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
           >
             <Globe className="w-3.5 h-3.5 mr-1" />
-            {discoverOpen ? "Hide international" : "Discover international"}
+            {discoverOpen ? "Hide intl" : "Discover intl"}
           </Button>
           <Button size="sm" variant="outline" onClick={triggerRefresh} disabled={refreshing} data-testid="header-refresh-scores">
             <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />
-            {refreshing ? "Scoring…" : "Refresh scores"}
-          </Button>
-          <Button size="sm" variant="outline"
-            onClick={async () => {
-              try {
-                const API = process.env.REACT_APP_BACKEND_URL;
-                const res = await fetch(`${API}/api/portfolio/refresh-stock-morningstar`, { method: "POST", credentials: "include" });
-                const d = await res.json();
-                alert(d.message || "Done");
-                load();
-              } catch (e) {
-                alert("MS refresh failed: " + e.message);
-              }
-            }}
-            data-testid="header-refresh-ms-ratings"
-            title="Fetch Morningstar star ratings for all equity holdings"
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-1" />MS Ratings
+            {refreshing ? "Scoring…" : "Refresh"}
           </Button>
           <Button size="sm" variant="outline" onClick={() => exportCSV(filtered)} data-testid="header-export-csv">
             <Download className="w-3.5 h-3.5 mr-1" />Export
           </Button>
-          <Button size="sm" variant="outline" onClick={load} disabled={loading} data-testid="header-reload">
-            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
-            Reload
-          </Button>
         </div>
       </div>
+      <div className="px-4 sm:px-6 lg:px-8 space-y-5">
 
-      {/* Discover International panel — toggles on demand. */}
       {discoverOpen && (
-        <div className="border-t border-slate-200 pt-4" data-testid="discover-international-section">
+        <div className="border-t border-slate-200 dark:border-white/10 pt-4" data-testid="discover-international-section">
           <DiscoverInternationalView />
         </div>
       )}
 
       {/* Hero totals */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold">Value</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{fmtINR(t.value_rs)}</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="dark:bg-slate-900 dark:border-white/10"><CardContent className="p-4">
+          <div className="text-[10px] uppercase text-slate-400 dark:text-zinc-500 font-bold">Value</div>
+          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">{fmtINR(t.value_rs)}</div>
         </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold">Invested</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{fmtINR(t.invested_rs)}</div>
+        <Card className="dark:bg-slate-900 dark:border-white/10"><CardContent className="p-4">
+          <div className="text-[10px] uppercase text-slate-400 dark:text-zinc-500 font-bold">Invested</div>
+          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1">{fmtINR(t.invested_rs)}</div>
         </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold">P&L</div>
-          <div className={`text-xl font-bold mt-1 ${(t.pnl_rs || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtINR(t.pnl_rs)} <span className="text-sm">({fmtPct(t.pnl_pct)})</span></div>
+        <Card className="dark:bg-slate-900 dark:border-white/10"><CardContent className="p-4">
+          <div className="text-[10px] uppercase text-slate-400 dark:text-zinc-500 font-bold">P&L</div>
+          <div className={`text-xl font-bold mt-1 ${(t.pnl_rs || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtINR(t.pnl_rs)} <span className="text-sm">({fmtPct(t.pnl_pct)})</span></div>
         </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
+        <Card className="dark:bg-slate-900 dark:border-white/10"><CardContent className="p-4">
+          <div className="text-[10px] uppercase text-slate-400 dark:text-zinc-500 font-bold flex items-center gap-1">
             XIRR
-            <span title="Value-weighted average of per-holding returns. Uses personal XIRR where buy_date + avg cost are reliable; falls back to 3y CAGR from Groww for mutual funds.">
-              <Info className="w-3 h-3 text-slate-300" />
+            <span title="Value-weighted average of per-holding returns.">
+              <Info className="w-3 h-3 text-slate-300 dark:text-slate-600" />
             </span>
           </div>
-          <div className={`text-xl font-bold mt-1 ${(t.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(t.xirr_pct, 2)}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">value-weighted</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-[10px] uppercase text-slate-400 font-bold flex items-center gap-1">
-            Score Coverage
-            <span title="% of mutual funds + equities with fundamentals scored. Low coverage? Click the Refresh button in the alert banner below.">
-              <Info className="w-3 h-3 text-slate-300" />
-            </span>
-          </div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{fmtPct(data.coverage_pct)}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">MFs + equities</div>
+          <div className={`text-xl font-bold mt-1 ${(t.xirr_pct || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtPct(t.xirr_pct, 2)}</div>
+          <div className="text-[10px] text-slate-400 dark:text-zinc-600 mt-0.5">{fmtPct(data.coverage_pct)} scored</div>
         </CardContent></Card>
       </div>
 
-      {/* Score-band legend */}
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500" data-testid="score-legend">
-        <span className="font-semibold text-slate-500 uppercase tracking-wider">Score guide:</span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 font-mono">80+ Strong</span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-lime-50 text-lime-700 border border-lime-100 font-mono">60–80 Good</span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 font-mono">40–60 Average</span>
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-100 font-mono">&lt;40 Weak</span>
-        <span className="text-slate-400 italic ml-2">Exit score is inverted — lower is better.</span>
-      </div>
+      {/* Risk overview strip (TASK-062) */}
+      <PortfolioRiskPanel />
 
       {/* Portfolio Impact Strip */}
       {data.portfolio_impact && data.portfolio_impact.pending_actions > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-sky-50 p-4"
+          className="rounded-xl border border-emerald-100 dark:border-emerald-900/50 bg-gradient-to-r from-emerald-50 dark:from-emerald-900/20 via-white dark:via-slate-900 to-sky-50 dark:to-sky-900/20 p-4"
           data-testid="impact-strip"
         >
           <div className="flex flex-wrap items-center gap-4 justify-between">
             <div className="flex items-center gap-3">
-              <Zap className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <Zap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
               <div>
-                <div className="text-sm font-bold text-slate-800">
-                  If you complete all {data.portfolio_impact.pending_actions} pending actions:
+                <div className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  Complete all {data.portfolio_impact.pending_actions} pending actions:
                 </div>
-                <div className="text-[12px] text-slate-600 mt-0.5 flex flex-wrap gap-x-4 gap-y-1">
+                <div className="text-[12px] text-slate-600 dark:text-slate-400 mt-0.5 flex flex-wrap gap-x-4 gap-y-1">
                   {data.portfolio_impact.estimated_cost_savings_rs_per_yr > 0 && (
-                    <span>💰 <strong className="text-emerald-700" data-testid="impact-cost-savings">₹{Math.round(data.portfolio_impact.estimated_cost_savings_rs_per_yr).toLocaleString("en-IN")}/yr</strong> cost savings</span>
-                  )}
-                  {data.portfolio_impact.estimated_value_freed_rs > 0 && (
-                    <span>🔓 <strong className="text-sky-700" data-testid="impact-value-freed">{fmtINR(data.portfolio_impact.estimated_value_freed_rs)}</strong> freed for rebalancing</span>
+                    <span>💰 <strong className="text-emerald-700 dark:text-emerald-400" data-testid="impact-cost-savings">₹{Math.round(data.portfolio_impact.estimated_cost_savings_rs_per_yr).toLocaleString("en-IN")}/yr</strong> saved</span>
                   )}
                   {data.portfolio_impact.health_delta != null && data.portfolio_impact.health_delta !== 0 && (
-                    <span>📈 Health <strong className="text-indigo-700" data-testid="impact-health">{data.portfolio_impact.health_current}→{data.portfolio_impact.health_projected} ({data.portfolio_impact.health_delta > 0 ? "+" : ""}{data.portfolio_impact.health_delta})</strong></span>
+                    <span>📈 Health <strong className="text-indigo-700 dark:text-indigo-400" data-testid="impact-health">{data.portfolio_impact.health_current}→{data.portfolio_impact.health_projected}</strong></span>
                   )}
-                  <span className="text-slate-500">{data.portfolio_impact.by_action.EXIT} Exit · {data.portfolio_impact.by_action.SWITCH} Switch · {data.portfolio_impact.by_action.ADD} Add</span>
                 </div>
               </div>
             </div>
@@ -878,7 +1037,7 @@ export default function ActionablePortfolioView() {
               onClick={() => { window.location.hash = "plan_board"; }}
               data-testid="impact-open-plan"
             >
-              Open Plan Board <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+              Plan Board <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
             </Button>
           </div>
         </motion.div>
@@ -916,7 +1075,7 @@ export default function ActionablePortfolioView() {
       )}
 
       {/* Asset-type tabs */}
-      <div className="border-b border-slate-200" data-testid="asset-tabs">
+      <div className="border-b border-slate-200 dark:border-white/10" data-testid="asset-tabs">
         <div className="flex flex-wrap items-center gap-1">
           {ASSET_TABS.map((t) => {
             const count = assetCounts[t.id] || 0;
@@ -928,33 +1087,30 @@ export default function ActionablePortfolioView() {
                 onClick={() => setAssetTab(t.id)}
                 className={`px-4 py-2 text-sm font-semibold transition-all border-b-2 -mb-px ${
                   active
-                    ? "border-emerald-500 text-emerald-700"
-                    : "border-transparent text-slate-500 hover:text-slate-900"
+                    ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
+                    : "border-transparent text-slate-500 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-white"
                 }`}
                 data-testid={`asset-tab-${t.id}`}
               >
-                {t.label} <span className={`ml-1 text-[11px] ${active ? "text-emerald-600" : "text-slate-400"}`}>({count})</span>
+                {t.label} <span className={`ml-1 text-[11px] ${active ? "text-emerald-500 dark:text-emerald-400" : "text-slate-400 dark:text-zinc-600"}`}>({count})</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Sub-category chips — only visible for a specific asset tab */}
+      {/* Sub-category chips */}
       {assetTab !== "all" && subCategoryOptions.length > 1 && (
-        <div
-          className="flex items-center gap-1.5 overflow-x-auto pb-1 -mt-1"
-          data-testid="subcat-chips"
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1 flex-shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mt-1" data-testid="subcat-chips">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-600 mr-1 flex-shrink-0">
             {assetTab === "equity" ? "Sector" : "Category"}:
           </span>
           <button
             onClick={() => setSubCategory("all")}
             className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
               subCategory === "all"
-                ? "bg-slate-900 text-white"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900"
+                : "bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/20"
             }`}
             data-testid="subcat-all"
           >
@@ -966,12 +1122,12 @@ export default function ActionablePortfolioView() {
               onClick={() => setSubCategory(o.id)}
               className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
                 subCategory === o.id
-                  ? "bg-slate-900 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900"
+                  : "bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/20"
               }`}
               data-testid={`subcat-${o.id.toLowerCase().replace(/\s+/g, "-")}`}
             >
-              {o.label} <span className={subCategory === o.id ? "text-slate-300" : "text-slate-400"}>({o.count})</span>
+              {o.label} <span className={subCategory === o.id ? "text-slate-300 dark:text-slate-600" : "text-slate-400 dark:text-zinc-600"}>({o.count})</span>
             </button>
           ))}
         </div>
@@ -988,10 +1144,10 @@ export default function ActionablePortfolioView() {
         return (
           <div
             data-testid="duplicate-funds-banner"
-            className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 flex items-start gap-2"
+            className="rounded-lg border-l-4 border-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 flex items-start gap-2"
           >
-            <span className="text-amber-600 text-sm leading-none mt-0.5">⚠</span>
-            <div className="text-[12px] text-amber-900 leading-relaxed">
+            <span className="text-amber-600 dark:text-amber-400 text-sm leading-none mt-0.5">⚠</span>
+            <div className="text-[12px] text-amber-900 dark:text-amber-300 leading-relaxed">
               <strong>{groupCount}</strong> duplicate fund {groupCount === 1 ? "scheme" : "schemes"} detected
               ({duplicateInfo.size} holdings · {fmtINR(totalValue)} total). Look for Regular vs Direct twins —
               consolidating into the Direct plan typically saves ~0.7-1% p.a. in expense ratio.
@@ -1005,49 +1161,42 @@ export default function ActionablePortfolioView() {
           so we render it only when the user is viewing the Stocks tab. */}
       {assetTab === "equity" && <PositionalPicks />}
 
-      {/* Filters + Search + Export */}
+      {/* Filters + Search */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => (
             <button key={f.id}
                     onClick={() => setFilter(f.id)}
                     className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      filter === f.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      filter === f.id
+                        ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900"
+                        : "bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/20"
                     }`}
                     data-testid={`filter-${f.id}`}>
               {f.label}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <input type="search" placeholder="Search holding…" value={search} onChange={(e) => setSearch(e.target.value)}
-                 className="px-3 py-1.5 text-sm rounded border border-slate-200 bg-white w-48"
-                 data-testid="portfolio-search" />
-          <Button size="sm" variant="outline" onClick={() => exportCSV(filtered)} data-testid="btn-export-csv">
-            <Download className="w-3.5 h-3.5 mr-1" />CSV
-          </Button>
-          <Button size="sm" variant="outline" onClick={load} disabled={loading}>
-            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />Refresh
-          </Button>
-        </div>
+        <input type="search" placeholder="Search holding…" value={search} onChange={(e) => setSearch(e.target.value)}
+               className="px-3 py-1.5 text-sm rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-600 w-48"
+               data-testid="portfolio-search" />
       </div>
 
       {/* Main table */}
-      <Card ref={tableRef}>
+      <Card ref={tableRef} className="dark:bg-slate-900 dark:border-white/10">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-white shadow-sm border-b-2 border-slate-200">
+            <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 shadow-sm border-b-2 border-slate-200 dark:border-white/10">
               <tr>
                 <th className="w-8"></th>
                 {th("Holding", "name")}
-                <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500">Type</th>
                 {th("Qty", "quantity")}
                 {th("CMP", "current_price")}
                 {th("Value", "value_rs")}
                 {th("P&L%", "pnl_pct")}
                 {th("XIRR", "xirr_pct")}
                 {th("Score", "composite_score")}
-                <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500">Action</th>
+                <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</th>
               </tr>
             </thead>
             <tbody data-testid="portfolio-table-body">
@@ -1055,46 +1204,44 @@ export default function ActionablePortfolioView() {
                 const dup = duplicateInfo.get(h.holding_id);
                 return (
                 <React.Fragment key={h.holding_id}>
-                  <tr className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${dup ? "bg-amber-50/40" : ""}`}
+                  <tr className={`border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer transition-colors ${dup ? "bg-amber-50/40 dark:bg-amber-900/10" : ""}`}
                       onClick={() => toggleExpand(h.holding_id)}
                       data-testid={`row-${h.holding_id}`}>
-                    <td className="p-2.5 text-slate-400">{expanded.has(h.holding_id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</td>
+                    <td className="p-2.5 text-slate-400 dark:text-slate-500">{expanded.has(h.holding_id) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}</td>
                     <td className="p-2.5">
-                      <div className="flex items-center gap-2 max-w-xs">
+                      <div className="max-w-xs">
                         <div
-                          className="font-semibold text-slate-900 text-[13px] truncate flex-1"
+                          className="font-semibold text-slate-900 dark:text-white text-[13px] truncate"
                           title={`${h.name}${h.ticker ? `\nISIN: ${h.ticker}` : ""}${h.folio_number ? `\nFolio: ${h.folio_number}` : ""}`}
                           data-testid={`name-${h.holding_id}`}
                         >
                           {h.name}
                         </div>
-                        <DualRating morningstar={h.morningstar_rating} nivesh={niveshStars(h.composite_score)} />
-                      </div>
                       {dup && (
                         <div className="mt-0.5">
                           <span
-                            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200"
-                            title={`${dup.count} holdings of the same fund (Direct & Regular variants combined). Total ₹${Math.round(dup.total_value).toLocaleString("en-IN")} — consolidating into the Direct plan typically saves ~0.7-1% p.a.`}
+                            className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                            title={`${dup.count} holdings of the same fund — consolidate into Direct plan to save ~0.7-1% p.a.`}
                             data-testid={`dup-badge-${h.holding_id}`}
                           >
-                            ⚠ Duplicate · {dup.count} variants
+                            ⚠ Duplicate
                           </span>
                         </div>
                       )}
-                      <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap">
-                        <span>{h.sector || h.nse_symbol || ""}</span>
+                      <div className="text-[10px] text-slate-400 dark:text-zinc-600 flex items-center gap-2 flex-wrap mt-0.5">
+                        {h.sector && <span>{h.sector}</span>}
                         {h.category_rank && h.category_rank_total && h.category_rank_total > 3 && (
                           <span
                             className={`px-1.5 py-0 rounded-sm font-mono text-[9px] font-semibold ${
                               h.category_rank <= Math.ceil(h.category_rank_total * 0.1)
-                                ? "bg-emerald-50 text-emerald-700"
+                                ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
                                 : h.category_rank <= Math.ceil(h.category_rank_total * 0.25)
-                                ? "bg-lime-50 text-lime-700"
+                                ? "bg-lime-50 dark:bg-lime-900/30 text-lime-700 dark:text-lime-400"
                                 : h.category_rank <= Math.ceil(h.category_rank_total * 0.5)
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-rose-50 text-rose-700"
+                                ? "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+                                : "bg-rose-50 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400"
                             }`}
-                            title={`Rank ${h.category_rank} of ${h.category_rank_total} in ${h.category || "category"} (by V3 Quality)`}
+                            title={`Rank ${h.category_rank} of ${h.category_rank_total} in ${h.category || "category"}`}
                             data-testid={`cat-rank-${h.holding_id}`}
                           >
                             #{h.category_rank}/{h.category_rank_total}
@@ -1102,19 +1249,19 @@ export default function ActionablePortfolioView() {
                         )}
                       </div>
                       {h.action_badge?.reason && (
-                        <div className="text-[10px] text-slate-500 italic mt-0.5 truncate max-w-md"
+                        <div className="text-[10px] text-slate-500 dark:text-zinc-500 italic mt-0.5 truncate max-w-xs"
                              title={h.action_badge.reason}
                              data-testid={`row-why-${h.holding_id}`}>
-                          <span className="text-slate-400">Why:</span> {h.action_badge.reason}
+                          {h.action_badge.reason}
                         </div>
                       )}
+                      </div>
                     </td>
-                    <td className="p-2.5 text-[11px] capitalize text-slate-500">{h.asset_type.replace("_", " ")}</td>
-                    <td className="p-2.5 font-mono text-right">{h.quantity}</td>
-                    <td className="p-2.5 font-mono text-right">{fmtINR(h.current_price)}</td>
-                    <td className="p-2.5 font-mono text-right font-semibold">{fmtINR(h.value_rs)}</td>
-                    <td className={`p-2.5 font-mono text-right ${(h.pnl_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.pnl_pct)}</td>
-                    <td className={`p-2.5 font-mono text-right ${(h.xirr_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmtPct(h.xirr_pct, 1)}</td>
+                    <td className="p-2.5 font-mono text-right text-slate-700 dark:text-slate-300">{h.quantity}</td>
+                    <td className="p-2.5 font-mono text-right text-slate-700 dark:text-slate-300">{fmtINR(h.current_price)}</td>
+                    <td className="p-2.5 font-mono text-right font-semibold text-slate-900 dark:text-white">{fmtINR(h.value_rs)}</td>
+                    <td className={`p-2.5 font-mono text-right ${(h.pnl_pct || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtPct(h.pnl_pct)}</td>
+                    <td className={`p-2.5 font-mono text-right ${(h.xirr_pct || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtPct(h.xirr_pct, 1)}</td>
                     <td className="p-2.5 text-center"><ScorePill value={h.composite_score} /></td>
                     <td className="p-2.5">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -1122,12 +1269,20 @@ export default function ActionablePortfolioView() {
                         {h.asset_type !== "equity" && h.action_badge?.action === "SWITCH" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setSwitchTarget(h); }}
-                            className="text-[10px] font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2"
+                            className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 underline underline-offset-2"
                             data-testid={`inline-switch-${h.holding_id}`}
                           >
                             Switch →
                           </button>
                         )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setIntelligenceTarget(h); }}
+                          className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-300"
+                          title="AI insights for this holding"
+                          data-testid={`btn-intelligence-${h.holding_id}`}
+                        >
+                          <Sparkles className="w-3 h-3" /> AI
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1140,7 +1295,7 @@ export default function ActionablePortfolioView() {
             </tbody>
           </table>
           {filtered.length === 0 && (
-            <div className="text-center py-12 text-slate-400 text-sm">No holdings match this filter.</div>
+            <div className="text-center py-12 text-slate-400 dark:text-zinc-600 text-sm">No holdings match this filter.</div>
           )}
         </div>
       </Card>
@@ -1151,6 +1306,13 @@ export default function ActionablePortfolioView() {
           <SwitchPanel holding={switchTarget} onClose={() => setSwitchTarget(null)} />
         )}
       </AnimatePresence>
+
+      {/* Holding Intelligence Drawer */}
+      <HoldingIntelligenceDrawer
+        holding={intelligenceTarget}
+        onClose={() => setIntelligenceTarget(null)}
+      />
+      </div>
     </div>
   );
 }

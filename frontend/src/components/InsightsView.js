@@ -4,7 +4,7 @@ import {
   Sparkles, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
   BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
-  HelpCircle, Lightbulb, GripHorizontal, Maximize2, Minimize2, RotateCcw,
+  HelpCircle, Lightbulb, GripHorizontal, Maximize2, Minimize2, RotateCcw, MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,8 +16,8 @@ import {
 } from "recharts";
 import { useNumberFormat } from "@/context/NumberFormatContext";
 import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
-import AICopilotView from "@/components/copilot/AICopilotView";
 import PortfolioIntelligenceTab from "@/components/insights/PortfolioIntelligenceTab";
+import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import V3PortfolioInsights from "@/components/insights/V3PortfolioInsights";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -237,6 +237,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
     { id: "overview", label: "AI Overview" },
     { id: "performance_benchmark", label: "Performance & Benchmark" },
     { id: "fund_overlap_insights", label: "Fund & Overlap Insights" },
+    { id: "tax", label: "Tax", wip: true },
+    { id: "risk", label: "Risk" },
   ];
 
   if (loading) {
@@ -291,13 +293,18 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             key={tab.id}
             data-testid={`tab-${tab.id}`}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-shrink-0 sm:flex-1 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+            className={`flex-shrink-0 sm:flex-1 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap flex items-center justify-center gap-1.5 ${
               activeTab === tab.id
                 ? "bg-slate-900 dark:bg-[#27272A] text-white shadow-sm"
                 : "text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300"
             }`}
           >
             {tab.label}
+            {tab.wip && (
+              <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 leading-none">
+                WIP
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -316,11 +323,10 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
         </Card>
       ) : (
         <>
-          {/* ══════════════ TAB: AI COPILOT (gated) ══════════════ */}
+          {/* ══════════════ TAB: OVERVIEW ══════════════ */}
           {activeTab === "overview" && (
-            copilotEnabled ? (
-              <AICopilotView riskProfile={riskProfile} />
-            ) : (
+            <div className="space-y-5">
+              <DailyMarketBriefing onOpenChat={(prompt) => { window.location.hash = "chat"; }} />
               <OverviewTab
                 pd={pd}
                 gauge={gauge}
@@ -333,7 +339,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 analytics={deepAnalytics}
                 portfolioHealth={portfolioHealth}
               />
-            )
+            </div>
           )}
 
           {/* ══════════════ TAB: PERFORMANCE & BENCHMARK (merged) ══════════════ */}
@@ -496,9 +502,322 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
         </>
       )}
 
+      {/* ══════════════ TAB: TAX ══════════════ */}
+      {activeTab === "tax" && (
+        <TaxInsightsTab onOpenChat={(prompt) => { window.location.hash = "chat"; }} />
+      )}
+
+      {/* ══════════════ TAB: RISK ══════════════ */}
+      {activeTab === "risk" && (
+        <RiskInsightsTab onOpenChat={(prompt) => { window.location.hash = "chat"; }} />
+      )}
+
       <p className="text-xs text-slate-400 text-center">
         AI-generated analysis for educational purposes. Consult a SEBI-registered advisor.
       </p>
+    </div>
+  );
+};
+
+// ── Daily Market Briefing (TASK-063) ────────────────────────────────
+const _REGIME_STYLE = {
+  RISK_ON:  { bg: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500" },
+  RISK_OFF: { bg: "bg-rose-100 dark:bg-rose-900/30 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800",     dot: "bg-rose-500"     },
+  NEUTRAL:  { bg: "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800", dot: "bg-amber-500"    },
+};
+
+const DailyMarketBriefing = ({ onOpenChat }) => {
+  const [brief, setBrief] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const BACKEND = process.env.REACT_APP_BACKEND_URL;
+
+  useEffect(() => {
+    axios.post(`${BACKEND}/api/copilot/widgets/market_brief`, {}, { withCredentials: true })
+      .then((r) => setBrief(r.data?.data || r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [BACKEND]);
+
+  if (loading) {
+    return <div className="h-24 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />;
+  }
+  if (!brief) return null;
+
+  const indices = brief.indices || [];
+  const fiiDii  = brief.fii_dii;
+  const regime  = (brief.regime || "NEUTRAL").toUpperCase();
+  const bullets = brief.summary_bullets || [];
+  const regimeStyle = _REGIME_STYLE[regime] || _REGIME_STYLE.NEUTRAL;
+  const asOf = brief.as_of_date ? new Date(brief.as_of_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : null;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-[#111] p-4 space-y-3" data-testid="daily-market-briefing">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-slate-400 dark:text-zinc-500" />
+          <span className="text-sm font-semibold text-slate-800 dark:text-white">Daily Market Brief</span>
+          {asOf && <span className="text-xs text-slate-400 dark:text-zinc-600">· {asOf}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full border ${regimeStyle.bg}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${regimeStyle.dot}`} />
+            {regime.replace("_", " ")}
+          </span>
+          <button
+            onClick={() => onOpenChat("What is today's market outlook?")}
+            className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 hover:border-teal-300 dark:hover:border-teal-700 transition-colors flex items-center gap-1"
+          >
+            <MessageSquare className="w-3 h-3" /> Ask
+          </button>
+        </div>
+      </div>
+
+      {/* Index + FII/DII row */}
+      <div className="flex flex-wrap gap-4">
+        {indices.map((idx) => {
+          const pos = (idx.change_pct || 0) >= 0;
+          return (
+            <div key={idx.name} className="flex items-baseline gap-2">
+              <span className="text-xs text-slate-500 dark:text-zinc-500">{idx.name}</span>
+              <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                {idx.value?.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+              </span>
+              <span className={`text-xs font-medium flex items-center gap-0.5 ${pos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                {pos ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                {Math.abs(idx.change_pct || 0).toFixed(2)}%
+              </span>
+            </div>
+          );
+        })}
+        {fiiDii && (
+          <>
+            <div className="flex items-baseline gap-1.5 text-xs">
+              <span className="text-slate-400 dark:text-zinc-600">FII</span>
+              <span className={`font-medium ${(fiiDii.fii_cr || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                {(fiiDii.fii_cr || 0) >= 0 ? "+" : ""}₹{Math.round(Math.abs(fiiDii.fii_cr || 0)).toLocaleString("en-IN")} Cr
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5 text-xs">
+              <span className="text-slate-400 dark:text-zinc-600">DII</span>
+              <span className={`font-medium ${(fiiDii.dii_cr || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                {(fiiDii.dii_cr || 0) >= 0 ? "+" : ""}₹{Math.round(Math.abs(fiiDii.dii_cr || 0)).toLocaleString("en-IN")} Cr
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Bullets */}
+      {bullets.length > 0 && (
+        <ul className="space-y-1">
+          {bullets.slice(0, 3).map((b, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-slate-600 dark:text-zinc-400">
+              <span className="mt-1 w-1 h-1 rounded-full bg-slate-400 dark:bg-zinc-600 flex-shrink-0" />
+              {b}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+
+// ── Tax tab ──────────────────────────────────────────────────────────
+const TaxInsightsTab = ({ onOpenChat }) => {
+  const [envelope, setEnvelope] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/copilot/widgets/tax_harvest`, {}, { withCredentials: true })
+      .then((r) => setEnvelope(r.data))
+      .catch(() => setError("Could not load tax harvest data."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-4" data-testid="tab-tax-content">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>Tax Intelligence</h2>
+          <p className="text-sm text-slate-500 mt-0.5">LTCG harvest opportunities and capital gains summary</p>
+        </div>
+        <button
+          onClick={() => onOpenChat("What can I harvest before year-end?")}
+          className="text-xs px-3 py-1.5 rounded-full border border-[color:var(--cp-border-subtle)] text-slate-600 dark:text-slate-300 hover:border-[color:var(--cp-accent-brand)] hover:text-[color:var(--cp-accent-brand)] flex items-center gap-1.5"
+        >
+          <MessageSquare className="w-3.5 h-3.5" /> Discuss in Chat
+        </button>
+      </div>
+      {loading && <div className="h-48 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse" />}
+      {error && <p className="text-sm text-slate-500">{error}</p>}
+      {envelope && (
+        <WidgetRenderer
+          envelope={envelope}
+          embedded="insights"
+          onAction={(action, payload) => {
+            if (action === "suggestion" && payload?.suggestion) {
+              window.location.hash = "chat";
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Risk tab (TASK-062/063) ───────────────────────────────────────────
+const _RISK_RATING_STYLE = {
+  LOW:       "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800",
+  MEDIUM:    "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800",
+  HIGH:      "text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-800",
+  "VERY HIGH":"text-red-800 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800",
+};
+
+const RiskInsightsTab = ({ onOpenChat }) => {
+  const [suitability, setSuitability] = useState(null);
+  const [varData, setVarData]         = useState(null);
+  const [covidEnv, setCovidEnv]       = useState(null);
+  const [gfcEnv, setGfcEnv]           = useState(null);
+  const [loading, setLoading]         = useState(true);
+  const BACKEND = process.env.REACT_APP_BACKEND_URL;
+
+  useEffect(() => {
+    Promise.all([
+      axios.post(`${BACKEND}/api/copilot/widgets/risk_suitability`,  {}, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/portfolio_var`,      {}, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "covid_2020" }, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "gfc_2008"  }, { withCredentials: true }).catch(() => null),
+    ]).then(([s, v, c, g]) => {
+      if (s) setSuitability(s.data?.data || s.data);
+      if (v) setVarData(v.data?.data || v.data);
+      if (c) setCovidEnv(c.data);
+      if (g) setGfcEnv(g.data);
+    }).finally(() => setLoading(false));
+  }, [BACKEND]);
+
+  const fmtCr = (n) => n == null ? "—" : `₹${Math.abs(Math.round(n)).toLocaleString("en-IN")}`;
+
+  return (
+    <div className="space-y-6" data-testid="tab-risk-content">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Risk Intelligence</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Suitability check, Value at Risk, and crash scenario analysis</p>
+        </div>
+        <button
+          onClick={() => onOpenChat("Assess my portfolio risk")}
+          className="text-xs px-3 py-1.5 rounded-full border border-[color:var(--cp-border-subtle)] text-slate-600 dark:text-slate-300 hover:border-[color:var(--cp-accent-brand)] hover:text-[color:var(--cp-accent-brand)] flex items-center gap-1.5"
+        >
+          <MessageSquare className="w-3.5 h-3.5" /> Discuss in Chat
+        </button>
+      </div>
+
+      {/* Suitability + VaR summary cards */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[1,2,3,4].map((i) => <div key={i} className="h-32 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />)}
+        </div>
+      ) : (
+        <>
+          {/* Row 1: Suitability + VaR summary */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Risk Suitability card */}
+            {suitability && (
+              <div className="rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-[#111] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-slate-400" /> Risk Suitability
+                  </span>
+                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${_RISK_RATING_STYLE[suitability.risk_rating] || _RISK_RATING_STYLE.MEDIUM}`}>
+                    {suitability.risk_rating}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{suitability.equity_pct?.toFixed(0)}%</div>
+                    <div className="text-xs text-slate-400">Equity</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white">{suitability.small_mid_pct?.toFixed(0)}%</div>
+                    <div className="text-xs text-slate-400">Small/Mid</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-slate-900 dark:text-white capitalize">{suitability.user_profile_category}</div>
+                    <div className="text-xs text-slate-400">Profile</div>
+                  </div>
+                </div>
+                {(suitability.misalignment || []).length > 0 ? (
+                  <div className="space-y-1">
+                    {suitability.misalignment.slice(0,3).map((m, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-rose-600 dark:text-rose-400">
+                        <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ Portfolio aligned with risk profile</p>
+                )}
+              </div>
+            )}
+
+            {/* VaR card */}
+            {varData && (
+              <div className="rounded-2xl border border-slate-200 dark:border-white/8 bg-white dark:bg-[#111] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-800 dark:text-white flex items-center gap-1.5">
+                    <TrendingDown className="w-4 h-4 text-slate-400" /> Value at Risk
+                  </span>
+                  <span className="text-xs text-slate-400 dark:text-zinc-500">95% confidence</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/5 p-3 text-center">
+                    <div className="text-base font-bold text-rose-600 dark:text-rose-400">{fmtCr(varData.var_1d_95_rs)}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">1-day VaR</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-white/5 p-3 text-center">
+                    <div className="text-base font-bold text-rose-600 dark:text-rose-400">{fmtCr(varData.var_10d_95_rs)}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">10-day VaR</div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-zinc-500">
+                  Annual vol: <strong>{varData.portfolio_annual_vol_pct?.toFixed(1)}%</strong>
+                  {" · "}Portfolio: <strong>{fmtCr(varData.total_portfolio_value_rs)}</strong>
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-600">
+                  VaR = potential loss on a bad day at 95% confidence. Not a worst-case limit.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Row 2: Stress tests */}
+          <div>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Crash Scenario Simulation</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {covidEnv && <WidgetRenderer envelope={covidEnv} embedded="insights" onAction={() => {}} />}
+              {gfcEnv   && <WidgetRenderer envelope={gfcEnv}   embedded="insights" onAction={() => {}} />}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Custom scenario CTA */}
+      <div className="rounded-xl border border-[color:var(--cp-border-subtle)] bg-[color:var(--cp-surface-base)] dark:bg-slate-800/60 p-4">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Run a custom scenario</p>
+        <p className="text-xs text-slate-500 mb-3">Simulate a specific market drop to see the impact on your portfolio.</p>
+        <button
+          onClick={() => onOpenChat("Simulate a 30% market crash on my portfolio")}
+          className="text-xs px-4 py-2 rounded-full text-white font-medium"
+          style={{ background: "var(--cp-accent-brand, #2962FF)" }}
+        >
+          Run custom scenario in Chat →
+        </button>
+      </div>
     </div>
   );
 };

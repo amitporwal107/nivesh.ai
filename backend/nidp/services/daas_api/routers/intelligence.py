@@ -376,3 +376,38 @@ async def portfolio_holdings(
             external_user_id, d, page["limit"], page["offset"],
         )
     return envelope([row_to_dict(r) for r in rows], **page, extra={"external_user_id": external_user_id, "snapshot_date": str(d) if d else None})
+
+
+@router.get("/portfolio/sync/status", summary="Portfolio sync audit log (latest run per client)")
+async def portfolio_sync_status(
+    external_user_id: Optional[str] = Query(None, description="Filter by email"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                cm.external_user_id,
+                cm.display_name,
+                cm.last_sync_at,
+                sal.snapshot_date,
+                sal.status,
+                sal.holdings_upserted,
+                sal.synced_at,
+                sal.error_detail
+            FROM portfolio.client_master cm
+            LEFT JOIN LATERAL (
+                SELECT snapshot_date, status, holdings_upserted, synced_at, error_detail
+                  FROM portfolio.sync_audit_log sal
+                 WHERE sal.external_user_id = cm.external_user_id
+                 ORDER BY synced_at DESC
+                 LIMIT 1
+            ) sal ON TRUE
+            WHERE ($1::text IS NULL OR cm.external_user_id = $1)
+            ORDER BY cm.last_sync_at DESC NULLS LAST
+            LIMIT $2 OFFSET $3
+            """,
+            external_user_id, page["limit"], page["offset"],
+        )
+    return envelope([row_to_dict(r) for r in rows], **page)

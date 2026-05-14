@@ -56,6 +56,7 @@ from nidp.services.daas_api.routers import (
     macro,
     me,
     mf,
+    mf_performance,
     prices,
     reference,
     replay,
@@ -298,3 +299,4 @@ app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
 app.include_router(events.router, prefix=v1_prefix)
 app.include_router(mf.router, prefix=v1_prefix)
+app.include_router(mf_performance.router, prefix=v1_prefix)

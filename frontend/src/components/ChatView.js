@@ -6,7 +6,7 @@ import {
   Send, Trash2, Bot, User, Plus, MessageSquare, ChevronLeft,
   Clock, TrendingUp, Shield, BarChart3, Lightbulb,
   Zap, RefreshCw, Wrench, Layers, ArrowRightCircle, AlertTriangle, Target,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, Pin, PinOff, Pencil, Check, X as XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,8 +18,10 @@ import SaveAsPlanCard, { shouldShowSavePlan } from "@/components/copilot/SaveAsP
 import ChartBlock from "@/components/copilot/ChartBlock";
 import { parseCopilotChartBlocks } from "@/lib/parseCopilotChartBlocks";
 import { AgentPicker, ModelPicker, useAgentRoute } from "@/components/copilot/AgentModelPickers";
+import { cn } from "@/lib/utils";
 import AgentRibbon from "@/components/copilot/shared/AgentRibbon";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
+import V2CopilotWelcome from "@/components/v2app/screens/V2CopilotWelcome";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -183,31 +185,90 @@ const StreamingIndicator = () => {
   );
 };
 
-const SessionItem = ({ session, isActive, onClick, onDelete }) => (
-  <div
-    data-testid={`chat-session-${session.session_id}`}
-    onClick={() => onClick(session.session_id)}
-    role="button"
-    tabIndex={0}
-    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group flex items-center gap-2 cursor-pointer ${
-      isActive
-        ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
-        : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-    }`}
-  >
-    <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={1.5} />
-    <span className="flex-1 truncate">{session.title}</span>
-    <button
-      data-testid={`delete-session-${session.session_id}`}
-      onClick={(e) => { e.stopPropagation(); onDelete(session.session_id); }}
-      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-500 transition-opacity"
-    >
-      <Trash2 className="w-3 h-3" />
-    </button>
-  </div>
-);
+const SessionItem = ({ session, isActive, onClick, onDelete, onPin, onRename }) => {
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(session.title || "");
 
-const ChatView = ({ onNavigateToPlanBoard } = {}) => {
+  const commitRename = () => {
+    const t = draftTitle.trim();
+    if (t && t !== session.title) onRename(session.session_id, t);
+    setEditing(false);
+  };
+
+  return (
+    <div
+      data-testid={`chat-session-${session.session_id}`}
+      onClick={() => !editing && onClick(session.session_id)}
+      role="button"
+      tabIndex={0}
+      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group flex items-center gap-2 cursor-pointer ${
+        isActive
+          ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
+          : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+      }`}
+    >
+      {session.pinned
+        ? <Pin className="w-3.5 h-3.5 flex-shrink-0 text-emerald-500" strokeWidth={1.5} />
+        : <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" strokeWidth={1.5} />
+      }
+
+      {editing ? (
+        <input
+          autoFocus
+          value={draftTitle}
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setEditing(false); }}
+          onClick={(e) => e.stopPropagation()}
+          className="flex-1 min-w-0 text-xs bg-transparent border-b border-emerald-400 outline-none"
+        />
+      ) : (
+        <span className="flex-1 truncate">{session.title}</span>
+      )}
+
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        {editing ? (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); commitRename(); }} className="p-0.5 hover:text-emerald-600">
+              <Check className="w-3 h-3" />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setEditing(false); }} className="p-0.5 hover:text-slate-500">
+              <XIcon className="w-3 h-3" />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              data-testid={`rename-session-${session.session_id}`}
+              onClick={(e) => { e.stopPropagation(); setDraftTitle(session.title || ""); setEditing(true); }}
+              className="p-0.5 hover:text-slate-700 dark:hover:text-slate-200"
+              title="Rename"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              data-testid={`pin-session-${session.session_id}`}
+              onClick={(e) => { e.stopPropagation(); onPin(session.session_id, !session.pinned); }}
+              className="p-0.5 hover:text-emerald-600"
+              title={session.pinned ? "Unpin" : "Pin"}
+            >
+              {session.pinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
+            </button>
+            <button
+              data-testid={`delete-session-${session.session_id}`}
+              onClick={(e) => { e.stopPropagation(); onDelete(session.session_id); }}
+              className="p-0.5 hover:text-red-500"
+              title="Delete"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2PersonaId = "retail_investor", v2Analytics = null, v2Holdings = [], v2Workspace = null } = {}) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [suggestedPrompts, setSuggestedPrompts] = useState([]);
@@ -225,6 +286,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
   const [selectedAgentId, setSelectedAgentId] = useState("auto");
   const [selectedModelId, setSelectedModelId] = useState(null);   // populated by ModelPicker on mount
   const [currentTurnAgent, setCurrentTurnAgent] = useState(null);  // shown in the "thinking" ribbon
+  const [showV2History, setShowV2History] = useState(false);
   const routeIntent = useAgentRoute();
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -278,15 +340,21 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
   useEffect(() => {
     const init = async () => {
       const loadedSessions = await fetchSessions();
-      if (loadedSessions.length > 0) {
-        setActiveSessionId(loadedSessions[0].session_id);
-        fetchMessages(loadedSessions[0].session_id);
+      // Prefer initialSessionId (from /chat/:threadId) if it matches a session
+      const preferred = initialSessionId
+        ? loadedSessions.find((s) => s.session_id === initialSessionId)
+        : null;
+      const first = preferred || (loadedSessions.length > 0 ? loadedSessions[0] : null);
+      if (first) {
+        setActiveSessionId(first.session_id);
+        fetchMessages(first.session_id);
       } else {
         setLoadingMessages(false);
       }
       fetchSuggestedPrompts();
     };
     init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchSessions, fetchMessages, fetchSuggestedPrompts]);
 
   useEffect(() => {
@@ -329,6 +397,17 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
     }
   };
 
+  const handlePinSession = (sessionId, pin) => {
+    // Optimistic local update — server-side persistence is best-effort via PATCH
+    setSessions((prev) => prev.map((s) => s.session_id === sessionId ? { ...s, pinned: pin } : s));
+    axios.patch(`${API}/chat/sessions/${sessionId}`, { pinned: pin }, { withCredentials: true }).catch(() => {});
+  };
+
+  const handleRenameSession = (sessionId, newTitle) => {
+    setSessions((prev) => prev.map((s) => s.session_id === sessionId ? { ...s, title: newTitle } : s));
+    axios.patch(`${API}/chat/sessions/${sessionId}`, { title: newTitle }, { withCredentials: true }).catch(() => {});
+  };
+
   const sendMessageWithText = useCallback(async (rawText) => {
     const text = (rawText || "").trim();
     if (!text || sending || streaming) return;
@@ -367,8 +446,20 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
           const risk = (parts[1] || "Moderate");
           if (!budget) throw new Error("Usage: /sip <monthly_budget> [conservative|moderate|aggressive]");
           url = `${API}/copilot/widgets/sip_plan`; body = { monthly_budget: budget, risk_label: risk };
+        } else if (cmd === "rebalance") {
+          url = `${API}/copilot/widgets/rebalance_plan`; body = {};
+        } else if (cmd === "tax" || cmd === "harvest") {
+          url = `${API}/copilot/widgets/tax_harvest`; body = {};
+        } else if (cmd === "stress") {
+          const scenario = arg || "covid_2020";
+          url = `${API}/copilot/widgets/stress_test`; body = { scenario };
+        } else if (cmd === "sectors" || cmd === "rotation") {
+          url = `${API}/copilot/widgets/sector_rotation`; body = {};
+        } else if (cmd === "overlap") {
+          const codes = arg ? arg.split(",").map((s) => s.trim()).filter(Boolean) : [];
+          url = `${API}/copilot/widgets/overlap_reveal`; body = { scheme_codes: codes.length ? codes : null };
         } else {
-          throw new Error(`Unknown command: /${cmd}. Try /fundcard, /market, /compare, /sip.`);
+          throw new Error(`Unknown command: /${cmd}. Try /fundcard, /market, /compare, /sip, /rebalance, /tax, /stress, /sectors, /overlap.`);
         }
         const r = await axios.post(url, body, { withCredentials: true });
         const envelope = r.data;
@@ -430,8 +521,11 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
         body: JSON.stringify({
           message: text,
           session_id: activeSessionId,
-          model: selectedModelId,           // Phase B: model picker hint
-          agent_id: turnAgent?.id || null,  // Phase B: agent metadata for telemetry
+          model: selectedModelId,
+          agent_id: turnAgent?.id || null,
+          ...(v2Holdings?.length > 0 && {
+            portfolio_count: v2Holdings.length,
+          }),
         }),
         credentials: "include",
         signal: controller.signal,
@@ -622,65 +716,227 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
 
+  const activeSession = sessions.find((s) => s.session_id === activeSessionId);
+
   return (
-    <div data-testid="chat-view" className="h-[calc(100vh-8rem)] md:h-[calc(100vh-6rem)] flex gap-4 relative">
-      {/* Session Sidebar — overlay on mobile, inline on desktop */}
-      <AnimatePresence>
-        {showSidebar && (
-          <>
-            {/* Mobile backdrop */}
-            <div
-              className="fixed inset-0 bg-black/30 z-30 md:hidden"
-              onClick={() => setShowSidebar(false)}
-            />
-            <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 260, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex-shrink-0 flex flex-col h-full fixed md:relative top-0 left-0 z-40 md:z-auto bg-transparent md:bg-transparent"
-              style={{ maxWidth: 260 }}
+    <div data-testid="chat-view" className={v2Mode ? "flex flex-col h-full" : "h-[calc(100vh-8rem)] md:h-[calc(100vh-6rem)] flex gap-4 relative"}>
+
+      {/* ── V2 top bar (clear + history + session title) ─────────────────── */}
+      {v2Mode && (
+        <div className="shrink-0 flex items-center justify-between px-1 pb-3 gap-3">
+          {/* History toggle + session title */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setShowV2History((v) => !v)}
+              className={cn(
+                "flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-all border shrink-0",
+                showV2History
+                  ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400"
+                  : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10"
+              )}
+              title="Chat history"
             >
-            <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
-              <div className="p-3 border-b border-slate-100 dark:border-slate-800">
-                <Button
-                  data-testid="new-conversation-button"
-                  onClick={handleNewSession}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-9 text-sm"
+              <Clock className="w-3.5 h-3.5" />
+              History
+              {sessions.length > 0 && (
+                <span className="ml-0.5 text-[9px] font-bold bg-white/10 px-1.5 py-0.5 rounded-full">
+                  {sessions.length}
+                </span>
+              )}
+            </button>
+            {activeSession && (
+              <p className="text-xs text-white/30 truncate min-w-0">
+                {activeSession.title || "Untitled"}
+              </p>
+            )}
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleNewSession}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/30 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Chat
+            </button>
+            {messages.length > 0 && (
+              <button
+                data-testid="clear-chat-button"
+                onClick={handleClear}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Row: [v2 history?] + [v1 sidebar?] + [chat] ─────────────────── */}
+      <div className={v2Mode ? "flex flex-1 min-h-0 gap-3" : "contents"}>
+
+        {/* V2 sliding history panel */}
+        {v2Mode && (
+          <AnimatePresence>
+            {showV2History && (
+              <motion.div
+                key="v2-history"
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 220, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="shrink-0 flex flex-col bg-[#141414] border border-white/5 rounded-2xl overflow-hidden"
+                style={{ minWidth: 0 }}
+              >
+                <div className="p-3 border-b border-white/5 shrink-0">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/30 px-1">
+                    Chat History
+                  </p>
+                </div>
+                <div
+                  className="flex-1 overflow-y-auto p-2 space-y-0.5"
+                  style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}
                 >
-                  <Plus className="w-4 h-4 mr-2" strokeWidth={2} />
-                  New Chat
-                </Button>
-              </div>
-              <ScrollArea className="flex-1 p-2">
-                <div className="space-y-0.5">
-                  {sessions.map((session) => (
-                    <SessionItem
-                      key={session.session_id}
-                      session={session}
-                      isActive={activeSessionId === session.session_id}
-                      onClick={handleSwitchSession}
-                      onDelete={handleDeleteSession}
-                    />
-                  ))}
-                  {sessions.length === 0 && (
-                    <div className="text-center py-8 text-xs text-slate-400">
-                      <Clock className="w-5 h-5 mx-auto mb-2 opacity-40" />
-                      No conversations yet
+                  {sessions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                      <MessageSquare className="w-6 h-6 text-white/10 mb-3" strokeWidth={1.5} />
+                      <p className="text-xs text-white/20">No conversations yet</p>
                     </div>
+                  ) : (
+                    sessions.map((session) => (
+                      <div
+                        key={session.session_id}
+                        onClick={() => { handleSwitchSession(session.session_id); }}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer group transition-all",
+                          activeSessionId === session.session_id
+                            ? "bg-indigo-500/15 border border-indigo-500/20"
+                            : "hover:bg-white/5 border border-transparent"
+                        )}
+                      >
+                        {session.pinned
+                          ? <Pin className="w-3 h-3 text-indigo-400 shrink-0" strokeWidth={1.5} />
+                          : <MessageSquare className="w-3 h-3 text-white/20 shrink-0 group-hover:text-white/40" strokeWidth={1.5} />
+                        }
+                        <div className="flex-1 min-w-0">
+                          <p className={cn(
+                            "text-xs truncate",
+                            activeSessionId === session.session_id ? "text-white font-semibold" : "text-white/50 group-hover:text-white/80"
+                          )}>
+                            {session.title || "Untitled"}
+                          </p>
+                          <p className="text-[9px] text-white/20 mt-0.5">{formatTime(session.updated_at || session.created_at)}</p>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.session_id); }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-rose-400 text-white/20 transition-all shrink-0"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))
                   )}
                 </div>
-              </ScrollArea>
-            </Card>
-          </motion.div>
-          </>
+              </motion.div>
+            )}
+          </AnimatePresence>
         )}
-      </AnimatePresence>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4 gap-2">
+        {/* V1 sliding sidebar */}
+        <AnimatePresence>
+          {!v2Mode && showSidebar && (
+            <>
+              {/* Mobile backdrop */}
+              <div
+                className="fixed inset-0 bg-black/30 z-30 md:hidden"
+                onClick={() => setShowSidebar(false)}
+              />
+              <motion.div
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 260, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex-shrink-0 flex flex-col h-full fixed md:relative top-0 left-0 z-40 md:z-auto bg-transparent md:bg-transparent"
+                style={{ maxWidth: 260 }}
+              >
+                <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
+                  <div className="p-3 border-b border-slate-100 dark:border-slate-800">
+                    <Button
+                      data-testid="new-conversation-button"
+                      onClick={handleNewSession}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-9 text-sm"
+                    >
+                      <Plus className="w-4 h-4 mr-2" strokeWidth={2} />
+                      New Chat
+                    </Button>
+                  </div>
+                  <ScrollArea className="flex-1 p-2">
+                    {sessions.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-400">
+                        <Clock className="w-5 h-5 mx-auto mb-2 opacity-40" />
+                        No conversations yet
+                      </div>
+                    ) : (
+                      <>
+                        {sessions.some((s) => s.pinned) && (
+                          <div className="mb-1">
+                            <div className="px-3 py-1 text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+                              Pinned
+                            </div>
+                            <div className="space-y-0.5">
+                              {sessions.filter((s) => s.pinned).map((session) => (
+                                <SessionItem
+                                  key={session.session_id}
+                                  session={session}
+                                  isActive={activeSessionId === session.session_id}
+                                  onClick={handleSwitchSession}
+                                  onDelete={handleDeleteSession}
+                                  onPin={handlePinSession}
+                                  onRename={handleRenameSession}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {sessions.some((s) => !s.pinned) && (
+                          <div>
+                            {sessions.some((s) => s.pinned) && (
+                              <div className="px-3 py-1 text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+                                Recent
+                              </div>
+                            )}
+                            <div className="space-y-0.5">
+                              {sessions.filter((s) => !s.pinned).map((session) => (
+                                <SessionItem
+                                  key={session.session_id}
+                                  session={session}
+                                  isActive={activeSessionId === session.session_id}
+                                  onClick={handleSwitchSession}
+                                  onDelete={handleDeleteSession}
+                                  onPin={handlePinSession}
+                                  onRename={handleRenameSession}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </ScrollArea>
+                </Card>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Main Chat Area */}
+        <div className={v2Mode ? "flex-1 flex flex-col min-w-0 min-h-0" : "flex-1 flex flex-col min-w-0"}>
+          {/* Header — hidden in V2 mode (V2Layout owns the header) */}
+          {!v2Mode && (
+          <div className="flex items-center justify-between mb-4 gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Button
               data-testid="toggle-chat-sidebar"
@@ -709,15 +965,64 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
             </Button>
           )}
         </div>
+        )}
 
         {/* Messages */}
-        <Card className="flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col">
+        <Card className={v2Mode
+          ? "flex-1 bg-transparent border-transparent shadow-none overflow-hidden flex flex-col"
+          : "flex-1 bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 rounded-2xl shadow-none overflow-hidden flex flex-col"
+        }>
           <ScrollArea className="flex-1 p-3 sm:p-6">
             {loadingMessages ? (
               <div className="space-y-6 py-4">
                 <ChatMessageSkeleton />
                 <ChatMessageSkeleton />
               </div>
+            ) : (v2Mode && !messages.some(m => m.role === "assistant")) ? (
+              /* ── V2: keep persona cards visible until AI responds ── */
+              <>
+                <V2CopilotWelcome
+                  personaId={v2PersonaId}
+                  analytics={v2Analytics}
+                  workspace={v2Workspace}
+                  onAsk={sendMessageWithText}
+                  onSwitchSession={handleSwitchSession}
+                  recentSessions={sessions}
+                  suggestedPrompts={[...tieredPrompts.primary, ...tieredPrompts.secondary]}
+                  suggestionsLoading={suggestionsLoading}
+                  streaming={streaming}
+                />
+                {(messages.length > 0 || streaming) && (
+                  <div className="mt-6 pt-6 border-t border-white/5 space-y-4">
+                    {messages.map(msg => msg.role === "user" ? (
+                      <div key={msg.message_id} className="flex gap-3 justify-end">
+                        <div className="max-w-[85%] sm:max-w-[75%] chat-user-bubble px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-sm">
+                          {msg.content}
+                        </div>
+                        <div className="relative w-8 h-8 flex-shrink-0 mt-1">
+                          <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-md shadow-emerald-500/20" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <User className="w-4 h-4 text-white" strokeWidth={1.75} />
+                          </div>
+                        </div>
+                      </div>
+                    ) : null)}
+                    {streaming && !streamingContent && <StreamingIndicator />}
+                    {streaming && streamingContent && (
+                      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 justify-start">
+                        <div className="w-8 h-8 bg-emerald-900/20 rounded-xl flex-shrink-0 flex items-center justify-center mt-1">
+                          <Bot className="w-4 h-4 text-emerald-600 animate-pulse" strokeWidth={1.5} />
+                        </div>
+                        <div className="max-w-[85%] sm:max-w-[75%] chat-ai-bubble chat-markdown px-4 py-3 text-sm leading-relaxed">
+                          <MarkdownMessage content={streamingContent} />
+                          <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 rounded-sm" />
+                        </div>
+                      </motion.div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
+              </>
             ) : messages.length === 0 && !streaming ? (
               <div className="flex flex-col items-center justify-start h-full py-8 px-2 overflow-y-auto">
                 <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl flex items-center justify-center mb-4">
@@ -946,7 +1251,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
           </ScrollArea>
 
           {/* Input */}
-          <CardContent className="p-3 sm:p-4 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+          <CardContent className={`p-3 sm:p-4 space-y-2.5 ${v2Mode ? "border-t border-white/5" : "border-t border-slate-100 dark:border-slate-800"}`}>
             {/* Persistent smart-prompt chips (dynamic, context-aware) */}
             {messages.length > 0 && !suggestionsLoading && suggestedPrompts.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1 scrollbar-thin" data-testid="copilot-chip-strip">
@@ -983,7 +1288,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
                 data-testid="chat-input"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="What would you like to improve about your portfolio?  ·  try /fundcard, /market, /compare, /sip"
+                placeholder="Ask anything · /fundcard /market /compare /sip /rebalance /tax /stress /sectors /overlap"
                 disabled={sending && streaming}
                 className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
               />
@@ -1012,6 +1317,7 @@ const ChatView = ({ onNavigateToPlanBoard } = {}) => {
             </p>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );

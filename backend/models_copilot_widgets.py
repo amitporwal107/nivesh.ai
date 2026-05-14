@@ -145,10 +145,105 @@ class ActionCardData(BaseModel):
     cta_action: str = "discuss_in_chat"
 
 
+# ── Rebalance Plan ────────────────────────────────────────────────
+class RebalanceAction(BaseModel):
+    action: Literal["BUY", "SELL", "SWITCH", "HOLD"]
+    fund_name: str
+    current_pct: Optional[float] = None
+    target_pct: Optional[float] = None
+    amount_rs: Optional[float] = None
+    reason: Optional[str] = None
+
+
+class RebalancePlanData(BaseModel):
+    current_value_rs: Optional[float] = None
+    actions: List[RebalanceAction] = Field(default_factory=list)
+    net_rebalance_rs: Optional[float] = None
+    estimated_tax_rs: Optional[float] = None
+    summary: Optional[str] = None
+
+
+# ── Tax Harvest Plan ───────────────────────────────────────────────
+class TaxHarvestCandidate(BaseModel):
+    fund_name: str
+    units: Optional[float] = None
+    current_value_rs: Optional[float] = None
+    cost_basis_rs: Optional[float] = None
+    gain_rs: float
+    gain_type: Literal["LTCG", "STCG"]
+    days_held: Optional[int] = None
+    eligible: bool = True
+    wash_sale_risk: bool = False
+
+
+class TaxHarvestData(BaseModel):
+    fy: str                                          # e.g. "FY 2025-26"
+    ltcg_used_rs: float = 0
+    ltcg_limit_rs: float = 100000
+    ltcg_remaining_rs: float = 100000
+    candidates: List[TaxHarvestCandidate] = Field(default_factory=list)
+    total_harvestable_rs: Optional[float] = None
+    warning: Optional[str] = None
+
+
+# ── Stress Test ───────────────────────────────────────────────────
+class StressTestBreakdown(BaseModel):
+    fund_name: str
+    current_value_rs: Optional[float] = None
+    stressed_value_rs: Optional[float] = None
+    drop_pct: float
+
+
+class StressTestData(BaseModel):
+    scenario_name: str                               # "2020 COVID Crash", "2008 GFC", custom
+    scenario_description: Optional[str] = None
+    current_value_rs: Optional[float] = None
+    stressed_value_rs: Optional[float] = None
+    drop_pct: Optional[float] = None
+    recovery_years: Optional[float] = None
+    breakdown: List[StressTestBreakdown] = Field(default_factory=list)
+    insight: Optional[str] = None
+
+
+# ── Sector Rotation ───────────────────────────────────────────────
+class SectorPoint(BaseModel):
+    name: str
+    quadrant: Literal["Leading", "Weakening", "Lagging", "Improving"]
+    rs_score: Optional[float] = None               # relative strength 0..100
+    week_change_pct: Optional[float] = None
+    month_change_pct: Optional[float] = None
+
+
+class SectorRotationData(BaseModel):
+    horizon: str = "1M"                            # "1W" | "1M" | "3M" | "6M"
+    sectors: List[SectorPoint] = Field(default_factory=list)
+    as_of_date: Optional[str] = None
+
+
+# ── Overlap Reveal ────────────────────────────────────────────────
+class OverlapStock(BaseModel):
+    stock_name: str
+    funds: List[str]                               # fund names that hold this stock
+    avg_weight_pct: Optional[float] = None
+
+
+class OverlapRevealData(BaseModel):
+    funds: List[str]                               # fund names being compared
+    overlap_pct: Optional[float] = None            # pairwise if 2 funds
+    overlap_matrix: Optional[List[List[float]]] = None  # NxN for >2 funds
+    top_common_stocks: List[OverlapStock] = Field(default_factory=list)
+    verdict: Optional[str] = None
+
+
 __all__ = [
     "WidgetEnvelope", "FreshnessChip", "AgentInfo", "WidgetKind", "FreshnessState",
     "FundCardData", "CompareTableData", "CompareRow",
     "MarketBriefData", "MarketBriefIndex",
     "SipPlanData", "SipPlanAllocation",
     "ActionCardData",
+    "RebalancePlanData", "RebalanceAction",
+    "TaxHarvestData", "TaxHarvestCandidate",
+    "StressTestData", "StressTestBreakdown",
+    "SectorRotationData", "SectorPoint",
+    "OverlapRevealData", "OverlapStock",
 ]
