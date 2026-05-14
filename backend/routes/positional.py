@@ -944,7 +944,11 @@ async def market_dashboard(request: Request):
     if _MARKET_DASH_CACHE["data"] and (now - _MARKET_DASH_CACHE["ts"]) < _md_cache_ttl():
         return {**_MARKET_DASH_CACHE["data"], "_cache_hit": True}
     from services.positional_engine import market_dashboard as md
-    data = await md.build()
+    try:
+        data = await md.build()
+    except Exception as e:  # noqa: BLE001
+        logger.error("market_dashboard build failed: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e)}
     if data.get("ok"):
         _MARKET_DASH_CACHE["ts"] = now
         _MARKET_DASH_CACHE["data"] = data

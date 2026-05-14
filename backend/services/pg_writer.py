@@ -612,26 +612,29 @@ async def list_scraped_funds(limit: int = 200) -> List[Dict[str, Any]]:
     pool = await pg_client.get_pool()
     if pool is None:
         return []
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT im.instrument_id, im.instrument_name, im.symbol AS scheme_code,
-                   im.isin, m.groww_slug, m.aum_cr, m.nav, m.expense_ratio,
-                   m.category, m.last_scraped_at,
-                   (SELECT COUNT(*) FROM mutual_fund_holdings h
-                      WHERE h.instrument_id = im.instrument_id
-                        AND h.holding_date = (
-                            SELECT MAX(holding_date) FROM mutual_fund_holdings
-                            WHERE instrument_id = im.instrument_id
-                        )) AS holdings_count
-            FROM instrument_master im
-            LEFT JOIN mutual_fund_metadata m ON m.instrument_id = im.instrument_id
-            WHERE im.instrument_type = 'MUTUAL_FUND'
-            ORDER BY m.last_scraped_at DESC NULLS LAST, im.instrument_name
-            LIMIT $1
-            """,
-            limit,
-        )
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT im.instrument_id, im.instrument_name, im.symbol AS scheme_code,
+                       im.isin, m.groww_slug, m.aum_cr, m.nav, m.expense_ratio,
+                       m.category, m.last_scraped_at,
+                       (SELECT COUNT(*) FROM mutual_fund_holdings h
+                          WHERE h.instrument_id = im.instrument_id
+                            AND h.holding_date = (
+                                SELECT MAX(holding_date) FROM mutual_fund_holdings
+                                WHERE instrument_id = im.instrument_id
+                            )) AS holdings_count
+                FROM instrument_master im
+                LEFT JOIN mutual_fund_metadata m ON m.instrument_id = im.instrument_id
+                WHERE im.instrument_type = 'MUTUAL_FUND'
+                ORDER BY m.last_scraped_at DESC NULLS LAST, im.instrument_name
+                LIMIT $1
+                """,
+                limit,
+            )
+    except Exception:  # noqa: BLE001 — tables may not exist pre-migration
+        return []
     return [{
         "instrument_id": str(r["instrument_id"]),
         "instrument_name": r["instrument_name"],
@@ -651,13 +654,16 @@ async def list_audit_log(limit: int = 100) -> List[Dict[str, Any]]:
     pool = await pg_client.get_pool()
     if pool is None:
         return []
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, instrument_id, instrument_name, slug, status, "
-            "holdings_count, validation_issues, source, duration_ms, created_at "
-            "FROM scrape_audit_log ORDER BY created_at DESC LIMIT $1",
-            limit,
-        )
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, instrument_id, instrument_name, slug, status, "
+                "holdings_count, validation_issues, source, duration_ms, created_at "
+                "FROM scrape_audit_log ORDER BY created_at DESC LIMIT $1",
+                limit,
+            )
+    except Exception:  # noqa: BLE001 — table may not exist pre-migration
+        return []
     return [{
         "id": str(r["id"]),
         "instrument_id": str(r["instrument_id"]) if r["instrument_id"] else None,

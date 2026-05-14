@@ -48,3 +48,10 @@ async def close_pool() -> None:
     if _pool is not None:
         await _pool.close()
         _pool = None
+    # Close the shared NSE HTTP session — always torn down together at process
+    # exit; skipping it causes asyncio "Unclosed client session" ERROR noise.
+    try:
+        from nidp.shared.sources import nse_fetcher
+        await nse_fetcher.close()
+    except Exception:  # noqa: BLE001
+        pass

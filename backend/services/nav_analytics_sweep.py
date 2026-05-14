@@ -423,15 +423,18 @@ async def _last_nav_cron_summary() -> Optional[Dict[str, Any]]:
     pool = await pg_client.get_pool()
     if pool is None:
         return None
-    async with pool.acquire() as conn:
-        r = await conn.fetchrow(
-            """
-            SELECT status, rows_parsed, rows_upserted, rows_skipped,
-                   duration_ms, error_msg, fetched_at
-            FROM amfi_nav_fetch_log
-            ORDER BY fetched_at DESC LIMIT 1
-            """
-        )
+    try:
+        async with pool.acquire() as conn:
+            r = await conn.fetchrow(
+                """
+                SELECT status, rows_parsed, rows_upserted, rows_skipped,
+                       duration_ms, error_msg, fetched_at
+                FROM amfi_nav_fetch_log
+                ORDER BY fetched_at DESC LIMIT 1
+                """
+            )
+    except Exception:  # noqa: BLE001 — table may not exist pre-migration
+        return None
     if not r:
         return None
     d = dict(r)
