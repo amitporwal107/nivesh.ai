@@ -22,6 +22,13 @@ from services.cas_period_detector import detect_statement_period, detect_period_
 # re-parse with a different password without re-downloading from Gmail.
 GMAIL_CAS_PDF_DIR = "/app/data/gmail_cas"
 
+# Test user — imported PDFs are automatically saved as named fixtures under
+# tests/test_data/nsdl/ahaanporwal/ so they can be used as benchmark inputs.
+TEST_USER_ID = "user_e56d1d46b024"
+TEST_FIXTURE_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "tests", "test_data", "nsdl", "ahaanporwal"
+)
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
@@ -89,7 +96,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         return await _handle_invite_oauth_callback(request, code, state, error)
 
     if error:
-        logger.error(f"Gmail OAuth error: {error}")
+        logger.error("Gmail OAuth error: %s", error)
         return RedirectResponse(url="/dashboard?gmail_error=denied")
 
     if not code or not state:
@@ -116,7 +123,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     try:
         tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier)
     except Exception as e:
-        logger.error(f"Gmail token exchange failed: {e}")
+        logger.error("Gmail token exchange failed: %s", e)
         return RedirectResponse(url="/dashboard?gmail_error=token_exchange_failed")
 
     await db.gmail_tokens.update_one(
@@ -129,7 +136,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         upsert=True,
     )
 
-    logger.info(f"Gmail connected for user {user_id}")
+    logger.info("Gmail connected for user %s", user_id)
     return RedirectResponse(url="/dashboard?gmail=connected")
 
 
@@ -253,7 +260,7 @@ async def gmail_scan(request: Request):
 
         return {"emails": emails, "total": len(emails)}
     except Exception as e:
-        logger.error(f"Gmail scan failed: {e}")
+        logger.error("Gmail scan failed: %s", e)
         if "invalid_grant" in str(e).lower() or "token" in str(e).lower():
             await db.gmail_tokens.delete_one({"user_id": user["user_id"]})
             raise HTTPException(status_code=401, detail="Gmail session expired. Please reconnect Gmail.")
@@ -294,7 +301,7 @@ async def gmail_import(request: Request, background_tasks: BackgroundTasks):
         service = build_gmail_service(creds)
         content = download_attachment(service, message_id, attachment_id)
     except Exception as e:
-        logger.error(f"Gmail attachment download failed: {e}")
+        logger.error("Gmail attachment download failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to download attachment from Gmail")
 
     task_id = f"gmail_{uuid.uuid4().hex[:12]}"
@@ -364,6 +371,17 @@ def _persist_gmail_pdf(user_id: str, content: bytes, filename: str) -> tuple[str
         "Gmail CAS persisted: user=%s file_id=%s size=%d filename=%s",
         user_id, file_id, len(content), filename[:80],
     )
+    # Archive as a named test fixture for the test user
+    if user_id == TEST_USER_ID:
+        try:
+            os.makedirs(TEST_FIXTURE_DIR, exist_ok=True)
+            safe_name = filename.replace(" ", "_").replace("/", "_")
+            fixture_path = os.path.join(TEST_FIXTURE_DIR, safe_name)
+            with open(fixture_path, "wb") as fx:
+                fx.write(content)
+            logger.info("Test fixture archived: %s", fixture_path)
+        except Exception as _fx_err:
+            logger.warning("Fixture archive failed (non-fatal): %s", _fx_err)
     return file_id, file_path, sha
 
 
@@ -555,7 +573,7 @@ async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: st
         delete_query["portfolio_id"] = portfolio_id
     old_count = await db.holdings.count_documents(delete_query)
     await db.holdings.delete_many(delete_query)
-    logger.info(f"Gmail CAS import: cleared {old_count} old holdings for user {user_id}")
+    logger.info("Gmail CAS import: cleared %s old holdings for user %s", old_count, user_id)
 
     new_count = 0
     saved_holdings = []

@@ -1,0 +1,5 @@
+# CAS PDFs contain personal financial data — never commit to git.
+# Only the expected_outputs/*.json (anonymised summaries) are committed.
+**/*.pdf
+**/*.PDF
+!expected_outputs/**/*.json
