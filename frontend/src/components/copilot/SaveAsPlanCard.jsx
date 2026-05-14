@@ -86,11 +86,11 @@ const SaveAsPlanCard = ({ onNavigateToPlanBoard }) => {
     // any router listening to it re-evaluates. The Dashboard's useLocation()
     // doesn't pick up a raw location.hash assignment, which was the bug.
     try {
-      const target = "/dashboard#plan_board";
+      const target = "/v2/dashboard#plan_board";
       window.history.pushState({}, "", target);
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     } catch {
-      window.location.href = "/dashboard#plan_board";
+      window.location.href = "/v2/dashboard#plan_board";
     }
   };
 

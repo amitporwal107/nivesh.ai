@@ -64,7 +64,7 @@ function AppInner() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/v2">
       <ThemeProvider>
         <NumberFormatProvider>
           <AuthProvider>
