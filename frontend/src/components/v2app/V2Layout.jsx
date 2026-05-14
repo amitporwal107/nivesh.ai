@@ -4,7 +4,7 @@ import {
   Plus, LayoutDashboard, MessageSquare, Briefcase, BarChart3,
   Target, Users, User, Settings, Zap, ChevronRight, Sparkles,
   Bell, ArrowRight, History, Lightbulb, TrendingUp, Globe2,
-  FlaskConical, Terminal, LogOut, RefreshCw, Bot,
+  FlaskConical, Terminal, LogOut, RefreshCw, Bot, ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -298,6 +298,17 @@ export default function V2Layout({
         {/* Minimal top header */}
         <header className="h-14 flex items-center justify-between px-6 bg-[#0f0f0f]/80 backdrop-blur-xl border-b border-white/5 shrink-0 z-50">
           <div className="flex items-center gap-3">
+            {/* Back to Dashboard — visible on any non-home screen */}
+            {activeScreen !== "home" && activeScreen !== "advisor" && (
+              <button
+                onClick={() => setScreen(workspaceType === "ADVISORY" ? "advisor" : "home")}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/50 hover:text-white transition-all group"
+                title="Back to Dashboard"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <span className="text-[10px] font-semibold tracking-wide hidden sm:inline">Dashboard</span>
+              </button>
+            )}
             <div className="flex items-center gap-2 px-2.5 py-1 bg-white/5 rounded-full border border-white/10">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[9px] font-bold uppercase tracking-wider text-white/40 leading-none">
