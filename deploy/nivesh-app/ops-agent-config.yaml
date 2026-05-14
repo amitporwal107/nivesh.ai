@@ -1,0 +1,43 @@
+logging:
+  receivers:
+    docker_json_logs:
+      type: files
+      include_paths:
+        - /var/lib/docker/containers/*/*.log
+    nidp_job_logs:
+      type: files
+      include_paths:
+        - /opt/nidp/logs/*/*.log
+  processors:
+    parse_docker_wrapper:
+      type: parse_json
+      field: message
+    parse_app_json:
+      type: parse_json
+      field: log
+    promote_severity_docker:
+      type: modify_fields
+      fields:
+        severity:
+          copy_from: jsonPayload.severity
+    parse_nidp_json:
+      type: parse_json
+      field: message
+    promote_severity_nidp:
+      type: modify_fields
+      fields:
+        severity:
+          copy_from: jsonPayload.severity
+  exporters:
+    google_cloud:
+      type: google_cloud_logging
+  service:
+    pipelines:
+      docker_pipeline:
+        receivers: [docker_json_logs]
+        processors: [parse_docker_wrapper, parse_app_json, promote_severity_docker]
+        exporters: [google_cloud]
+      nidp_pipeline:
+        receivers: [nidp_job_logs]
+        processors: [parse_nidp_json, promote_severity_nidp]
+        exporters: [google_cloud]
