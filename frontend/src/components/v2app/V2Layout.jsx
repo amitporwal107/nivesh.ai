@@ -77,11 +77,19 @@ export default function V2Layout({
   recentChats = [],
 }) {
   const [globalInput, setGlobalInput] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
   const { logout } = useAuth();
 
   const isAdvisor      = workspaceType === "ADVISORY";
   const isImpersonating = Boolean(activeProfileName);
+
+  // Auto-collapse sidebar when entering a sub-screen; expand on home/advisor
+  const homeScreens = ["home", "advisor"];
+  React.useEffect(() => {
+    setSidebarCollapsed(!homeScreens.includes(activeScreen));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeScreen]);
 
   let navItems, mode, suggestions;
   if (!isAdvisor) {
@@ -115,24 +123,35 @@ export default function V2Layout({
   return (
     <div className="flex h-screen bg-[#212121] text-[#ECECF1] overflow-hidden font-sans">
       {/* ─── Left Sidebar ─── */}
-      <aside className="w-[260px] bg-[#171717] flex flex-col shrink-0 border-r border-white/5">
-        <div className="p-3 flex-1 overflow-y-auto">
-          {/* New Insight button */}
+      <motion.aside
+        animate={{ width: sidebarCollapsed ? 64 : 260 }}
+        transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+        className="bg-[#171717] flex flex-col shrink-0 border-r border-white/5 overflow-hidden"
+      >
+        <div className={cn("p-3 flex-1 overflow-y-auto overflow-x-hidden", sidebarCollapsed && "flex flex-col items-center")}>
+
+          {/* New Insight button — icon only when collapsed */}
           <button
             onClick={() => setScreen("copilot")}
-            className="w-full h-11 flex items-center gap-3 px-3 rounded-lg border border-white/20 hover:bg-white/5 transition-colors group mb-5"
+            title="New Insight"
+            className={cn(
+              "h-11 flex items-center rounded-lg border border-white/20 hover:bg-white/5 transition-colors group mb-5",
+              sidebarCollapsed ? "w-10 justify-center px-0" : "w-full gap-3 px-3"
+            )}
           >
-            <div className="p-1 bg-white/10 rounded-md">
+            <div className="p-1 bg-white/10 rounded-md shrink-0">
               <Plus className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm font-medium">New Insight</span>
-            <div className="ml-auto hidden group-hover:block border border-white/20 px-1 py-0.5 rounded text-[10px] text-white/50">
-              ⌘N
-            </div>
+            {!sidebarCollapsed && (
+              <>
+                <span className="text-sm font-medium">New Insight</span>
+                <div className="ml-auto hidden group-hover:block border border-white/20 px-1 py-0.5 rounded text-[10px] text-white/50">⌘N</div>
+              </>
+            )}
           </button>
 
-          {/* Client context banner */}
-          {mode === "client" && (
+          {/* Client context banner — hidden when collapsed */}
+          {!sidebarCollapsed && mode === "client" && (
             <div className="mb-4">
               <button
                 onClick={onExitProfile}
@@ -148,81 +167,74 @@ export default function V2Layout({
             </div>
           )}
 
-          {/* Workspace label */}
-          {mode === "advisor" && (
+          {/* Workspace label — hidden when collapsed */}
+          {!sidebarCollapsed && mode === "advisor" && (
             <p className="px-3 text-[10px] font-bold text-white/30 uppercase tracking-widest mb-1.5">
               Advisor Workspace
             </p>
           )}
 
-          <div className="space-y-4">
+          <div className={cn("space-y-4", sidebarCollapsed && "w-full")}>
             {/* Workspaces nav */}
             <div>
-              <p className="px-3 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">
-                {mode === "client" ? "Client Workspace" : "Workspaces"}
-              </p>
-              <div className="space-y-0.5">
+              {!sidebarCollapsed && (
+                <p className="px-3 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">
+                  {mode === "client" ? "Client Workspace" : "Workspaces"}
+                </p>
+              )}
+              <div className={cn("space-y-0.5", sidebarCollapsed && "flex flex-col items-center")}>
                 {navItems.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setScreen(item.id)}
+                    title={sidebarCollapsed ? item.label : undefined}
                     className={cn(
-                      "w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors relative",
+                      "h-10 flex items-center rounded-lg text-sm font-medium transition-colors relative",
+                      sidebarCollapsed ? "w-10 justify-center px-0" : "w-full gap-3 px-3",
                       activeScreen === item.id
                         ? "bg-[#212121] text-white"
                         : "text-[#ECECF1]/70 hover:bg-[#212121]"
                     )}
                   >
-                    <item.icon
-                      className={cn(
-                        "w-4 h-4 shrink-0",
-                        activeScreen === item.id ? "text-indigo-400" : "text-white/40"
-                      )}
-                    />
-                    <span className="flex-1 text-left truncate">{item.label}</span>
-                    {item.badge && (
-                      <span className="text-[8px] font-bold bg-emerald-600 text-white px-1.5 py-0.5 rounded-full">
-                        {item.badge}
-                      </span>
+                    <item.icon className={cn("w-4 h-4 shrink-0", activeScreen === item.id ? "text-indigo-400" : "text-white/40")} />
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className="flex-1 text-left truncate">{item.label}</span>
+                        {item.badge && (
+                          <span className="text-[8px] font-bold bg-emerald-600 text-white px-1.5 py-0.5 rounded-full">{item.badge}</span>
+                        )}
+                      </>
                     )}
-                    {activeScreen === item.id && (
-                      <motion.div
-                        layoutId="v2-active-pill"
-                        className="absolute right-2 w-1 h-4 bg-indigo-500 rounded-full"
-                      />
+                    {activeScreen === item.id && !sidebarCollapsed && (
+                      <motion.div layoutId="v2-active-pill" className="absolute right-2 w-1 h-4 bg-indigo-500 rounded-full" />
+                    )}
+                    {activeScreen === item.id && sidebarCollapsed && (
+                      <span className="absolute right-0.5 w-0.5 h-4 bg-indigo-500 rounded-full" />
                     )}
                   </button>
                 ))}
 
-                {/* Admin tab — only for admin users */}
                 {user?.is_admin && (
                   <button
                     onClick={() => setScreen("admin")}
+                    title={sidebarCollapsed ? "Admin" : undefined}
                     className={cn(
-                      "w-full h-10 flex items-center gap-3 px-3 rounded-lg text-sm font-medium transition-colors relative",
-                      activeScreen === "admin"
-                        ? "bg-[#212121] text-white"
-                        : "text-[#ECECF1]/70 hover:bg-[#212121]"
+                      "h-10 flex items-center rounded-lg text-sm font-medium transition-colors relative",
+                      sidebarCollapsed ? "w-10 justify-center px-0" : "w-full gap-3 px-3",
+                      activeScreen === "admin" ? "bg-[#212121] text-white" : "text-[#ECECF1]/70 hover:bg-[#212121]"
                     )}
                   >
-                    <Terminal
-                      className={cn(
-                        "w-4 h-4 shrink-0",
-                        activeScreen === "admin" ? "text-indigo-400" : "text-white/40"
-                      )}
-                    />
-                    <span className="flex-1 text-left">Admin</span>
+                    <Terminal className={cn("w-4 h-4 shrink-0", activeScreen === "admin" ? "text-indigo-400" : "text-white/40")} />
+                    {!sidebarCollapsed && <span className="flex-1 text-left">Admin</span>}
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Recent chats */}
-            {recentChats.length > 0 && (
+            {/* Recent chats — hidden when collapsed */}
+            {!sidebarCollapsed && recentChats.length > 0 && (
               <div>
-                <p className="px-3 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">
-                  Recent Queries
-                </p>
+                <p className="px-3 text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1">Recent Queries</p>
                 <div className="space-y-0.5 opacity-60">
                   {recentChats.slice(0, 5).map((chat) => (
                     <button
@@ -241,57 +253,66 @@ export default function V2Layout({
         </div>
 
         {/* Sidebar footer */}
-        <div className="p-3 border-t border-white/5 space-y-1">
-          {/* Live status */}
-          <div className="flex items-center justify-between px-2 py-1 mb-1">
-            <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-md">
-              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">Live</span>
-            </div>
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="flex items-center gap-1.5 text-[9px] font-bold text-white/30 hover:text-white/60 transition-colors uppercase tracking-widest"
-              title="Switch to Nivesh Classic"
-            >
-              <RefreshCw className="w-3 h-3" />
-              V1 Classic
-            </button>
-          </div>
-
-          {/* User + settings row */}
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
+        <div className={cn("p-3 border-t border-white/5 space-y-1", sidebarCollapsed && "flex flex-col items-center px-2")}>
+          {sidebarCollapsed ? (
+            /* Collapsed footer — just avatar + expand toggle */
+            <>
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="Expand sidebar"
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-white/30 hover:text-white transition-all mb-1"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
               <div className="w-7 h-7 rounded-lg bg-indigo-600/20 flex items-center justify-center text-indigo-400 border border-indigo-500/20 text-xs font-bold">
                 {userInitials}
               </div>
-              <div className="text-left">
-                <p className="text-xs font-semibold text-white leading-none truncate max-w-[110px]">
-                  {user?.name || user?.email || "User"}
-                </p>
-                <p className="text-[9px] text-white/30 font-bold uppercase tracking-tight leading-none mt-0.5">
-                  {mode === "advisor" ? "Advisor" : mode === "client" ? "Client View" : "Investor"}
-                </p>
+            </>
+          ) : (
+            /* Expanded footer */
+            <>
+              <div className="flex items-center justify-between px-2 py-1 mb-1">
+                <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-md">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                  <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">Live</span>
+                </div>
+                <button
+                  onClick={() => navigate("/dashboard")}
+                  className="flex items-center gap-1.5 text-[9px] font-bold text-white/30 hover:text-white/60 transition-colors uppercase tracking-widest"
+                  title="Switch to Nivesh Classic"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  V1 Classic
+                </button>
               </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setScreen("profile")}
-                className="p-1.5 hover:bg-white/5 rounded-lg text-white/30 hover:text-white transition-all"
-                title="Profile"
-              >
-                <User className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={logout}
-                className="p-1.5 hover:bg-white/5 rounded-lg text-white/30 hover:text-rose-400 transition-all"
-                title="Sign out"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-600/20 flex items-center justify-center text-indigo-400 border border-indigo-500/20 text-xs font-bold">
+                    {userInitials}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-semibold text-white leading-none truncate max-w-[110px]">{user?.name || user?.email || "User"}</p>
+                    <p className="text-[9px] text-white/30 font-bold uppercase tracking-tight leading-none mt-0.5">
+                      {mode === "advisor" ? "Advisor" : mode === "client" ? "Client View" : "Investor"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setSidebarCollapsed(true)} title="Collapse sidebar" className="p-1.5 hover:bg-white/5 rounded-lg text-white/30 hover:text-white transition-all">
+                    <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                  </button>
+                  <button onClick={() => setScreen("profile")} className="p-1.5 hover:bg-white/5 rounded-lg text-white/30 hover:text-white transition-all" title="Profile">
+                    <User className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={logout} className="p-1.5 hover:bg-white/5 rounded-lg text-white/30 hover:text-rose-400 transition-all" title="Sign out">
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </aside>
+      </motion.aside>
 
       {/* ─── Main Content Area ─── */}
       <main className="flex-1 bg-[#0f0f0f] flex flex-col h-screen overflow-hidden relative">
