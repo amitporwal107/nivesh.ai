@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIVESH V1 — Functional Test Cases</title>
+<style>
+  :root {
+    --critical: #dc2626; --critical-bg: #fef2f2;
+    --high: #ea580c;    --high-bg: #fff7ed;
+    --medium: #ca8a04;  --medium-bg: #fefce8;
+    --low: #16a34a;     --low-bg: #f0fdf4;
+    --pass: #15803d;    --fail: #b91c1c;
+    --border: #e2e8f0;  --bg: #f8fafc; --text: #1e293b;
+    --tag: #6366f1;     --tag-bg: #eef2ff;
+    --header: #1e293b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+
+  /* Layout */
+  .page-header { background: var(--header); color: #fff; padding: 24px 32px; }
+  .page-header h1 { font-size: 22px; font-weight: 700; }
+  .page-header p  { color: #94a3b8; font-size: 13px; margin-top: 4px; }
+  .meta-bar { display: flex; gap: 24px; margin-top: 12px; font-size: 12px; color: #cbd5e1; }
+  .meta-bar span b { color: #e2e8f0; }
+
+  .layout { display: flex; }
+  .toc { width: 240px; min-width: 240px; background: #fff; border-right: 1px solid var(--border);
+         position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 16px 0; }
+  .toc h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+            color: #94a3b8; padding: 0 16px 8px; }
+  .toc a { display: block; padding: 5px 16px; font-size: 13px; color: #475569; text-decoration: none;
+           border-left: 2px solid transparent; }
+  .toc a:hover { background: #f1f5f9; color: var(--header); border-left-color: #6366f1; }
+  .toc .toc-section { font-weight: 600; color: #1e293b; font-size: 12px; margin-top: 8px; }
+
+  .main { flex: 1; padding: 24px 32px; max-width: 1100px; }
+
+  /* Section header */
+  .module-section { margin-bottom: 40px; }
+  .module-title { font-size: 17px; font-weight: 700; color: var(--header); border-bottom: 2px solid var(--border);
+                  padding-bottom: 8px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .module-title .badge-count { background: #e2e8f0; color: #475569; font-size: 11px;
+                                padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+
+  /* Test case card */
+  .tc { background: #fff; border: 1px solid var(--border); border-radius: 8px;
+        margin-bottom: 12px; overflow: hidden; }
+  .tc-header { padding: 12px 16px; display: flex; align-items: flex-start; gap: 12px;
+               border-bottom: 1px solid var(--border); background: #fafafa; }
+  .tc-id { font-family: monospace; font-size: 12px; font-weight: 700; color: #6366f1;
+           background: var(--tag-bg); padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .tc-title { font-weight: 600; font-size: 14px; flex: 1; }
+  .tc-req { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+  /* Priority badges */
+  .p-critical { background: var(--critical-bg); color: var(--critical); font-size: 11px;
+                font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .p-high     { background: var(--high-bg);     color: var(--high);     font-size: 11px;
+                font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .p-medium   { background: var(--medium-bg);   color: var(--medium);   font-size: 11px;
+                font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+  .p-low      { background: var(--low-bg);       color: var(--low);     font-size: 11px;
+                font-weight: 700; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+
+  .tc-body { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tc-body.single { grid-template-columns: 1fr; }
+
+  .tc-section label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+                      letter-spacing: .04em; color: #94a3b8; margin-bottom: 6px; }
+
+  /* Steps / Expected */
+  ol.steps, ul.steps { padding-left: 18px; }
+  ol.steps li, ul.steps li { margin-bottom: 4px; font-size: 13px; }
+
+  /* Expected result rows */
+  .exp-row { display: flex; gap: 8px; margin-bottom: 4px; align-items: flex-start; }
+  .exp-row .check { color: var(--pass); font-weight: 700; font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+  .exp-row span { font-size: 13px; }
+
+  /* Data box */
+  .data-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 4px;
+              padding: 8px 10px; font-size: 12px; font-family: monospace; }
+  .data-box div { margin-bottom: 2px; }
+  .data-box .k { color: #6366f1; }
+
+  /* Tags */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { background: var(--tag-bg); color: var(--tag); font-size: 11px; font-weight: 600;
+         padding: 2px 8px; border-radius: 4px; }
+
+  /* Preconditions */
+  .precond { font-size: 13px; background: #fffbeb; border-left: 3px solid #f59e0b;
+             padding: 8px 10px; border-radius: 0 4px 4px 0; }
+
+  /* API pill */
+  .api { display: inline-block; font-family: monospace; font-size: 12px; background: #1e293b;
+         color: #a5f3fc; padding: 2px 8px; border-radius: 4px; margin-bottom: 6px; }
+  .method { color: #86efac; margin-right: 6px; font-weight: 700; }
+
+  /* Negative test */
+  .neg .check { color: var(--fail); }
+  .neg .check::before { content: '✗'; }
+
+  h2.version-title { font-size: 20px; font-weight: 800; color: var(--header);
+                     padding: 20px 0 12px; border-bottom: 3px solid #6366f1; margin-bottom: 28px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>NIVESH — Functional Test Cases</h1>
+  <p>V1 Platform Layer · Generated May 2026 · Branch: nivesh-v2-copilot</p>
+  <div class="meta-bar">
+    <span><b>V1 Modules:</b> Auth · Onboarding · Portfolio · Insights · Goals · Broker · Frontend Shell</span>
+    <span><b>Test User:</b> ahaanporwal16@gmail.com</span>
+    <span><b>Base URL:</b> http://localhost:8000</span>
+  </div>
+</div>
+
+<div class="layout">
+
+<!-- TOC -->
+<nav class="toc">
+  <h3>V1 Modules</h3>
+  <a class="toc-section" href="#auth">1. Authentication</a>
+  <a href="#tc-v1-auth-001">Google OAuth Login</a>
+  <a href="#tc-v1-auth-002">Get Current User</a>
+  <a href="#tc-v1-auth-003">Logout</a>
+  <a href="#tc-v1-auth-004">RBAC Enforcement</a>
+  <a href="#tc-v1-auth-005">Rate Limiting</a>
+
+  <a class="toc-section" href="#onboarding">2. Onboarding</a>
+  <a href="#tc-v1-user-001">Journey Selection</a>
+  <a href="#tc-v1-user-002">Risk Questionnaire</a>
+  <a href="#tc-v1-user-003">Quick Setup</a>
+  <a href="#tc-v1-user-004">Onboarding Flag</a>
+
+  <a class="toc-section" href="#portfolio">3. Portfolio</a>
+  <a href="#tc-v1-port-001">Create Portfolio</a>
+  <a href="#tc-v1-port-002">CAS Upload</a>
+  <a href="#tc-v1-port-003">Holdings CRUD</a>
+  <a href="#tc-v1-port-004">Instrument Search</a>
+  <a href="#tc-v1-port-005">CSV Export</a>
+  <a href="#tc-v1-port-006">Snapshots</a>
+
+  <a class="toc-section" href="#insights">4. Insights</a>
+  <a href="#tc-v1-ins-001">Deterministic Insights</a>
+
+  <a class="toc-section" href="#goals">5. Goals</a>
+  <a href="#tc-v1-goal-001">Financial Snapshot</a>
+  <a href="#tc-v1-goal-002">Create Goal</a>
+  <a href="#tc-v1-goal-003">Goal Tracking</a>
+  <a href="#tc-v1-goal-004">Simulation</a>
+
+  <a class="toc-section" href="#broker">6. Broker</a>
+  <a href="#tc-v1-broker-001">Broker Connect</a>
+
+  <a class="toc-section" href="#shell">7. Frontend Shell</a>
+  <a href="#tc-v1-shell-001">Routing</a>
+  <a href="#tc-v1-shell-002">Sidebar Nav</a>
+  <a href="#tc-v1-shell-003">Auth Context</a>
+
+  <a class="toc-section" href="#landing">8. Landing Page</a>
+  <a href="#tc-v1-land-001">Landing CTA</a>
+
+  <a class="toc-section" href="#dashboard">9. Dashboard</a>
+  <a href="#tc-v1-dash-001">Overview Tab</a>
+
+  <a class="toc-section" href="#portfolio-ui">10. Portfolio UI</a>
+  <a href="#tc-v1-fe-port-001">Holdings Table</a>
+  <a href="#tc-v1-fe-port-002">CAS Upload Modal</a>
+  <a href="#tc-v1-fe-port-003">CAS Connect Wizard</a>
+
+  <a class="toc-section" href="#risk-ui">11. Risk Profile UI</a>
+  <a href="#tc-v1-risk-001">Risk Questionnaire UI</a>
+
+  <a class="toc-section" href="#ins-ui">12. Insights UI</a>
+  <a href="#tc-v1-ins-ui-001">Insights Tab</a>
+
+  <a class="toc-section" href="#goals-ui">13. Goals UI</a>
+  <a href="#tc-v1-goal-ui-001">Goal Cards</a>
+
+  <a class="toc-section" href="#mfd">14. MFD Workspace</a>
+  <a href="#tc-v1-mfd-001">Advisor Home</a>
+
+  <a class="toc-section" href="#market">15. Market Dashboard</a>
+  <a href="#tc-v1-mkt-001">Market Tab</a>
+</nav>
+
+<!-- Main -->
+<div class="main">
+<h2 class="version-title">V1 — Base Platform</h2>
+
+<!-- ═══════════════════════════════════════════════════════════
+     1. AUTHENTICATION
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="auth">
+<div class="module-title">1. Authentication &amp; Session Management <span class="badge-count">5 test cases</span></div>
+
+<!-- TC-V1-AUTH-001 -->
+<div class="tc" id="tc-v1-auth-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-AUTH-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Successful Google OAuth Login — Whitelisted User</div>
+      <div class="tc-req">FR-AUTH-001 · POST /api/auth/google</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Preconditions</label>
+      <div class="precond">ahaanporwal16@gmail.com is in <code>whitelisted_users</code> with status = "approved". Valid Google id_token available from GIS SDK.</div>
+    </div>
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">email:</span> ahaanporwal16@gmail.com</div>
+        <div><span class="k">credential:</span> &lt;valid Google id_token&gt;</div>
+        <div><span class="k">endpoint:</span> POST /api/auth/google</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Obtain a valid Google id_token via Google Identity Services SDK for ahaanporwal16@gmail.com.</li>
+        <li>POST <code>/api/auth/google</code> with body <code>{"credential": "&lt;id_token&gt;"}</code>.</li>
+        <li>Inspect HTTP response status, body, and Set-Cookie header.</li>
+        <li>Follow up with GET <code>/api/auth/me</code> using the returned session cookie.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>HTTP 200 returned.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Response body contains <code>email</code>, <code>name</code>, <code>role</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>Set-Cookie: session_token=…; HttpOnly; SameSite=…</code> header present.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Subsequent GET /api/auth/me returns same user with HTTP 200.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Re-login (second POST) does not create duplicate user record.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">auth</span><span class="tag">oauth</span><span class="tag">smoke</span><span class="tag">critical-path</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Negative Scenarios</label>
+      <div class="exp-row neg"><span class="check"></span><span>Non-whitelisted email → HTTP 403, error code <code>NOT_WHITELISTED</code>.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Malformed / expired Google token → HTTP 401.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Missing <code>credential</code> field in body → HTTP 422 validation error.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-AUTH-002 -->
+<div class="tc" id="tc-v1-auth-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-AUTH-002</span>
+    <div style="flex:1">
+      <div class="tc-title">Get Current Session User</div>
+      <div class="tc-req">FR-AUTH-002 · GET /api/auth/me</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Preconditions</label>
+      <div class="precond">Active session cookie obtained from TC-V1-AUTH-001.</div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Send GET <code>/api/auth/me</code> with valid session cookie.</li>
+        <li>Send GET <code>/api/auth/me</code> with no cookie.</li>
+        <li>Send GET <code>/api/auth/me</code> with a manually-corrupted cookie value.</li>
+        <li>Wait for session TTL to expire (7 days) — or manipulate <code>expires_at</code> in DB — then retry.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Valid session → 200 with <code>email</code>, <code>role</code>, <code>onboarding_completed</code>, <code>risk_profile</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>No cookie → 401.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Corrupted cookie → 401.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Expired session (TTL past) → 401.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">auth</span><span class="tag">session</span><span class="tag">smoke</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-AUTH-003 -->
+<div class="tc" id="tc-v1-auth-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-AUTH-003</span>
+    <div style="flex:1">
+      <div class="tc-title">Logout — Session Destroyed</div>
+      <div class="tc-req">FR-AUTH-003 · POST /api/auth/logout</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Preconditions</label>
+      <div class="precond">Active authenticated session.</div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/auth/logout</code> with valid session cookie.</li>
+        <li>Check response Set-Cookie header.</li>
+        <li>Immediately GET <code>/api/auth/me</code> using the same cookie.</li>
+        <li>Verify <code>user_sessions</code> record is deleted in DB.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Logout returns HTTP 200.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Response sets <code>session_token</code> cookie with <code>Max-Age=0</code> (cleared).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Subsequent /me returns 401.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>DPDP audit log contains a logout event for this user.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">auth</span><span class="tag">session</span><span class="tag">security</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-AUTH-004 -->
+<div class="tc" id="tc-v1-auth-004">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-AUTH-004</span>
+    <div style="flex:1">
+      <div class="tc-title">RBAC — Role Enforcement Across All Four Roles</div>
+      <div class="tc-req">FR-AUTH-004 · deps.py require_role()</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">user_role:</span> user</div>
+        <div><span class="k">advisor_role:</span> advisor</div>
+        <div><span class="k">admin_role:</span> admin</div>
+        <div><span class="k">admin_endpoint:</span> GET /api/admin/users</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Log in as a user with role = <code>user</code>. Call an admin-only endpoint (e.g., GET <code>/api/admin/users</code>).</li>
+        <li>Log in as role = <code>advisor</code>. Access a client's portfolio data via impersonation path.</li>
+        <li>Log in as role = <code>admin</code>. Call the same admin endpoint.</li>
+        <li>Verify that legacy <code>is_admin: true</code> field is treated as equivalent to <code>role = "admin"</code>.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span><code>user</code> role → 403 on admin endpoints.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>advisor</code> → can read assigned client data, cannot access other clients.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>admin</code> → 200 on all protected endpoints.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Legacy <code>is_admin: true</code> grants admin access.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">auth</span><span class="tag">rbac</span><span class="tag">security</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-AUTH-005 -->
+<div class="tc" id="tc-v1-auth-005">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-AUTH-005</span>
+    <div style="flex:1">
+      <div class="tc-title">Rate Limiting — Per-Path Limits Enforced</div>
+      <div class="tc-req">FR-AUTH-005 · middleware.py RateLimitMiddleware</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Send 31 rapid POST <code>/api/chat/stream</code> requests within 60 seconds from same session.</li>
+        <li>Verify the 31st request is rejected.</li>
+        <li>Confirm <code>/chat/warmup</code> endpoint is exempt from rate limiting (send 50+ requests).</li>
+        <li>Send 301 requests to any non-chat endpoint to verify the 300/min default limit.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>31st request to <code>/chat/stream</code> → HTTP 429 with error code <code>RATE-001</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Response body uses standard error envelope: <code>{"error": "RATE_LIMIT_EXCEEDED", "code": "RATE-001"}</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>/chat/warmup</code> never returns 429 regardless of volume.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>After 60-second window resets, requests succeed again.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">security</span><span class="tag">rate-limit</span><span class="tag">middleware</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     2. USER ONBOARDING
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="onboarding">
+<div class="module-title">2. User Onboarding &amp; Profile <span class="badge-count">4 test cases</span></div>
+
+<!-- TC-V1-USER-001 -->
+<div class="tc" id="tc-v1-user-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-USER-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Journey Type Selection</div>
+      <div class="tc-req">FR-USER-001 · POST /api/user/journey</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Preconditions</label>
+      <div class="precond">Authenticated session. <code>onboarding_completed = false</code>.</div>
+    </div>
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">valid values:</span> existing_investor | new_investor | mfd_advisor</div>
+        <div><span class="k">invalid value:</span> "day_trader"</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/user/journey</code> with <code>{"journey_type": "existing_investor"}</code>.</li>
+        <li>GET <code>/api/auth/me</code> — verify journey_type is stored.</li>
+        <li>POST again with <code>journey_type = "mfd_advisor"</code> — verify it overwrites.</li>
+        <li>POST with <code>journey_type = "day_trader"</code> (invalid).</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Valid journey type → 200, stored in <code>user_profiles</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Re-POST with different type → overwrites; no duplicate records.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Invalid enum value → 422 validation error.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">onboarding</span><span class="tag">user-profile</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-USER-002 -->
+<div class="tc" id="tc-v1-user-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-USER-002</span>
+    <div style="flex:1">
+      <div class="tc-title">Risk Profile — 6-Question Assessment &amp; Score Computation</div>
+      <div class="tc-req">FR-USER-002 · POST /api/user/risk-profile</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">aggressive answers:</span> Q1=Buy more, Q2=10yr+, Q3=₹50K, Q4=Very stable, Q5=Expert, Q6=Aggressive growth</div>
+        <div><span class="k">conservative answers:</span> Q1=Sell all, Q2=&lt;1yr, Q3=None, Q4=Unstable, Q5=Beginner, Q6=Capital safety</div>
+        <div><span class="k">partial (missing Q6):</span> answer only 5 questions</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/user/risk-profile</code> with all-aggressive answers.</li>
+        <li>Verify returned score is in range 70–90 and category = "Aggressive".</li>
+        <li>POST with all-conservative answers.</li>
+        <li>Verify score is 10–24, category = "Conservative".</li>
+        <li>POST with only 5 answers (omit Q6).</li>
+        <li>GET <code>/api/auth/me</code> — verify risk_profile field is updated.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>All-aggressive → score 70–90, category "Aggressive", equity allocation ≥ 70%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>All-conservative → score 10–24, category "Conservative", debt allocation ≥ 50%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Score stored in <code>user_profiles.risk_score</code>.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Partial submission (missing Q6) → 422 or computed from available answers.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Same answers always return same score (deterministic).</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">onboarding</span><span class="tag">risk-profile</span><span class="tag">scoring</span><span class="tag">critical-path</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-USER-003 -->
+<div class="tc" id="tc-v1-user-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-USER-003</span>
+    <div style="flex:1">
+      <div class="tc-title">Quick Setup — SIP Projection Formula Accuracy</div>
+      <div class="tc-req">FR-USER-003 · POST /api/user/quick-setup</div>
+    </div>
+    <span class="p-medium">MEDIUM</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">case_1:</span> age=25, goal=wealth, risk=aggressive, horizon=very_long, monthly=10000</div>
+        <div><span class="k">case_2:</span> age=55, goal=retirement, risk=conservative, horizon=short, monthly=50000</div>
+        <div><span class="k">case_3:</span> age=17 (invalid)</div>
+        <div><span class="k">case_4:</span> age=101 (invalid)</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/user/quick-setup</code> with case_1 (young aggressive investor).</li>
+        <li>Verify equity allocation is high (≥ 70%).</li>
+        <li>Manually calculate SIP FV: <code>10000 × [((1+0.01)^240 − 1) / 0.01]</code> ≈ ₹99.9L; verify API returns comparable projection.</li>
+        <li>POST with case_2 (older conservative investor). Verify debt allocation is high (≥ 50%).</li>
+        <li>POST with case_3 (age=17) and case_4 (age=101).</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Case_1: equity ≥ 70%, projected corpus aligns with standard SIP calculator output (±5%).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Case_2: debt allocation ≥ 50%, lower equity.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Age = 17 → 422 (below minimum 18).</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Age = 101 → 422 (above maximum 100).</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">onboarding</span><span class="tag">quick-setup</span><span class="tag">finance-math</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-USER-004 -->
+<div class="tc" id="tc-v1-user-004">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-USER-004</span>
+    <div style="flex:1">
+      <div class="tc-title">Onboarding Completion Flag</div>
+      <div class="tc-req">FR-USER-004 · POST /api/user/complete-onboarding</div>
+    </div>
+    <span class="p-medium">MEDIUM</span>
+  </div>
+  <div class="tc-body single">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/user/complete-onboarding</code>.</li>
+        <li>GET <code>/api/auth/me</code> and check <code>onboarding_completed</code>.</li>
+        <li>Verify a founder/seed account already has <code>onboarding_completed = true</code> without calling this endpoint.</li>
+      </ol>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>POST succeeds → 200; subsequent /me returns <code>onboarding_completed: true</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Calling again (idempotent) → 200, no error, flag stays <code>true</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Founder accounts arrive with flag already set.</span></div>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">onboarding</span><span class="tag">idempotent</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     3. PORTFOLIO MANAGEMENT
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="portfolio">
+<div class="module-title">3. Portfolio Management <span class="badge-count">6 test cases</span></div>
+
+<!-- TC-V1-PORT-001 -->
+<div class="tc" id="tc-v1-port-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Create Portfolio — Multi-Member Family Support</div>
+      <div class="tc-req">FR-PORT-001 · POST /api/portfolios</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">portfolio_1:</span> name="Self Portfolio", member_name="Ahaan Porwal", relationship="Self"</div>
+        <div><span class="k">portfolio_2:</span> name="Spouse Portfolio", member_name="Priya Porwal", relationship="Spouse"</div>
+        <div><span class="k">invalid_rel:</span> relationship="Business Partner"</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/portfolios</code> with portfolio_1 data.</li>
+        <li>POST again with portfolio_2 (Spouse).</li>
+        <li>GET portfolios list — verify both exist.</li>
+        <li>POST with invalid relationship enum value.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Both portfolios created successfully with unique IDs.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>GET list returns both portfolios with correct member_name and relationship.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Invalid relationship → 422.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">family</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-PORT-002 -->
+<div class="tc" id="tc-v1-port-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-002</span>
+    <div style="flex:1">
+      <div class="tc-title">CAS PDF Upload — Provider Fallback Chain</div>
+      <div class="tc-req">FR-PORT-002 · POST /api/portfolio/cas-upload</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">valid_cas_pdf:</span> NSDL CAS PDF (text-based, no password)</div>
+        <div><span class="k">password_protected:</span> CAS PDF (password = PAN in uppercase)</div>
+        <div><span class="k">invalid_type:</span> .xlsx file</div>
+        <div><span class="k">oversized:</span> 26 MB PDF</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Upload a valid unprotected NSDL CAS PDF via POST <code>/api/portfolio/cas-upload</code>.</li>
+        <li>Verify holdings count returned matches known holdings in the test CAS.</li>
+        <li>Check holdings are stored in MongoDB without duplication.</li>
+        <li>Upload the same CAS again (duplicate upload) — verify no duplicate holdings.</li>
+        <li>Upload an .xlsx file — expect rejection.</li>
+        <li>Upload a 26 MB PDF — expect rejection.</li>
+        <li>Simulate provider 1 failure (e.g., disable Document AI key) — verify provider 2 is tried.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Valid CAS → 200, holdings count in response, holdings stored.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>All three mandatory fields extracted: investor name, PAN, statement date.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Duplicate upload → holdings updated/merged, not duplicated.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Provider 1 down → provider 2 auto-tried; response still succeeds.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>.xlsx upload → 400 (wrong MIME type).</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>26 MB file → 413 (size exceeded).</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>All 3 providers fail → meaningful error message, no 500.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">cas-upload</span><span class="tag">fallback</span><span class="tag">critical-path</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-PORT-003 -->
+<div class="tc" id="tc-v1-port-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-003</span>
+    <div style="flex:1">
+      <div class="tc-title">Holdings CRUD — Full Lifecycle + Buy-Date Tax Reclassification</div>
+      <div class="tc-req">FR-PORT-003 · GET/POST/PUT/DELETE /api/portfolio/holdings</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">holding:</span> name="Reliance Industries", ticker="RELIANCE", asset_type="equity"</div>
+        <div><span class="k">qty:</span> 100, buy_price=2200, buy_date="2023-01-15"</div>
+        <div><span class="k">new_buy_date_stcg:</span> "2025-07-01" (< 1yr from today)</div>
+        <div><span class="k">new_buy_date_ltcg:</span> "2023-01-15" (> 1yr)</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/portfolio/holdings</code> with equity holding data.</li>
+        <li>GET <code>/api/portfolio/holdings</code> — verify holding appears.</li>
+        <li>PUT <code>/api/portfolio/holdings/{id}</code> changing buy_date to a recent date (STCG territory).</li>
+        <li>Verify tax classification updates to STCG in subsequent enriched response.</li>
+        <li>PUT again with an older buy_date (LTCG territory) — verify reclassification.</li>
+        <li>POST with <code>buy_price = 0</code> — verify <code>tax_impact_pending = true</code> in plan actions.</li>
+        <li>DELETE <code>/api/portfolio/holdings/{id}</code> — verify removal.</li>
+        <li>DELETE <code>/api/portfolio/holdings-all</code> — verify all holdings cleared.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>New holding immediately appears in GET response.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Buy-date change to recent date → tax classification = STCG (20%).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Buy-date change to > 1yr → tax classification = LTCG (12.5%).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>buy_price=0</code> → <code>tax_impact_pending: true</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>DELETE removes holding; absent from subsequent GET.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>DELETE-all clears all holdings; GET returns empty array.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">holdings</span><span class="tag">tax</span><span class="tag">crud</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-PORT-004 -->
+<div class="tc" id="tc-v1-port-004">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-004</span>
+    <div style="flex:1">
+      <div class="tc-title">Instrument Search — Fuzzy Lookup</div>
+      <div class="tc-req">FR-PORT-004 · GET /api/search/instruments</div>
+    </div>
+    <span class="p-medium">MEDIUM</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>GET <code>/api/search/instruments?q=Reliance&amp;type=equity</code>.</li>
+        <li>GET <code>/api/search/instruments?q=hdfc flexi&amp;type=mutual_fund</code>.</li>
+        <li>GET with <code>q=xyz123nonexistent</code>.</li>
+        <li>GET with empty <code>q</code> parameter.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>"Reliance" query returns Reliance Industries (RELIANCE, NSE) in results.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>MF query returns HDFC Flexi Cap funds with ISIN and plan type.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>No-match query returns empty array, not 404.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Empty <code>q</code> → 422 or empty results, not a full scan.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">search</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-PORT-005 -->
+<div class="tc" id="tc-v1-port-005">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-005</span>
+    <div style="flex:1">
+      <div class="tc-title">Portfolio CSV Export</div>
+      <div class="tc-req">FR-PORT-005 · GET /api/portfolio/export/csv</div>
+    </div>
+    <span class="p-medium">MEDIUM</span>
+  </div>
+  <div class="tc-body single">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Ensure portfolio has at least 3 holdings of different asset types.</li>
+        <li>GET <code>/api/portfolio/export/csv</code>.</li>
+        <li>Verify Content-Type header is <code>text/csv</code>.</li>
+        <li>Parse CSV and verify required columns are present.</li>
+        <li>Verify values match holdings in the GET /api/portfolio/holdings response.</li>
+        <li>Call with empty portfolio — verify CSV with only header row returned.</li>
+      </ol>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Content-Type: text/csv, Content-Disposition: attachment.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>CSV contains columns: name, ticker, ISIN, asset_type, quantity, buy_price, current_price, buy_date, sector, category.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Row count matches number of holdings.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Empty portfolio → CSV with headers only, no error.</span></div>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">export</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-PORT-006 -->
+<div class="tc" id="tc-v1-port-006">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-PORT-006</span>
+    <div style="flex:1">
+      <div class="tc-title">Portfolio Snapshots — Time-Machine & Nightly EOD</div>
+      <div class="tc-req">FR-PORT-006 · GET /api/portfolio/snapshots</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Upload CAS PDF (creates snapshot S1).</li>
+        <li>Upload a second CAS PDF (creates snapshot S2).</li>
+        <li>GET <code>/api/portfolio/snapshots</code> — verify both snapshots listed.</li>
+        <li>Fetch each snapshot — verify holdings and valuations differ between S1 and S2.</li>
+        <li>Verify S1 snapshot is immutable (cannot be edited).</li>
+        <li>Trigger nightly EOD scheduler (or call its test endpoint) — verify a new snapshot created at 23:30 IST.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Each CAS upload creates exactly one new snapshot.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Snapshots are append-only — S1 not modified by subsequent upload.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Default GET /holdings returns latest snapshot data.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Historical snapshot queryable by snapshot_id or date.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">portfolio</span><span class="tag">snapshots</span><span class="tag">time-machine</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     4. INSIGHTS
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="insights">
+<div class="module-title">4. Basic Portfolio Insights (Deterministic) <span class="badge-count">1 test case</span></div>
+
+<!-- TC-V1-INS-001 -->
+<div class="tc" id="tc-v1-ins-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-INS-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Deterministic Insights — All 10 Rule Categories</div>
+      <div class="tc-req">FR-INS-001 · POST /api/insights/generate</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">amc_conc:</span> Portfolio with 60% HDFC AMC → triggers AMC Concentration</div>
+        <div><span class="k">cost_leak:</span> Both Regular + Direct of same fund → triggers Cost Leak</div>
+        <div><span class="k">alloc_gap:</span> Aggressive risk, 0% debt allocation → triggers Allocation Gap</div>
+        <div><span class="k">overlap:</span> Two funds with > 50% shared stocks → triggers Fund Overlap</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Load portfolio with 60% HDFC AMC exposure. POST <code>/api/insights/generate</code>.</li>
+        <li>Verify AMC Concentration insight in response with impact field set.</li>
+        <li>Add both Regular and Direct variant of HDFC Flexi Cap. Re-run insights.</li>
+        <li>Verify Regular→Direct Cost Leak insight with ₹ saving calculated.</li>
+        <li>Set user risk profile to "Aggressive" and set portfolio to 0% debt. Re-run.</li>
+        <li>Verify Allocation Gap insight with specific ₹ amount to invest in debt.</li>
+        <li>Run insights twice with identical portfolio. Compare outputs byte-for-byte.</li>
+        <li>Verify no LLM calls are made during insights generation (check logs).</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>AMC Concentration insight generated when single AMC > 30%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Cost Leak insight shows annual_saving_rs ≥ ₹5,000.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Allocation Gap shows target debt% vs current debt%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Fund Overlap insight lists both fund names and overlap%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Identical portfolio → identical insight set (deterministic).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>No LLM calls in backend logs for this endpoint.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Each insight has: type, title, description, impact, effort, affected_funds.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">insights</span><span class="tag">deterministic</span><span class="tag">no-llm</span><span class="tag">critical-path</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     5. GOALS
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="goals">
+<div class="module-title">5. Goals-Based Planning <span class="badge-count">4 test cases</span></div>
+
+<!-- TC-V1-GOAL-001 -->
+<div class="tc" id="tc-v1-goal-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-GOAL-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Financial Snapshot Capture</div>
+      <div class="tc-req">FR-GOAL-001 · PUT /api/goals/snapshot</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">age:</span> 32</div>
+        <div><span class="k">monthly_income:</span> 200000</div>
+        <div><span class="k">monthly_expenses:</span> 80000</div>
+        <div><span class="k">total_corpus:</span> 5000000</div>
+        <div><span class="k">total_liabilities:</span> 2000000</div>
+        <div><span class="k">risk_profile:</span> "moderate"</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>PUT <code>/api/goals/snapshot</code> with the test data.</li>
+        <li>GET snapshot back and verify all fields stored correctly.</li>
+        <li>PUT again with updated income — verify upsert (no duplicate).</li>
+        <li>PUT with negative monthly_income — expect validation error.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>200 returned; snapshot stored in PostgreSQL <code>user_financial_snapshots</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Second PUT with different income → upserts, no duplicate rows.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Negative income → 422 validation error.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">goals</span><span class="tag">financial-profile</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-GOAL-002 -->
+<div class="tc" id="tc-v1-goal-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-GOAL-002</span>
+    <div style="flex:1">
+      <div class="tc-title">Create Goal — Max 4 Limit &amp; Monte Carlo Probability</div>
+      <div class="tc-req">FR-GOAL-002 · POST /api/goals</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">goal_1:</span> type=retirement, target=50000000, horizon=25yr, sip=25000</div>
+        <div><span class="k">goal_2:</span> type=house, target=10000000, horizon=5yr, sip=50000</div>
+        <div><span class="k">goal_3:</span> type=education, target=3000000, horizon=10yr</div>
+        <div><span class="k">goal_4:</span> type=emergency, target=600000, horizon=1yr</div>
+        <div><span class="k">goal_5 (rejected):</span> type=custom, goal_name="Vacation"</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/goals</code> four times with goals 1–4. Verify each succeeds.</li>
+        <li>POST a 5th goal. Expect rejection.</li>
+        <li>Verify goal_1 (25yr horizon, moderate risk) has ≥ 60% equity auto-allocation.</li>
+        <li>Verify <code>on_track_pct</code> is computed and returned for each goal.</li>
+        <li>Verify on_track_pct is between 0 and 100.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Goals 1–4 created successfully.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>5th goal → 422 with code <code>MAX_GOALS_REACHED</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>25yr moderate goal → equity allocation ≥ 60%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>on_track_pct</code> present in response, value 0–100.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Monte Carlo ran ≥ 500 trials (verifiable from response metadata).</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">goals</span><span class="tag">monte-carlo</span><span class="tag">business-rules</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-GOAL-003 -->
+<div class="tc" id="tc-v1-goal-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-GOAL-003</span>
+    <div style="flex:1">
+      <div class="tc-title">Goal Tracking — SIP Gap Detection</div>
+      <div class="tc-req">FR-GOAL-003 · GET /api/goals</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body single">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Create a goal with <code>monthly_sip_rs = 50000</code>.</li>
+        <li>Load CAS data that shows only ₹5,000/month actual inflows for the past 6 months.</li>
+        <li>GET <code>/api/goals</code>.</li>
+        <li>Verify the SIP gap flag is raised.</li>
+        <li>Load CAS with actual inflows matching planned SIP. Verify no gap flag.</li>
+      </ol>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Goal with ₹50K planned vs ₹5K actual → SIP gap flag raised with shortfall amount.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>on_track_pct</code> drops when SIP gap exists.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Matching actual vs planned → no gap flag, on_track_pct higher.</span></div>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">goals</span><span class="tag">sip-tracking</span><span class="tag">reconciliation</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-GOAL-004 -->
+<div class="tc" id="tc-v1-goal-004">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-GOAL-004</span>
+    <div style="flex:1">
+      <div class="tc-title">Goal Simulation &amp; What-If (Non-Persisting)</div>
+      <div class="tc-req">FR-GOAL-004 · POST /api/goals/{id}/simulate, POST /api/goals/{id}/what-if</div>
+    </div>
+    <span class="p-medium">MEDIUM</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>POST <code>/api/goals/{id}/simulate</code> — get fresh Monte Carlo results.</li>
+        <li>POST <code>/api/goals/{id}/what-if</code> with increased SIP amount (+₹10,000).</li>
+        <li>Verify what-if returns higher on_track_pct.</li>
+        <li>GET <code>/api/goals</code> — verify the what-if SIP amount was NOT persisted.</li>
+        <li>POST what-if with horizon reduced by 5 years — verify on_track_pct decreases.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>simulate returns fresh Monte Carlo with on_track_pct and confidence intervals.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>what-if with higher SIP → higher on_track_pct than baseline.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>what-if changes NOT saved — original goal unchanged after call.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Reduced horizon → lower on_track_pct (less time to compound).</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">goals</span><span class="tag">simulation</span><span class="tag">what-if</span><span class="tag">non-destructive</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     6. BROKER INTEGRATION
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="broker">
+<div class="module-title">6. Broker Integration <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-broker-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-BROKER-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Broker Connect — Read-Only Holdings Import &amp; Security Rules</div>
+      <div class="tc-req">FR-BROKER-001 · routes/broker_connect.py</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Initiate OAuth flow for Zerodha broker connection.</li>
+        <li>Complete OAuth with read-only scope. Verify no order-placement scope requested.</li>
+        <li>Trigger holdings fetch from broker API.</li>
+        <li>Verify holdings normalised to Nivesh schema (name, ticker, quantity, asset_type).</li>
+        <li>Verify broker tokens are stored encrypted (not plaintext in DB).</li>
+        <li>Verify broker tokens do not appear in any application logs.</li>
+        <li>Run same scoring pipeline on broker-imported holdings as CAS-imported holdings.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>OAuth scopes are read-only — no trading/order scopes present.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Holdings imported and normalised; asset_type correctly mapped.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Broker tokens encrypted at rest.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>No token values visible in application logs.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Scoring pipeline produces same output format for broker holdings as CAS holdings.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">broker</span><span class="tag">security</span><span class="tag">oauth</span><span class="tag">read-only</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     7. FRONTEND SHELL
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="shell">
+<div class="module-title">7. Application Shell &amp; Routing <span class="badge-count">3 test cases</span></div>
+
+<!-- TC-V1-SHELL-001 -->
+<div class="tc" id="tc-v1-shell-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-SHELL-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Client-Side Routing — Auth Guard &amp; Hash Navigation</div>
+      <div class="tc-req">FR-FE-SHELL-001 · src/App.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to <code>/dashboard</code> while unauthenticated. Observe redirect.</li>
+        <li>Log in, then navigate to <code>/dashboard#plan_board</code>. Verify Plan Board tab is active.</li>
+        <li>Click browser Back button. Verify previous tab is restored.</li>
+        <li>Navigate to <code>/nidp</code> as a non-admin user.</li>
+        <li>Navigate to <code>/cas-connect/some-token</code> without being logged in.</li>
+        <li>Navigate to an unknown route like <code>/xyz</code>.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Unauthenticated <code>/dashboard</code> → redirect to <code>/</code>.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>/dashboard#plan_board</code> → Plan Board tab active on load.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Back button restores previous hash tab (history preserved).</span></div>
+      <div class="exp-row neg"><span class="check"></span><span><code>/nidp</code> for non-admin → redirect to <code>/</code> or 403 page.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span><code>/cas-connect/:token</code> loads without auth (public route).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Unknown route → redirect to <code>/</code>.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">routing</span><span class="tag">auth-guard</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-SHELL-002 -->
+<div class="tc" id="tc-v1-shell-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-SHELL-002</span>
+    <div style="flex:1">
+      <div class="tc-title">Sidebar Navigation — Workspace Switching &amp; Badges</div>
+      <div class="tc-req">FR-FE-SHELL-002 · src/components/Sidebar.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Log in as regular user. Verify INDIVIDUAL workspace tabs: Dashboard, Market, Strategy Builder (BETA), Plan Board (V2), Portfolio, Insights, Goals.</li>
+        <li>Click Plan Board tab. Verify URL hash changes to <code>#plan_board</code>.</li>
+        <li>Verify "V2" badge visible on Plan Board tab.</li>
+        <li>Verify "BETA" badge visible on Strategy Builder tab.</li>
+        <li>Log in as advisor. Verify ADVISORY workspace shows Advisor, Market, Strategy Builder tabs.</li>
+        <li>From advisor workspace, click a client → enter impersonation mode. Verify banner: "Viewing [Client Name]'s portfolio".</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>All 7 retail tabs present for regular user.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Tab click → URL hash updates; page refresh preserves active tab.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>"V2" badge on Plan Board, "BETA" on Strategy Builder.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Advisor login → MFD-specific tabs shown, retail tabs hidden.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Client impersonation → banner visible with client name.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">navigation</span><span class="tag">advisor</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-SHELL-003 -->
+<div class="tc" id="tc-v1-shell-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-SHELL-003</span>
+    <div style="flex:1">
+      <div class="tc-title">Auth Context — State Propagation &amp; Session Recovery</div>
+      <div class="tc-req">FR-FE-SHELL-003 · src/context/AuthContext.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body single">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Log in via Google OAuth. Verify AuthContext user state is populated immediately.</li>
+        <li>Hard-refresh the page. Verify session is re-validated via GET /api/auth/me and user stays logged in.</li>
+        <li>Open app in a new tab. Verify user is already authenticated (shared session cookie).</li>
+        <li>Log out in one tab. Verify other tab shows logged-out state after next action.</li>
+        <li>Verify <code>loading = true</code> is shown during auth check (no flash of unauthenticated state).</li>
+      </ol>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Page refresh → GET /api/auth/me called; user stays logged in.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>New tab → same session active (HttpOnly cookie shared).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Loading spinner shown during auth check; no flash of landing page for authenticated users.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Logout clears user state → landing page rendered.</span></div>
+    </div>
+    <div class="tc-section" style="margin-top:14px">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">auth-context</span><span class="tag">session</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     8. LANDING PAGE
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="landing">
+<div class="module-title">8. Landing Page <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-land-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-LAND-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Public Landing — Primary CTA, Trust Messaging &amp; Auth Redirect</div>
+      <div class="tc-req">FR-FE-LAND-001 · src/pages/Landing.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Open <code>/</code> while unauthenticated. Inspect hero section.</li>
+        <li>Verify primary CTA button text is "Import Your Portfolio" (not "Sign Up").</li>
+        <li>Verify Google Sign-In button is in top-right corner, not the hero.</li>
+        <li>Verify trust strip visible without scrolling on mobile (≤375px width): "Read-only · AES-256 encrypted · No trading…".</li>
+        <li>Verify 4 score preview cards (Quality/Risk/Exit/Add) render.</li>
+        <li>Now log in. Navigate to <code>/</code>. Observe redirect.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Hero CTA is "Import Your Portfolio" — single dominant call to action.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Google Sign-In is top-right, secondary placement.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Trust messaging visible above fold on mobile (no scroll required).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>4 score preview cards render correctly with sample data.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Authenticated user at <code>/</code> → redirected to <code>/dashboard</code>.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">landing</span><span class="tag">ux</span><span class="tag">mobile</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     9. DASHBOARD
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="dashboard">
+<div class="module-title">9. Dashboard Overview <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-dash-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-DASH-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Overview Tab — Portfolio Summary, Heatmap &amp; Collapsible State</div>
+      <div class="tc-req">FR-FE-DASH-001 · src/components/DashboardOverview.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Log in with empty portfolio. Verify empty state with "Upload CAS" CTA.</li>
+        <li>Upload a CAS PDF. Reload dashboard.</li>
+        <li>Verify allocation pie chart renders with correct equity/debt/gold percentages.</li>
+        <li>Verify holdings heatmap shows green for positive P&amp;L and red for negative P&amp;L.</li>
+        <li>Collapse a dashboard section. Refresh the page. Verify section remains collapsed (localStorage persistence).</li>
+        <li>Verify Health Score metric shows 0–100 score with letter grade (A+ to F).</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Empty portfolio → empty state + CAS upload CTA visible.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Pie chart percentages sum to 100%.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Heatmap: positive P&amp;L = green, negative = red, consistent gradient.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Collapsed section state persisted in localStorage; survives page refresh.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Health Score grade matches score band (e.g., 78 → grade A).</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">dashboard</span><span class="tag">charts</span><span class="tag">localstorage</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     10. PORTFOLIO UI
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="portfolio-ui">
+<div class="module-title">10. Portfolio UI <span class="badge-count">3 test cases</span></div>
+
+<!-- TC-V1-FE-PORT-001 -->
+<div class="tc" id="tc-v1-fe-port-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-FE-PORT-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Holdings Table — Filters, Inline Date Edit &amp; CSV Export</div>
+      <div class="tc-req">FR-FE-PORT-001 · src/components/ActionablePortfolioView.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to Portfolio tab. Verify all holdings in the table.</li>
+        <li>Apply "Equity" filter. Verify only equity holdings visible.</li>
+        <li>Apply "Pharma" sector filter. Verify only pharma holdings shown.</li>
+        <li>Click the buy_date field of a holding. Verify date picker appears.</li>
+        <li>Change the date. Press Enter. Verify date saved via PUT API and table updated.</li>
+        <li>Press Escape mid-edit. Verify date reverts to original (no save).</li>
+        <li>Click "Export CSV". Verify file downloads with correct data.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Equity filter → only equity rows; other types hidden.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Date edit → PUT /api/portfolio/holdings/{id} called with new date; table updates without page reload.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Escape key cancels edit; original date shown.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>CSV download: all holdings, all columns, correct values.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">portfolio</span><span class="tag">inline-edit</span><span class="tag">filters</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-FE-PORT-002 -->
+<div class="tc" id="tc-v1-fe-port-002">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-FE-PORT-002</span>
+    <div style="flex:1">
+      <div class="tc-title">CAS Upload Modal — File Validation &amp; Smart Error Recovery</div>
+      <div class="tc-req">FR-FE-PORT-002 · Upload modal</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Click "Upload CAS" button. Verify modal opens.</li>
+        <li>Drag-and-drop a .jpg file. Verify rejection before upload.</li>
+        <li>Select a 26 MB PDF. Verify rejection before upload.</li>
+        <li>Verify password hint displayed: "Your CAS password is typically your PAN in UPPERCASE".</li>
+        <li>Upload a valid CAS PDF. Verify progress indicator shown.</li>
+        <li>On success, verify "Found X holdings" message shown.</li>
+        <li>Simulate partial parse (90% holdings found). Verify smart recovery message shown.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Non-PDF → client-side rejection with file type error; no API call made.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Oversized → client-side rejection with size error before upload.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Password hint visible in the modal.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Progress indicator visible during upload.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Partial parse → "We found 92% of your portfolio. Help us verify 2 entries." — never "Upload failed".</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">cas-upload</span><span class="tag">ux</span><span class="tag">validation</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TC-V1-FE-PORT-003 -->
+<div class="tc" id="tc-v1-fe-port-003">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-FE-PORT-003</span>
+    <div style="flex:1">
+      <div class="tc-title">CAS Connect Wizard — Public Invite Flow, PAN Validation &amp; Token Expiry</div>
+      <div class="tc-req">FR-FE-PORT-003 · src/pages/CasConnect.jsx</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Test Data</label>
+      <div class="data-box">
+        <div><span class="k">valid_token:</span> /cas-connect/valid-token-from-advisor</div>
+        <div><span class="k">expired_token:</span> /cas-connect/expired-token (> 24hr old)</div>
+        <div><span class="k">valid_pan:</span> ABCDE1234F</div>
+        <div><span class="k">invalid_pan:</span> abc12345Z (lowercase, wrong format)</div>
+        <div><span class="k">unchecked_consent:</span> proceed without all 3 checkboxes</div>
+      </div>
+    </div>
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to <code>/cas-connect/valid-token</code> without logging in. Verify welcome step loads.</li>
+        <li>Enter client details. Enter invalid PAN format. Verify inline error.</li>
+        <li>Enter valid PAN. Leave one consent checkbox unchecked. Attempt to proceed to step 2.</li>
+        <li>Check all 3 consent boxes. Proceed to Google Sign-In step.</li>
+        <li>Navigate to <code>/cas-connect/expired-token</code>. Verify error screen with contact advisor CTA.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Public route loads without authentication.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Invalid PAN format → inline field error; cannot proceed to step 2.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Unchecked consent → "Next" button disabled or error; cannot proceed.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>All 3 consents checked + valid PAN → can proceed.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Expired token → error screen with advisor contact CTA; not a blank page.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">cas-connect</span><span class="tag">public-route</span><span class="tag">pan-validation</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     11. RISK PROFILE UI
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="risk-ui">
+<div class="module-title">11. Risk Profile UI <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-risk-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-RISK-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Risk Questionnaire — Navigation, Progress &amp; Result Display</div>
+      <div class="tc-req">FR-FE-RISK-001 · src/components/RiskProfileView.js</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Open Risk Profile section. Verify progress bar shows "Question 1 of 6".</li>
+        <li>Answer Q1. Click Next. Verify progress updates to Q2.</li>
+        <li>On Q3, click Back. Verify Q2 is shown with the previously selected answer pre-selected.</li>
+        <li>Attempt to click Next on Q4 without selecting an answer.</li>
+        <li>Complete all 6 questions. Verify result screen shown.</li>
+        <li>Verify risk category label matches the expected category for aggressive answers.</li>
+        <li>Verify asset allocation bar renders (equity/debt/gold/cash percentages).</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Progress bar updates on each Next.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Back button restores previous question with answer pre-selected.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Clicking Next without selecting answer → error or button disabled.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Result screen shows category matching backend computation (FR-USER-002).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Allocation bar percentages sum to 100%.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">risk-profile</span><span class="tag">wizard</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     12. INSIGHTS UI
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="ins-ui">
+<div class="module-title">12. Insights UI <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-ins-ui-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-INS-UI-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Insights Tab — Deterministic Rules Display &amp; Interaction</div>
+      <div class="tc-req">FR-FE-INS-001 · src/components/InsightsView.js</div>
+    </div>
+    <span class="p-critical">CRITICAL</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to Insights tab with a portfolio that has known issues (overlap + AMC concentration).</li>
+        <li>Verify insight cards show: title, description, impact ₹ or %, affected fund names.</li>
+        <li>Verify insight cards do NOT show any LLM-generated free text (insights are deterministic only).</li>
+        <li>Collapse an insight section. Refresh. Verify collapsed state preserved.</li>
+        <li>Navigate to Insights tab with an empty portfolio. Verify empty state with upload CTA.</li>
+        <li>Verify overlap insight cites both fund names and overlap percentage.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>All insight cards show concrete values (₹/%) — no vague language.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Overlap insight lists both fund names and percentage.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Section collapse state persisted in localStorage.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Empty portfolio → CTA shown, no error or blank screen.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">insights</span><span class="tag">deterministic</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     13. GOALS UI
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="goals-ui">
+<div class="module-title">13. Goals UI <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-goal-ui-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-GOAL-UI-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Goal Cards — Create, Progress Colour Coding &amp; Max Limit UI</div>
+      <div class="tc-req">FR-FE-GOAL-001 · src/components/goals/GoalsView.jsx</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to Goals tab. Click "Add Goal". Select "Retirement" type.</li>
+        <li>Fill in target, horizon, SIP. Submit.</li>
+        <li>Verify goal card appears with retirement icon, on_track_pct, and progress bar.</li>
+        <li>For a goal with on_track_pct = 90%, verify progress bar is green.</li>
+        <li>For a goal with on_track_pct = 60%, verify progress bar is amber.</li>
+        <li>For a goal with on_track_pct = 30%, verify progress bar is red.</li>
+        <li>Add 4 goals total. Click "Add Goal" for a 5th.</li>
+        <li>Edit an existing goal — verify Monte Carlo re-runs and on_track_pct updates.</li>
+        <li>Delete a goal — verify it disappears from the list.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Goal card shows correct type icon and on_track_pct.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>≥ 80% → green progress bar; 50–79% → amber; &lt; 50% → red.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>5th goal attempt → "Maximum goals reached" message shown.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Edit goal → on_track_pct refreshes after save.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Delete → card removed from grid without page reload.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">goals</span><span class="tag">ux</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     14. MFD WORKSPACE
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="mfd">
+<div class="module-title">14. MFD Advisor Workspace <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-mfd-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-MFD-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Advisor Home — Client Impersonation, Invite Link &amp; Data Isolation</div>
+      <div class="tc-req">FR-FE-MFD-001 · src/components/mfd/AdvisorHomeView.jsx</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Log in as advisor (role = "advisor"). Verify ADVISORY workspace with client list.</li>
+        <li>Click a client from the list. Verify "Viewing [Client Name]'s portfolio" banner.</li>
+        <li>Verify all dashboard data shown belongs to the client, not the advisor.</li>
+        <li>Click "Back to clients". Verify advisor workspace restored and banner gone.</li>
+        <li>Click "Invite Client". Verify a shareable URL is generated (24h link).</li>
+        <li>Open the invite URL in incognito. Verify CAS Connect wizard loads.</li>
+        <li>Wait 25 hours (or set expiry in DB). Open invite URL again. Verify expired error.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Impersonation banner shows client name throughout.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>All analytics (portfolio, insights, goals) reflect client's data during impersonation.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Back to clients → advisor sees own (empty) data and client list.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Invite link loads CAS Connect wizard without requiring advisor login.</span></div>
+      <div class="exp-row neg"><span class="check"></span><span>Expired invite link → error screen with "Contact your advisor" CTA.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">advisor</span><span class="tag">impersonation</span><span class="tag">data-isolation</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════
+     15. MARKET DASHBOARD
+═══════════════════════════════════════════════════════════ -->
+<section class="module-section" id="market">
+<div class="module-title">15. Market Dashboard <span class="badge-count">1 test case</span></div>
+
+<div class="tc" id="tc-v1-mkt-001">
+  <div class="tc-header">
+    <span class="tc-id">TC-V1-MKT-001</span>
+    <div style="flex:1">
+      <div class="tc-title">Market Dashboard — Deploy Verdict, Sector Heatmap &amp; Cache Behaviour</div>
+      <div class="tc-req">FR-FE-MKT-001 · src/components/MarketDashboard.jsx</div>
+    </div>
+    <span class="p-high">HIGH</span>
+  </div>
+  <div class="tc-body">
+    <div class="tc-section">
+      <label>Steps</label>
+      <ol class="steps">
+        <li>Navigate to Market tab during market hours (9:15–15:30 IST).</li>
+        <li>Verify Deploy Verdict strip shows one of: AGGRESSIVE / NORMAL / CAUTIOUS / DEFENSIVE.</li>
+        <li>Verify Macro Bar tiles show data (India VIX, US yields, INR/USD, FII/DII).</li>
+        <li>Verify Sector Heatmap shows 12 sectors with HOT/WARM/COOL/COLD labels.</li>
+        <li>Check live readiness chips on positional picks: TRIGGERED / NEAR / WAIT / STOPPED.</li>
+        <li>Reload the page twice within 30 seconds during market hours. Verify data comes from cache (no double API call).</li>
+        <li>Reload after market hours. Verify 5-min cache is used instead of 30s.</li>
+      </ol>
+    </div>
+    <div class="tc-section">
+      <label>Expected Results</label>
+      <div class="exp-row"><span class="check">✓</span><span>Deploy Verdict one of 4 valid values.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Macro bar 5 tiles all populated.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>12 sectors shown with correct RS chip (HOT/WARM/COOL/COLD).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>TRIGGERED chip on pick where LTP ≥ entry price.</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>Within 30s during hours: second load served from cache (no new API call).</span></div>
+      <div class="exp-row"><span class="check">✓</span><span>After hours: 5-min cache applied.</span></div>
+    </div>
+    <div class="tc-section">
+      <label>Tags</label>
+      <div class="tags"><span class="tag">frontend</span><span class="tag">market</span><span class="tag">cache</span><span class="tag">real-time</span></div>
+    </div>
+  </div>
+</div>
+
+</section>
+
+<!-- Footer -->
+<div style="margin-top:40px; padding:20px 0; border-top:1px solid var(--border); color:#94a3b8; font-size:12px; text-align:center;">
+  NIVESH V1 Functional Test Cases · 29 test cases across 15 modules · May 2026 · Branch: nivesh-v2-copilot<br>
+  See <a href="TEST_CASES_V2.html" style="color:#6366f1">TEST_CASES_V2.html</a> for V2 (V3 Scoring · Action Plan Engine · Portfolio Intelligence · Tax Engine · Plan Board UI)
+</div>
+
+</div><!-- /main -->
+</div><!-- /layout -->
+</body>
+</html>
