@@ -302,7 +302,7 @@ const GmailImport = ({ onRefresh }) => {
                                             data-testid={`gmail-password-${i}-${ai}`}
                                           />
                                         </div>
-                                        <p className="text-[9px] text-slate-400 pl-4">PAN · or PAN+DDMMYYYY</p>
+                                        <p className="text-[9px] text-slate-400 pl-4">PAN in UPPERCASE</p>
                                       </div>
                                       {email.already_imported ? (
                                         <span className="flex items-center gap-1 text-xs text-emerald-600">

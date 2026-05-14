@@ -169,7 +169,7 @@ def convert_casparser_to_holdings(cas_data: dict) -> list:
                 "sector": classify_mf_sector(scheme_name),
             })
 
-    logger.info(f"casparser: processed {len(folios)} folios -> {len(holdings)} holdings")
+    logger.info("casparser: processed %d folios -> %d holdings", len(folios), len(holdings))
     return holdings
 
 
@@ -219,7 +219,7 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
         if cfg and cfg.get("provider"):
             active_provider = cfg["provider"]
     except Exception as e:  # noqa: BLE001
-        logger.info(f"Could not load cas_parser_provider, defaulting to nivesh_cas_parser: {e}")
+        logger.info("Could not load cas_parser_provider, defaulting to nivesh_cas_parser: %s", e)
 
     # Build the try-order with the primary first, then the rest.
     # casparser_api is always last because it consumes paid credits and
@@ -229,7 +229,7 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
     for p in [active_provider, "nivesh_cas_parser", "claude_vision", "casparser_api"]:
         if p not in seen:
             chain.append(p); seen.add(p)
-    logger.info(f"parse_cas_pdf_with_data: active={active_provider} chain={chain}")
+    logger.info("parse_cas_pdf_with_data: active=%s chain=%s", active_provider, chain)
 
     # Result accumulators — first non-empty wins.
     holdings: list = []
@@ -316,11 +316,11 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
             if result:
                 holdings, normalized, raw_payload, parser_source = result
                 logger.info(
-                    f"parse_cas_pdf_with_data: success via {parser_source} "
-                    f"({len(holdings)} holdings)"
+                    "parse_cas_pdf_with_data: success via %s (%d holdings)",
+                    parser_source, len(holdings),
                 )
                 break
-            logger.info(f"parse_cas_pdf_with_data: {provider} returned nothing, trying next")
+            logger.info("parse_cas_pdf_with_data: %s returned nothing, trying next", provider)
         except Exception as e:
             err_str = str(e).lower()
             # PDF password / decryption errors are USER errors. Don't try
@@ -333,16 +333,16 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
                 password_error = HTTPException(
                     status_code=400,
                     detail=(
-                        "Wrong CAS PDF password. Try: (1) your PAN e.g. ABCDE1234F, "
-                        "or (2) PAN + date of birth as DDMMYYYY e.g. ABCDE1234F01011990 "
-                        "(NSDL/CAMS use this format)."
+                        "Wrong CAS PDF password. Enter your PAN in UPPERCASE "
+                        "(e.g. ABCDE1234F). All RTAs — CDSL, NSDL, CAMS, KFintech — "
+                        "use PAN as the password."
                     ),
                 )
-                logger.warning(f"parse_cas_pdf_with_data: password error on {provider} — aborting chain")
+                logger.warning("parse_cas_pdf_with_data: password error on %s — aborting chain", provider)
                 break
             if e.__class__.__name__ == "BudgetExceededError":
                 budget_error = e
-            logger.warning(f"parse_cas_pdf_with_data: {provider} failed ({e}), trying next")
+            logger.warning("parse_cas_pdf_with_data: %s failed (%s), trying next", provider, e)
 
     if password_error is not None:
         raise password_error
@@ -356,7 +356,7 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
             from services.masterdata import validate_and_enrich_holdings
             holdings = validate_and_enrich_holdings(holdings)
         except Exception as e:
-            logger.info(f"Masterdata enrichment skipped: {e}")
+            logger.info("Masterdata enrichment skipped: %s", e)
         return holdings, normalized, raw_payload, parser_source
 
     # ── Final fallback: casparser library + OCR + AI (no provider toggle) ──
@@ -367,11 +367,11 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
         cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
         holdings = convert_casparser_to_holdings(cas_data)
         if holdings:
-            logger.info(f"casparser library extracted {len(holdings)} holdings + raw transaction data")
+            logger.info("casparser library extracted %d holdings + raw transaction data", len(holdings))
             return holdings, _normalize_casparser_folios(cas_data), cas_data, "casparser_lib"
         logger.info("casparser returned no holdings, falling back to OCR/AI")
     except Exception as e:
-        logger.info(f"casparser library failed in parse_cas_pdf_with_data: {e}")
+        logger.info("casparser library failed in parse_cas_pdf_with_data: %s", e)
 
     # 3rd+: delegate to the full fallback chain (OCR, AI). These have no
     # structured transaction data — return holdings only.
@@ -398,7 +398,7 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     for p in [active_provider, "nivesh_cas_parser", "claude_vision", "casparser_api"]:
         if p not in seen:
             chain.append(p); seen.add(p)
-    logger.info(f"parse_cas_pdf: active={active_provider} chain={chain}")
+    logger.info("parse_cas_pdf: active=%s chain=%s", active_provider, chain)
 
     async def _try_nivesh():
         from services.nivesh_cas_parser import parse_with_nivesh, is_configured as _ok
@@ -455,14 +455,14 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
         try:
             h = await fn()
             if h:
-                logger.info(f"parse_cas_pdf: success via {provider} ({len(h)} holdings)")
+                logger.info("parse_cas_pdf: success via %s (%d holdings)", provider, len(h))
                 try:
                     from services.masterdata import validate_and_enrich_holdings
                     h = validate_and_enrich_holdings(h)
                 except Exception as e:
-                    logger.info(f"Masterdata enrichment skipped: {e}")
+                    logger.info("Masterdata enrichment skipped: %s", e)
                 return h
-            logger.info(f"parse_cas_pdf: {provider} returned nothing, trying next")
+            logger.info("parse_cas_pdf: %s returned nothing, trying next", provider)
         except Exception as e:
             err_str = str(e).lower()
             # PDF password errors → abort entire chain (user error, not
@@ -473,16 +473,16 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 "password rejected", "incorrect password", "wrong password",
                 "password is required", "password protected",
             ]):
-                logger.warning(f"parse_cas_pdf: password error on {provider} — aborting chain")
+                logger.warning("parse_cas_pdf: password error on %s — aborting chain", provider)
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "Wrong CAS PDF password. Try: (1) your PAN e.g. ABCDE1234F, "
-                        "or (2) PAN + date of birth as DDMMYYYY e.g. ABCDE1234F01011990 "
-                        "(NSDL/CAMS use this format)."
+                        "Wrong CAS PDF password. Enter your PAN in UPPERCASE "
+                        "(e.g. ABCDE1234F). All RTAs — CDSL, NSDL, CAMS, KFintech — "
+                        "use PAN as the password."
                     ),
                 )
-            logger.warning(f"parse_cas_pdf: {provider} failed ({e}), trying next")
+            logger.warning("parse_cas_pdf: %s failed (%s), trying next", provider, e)
 
     # 2nd: casparser library
     try:
@@ -490,17 +490,17 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
         cas_data = casparser.read_cas_pdf(io.BytesIO(content), password or "", output="dict")
         holdings = convert_casparser_to_holdings(cas_data)
         if holdings:
-            logger.info(f"casparser extracted {len(holdings)} holdings successfully")
+            logger.info("casparser extracted %d holdings successfully", len(holdings))
             return holdings
         logger.info("casparser returned no holdings, falling back to AI parsing")
     except Exception as e:
-        logger.info(f"casparser failed: {e}, falling back to local OCR parsing")
+        logger.info("casparser failed (%s), falling back to local OCR parsing", e)
 
     # 3rd: Local Tesseract OCR
     from services.cas_parser import parse_nsdl_cas_image
     local_holdings = parse_nsdl_cas_image(content, password)
     if local_holdings:
-        logger.info(f"Local OCR parser extracted {len(local_holdings)} holdings")
+        logger.info("Local OCR parser extracted %d holdings", len(local_holdings))
         return local_holdings
 
     # 4th: AI parsing (text extraction + OpenAI vision)
@@ -520,7 +520,7 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
             if not decrypt_result:
                 raise HTTPException(status_code=400, detail="Incorrect PDF password. Please try again.")
             decrypt_succeeded = True
-            logger.info(f"PDF decrypted successfully (type={decrypt_result})")
+            logger.info("PDF decrypted successfully (type=%s)", decrypt_result)
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted:
@@ -529,7 +529,7 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
         raise
     except Exception as e:
         err_str = str(e)
-        logger.warning(f"PyPDF2 text extraction failed: {err_str}")
+        logger.warning("PyPDF2 text extraction failed: %s", err_str)
         if "pycryptodome" in err_str.lower() or "aes" in err_str.lower():
             raise HTTPException(status_code=500, detail="Server missing PyCryptodome library for AES-encrypted PDFs.")
         if pdf_is_encrypted and not decrypt_succeeded and not password:
@@ -563,9 +563,9 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                     parsed = await ai_engine.parse_cas_text(current_batch, f"cas_txt_b{batch_num}_{uuid.uuid4().hex[:6]}")
                     if parsed:
                         all_parsed.extend(parsed)
-                        logger.info(f"CAS text batch {batch_num}: {len(parsed)} holdings")
+                        logger.info("CAS text batch %d: %d holdings", batch_num, len(parsed))
                 except Exception as e:
-                    logger.warning(f"CAS text batch {batch_num} failed: {e}")
+                    logger.warning("CAS text batch %d failed: %s", batch_num, e)
                 current_batch = pt
                 batch_num += 1
             else:
@@ -576,9 +576,9 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 parsed = await ai_engine.parse_cas_text(current_batch, f"cas_txt_b{batch_num}_{uuid.uuid4().hex[:6]}")
                 if parsed:
                     all_parsed.extend(parsed)
-                    logger.info(f"CAS text batch {batch_num}: {len(parsed)} holdings")
+                    logger.info("CAS text batch %d: %d holdings", batch_num, len(parsed))
             except Exception as e:
-                logger.warning(f"CAS text batch {batch_num} failed: {e}")
+                logger.warning("CAS text batch %d failed: %s", batch_num, e)
 
         if all_parsed:
             seen = set()
@@ -590,11 +590,11 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 if key not in seen:
                     seen.add(key)
                     unique.append(h)
-            logger.info(f"CAS text total: {len(all_parsed)} raw -> {len(unique)} unique holdings")
+            logger.info("CAS text total: %d raw -> %d unique holdings", len(all_parsed), len(unique))
             return unique
 
     # Image-based PDF
-    logger.info(f"CAS PDF is image-based, processing via OpenAI vision")
+    logger.info("CAS PDF is image-based, processing via OpenAI vision")
     try:
         from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 
@@ -605,7 +605,7 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
             info = pdfinfo_from_bytes(content, **pdfinfo_kwargs)
             total_pages = info.get("Pages", 0)
         except Exception as e:
-            logger.warning(f"pdfinfo failed: {e}")
+            logger.warning("pdfinfo failed: %s", e)
             total_pages = 0
 
         if total_pages == 0:
@@ -637,10 +637,10 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                     f"cas_p{start_page}_{uuid.uuid4().hex[:6]}"
                 )
                 if holdings:
-                    logger.info(f"Pages {start_page}-{end_page}: {len(holdings)} holdings")
+                    logger.info("Pages %d-%d: %d holdings", start_page, end_page, len(holdings))
                 return holdings or []
             except Exception as e:
-                logger.warning(f"Pages {start_page}-{end_page} failed: {e}")
+                logger.warning("Pages %d-%d failed: %s", start_page, end_page, e)
                 return []
 
         results = await asyncio.gather(
@@ -659,7 +659,7 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
                 seen.add(key)
                 unique_holdings.append(h)
 
-        logger.info(f"Total unique holdings from CAS: {len(unique_holdings)}")
+        logger.info("Total unique holdings from CAS: %d", len(unique_holdings))
 
         if not unique_holdings:
             raise HTTPException(status_code=422, detail="Could not extract any holdings from the CAS PDF.")
@@ -669,8 +669,8 @@ async def parse_cas_pdf(content: bytes, password: str = "") -> list:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"CAS PDF parsing error: {e}")
-        raise HTTPException(status_code=422, detail=f"Could not parse CAS PDF. Error: {str(e)}")
+        logger.error("CAS PDF parsing error: %s", type(e).__name__, exc_info=e)
+        raise HTTPException(status_code=422, detail="Could not parse CAS PDF. Please check the file and try again.")
 
 
 def parse_json_response(response: str) -> list:
@@ -740,7 +740,7 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
             delete_query["portfolio_id"] = portfolio_id
         old_count = await db.holdings.count_documents(delete_query)
         await db.holdings.delete_many(delete_query)
-        logger.info(f"CAS upload: cleared {old_count} old holdings for user {user_id}")
+        logger.info("CAS upload: cleared %d old holdings", old_count, extra={"user_id": user_id})
 
     holdings_added = []
     for h in parsed:
@@ -829,25 +829,25 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
                 from services.groww_stock_scraper import refresh_user_stocks
                 res = await refresh_user_stocks(user_id)
                 logger.info(
-                    f"post-upload stock enrichment for {user_id}: "
-                    f"scored {res.get('succeeded', 0)}/{res.get('total', 0)} "
-                    f"in {res.get('duration_s', 0)}s"
+                    "post-upload stock enrichment: scored %d/%d in %ss",
+                    res.get("succeeded", 0), res.get("total", 0), res.get("duration_s", 0),
+                    extra={"user_id": user_id},
                 )
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"post-upload stock enrichment failed: {e}")
+                logger.warning("post-upload stock enrichment failed: %s", e, extra={"user_id": user_id})
 
         if has_mf:
             try:
                 from services import fund_data_resolver as _fdr
                 res = await _fdr.scrape_user_mfs_inline(user_id, concurrency=5)
                 logger.info(
-                    f"post-upload MF inline scrape for {user_id}: "
-                    f"scraped {res.get('succeeded', 0)}/{res.get('total', 0)} "
-                    f"(cached {res.get('cached', 0)}, failed {res.get('failed', 0)}) "
-                    f"in {res.get('duration_s', 0)}s"
+                    "post-upload MF inline scrape: scraped %d/%d (cached %d, failed %d) in %ss",
+                    res.get("succeeded", 0), res.get("total", 0),
+                    res.get("cached", 0), res.get("failed", 0), res.get("duration_s", 0),
+                    extra={"user_id": user_id},
                 )
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"post-upload MF inline scrape failed: {e}")
+                logger.warning("post-upload MF inline scrape failed: %s", e, extra={"user_id": user_id})
 
         # Post-CAS snapshot — runs after enrichment so Health scores
         # reflect the new holdings. Overwrites today's EOD snapshot if
@@ -856,12 +856,11 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
             from services import portfolio_snapshot as _snap
             snap = await _snap.persist_snapshot(user_id, trigger="cas_upload")
             logger.info(
-                f"post-upload snapshot for {user_id}: "
-                f"value=₹{snap.get('total_value', 0):,.0f} "
-                f"holdings={snap.get('holdings_count', 0)} "
-                f"health={snap.get('health_score')}"
+                "post-upload snapshot: value=%.0f holdings=%d health=%s",
+                snap.get("total_value", 0), snap.get("holdings_count", 0), snap.get("health_score"),
+                extra={"user_id": user_id},
             )
         except Exception as e:  # noqa: BLE001
-            logger.warning(f"post-upload snapshot failed: {e}")
+            logger.warning("post-upload snapshot failed: %s", e, extra={"user_id": user_id})
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"_enrich_after_upload crashed: {e}")
+        logger.warning("_enrich_after_upload crashed: %s", e, extra={"user_id": user_id})
