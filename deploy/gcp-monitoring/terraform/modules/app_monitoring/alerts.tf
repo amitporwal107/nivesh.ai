@@ -18,7 +18,7 @@ resource "google_monitoring_alert_policy" "error_spike" {
     condition_threshold {
       filter = <<-EOT
         metric.type="logging.googleapis.com/user/${local.app}/error-5xx-count"
-        resource.type="global"
+        resource.type="gce_instance"
       EOT
 
       aggregations {
@@ -72,7 +72,7 @@ resource "google_monitoring_alert_policy" "high_latency" {
     condition_threshold {
       filter = <<-EOT
         metric.type="logging.googleapis.com/user/${local.app}/request-latency"
-        resource.type="global"
+        resource.type="gce_instance"
       EOT
 
       aggregations {
@@ -126,7 +126,7 @@ resource "google_monitoring_alert_policy" "critical_log" {
     condition_threshold {
       filter = <<-EOT
         metric.type="logging.googleapis.com/user/${local.app}/critical-log-count"
-        resource.type="global"
+        resource.type="gce_instance"
       EOT
 
       aggregations {
@@ -179,7 +179,7 @@ resource "google_monitoring_alert_policy" "auth_failure" {
     condition_threshold {
       filter = <<-EOT
         metric.type="logging.googleapis.com/user/${local.app}/auth-failure-count"
-        resource.type="global"
+        resource.type="gce_instance"
       EOT
 
       aggregations {
@@ -233,7 +233,7 @@ resource "google_monitoring_alert_policy" "job_failure" {
     condition_threshold {
       filter = <<-EOT
         metric.type="logging.googleapis.com/user/${local.app}/job-failure-count"
-        resource.type="global"
+        resource.type="gce_instance"
       EOT
 
       aggregations {

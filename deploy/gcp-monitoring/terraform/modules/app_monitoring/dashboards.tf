@@ -19,7 +19,7 @@ resource "google_monitoring_dashboard" "operations" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "60s"
                     perSeriesAligner   = "ALIGN_RATE"
@@ -40,7 +40,7 @@ resource "google_monitoring_dashboard" "operations" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "60s"
                     perSeriesAligner   = "ALIGN_RATE"
@@ -67,7 +67,7 @@ resource "google_monitoring_dashboard" "operations" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "300s"
                     perSeriesAligner   = "ALIGN_PERCENTILE_99"
@@ -94,7 +94,7 @@ resource "google_monitoring_dashboard" "operations" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "300s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -118,7 +118,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "60s"
                         perSeriesAligner   = "ALIGN_RATE"
@@ -132,7 +132,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "60s"
                         perSeriesAligner   = "ALIGN_RATE"
@@ -146,7 +146,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-4xx-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-4xx-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "60s"
                         perSeriesAligner   = "ALIGN_RATE"
@@ -177,7 +177,7 @@ resource "google_monitoring_dashboard" "operations" {
                 timeSeriesQuery = {
                   timeSeriesFilterRatio = {
                     numerator = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_SUM"
@@ -185,7 +185,7 @@ resource "google_monitoring_dashboard" "operations" {
                       }
                     }
                     denominator = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_SUM"
@@ -214,7 +214,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_50"
@@ -228,7 +228,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_95"
@@ -242,7 +242,7 @@ resource "google_monitoring_dashboard" "operations" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_99"
@@ -271,7 +271,7 @@ resource "google_monitoring_dashboard" "operations" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -319,7 +319,7 @@ resource "google_monitoring_dashboard" "error_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-5xx-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -346,7 +346,7 @@ resource "google_monitoring_dashboard" "error_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-4xx-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/error-4xx-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -373,7 +373,7 @@ resource "google_monitoring_dashboard" "error_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/exception-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/exception-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -401,7 +401,7 @@ resource "google_monitoring_dashboard" "error_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/critical-log-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/critical-log-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -445,7 +445,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "300s"
                     perSeriesAligner   = "ALIGN_PERCENTILE_50"
@@ -466,7 +466,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "300s"
                     perSeriesAligner   = "ALIGN_PERCENTILE_95"
@@ -487,7 +487,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "300s"
                     perSeriesAligner   = "ALIGN_PERCENTILE_99"
@@ -516,7 +516,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_50"
@@ -530,7 +530,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_95"
@@ -544,7 +544,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "300s"
                         perSeriesAligner   = "ALIGN_PERCENTILE_99"
@@ -571,7 +571,7 @@ resource "google_monitoring_dashboard" "latency_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/request-latency\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "3600s"
                       perSeriesAligner   = "ALIGN_PERCENTILE_95"
@@ -616,7 +616,7 @@ resource "google_monitoring_dashboard" "auth_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "3600s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -638,7 +638,7 @@ resource "google_monitoring_dashboard" "auth_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "300s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -664,7 +664,7 @@ resource "google_monitoring_dashboard" "auth_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "3600s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -704,7 +704,7 @@ resource "google_monitoring_dashboard" "job_monitoring" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-run-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-run-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "86400s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -725,7 +725,7 @@ resource "google_monitoring_dashboard" "job_monitoring" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "86400s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -754,7 +754,7 @@ resource "google_monitoring_dashboard" "job_monitoring" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-run-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-run-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "3600s"
                         perSeriesAligner   = "ALIGN_SUM"
@@ -769,7 +769,7 @@ resource "google_monitoring_dashboard" "job_monitoring" {
                 {
                   timeSeriesQuery = {
                     timeSeriesFilter = {
-                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"global\""
+                      filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"gce_instance\""
                       aggregation = {
                         alignmentPeriod    = "3600s"
                         perSeriesAligner   = "ALIGN_SUM"
@@ -815,7 +815,7 @@ resource "google_monitoring_dashboard" "pipeline_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/pipeline-event-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/pipeline-event-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "3600s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -836,7 +836,7 @@ resource "google_monitoring_dashboard" "pipeline_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/job-failure-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "3600s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -858,7 +858,7 @@ resource "google_monitoring_dashboard" "pipeline_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/pipeline-event-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/pipeline-event-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "3600s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -903,7 +903,7 @@ resource "google_monitoring_dashboard" "audit_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "86400s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -924,7 +924,7 @@ resource "google_monitoring_dashboard" "audit_analysis" {
             scorecard = {
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"global\""
+                  filter = "metric.type=\"logging.googleapis.com/user/${local.app}/auth-failure-count\" resource.type=\"gce_instance\""
                   aggregation = {
                     alignmentPeriod    = "86400s"
                     perSeriesAligner   = "ALIGN_SUM"
@@ -946,7 +946,7 @@ resource "google_monitoring_dashboard" "audit_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"global\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"gce_instance\""
                     aggregation = {
                       alignmentPeriod    = "3600s"
                       perSeriesAligner   = "ALIGN_SUM"
@@ -992,7 +992,7 @@ resource "google_monitoring_dashboard" "config_change_analysis" {
               dataSets = [{
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"global\" metric.label.event_type=\"CONFIG_CHANGE\""
+                    filter = "metric.type=\"logging.googleapis.com/user/${local.app}/audit-action-count\" resource.type=\"gce_instance\" metric.label.event_type=\"CONFIG_CHANGE\""
                     aggregation = {
                       alignmentPeriod    = "3600s"
                       perSeriesAligner   = "ALIGN_SUM"
