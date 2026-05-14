@@ -126,10 +126,21 @@ class JobRun:
                 """,
                 self.ingester, self.run_id, status, duration_ms,
             )
+        event_type = "JOB_FAILURE" if status == "FAILED" else "JOB_RUN"
         logger.info(
             "job_log[%s] %s status=%s fetched=%d inserted=%d skipped=%d duration=%dms",
             self.ingester, self.run_id, status,
             self.rows_fetched, self.rows_inserted, self.rows_skipped, duration_ms,
+            extra={
+                "eventType": event_type,
+                "jobName": self.ingester,
+                "runId": str(self.run_id),
+                "status": status,
+                "rowsFetched": self.rows_fetched,
+                "rowsInserted": self.rows_inserted,
+                "rowsSkipped": self.rows_skipped,
+                "durationMs": duration_ms,
+            },
         )
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
