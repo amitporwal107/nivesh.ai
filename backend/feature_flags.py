@@ -28,6 +28,12 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "copilot_engine_nidp": {
+        "display_name": "Copilot Engine: NIDP (LangGraph)",
+        "description": "Routes chat through the NIDP LangGraph multi-agent engine (market, stock, MF, portfolio nodes). Off = V3 RAG fast-retrieval path.",
+        "default_mode": "everyone",
+        "default_allowlist": [],
+    },
 }
 
 # In-memory state — {flag: {mode, allowlist}}

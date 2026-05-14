@@ -75,6 +75,7 @@ MAILTO=""
 
 # ── Intelligence layer (materializer + per-user portfolio sync) ───
 15 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
+0  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_holdings_sync
 30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.

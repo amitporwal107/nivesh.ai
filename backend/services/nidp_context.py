@@ -26,13 +26,26 @@ logger = logging.getLogger(__name__)
 # ── Config ───────────────────────────────────────────────────────────────────
 
 _ENABLED = os.environ.get("NIDP_COPILOT_ENABLED", "").lower() in ("1", "true", "yes")
-_DAAS_BASE = os.environ.get("NIDP_DAAS_API_URL", "http://34.93.60.254:8083").rstrip("/")
-_DAAS_KEY  = os.environ.get("NIDP_DAAS_API_KEY", "")
+# Accept NIDP_DAAS_BASE_URL (docker-compose / new name) or the legacy NIDP_DAAS_API_URL
+_DAAS_BASE = (
+    os.environ.get("NIDP_DAAS_BASE_URL")
+    or os.environ.get("NIDP_DAAS_API_URL")
+    or "http://34.93.60.254:8083"
+).rstrip("/")
+# Prefer the explicit external key; fall back to the internal service token
+_DAAS_KEY  = (
+    os.environ.get("NIDP_DAAS_API_KEY")
+    or os.environ.get("NIDP_DAAS_INTERNAL_TOKEN")
+    or ""
+)
 _TIMEOUT   = float(os.environ.get("NIDP_CONTEXT_TIMEOUT_S", "1.5"))
 
 # Redis cache TTL — 10 min for market data (refreshes every ~15 min at source)
 _CACHE_KEY = "nivesh:nidp:market_ctx"
 _CACHE_TTL = 600
+
+# Portfolio context cache TTL — 5 min (tied to sync cadence)
+_PORT_CACHE_TTL = 300
 
 
 # ── DaaS helper ──────────────────────────────────────────────────────────────
@@ -236,3 +249,79 @@ async def invalidate_cache() -> None:
         await _rc.cache_delete(_CACHE_KEY)
     except Exception:
         pass
+
+
+async def get_portfolio_context(external_user_id: str) -> str:
+    """Return a compact NIDP portfolio intelligence string for the given user.
+
+    Calls the NIDP DaaS /intelligence/portfolio/{id}/snapshot endpoint.
+    Returns "" when NIDP_COPILOT_ENABLED is off, the user has no synced
+    portfolio, or any error occurs — callers treat it as optional context.
+    """
+    if not _ENABLED or not external_user_id:
+        return ""
+
+    cache_key = f"nivesh:nidp:port_ctx:{external_user_id}"
+    try:
+        from services import redis_client as _rc
+        cached = await _rc.cache_get(cache_key)
+        if cached:
+            return cached
+    except Exception:
+        pass
+
+    data = await _fetch(f"/intelligence/portfolio/{external_user_id}/snapshot")
+    if not data:
+        return ""
+
+    try:
+        snap_date = (data.get("snapshot_date") or "")[:10]
+        total     = data.get("total_market_value_inr")
+        eq_pct    = data.get("equity_weight_pct")
+        mf_pct    = data.get("mf_weight_pct")
+        sector    = data.get("top_sector")
+        sec_pct   = data.get("top_sector_weight_pct")
+        top5      = data.get("concentration_top5_pct")
+        quality   = data.get("quality_tier")
+        beta      = data.get("avg_beta_90d")
+        rsi       = data.get("avg_rsi_14")
+        corr      = data.get("high_corr_pairs")
+
+        total_str = f"₹{total / 1e5:.1f}L" if total and total >= 1e5 else (f"₹{total:,.0f}" if total else "?")
+
+        lines = [f"── NIDP_PORTFOLIO ({snap_date}) ──"]
+        lines.append(
+            f"total: {total_str}"
+            + (f" | equity: {eq_pct:.1f}%" if eq_pct is not None else "")
+            + (f" | mf: {mf_pct:.1f}%" if mf_pct is not None else "")
+        )
+        if sector:
+            lines.append(
+                f"top_sector: {sector}" + (f" ({sec_pct:.1f}%)" if sec_pct is not None else "")
+                + (f" | concentration_top5: {top5:.1f}%" if top5 is not None else "")
+            )
+        detail_parts = []
+        if quality:
+            detail_parts.append(f"quality: {quality}")
+        if beta is not None:
+            detail_parts.append(f"beta_90d: {beta:.2f}")
+        if rsi is not None:
+            detail_parts.append(f"rsi_14: {rsi:.1f}")
+        if corr is not None:
+            detail_parts.append(f"high_corr_pairs: {corr}")
+        if detail_parts:
+            lines.append(" | ".join(detail_parts))
+        lines.append("── end NIDP_PORTFOLIO ──")
+
+        result = "\n".join(lines)
+    except Exception as exc:
+        logger.debug("NIDP portfolio context format error: %s", exc)
+        return ""
+
+    try:
+        from services import redis_client as _rc
+        await _rc.cache_set(cache_key, result, ttl_s=_PORT_CACHE_TTL)
+    except Exception:
+        pass
+
+    return result

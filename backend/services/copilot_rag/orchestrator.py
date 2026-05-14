@@ -518,12 +518,34 @@ async def answer(
     _attach_chart(retrieval, intent)
     payload_text = _format_rows_for_llm(retrieval, intent)
 
-    # Inject live market context when NIDP_COPILOT_ENABLED=true (fails open)
+    # Inject live market + portfolio context when NIDP_COPILOT_ENABLED=true (fails open)
     try:
-        from services.nidp_context import get_market_context
-        market_ctx = await get_market_context()
+        from services.nidp_context import get_market_context, get_portfolio_context
+        import asyncio as _asyncio
+
+        # Look up user email so we can fetch their NIDP portfolio intelligence
+        user_email: Optional[str] = None
+        try:
+            from deps import db as _db
+            _udoc = await _db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+            user_email = (_udoc or {}).get("email")
+        except Exception:
+            pass
+
+        market_ctx, portfolio_ctx = await _asyncio.gather(
+            get_market_context(),
+            get_portfolio_context(user_email or ""),
+            return_exceptions=True,
+        )
+        if isinstance(market_ctx, Exception):
+            market_ctx = ""
+        if isinstance(portfolio_ctx, Exception):
+            portfolio_ctx = ""
+
         if market_ctx:
             payload_text = payload_text + "\n\n" + market_ctx
+        if portfolio_ctx:
+            payload_text = payload_text + "\n\n" + portfolio_ctx
     except Exception as _nidp_exc:
         logger.debug("NIDP context injection skipped: %s", _nidp_exc)
 

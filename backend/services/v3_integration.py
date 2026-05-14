@@ -55,10 +55,17 @@ async def _resolve_name_to_instrument_id(scheme_name: str) -> Optional[str]:
 async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """One-shot PG read: pull every V3 input column for the given funds.
 
-    Returns {instrument_id (str): {col → value}}. Skips non-UUID inputs so
-    test fixtures with synthetic IDs don't poison the PG query.
+    Reads from nidp.v_v3_mf_primitives (migration 050) which joins NIDP
+    tables (analytics.fund_category_rank, mf_scheme_disclosure_snapshot,
+    mf_holdings_monthly, mf_scheme_events) and COALESCEs to
+    mutual_fund_metadata for fields not yet in NIDP (consistency_score,
+    downside_capture_pct, aum_trend_score, turnover_ratio, credit/duration
+    risk scores).
+
+    Returns {instrument_id (str): {col → value}}. Skips non-UUID inputs.
+    Falls back to the legacy mutual_fund_metadata query when the NIDP view
+    is absent (e.g. migration 050 not yet applied on this environment).
     """
-    # Defensive UUID filter — drops test-only IDs like "pg-3" etc.
     import re
     UUID_RE = re.compile(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I,
@@ -70,35 +77,112 @@ async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[
     if pool is None:
         return {}
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        # Check whether migration 050 has been applied.
+        view_exists = await conn.fetchval(
             """
-            SELECT
-              mfmd.instrument_id::text AS instrument_id,
-              mfmd.category, mfmd.sub_category,
-              mfmd.aum_cr::float, mfmd.fund_age_years::float,
-              mfmd.expense_ratio::float, mfmd.expense_ratio_direct::float,
-              mfmd.expense_ratio_regular::float, mfmd.expense_trend_delta::float,
-              mfmd.manager_tenure_years::float,
-              mfmd.turnover_ratio::float, mfmd.top10_concentration_pct::float,
-              mfmd.category_avg_1y::float, mfmd.category_avg_3y::float, mfmd.category_avg_5y::float,
-              mfmd.max_drawdown_pct::float, mfmd.consistency_score::float,
-              mfmd.downside_capture_pct::float, mfmd.aum_trend_score::float,
-              mfmd.credit_quality_score::float, mfmd.duration_risk_score::float,
-              mfmd.ytm::float, mfmd.modified_duration::float,
-              mfmd.investment_style, mfmd.moneycontrol_imid,
-              mfmd.morningstar_rating::int AS morningstar_rating,
-              mfpr.ret_1y::float, mfpr.ret_3y::float, mfpr.ret_5y::float,
-              mfpr.sharpe::float, mfpr.sortino::float
-            FROM mutual_fund_metadata mfmd
-            LEFT JOIN LATERAL (
-              SELECT * FROM mutual_fund_performance_ratios
-              WHERE instrument_id = mfmd.instrument_id
-              ORDER BY ratios_date DESC LIMIT 1
-            ) mfpr ON TRUE
-            WHERE mfmd.instrument_id = ANY($1::uuid[])
-            """,
-            real_ids,
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.views
+                 WHERE table_schema = 'nidp'
+                   AND table_name   = 'v_v3_mf_primitives'
+            )
+            """
         )
+        if view_exists:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    v.instrument_id,
+                    v.category,
+                    v.sub_category,
+                    v.aum_cr::float,
+                    v.fund_age_years::float,
+                    v.expense_ratio::float,
+                    v.expense_ratio_direct::float,
+                    v.expense_ratio_regular::float,
+                    v.expense_trend_delta::float,
+                    v.manager_tenure_years::float,
+                    v.turnover_ratio::float,
+                    v.top10_concentration_pct::float,
+                    v.category_avg_1y::float,
+                    v.category_avg_3y::float,
+                    v.category_avg_5y::float,
+                    v.max_drawdown_pct::float,
+                    v.consistency_score::float,
+                    v.downside_capture_pct::float,
+                    v.aum_trend_score::float,
+                    v.credit_quality_score::float,
+                    v.duration_risk_score::float,
+                    v.ytm::float,
+                    v.modified_duration::float,
+                    v.investment_style,
+                    v.moneycontrol_imid,
+                    v.morningstar_rating::int,
+                    v.ret_1y::float,
+                    v.ret_3y::float,
+                    v.ret_5y::float,
+                    v.sharpe::float,
+                    v.sortino::float,
+                    -- NIDP-only extended fields (not in legacy scrape)
+                    v.return_1m::float,
+                    v.return_3m::float,
+                    v.return_6m::float,
+                    v.return_2y::float,
+                    v.return_since_launch_cagr::float,
+                    v.alpha_1y::float,
+                    v.beta_1y::float,
+                    v.volatility_1y::float,
+                    v.category_rank,
+                    v.return_1y_rank,
+                    v.nidp_returns_available,
+                    v.nidp_snapshot_available,
+                    v.nidp_holdings_available,
+                    v.primary_manager,
+                    v.risk_o_meter
+                FROM nidp.v_v3_mf_primitives v
+                WHERE v.instrument_id = ANY($1::text[])
+                """,
+                real_ids,
+            )
+            logger.debug(
+                "[V3 primitives] NIDP view: %d/%d instruments found",
+                len(rows), len(real_ids),
+            )
+        else:
+            # Migration 050 not yet applied — legacy path
+            logger.warning(
+                "[V3 primitives] nidp.v_v3_mf_primitives not found; "
+                "falling back to mutual_fund_metadata (run migration 050)"
+            )
+            rows = await conn.fetch(
+                """
+                SELECT
+                  mfmd.instrument_id::text AS instrument_id,
+                  mfmd.category, mfmd.sub_category,
+                  mfmd.aum_cr::float, mfmd.fund_age_years::float,
+                  mfmd.expense_ratio::float, mfmd.expense_ratio_direct::float,
+                  mfmd.expense_ratio_regular::float, mfmd.expense_trend_delta::float,
+                  mfmd.manager_tenure_years::float,
+                  mfmd.turnover_ratio::float, mfmd.top10_concentration_pct::float,
+                  mfmd.category_avg_1y::float, mfmd.category_avg_3y::float,
+                  mfmd.category_avg_5y::float,
+                  mfmd.max_drawdown_pct::float, mfmd.consistency_score::float,
+                  mfmd.downside_capture_pct::float, mfmd.aum_trend_score::float,
+                  mfmd.credit_quality_score::float, mfmd.duration_risk_score::float,
+                  mfmd.ytm::float, mfmd.modified_duration::float,
+                  mfmd.investment_style, mfmd.moneycontrol_imid,
+                  mfmd.morningstar_rating::int AS morningstar_rating,
+                  mfpr.ret_1y::float, mfpr.ret_3y::float, mfpr.ret_5y::float,
+                  mfpr.sharpe::float, mfpr.sortino::float
+                FROM mutual_fund_metadata mfmd
+                LEFT JOIN LATERAL (
+                  SELECT * FROM mutual_fund_performance_ratios
+                  WHERE instrument_id = mfmd.instrument_id
+                  ORDER BY ratios_date DESC LIMIT 1
+                ) mfpr ON TRUE
+                WHERE mfmd.instrument_id = ANY($1::uuid[])
+                """,
+                real_ids,
+            )
     return {r["instrument_id"]: dict(r) for r in rows}
 
 
@@ -234,14 +318,21 @@ async def enrich_candidates_with_v3(
                 "aum_cr", "fund_age_years", "expense_ratio_direct", "manager_tenure_years",
                 "max_drawdown_pct", "consistency_score", "downside_capture_pct",
                 "aum_trend_score", "turnover_ratio", "top10_concentration_pct",
-                # Performance returns (surface so Portfolio Engine can fall back
-                # to CAGR when personal XIRR is unreliable / missing).
+                # Performance returns
                 "ret_1y", "ret_3y", "ret_5y", "sharpe", "sortino",
-                # Debt-specific (Moneycontrol-sourced) — surface so the insights
-                # UI can display credit/duration profile for bond funds.
+                # Extended returns available from NIDP (migration 049)
+                "return_1m", "return_3m", "return_6m", "return_2y",
+                "return_since_launch_cagr", "alpha_1y", "beta_1y", "volatility_1y",
+                "category_rank", "return_1y_rank",
+                # Debt-specific (MoneyControl-sourced, no NIDP equivalent yet)
                 "credit_quality_score", "duration_risk_score", "ytm",
                 "modified_duration", "investment_style", "moneycontrol_imid",
                 "morningstar_rating",
+                # NIDP provenance flags (for UI confidence badges)
+                "nidp_returns_available", "nidp_snapshot_available",
+                "nidp_holdings_available",
+                # Display fields from NIDP snapshot
+                "primary_manager", "risk_o_meter",
             )},
         }
         # Dual-index: by iid AND by normalised scheme_name (for lookup when

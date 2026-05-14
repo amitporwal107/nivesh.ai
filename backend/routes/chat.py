@@ -20,21 +20,25 @@ from services.copilot_charts import (
 
 logger = logging.getLogger(__name__)
 
-# Feature flag: set USE_LANGGRAPH_AGENT=true to route investor chat through
-# the LangGraph multi-agent graph instead of the RAG orchestrator.
-_USE_LANGGRAPH = os.environ.get("USE_LANGGRAPH_AGENT", "").lower() in ("1", "true", "yes")
+# Always attempt to import the LangGraph copilot agent at startup.
+# _lg_available tracks whether imports succeeded; the actual routing
+# decision is made per-request from the DB-backed feature flag
+# "copilot_engine_nidp" (admin default: everyone → NIDP engine).
+_lg_available = False
+_get_copilot_graph = None
+_HumanMessage = None
+_AIMessage = None
 
-if _USE_LANGGRAPH:
-    try:
-        import sys
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-        from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
-        from langchain_core.messages import HumanMessage as _HumanMessage
-        from langchain_core.messages import AIMessage as _AIMessage
-        logger.info("LangGraph copilot agent ENABLED")
-    except Exception as _lg_err:
-        logger.warning("LangGraph import failed (%s) — falling back to RAG", _lg_err)
-        _USE_LANGGRAPH = False
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
+    from langchain_core.messages import HumanMessage as _HumanMessage
+    from langchain_core.messages import AIMessage as _AIMessage
+    _lg_available = True
+    logger.info("LangGraph copilot agent available (routing controlled by 'copilot_engine_nidp' flag)")
+except Exception as _lg_err:
+    logger.warning("LangGraph import failed (%s) — NIDP engine unavailable, V3 RAG will be used", _lg_err)
 router = APIRouter(prefix="/api")
 
 _plan_manager = ActionPlanManager()
@@ -838,39 +842,79 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         for m in recent_msgs[:-1]:
             history.append({"role": m["role"], "content": m["content"][:500]})
 
-    # \u2500\u2500 Single-portfolio (investor) path: route through the RAG orchestrator.
-    # Replaces the old "dump everything into the system prompt" approach
-    # which made gpt-4o-mini hallucinate fund names from training data.
-    # The orchestrator returns prose + an optional chart_spec; we embed
-    # the chart spec as a fenced ```chart``` block so the existing
-    # frontend parser handles rendering without changes.
+    # \u2500\u2500 Single-portfolio (investor) path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    # Engine selection (same flag as /chat/stream):
+    #   NIDP / LangGraph  \u2014 "copilot_engine_nidp" flag ON  (admin default)
+    #   V3  / RAG         \u2014 flag OFF or LangGraph unavailable
     if not advisor_mode:
-        try:
-            from services import copilot_rag
-            await _ensure_plan_for_actionable_question(user_id, msg.message)
-            rag_result = await copilot_rag.answer(
-                user_id=user_id, message=msg.message, history=history,
-            )
-            prose = rag_result.get("prose") or ""
-            chart_spec = rag_result.get("chart_spec")
-            if chart_spec:
-                prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
-            # Re-validate (cheap) so any malformed blocks we somehow
-            # produced get rewritten before reaching the frontend.
-            validated = validate_chart_blocks(prose)
-            ai_response = validated["clean_text"]
-            await log_invalid_chart_specs(
-                db, user_id,
-                model="copilot_rag",
-                route=f"chat/send/{rag_result.get('intent','generic')}",
-                invalid=validated["invalid_specs"],
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"RAG chat error: {e}", exc_info=True)
-            ai_response = (
-                "I'm having trouble connecting to my AI engine right now. "
-                "Please try again in a moment."
-            )
+        import feature_flags as _ff
+        _use_nidp = _lg_available and _ff.is_enabled("copilot_engine_nidp", user.get("email"))
+
+        if _use_nidp:
+            # \u2500\u2500 NIDP LangGraph path (non-streaming via ainvoke) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            try:
+                await _ensure_plan_for_actionable_question(user_id, msg.message)
+                graph = _get_copilot_graph()
+                lg_config = {"configurable": {"thread_id": session_id}}
+                lg_messages = []
+                for m in history[-20:]:
+                    if m["role"] == "user":
+                        lg_messages.append(_HumanMessage(content=m["content"]))
+                    elif m["role"] == "assistant":
+                        lg_messages.append(_AIMessage(content=m["content"]))
+                lg_messages.append(_HumanMessage(content=msg.message))
+                result = await graph.ainvoke(
+                    {"messages": lg_messages, "user_id": user_id, "session_id": session_id},
+                    config=lg_config,
+                )
+                resp = result.get("response")
+                prose = (getattr(resp, "text", None) or "") if resp else ""
+                widget_type = getattr(resp, "widget_type", None)
+                widget_data = getattr(resp, "widget_data", None)
+                if widget_type and widget_type != "none" and widget_data:
+                    prose += "\n\n```chart\n" + json.dumps(
+                        {"widget_type": widget_type, "data": widget_data}, separators=(",", ":")
+                    ) + "\n```\n"
+                validated = validate_chart_blocks(prose)
+                ai_response = validated["clean_text"]
+                await log_invalid_chart_specs(
+                    db, user_id,
+                    model="langgraph_nidp",
+                    route="chat/send/nidp",
+                    invalid=validated["invalid_specs"],
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error("NIDP LangGraph send error: %s", e, exc_info=True)
+                ai_response = (
+                    "I'm having trouble connecting to my AI engine right now. "
+                    "Please try again in a moment."
+                )
+        else:
+            # \u2500\u2500 V3 RAG path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+            try:
+                from services import copilot_rag
+                await _ensure_plan_for_actionable_question(user_id, msg.message)
+                rag_result = await copilot_rag.answer(
+                    user_id=user_id, message=msg.message, history=history,
+                )
+                prose = rag_result.get("prose") or ""
+                chart_spec = rag_result.get("chart_spec")
+                if chart_spec:
+                    prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
+                validated = validate_chart_blocks(prose)
+                ai_response = validated["clean_text"]
+                await log_invalid_chart_specs(
+                    db, user_id,
+                    model="copilot_rag",
+                    route=f"chat/send/{rag_result.get('intent','generic')}",
+                    invalid=validated["invalid_specs"],
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"RAG chat error: {e}", exc_info=True)
+                ai_response = (
+                    "I'm having trouble connecting to my AI engine right now. "
+                    "Please try again in a moment."
+                )
     else:
         # Advisor (cross-client) mode still uses the legacy path \u2014 its
         # context shape (cross-client book) hasn't been ported to RAG yet.
@@ -1012,7 +1056,15 @@ async def stream_chat(request: Request):
             if not advisor_mode:
                 await _ensure_plan_for_actionable_question(user_id, message)
 
-                if _USE_LANGGRAPH:
+                # Per-request engine selection: NIDP (LangGraph) when the
+                # "copilot_engine_nidp" feature flag is on for this user AND
+                # the LangGraph deps imported successfully at startup.
+                import feature_flags as _ff
+                _use_nidp = _lg_available and _ff.is_enabled(
+                    "copilot_engine_nidp", user.get("email")
+                )
+
+                if _use_nidp:
                     # ── LangGraph multi-agent path ──────────────────────────
                     graph = _get_copilot_graph()
                     lg_config = {"configurable": {"thread_id": session_id}}

@@ -115,40 +115,59 @@ async def feed_execute(
     """Spawn run_service.sh <ingester> [--date YYYY-MM-DD] in the
     background. Returns 202 immediately; UI polls
     /feeds/{ingester}/runs to see results land in nidp.job_log when
-    the job completes."""
+    the job completes.
+
+    On VMs run_service.sh is used (handles flock, logging, venv).
+    In Docker/dev environments it falls back to spawning the current
+    Python interpreter directly so the sync works without the VM wrapper."""
     _validate(ingester)
-    if not RUN_SCRIPT.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"run_service.sh missing on VM at {RUN_SCRIPT}",
-        )
 
     if target_date is not None and not _re.match(r"^\d{4}-\d{2}-\d{2}$", target_date):
         raise HTTPException(status_code=400, detail="target_date must be YYYY-MM-DD")
 
-    # Fork-detach so the python process exits after starting the job.
-    # nohup + setsid keeps the child alive after we return.
-    args = [shlex.quote(str(RUN_SCRIPT)), shlex.quote(ingester)]
-    if target_date:
-        args += ["--date", shlex.quote(target_date)]
-    cmd = "nohup setsid " + " ".join(args) + " >/dev/null 2>&1 &"
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    if RUN_SCRIPT.exists():
+        # VM path: use run_service.sh wrapper (flock + logging + venv)
+        args = [shlex.quote(str(RUN_SCRIPT)), shlex.quote(ingester)]
+        if target_date:
+            args += ["--date", shlex.quote(target_date)]
+        cmd = "nohup setsid " + " ".join(args) + " >/dev/null 2>&1 &"
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        runner = "run_service.sh"
+    else:
+        # Docker/dev path: invoke current Python directly
+        import sys as _sys
+        py_args = [_sys.executable, "-m", f"nidp.services.{ingester}"]
+        if target_date:
+            py_args += ["--date", target_date]
+        log_dir = LOGS_DIR / ingester
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{ingester}.log"
+        with open(log_path, "ab") as _lf:
+            proc = await asyncio.create_subprocess_exec(
+                *py_args,
+                stdout=_lf,
+                stderr=_lf,
+                start_new_session=True,
+            )
+        runner = f"python -m nidp.services.{ingester}"
+
     try:
         await asyncio.wait_for(proc.wait(), timeout=2.0)
     except asyncio.TimeoutError:
         pass
 
-    logger.info("feed_execute: spawned %s (date=%s) via %s", ingester, target_date or "default", RUN_SCRIPT)
+    logger.info("feed_execute: spawned %s (date=%s) via %s", ingester, target_date or "default", runner)
     return {
         "ok":          True,
         "ingester":    ingester,
         "target_date": target_date,
         "status":      "spawned",
+        "runner":      runner,
         "hint":        "poll /feeds/{ingester}/runs for completion (writes to nidp.job_log)",
     }
 
