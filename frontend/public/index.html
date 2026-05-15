@@ -23,6 +23,18 @@
         -->
         <title>nivesh.ai — AI-Powered Wealth Management</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+        <script>
+        // V2 path-prefix guard: React Router uses basename="/v2".
+        // Production nginx redirects bare "/" -> "/v2/", but preview/dev environments
+        // don't. Redirect client-side so the SPA always mounts at the right base.
+        (function () {
+          var p = window.location.pathname;
+          if (p.indexOf("/v2") !== 0 && p.indexOf("/api") !== 0) {
+            var target = "/v2" + (p === "/" ? "/" : p) + window.location.search + window.location.hash;
+            window.location.replace(target);
+          }
+        })();
+        </script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
