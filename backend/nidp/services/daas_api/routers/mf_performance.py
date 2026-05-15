@@ -141,3 +141,81 @@ async def top_funds_screener(
         total=total, **page,
         extra={"rank_date": str(latest_date), "sorted_by": metric},
     )
+
+
+@router.get("/scorecard/{scheme_code}", summary="Full category scorecard for a scheme")
+async def scheme_scorecard(scheme_code: str = Path(...)) -> Dict[str, Any]:
+    """Returns composite score, quality label, per-metric ranks and quartiles
+    within the fund's sub-category peer group.
+
+    Consumes nidp.v_mf_category_scorecard (migration 052), which joins
+    analytics.fund_category_rank + mf_derived_analytics + disclosure snapshots
+    + holdings to produce 73 columns including:
+      - composite_score (0–100), quality_label (Elite … Underperformer)
+      - composite_rank, total_in_category, top_position_pct
+      - rank_ret1y / rank_ret3y / rank_ret5y / rank_sharpe / rank_ter / …
+      - qtile_ret1y / qtile_sharpe / qtile_maxdd / qtile_ter / … (1=Q1 best)
+      - pct_ret1y / pct_sharpe / … (0–1 PERCENT_RANK for radar charts)
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM nidp.v_mf_category_scorecard WHERE scheme_code = $1",
+            scheme_code,
+        )
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no scorecard data for {scheme_code!r} — analytics may not have run yet",
+        )
+    return {"data": row_to_dict(row)}
+
+
+@router.get("/scorecard/category/{sub_category}", summary="Category leaderboard with composite scores")
+async def category_scorecard_leaderboard(
+    sub_category: str = Path(..., description="e.g. 'Large Cap', 'Mid Cap', 'Flexi Cap'"),
+    sort_by: str = Query("composite_score", description="composite_score | ret_1y | ret_3y | sharpe | ter"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Full scorecard leaderboard for a sub-category, sorted by composite score
+    or any individual metric.  Includes quality labels and quartile flags.
+    """
+    _SORT_MAP = {
+        "composite_score": ("composite_score", "DESC"),
+        "ret_1y":   ("return_1y",  "DESC"),
+        "ret_3y":   ("return_3y",  "DESC"),
+        "ret_5y":   ("return_5y",  "DESC"),
+        "sharpe":   ("sharpe_1y",  "DESC"),
+        "sortino":  ("sortino_1y", "DESC"),
+        "alpha":    ("alpha_1y",   "DESC"),
+        "maxdd":    ("max_drawdown_1y", "ASC"),
+        "ter":      ("ter",        "ASC"),
+        "aum":      ("aum_cr",     "DESC"),
+    }
+    if sort_by not in _SORT_MAP:
+        raise HTTPException(status_code=400, detail=f"sort_by must be one of {sorted(_SORT_MAP)}")
+    col, direction = _SORT_MAP[sort_by]
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(
+            "SELECT COUNT(*) FROM nidp.v_mf_category_scorecard WHERE sub_category ILIKE $1",
+            f"%{sub_category}%",
+        )
+        if not total:
+            raise HTTPException(status_code=404, detail=f"no scorecard data for sub_category {sub_category!r}")
+        rows = await conn.fetch(
+            f"""
+            SELECT *
+              FROM nidp.v_mf_category_scorecard
+             WHERE sub_category ILIKE $1
+             ORDER BY {col} {direction} NULLS LAST
+             LIMIT $2 OFFSET $3
+            """,
+            f"%{sub_category}%", page["limit"], page["offset"],
+        )
+    return envelope(
+        [row_to_dict(r) for r in rows],
+        total=total, **page,
+        extra={"sub_category": sub_category, "sorted_by": sort_by},
+    )

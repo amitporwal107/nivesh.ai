@@ -97,6 +97,31 @@ async def trigger_v3_stock_refresh(request: Request, symbol: Optional[str] = Non
     return result
 
 
+# ── NIDP-native score refresh endpoint ──────────────────────────────────
+@router.post("/admin/v3-stock-score-nidp")
+async def trigger_nidp_stock_score(request: Request, as_of_date: Optional[str] = None):
+    """Score all stocks from NIDP features (migration 053-055) for the given
+    date (YYYY-MM-DD). Defaults to today. No Groww scraping — reads entirely
+    from nidp.v_v3_stock_primitives. Run nightly AFTER refresh_stock_features()."""
+    await require_admin(request)
+    from datetime import date as _date
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
+    from nidp.services.stock_scorer_nidp import refresh_from_nidp
+
+    target = None
+    if as_of_date:
+        try:
+            target = _date.fromisoformat(as_of_date)
+        except ValueError:
+            from fastapi import HTTPException
+            raise HTTPException(400, "as_of_date must be YYYY-MM-DD")
+
+    result = await refresh_from_nidp(target)
+    logger.info("NIDP stock score done: %s/%s", result.get("succeeded", 0), result.get("total", 0))
+    return result
+
+
 # ── Stock master listing ───────────────────────────────────────────────
 @router.get("/admin/v3-stock-master")
 async def get_v3_stock_master(

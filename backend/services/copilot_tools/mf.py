@@ -36,20 +36,30 @@ class MfResult:
         parts = [f"MF scheme={self.scheme_code}"]
         if d.get("scheme_name"):
             parts.append(f"name={d['scheme_name']!r}")
-        if d.get("category"):
-            parts.append(f"category={d['category']}")
+        sub = d.get("sub_category") or d.get("category")
+        if sub:
+            parts.append(f"category={sub}")
         if d.get("return_1y") is not None:
-            parts.append(f"ret_1y={d['return_1y']:+.1f}%")
+            parts.append(f"ret_1y={float(d['return_1y']):+.1f}%")
         if d.get("return_3y") is not None:
-            parts.append(f"ret_3y={d['return_3y']:+.1f}%")
+            parts.append(f"ret_3y={float(d['return_3y']):+.1f}%")
         if d.get("return_5y") is not None:
-            parts.append(f"ret_5y={d['return_5y']:+.1f}%")
+            parts.append(f"ret_5y={float(d['return_5y']):+.1f}%")
         if d.get("sharpe_1y") is not None:
-            parts.append(f"sharpe={d['sharpe_1y']:.2f}")
+            parts.append(f"sharpe={float(d['sharpe_1y']):.2f}")
         if d.get("max_drawdown_1y") is not None:
-            parts.append(f"maxdd={d['max_drawdown_1y']:.1f}%")
-        if d.get("composite_rank") is not None:
-            parts.append(f"rank={d['composite_rank']}")
+            parts.append(f"maxdd={float(d['max_drawdown_1y']):.1f}%")
+        # Scorecard fields (migration 052)
+        if d.get("composite_score") is not None:
+            parts.append(f"score={float(d['composite_score']):.0f}/100")
+        if d.get("quality_label"):
+            parts.append(f"label={d['quality_label']}")
+        if d.get("composite_rank") and d.get("total_in_category"):
+            pct = d.get("top_position_pct")
+            pct_str = f" Top{pct}%" if pct else ""
+            parts.append(f"rank=#{d['composite_rank']}/{d['total_in_category']}{pct_str}")
+        elif d.get("composite_rank"):
+            parts.append(f"rank=#{d['composite_rank']}")
         parts.append(f"summary={self.summary}")
         return " | ".join(parts)
 
@@ -77,13 +87,41 @@ def _risk_signal(vol: Optional[float], sharpe: Optional[float], maxdd: Optional[
     return ", ".join(parts) if parts else None
 
 
-def _rank_signal(composite_rank: Optional[int], return_1y_rank: Optional[int], total_in_category: Optional[int]) -> Optional[str]:
+def _rank_signal(
+    composite_rank: Optional[int],
+    return_1y_rank: Optional[int],
+    total_in_category: Optional[int],
+    quality_label: Optional[str] = None,
+    top_position_pct: Optional[int] = None,
+) -> Optional[str]:
     if composite_rank is None:
         return None
     rank_str = f"#{composite_rank}"
     if total_in_category:
         rank_str += f"/{total_in_category}"
-    return f"Category rank {rank_str} (composite score)"
+    label_str = f" [{quality_label}]" if quality_label else ""
+    pct_str = f" — Top {top_position_pct}% in category" if top_position_pct else ""
+    return f"Category rank {rank_str}{label_str}{pct_str}"
+
+
+def _quartile_signals(d: Dict[str, Any]) -> List[str]:
+    """Emit Q1/Q2/Q3/Q4 bullets for key metrics from scorecard data."""
+    _LABELS = {1: "Q1 (top quartile)", 2: "Q2", 3: "Q3", 4: "Q4 (bottom quartile)"}
+    _METRICS = [
+        ("qtile_ret1y",      "1Y return"),
+        ("qtile_ret3y",      "3Y return"),
+        ("qtile_sharpe",     "Sharpe ratio"),
+        ("qtile_maxdd",      "downside protection"),
+        ("qtile_ter",        "expense ratio"),
+        ("qtile_consistency","consistency"),
+        ("qtile_dc",         "downside capture"),
+    ]
+    out = []
+    for key, label in _METRICS:
+        q = d.get(key)
+        if q is not None:
+            out.append(f"{label}: {_LABELS.get(int(q), str(q))}")
+    return out
 
 
 def _interpret_mf(d: Dict[str, Any]) -> tuple[str, List[str]]:
@@ -97,7 +135,13 @@ def _interpret_mf(d: Dict[str, Any]) -> tuple[str, List[str]]:
     if risk_sig:
         signals.append(risk_sig)
 
-    rank_sig = _rank_signal(d.get("composite_rank"), d.get("return_1y_rank"), None)
+    rank_sig = _rank_signal(
+        d.get("composite_rank"),
+        d.get("return_1y_rank"),
+        d.get("total_in_category"),
+        d.get("quality_label"),
+        d.get("top_position_pct"),
+    )
     if rank_sig:
         signals.append(rank_sig)
 
@@ -110,36 +154,71 @@ def _interpret_mf(d: Dict[str, Any]) -> tuple[str, List[str]]:
         a = float(d["alpha_1y"])
         signals.append(f"Alpha {a:+.2f}% vs Nifty 50 (1y)")
 
-    ret_1y = d.get("return_1y")
-    sharpe = d.get("sharpe_1y")
-    if ret_1y is not None and sharpe is not None:
-        if ret_1y > 15 and sharpe > 1.0:
-            quality = "high-quality performer"
-        elif ret_1y > 10 and sharpe > 0.5:
-            quality = "solid performer"
-        elif ret_1y < 0:
-            quality = "underperformer"
-        else:
-            quality = "average performer"
-    elif ret_1y is not None:
-        quality = "strong" if ret_1y > 15 else "average" if ret_1y > 6 else "weak"
-    else:
-        quality = "insufficient data"
+    # Quartile breakdown from scorecard (only when available)
+    q_sigs = _quartile_signals(d)
+    if q_sigs:
+        signals.append("Quartile breakdown — " + "; ".join(q_sigs))
 
-    rank_str = f", ranked #{d['composite_rank']}" if d.get("composite_rank") else ""
-    summary = f"{quality}{rank_str} in {d.get('category', 'unknown')} category."
+    # Derive quality from scorecard label or raw signals
+    quality_label = d.get("quality_label")
+    if quality_label:
+        quality = quality_label.lower()
+    else:
+        ret_1y = d.get("return_1y")
+        sharpe = d.get("sharpe_1y")
+        if ret_1y is not None and sharpe is not None:
+            if ret_1y > 15 and sharpe > 1.0:
+                quality = "high-quality performer"
+            elif ret_1y > 10 and sharpe > 0.5:
+                quality = "solid performer"
+            elif ret_1y < 0:
+                quality = "underperformer"
+            else:
+                quality = "average performer"
+        elif ret_1y is not None:
+            quality = "strong" if ret_1y > 15 else "average" if ret_1y > 6 else "weak"
+        else:
+            quality = "insufficient data"
+
+    rank_str = (
+        f", ranked #{d['composite_rank']}/{d['total_in_category']}"
+        if d.get("composite_rank") and d.get("total_in_category")
+        else (f", ranked #{d['composite_rank']}" if d.get("composite_rank") else "")
+    )
+    sub = d.get("sub_category") or d.get("category", "unknown")
+    summary = f"{quality}{rank_str} in {sub}."
     return summary, signals
 
 
 # ── DAAS client helpers ───────────────────────────────────────────────
 
+async def _get_scheme_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Fetch full category scorecard (migration 052 view) — composite score,
+    quality label, per-metric ranks and quartiles within sub-category."""
+    try:
+        data = await _get(f"/mf/performance/scorecard/{scheme_code}")
+        return data.get("data") if data else None
+    except DaasError as exc:
+        logger.debug("mf_scorecard_unavailable scheme=%s error=%s", scheme_code, exc)
+        return None
+
+
 async def _get_scheme_performance(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Fetch raw performance row from analytics.fund_category_rank."""
     try:
         data = await _get(f"/mf/performance/{scheme_code}")
         return data.get("data") if data else None
     except DaasError as exc:
         logger.warning("mf_perf_daas_error scheme=%s error=%s", scheme_code, exc)
         return None
+
+
+async def _get_scheme_data(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Try scorecard first (richer), fall back to plain performance row."""
+    sc = await _get_scheme_scorecard(scheme_code)
+    if sc:
+        return sc
+    return await _get_scheme_performance(scheme_code)
 
 
 async def _get_category_top(category: str, metric: str = "composite_rank", limit: int = 10) -> List[Dict[str, Any]]:
@@ -156,12 +235,33 @@ async def _get_category_top(category: str, metric: str = "composite_rank", limit
 
 # ── Public tool functions ─────────────────────────────────────────────
 
+async def get_mf_scorecard(scheme_code: str) -> MfResult:
+    """Fetch the full category scorecard for a scheme.
+
+    Returns composite score (0-100), quality label, per-metric ranks and
+    quartile positions within the sub-category peer group.
+    Used for: "Is HDFC Top 100 in the top quartile?", "What's the category rank
+    of Parag Parikh Flexi Cap?", "How does this fund compare to peers?"
+    """
+    data = await _get_scheme_scorecard(scheme_code)
+    if not data:
+        return MfResult(
+            scheme_code=scheme_code, ok=False,
+            summary="Scorecard not available — analytics may not have run yet",
+            error="scorecard_not_found",
+        )
+    summary, signals = _interpret_mf(data)
+    return MfResult(scheme_code=scheme_code, ok=True, summary=summary, signals=signals, data=data)
+
+
 async def get_mf_performance(scheme_code: str) -> MfResult:
     """Fetch and interpret performance metrics for a single MF scheme.
 
     Used for: "How is Mirae Asset Large Cap doing?", "What is the Sharpe ratio of HDFC Top 100?"
+    Automatically uses the richer scorecard data (composite score, quality label,
+    quartile rankings) when available, falling back to plain performance metrics.
     """
-    data = await _get_scheme_performance(scheme_code)
+    data = await _get_scheme_data(scheme_code)
     if not data:
         return MfResult(
             scheme_code=scheme_code, ok=False,

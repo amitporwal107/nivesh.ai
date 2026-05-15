@@ -647,3 +647,41 @@ async def remove_feature_user(flag: str, email: str, request: Request):
     feature_flags.remove_user(flag, email)
     await feature_flags.persist_to_db(db, updated_by=user.get("email", ""))
     return {"status": "ok", "flag": flag, "email": email}
+
+
+@router.post("/admin/nidp/export-portfolio")
+async def trigger_portfolio_gcs_export(request: Request):
+    """Export Nivesh portfolio holdings to GCS landing zone for NIDP consumption.
+
+    Optional body: {"date": "YYYY-MM-DD"} to export a specific snapshot date.
+    Default: latest snapshot per client.
+    """
+    await require_admin(request)
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    target_date = None
+    if body.get("date"):
+        from datetime import date as _date
+        try:
+            target_date = _date.fromisoformat(body["date"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+
+    from services.pg_client import get_pool
+    from services.portfolio_gcs_export import export_portfolio_to_gcs
+
+    pool = await get_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Postgres pool not initialised — check POSTGRES_URL secret")
+
+    try:
+        result = await export_portfolio_to_gcs(pool, target_date=target_date)
+        logger.info("portfolio GCS export triggered by admin: %s", result)
+        return {"status": "ok", **result}
+    except Exception as exc:
+        logger.error("portfolio GCS export failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))

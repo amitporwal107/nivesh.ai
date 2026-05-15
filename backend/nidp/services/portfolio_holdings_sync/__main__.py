@@ -19,7 +19,7 @@ from nidp.shared.derived_run import run_with_job_log
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool
 
-from .service import run, _close_nivesh_pool
+from .service import run
 
 
 def _parse_date(s: str) -> date:
@@ -42,7 +42,6 @@ async def _runner(target_date: date | None, run_intel: bool) -> None:
             logging.getLogger(__name__).info("intelligence pass complete: %s", intel)
 
     finally:
-        await _close_nivesh_pool()
         await close_pool()
 
 

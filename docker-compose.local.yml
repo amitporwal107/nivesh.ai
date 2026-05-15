@@ -113,8 +113,8 @@ services:
     restart: unless-stopped
     command: ["uvicorn", "nidp.services.query_api.app:app", "--host", "0.0.0.0", "--port", "8090", "--proxy-headers", "--forwarded-allow-ips", "*"]
     environment:
-      NIDP_POSTGRES_URL:   postgresql://${POSTGRES_NIDP_USER:-postgres}:${POSTGRES_NIDP_PASSWORD:-postgres}@postgres-nidp:5432/${POSTGRES_NIDP_DB:-nidp}
-      NIVESH_POSTGRES_URL: postgresql://${POSTGRES_APP_USER:-nivesh}:${POSTGRES_APP_PASSWORD:-nivesh_local}@postgres-app:5432/${POSTGRES_APP_DB:-nivesh_dev}
+      NIDP_POSTGRES_URL:    postgresql://${POSTGRES_NIDP_USER:-postgres}:${POSTGRES_NIDP_PASSWORD:-postgres}@postgres-nidp:5432/${POSTGRES_NIDP_DB:-nidp}
+      NIDP_GCS_BUCKET:      ${NIDP_GCS_BUCKET:-nidp-raw-niveshdataintelligence}
       NIDP_QUERY_API_TOKEN: ${NIDP_QUERY_API_TOKEN:-dev-sync-token-local}
       PYTHONPATH:           /app/backend
       LOG_LEVEL:            info
@@ -124,7 +124,6 @@ services:
     networks: [nivesh-local]
     depends_on:
       postgres-nidp: { condition: service_healthy }
-      postgres-app:  { condition: service_healthy }
       nidp-daas-api: { condition: service_started }
 
   backend:
@@ -141,6 +140,7 @@ services:
       NIDP_DAAS_BASE_URL:   http://nidp-daas-api:8083
       NIDP_QUERY_API_URL:   http://nidp-query-api:8090
       NIDP_QUERY_API_TOKEN: ${NIDP_QUERY_API_TOKEN:-dev-sync-token-local}
+      NIDP_GCS_BUCKET:      ${NIDP_GCS_BUCKET:-nidp-raw-niveshdataintelligence}
       PYTHONPATH:           /app/backend
       TZ:                 Asia/Kolkata
     ports: ["${BACKEND_PORT:-8001}:8001"]

@@ -133,16 +133,16 @@ top10_conc AS (
     GROUP BY scheme_code
 ),
 
--- ── Latest Groww-scraped fallback (for un-migrated fields) ───────────
+-- ── Groww-scraped fallback ───────────────────────────────────────────
+-- Provides ytm, modified_duration, investment_style, moneycontrol_imid,
+-- morningstar_rating, and temporary fallbacks for the 6 fields that will
+-- be replaced by nidp.mf_derived_analytics once migration 051 is applied
+-- and nidp.refresh_mf_derived_analytics() has been run.
+-- Migration 051 re-creates this view with a nidp_derived CTE that takes
+-- priority over these legacy_* fallbacks.
 mf_legacy AS (
     SELECT
         mfmd.instrument_id,
-        mfmd.consistency_score,
-        mfmd.downside_capture_pct,
-        mfmd.aum_trend_score,
-        mfmd.turnover_ratio,
-        mfmd.credit_quality_score,
-        mfmd.duration_risk_score,
         mfmd.ytm,
         mfmd.modified_duration,
         mfmd.investment_style,
@@ -161,6 +161,13 @@ mf_legacy AS (
         mfmd.max_drawdown_pct            AS legacy_max_drawdown,
         mfmd.top10_concentration_pct     AS legacy_top10_conc,
         mfmd.expense_trend_delta         AS legacy_expense_trend,
+        -- Fallbacks for the 4 previously-Groww-only fields
+        mfmd.turnover_ratio              AS legacy_turnover_ratio,
+        mfmd.consistency_score           AS legacy_consistency,
+        mfmd.downside_capture_pct        AS legacy_dc_pct,
+        mfmd.aum_trend_score             AS legacy_aum_trend,
+        mfmd.credit_quality_score        AS legacy_credit_quality,
+        mfmd.duration_risk_score         AS legacy_duration_risk,
         mfpr.ret_1y                      AS legacy_ret_1y,
         mfpr.ret_3y                      AS legacy_ret_3y,
         mfpr.ret_5y                      AS legacy_ret_5y,
@@ -225,22 +232,23 @@ SELECT
 
     -- Portfolio structure
     COALESCE(t10.top10_concentration_pct, leg.legacy_top10_conc)   AS top10_concentration_pct,
-    leg.turnover_ratio,                                            -- not yet in NIDP
+    -- Turnover: falls back to Groww until migration 051 populates mf_derived_analytics
+    leg.legacy_turnover_ratio                                        AS turnover_ratio,
 
     -- Category averages for excess-return computation
     COALESCE(ca.cat_avg_1y, leg.legacy_cat_avg_1y)                 AS category_avg_1y,
     COALESCE(ca.cat_avg_3y, leg.legacy_cat_avg_3y)                 AS category_avg_3y,
     COALESCE(ca.cat_avg_5y, leg.legacy_cat_avg_5y)                 AS category_avg_5y,
 
-    -- Risk metrics
+    -- Risk metrics — fallback to Groww until migration 051 upgrades this view
     COALESCE(lr.max_drawdown_1y, leg.legacy_max_drawdown)          AS max_drawdown_pct,
-    leg.consistency_score,                                         -- nav_analytics computed, not yet in NIDP
-    leg.downside_capture_pct,                                      -- nav_analytics computed, not yet in NIDP
-    leg.aum_trend_score,                                           -- nav_analytics computed, not yet in NIDP
+    leg.legacy_consistency                                           AS consistency_score,
+    leg.legacy_dc_pct                                               AS downside_capture_pct,
+    leg.legacy_aum_trend                                            AS aum_trend_score,
 
-    -- Debt-specific (MoneyControl sourced, no NIDP equivalent yet)
-    leg.credit_quality_score,
-    leg.duration_risk_score,
+    -- Debt-specific — fallback until migration 051 upgrades this view
+    leg.legacy_credit_quality                                        AS credit_quality_score,
+    leg.legacy_duration_risk                                         AS duration_risk_score,
     leg.ytm,
     leg.modified_duration,
     leg.investment_style,

@@ -79,19 +79,37 @@ async def calculate_stock_exit_score(
     3. Score using InstrumentScoringEngine
     """
     from services.groww_fundamentals import fetch_stock_fundamentals
-    
-    # Fetch real-time fundamentals from Groww
+
     nse_symbol = stock_holding.get("nse_symbol")
     fundamentals = None
     if nse_symbol:
+        # Try NIDP bridge view first (migration 055); fall back to Groww scrape
         try:
-            fundamentals = await fetch_stock_fundamentals(nse_symbol)
-            if fundamentals:
-                # Merge fundamentals into stock_holding for scoring
-                stock_holding = {**stock_holding, **fundamentals}
-                logger.info("Fetched fundamentals for %s: P/E=%s, ROE=%s", stock_holding['name'], fundamentals.get('pe_ratio'), fundamentals.get('roe'))
-        except Exception as e:
-            logger.warning("Failed to fetch fundamentals for %s: %s", nse_symbol, e)
+            import sys, os
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
+            from nidp.services.stock_scorer_nidp import fetch_primitives_nidp
+            from nidp.services import pg_client as _pg
+            pool = await _pg.get_pool()
+            if pool is not None:
+                async with pool.acquire() as _conn:
+                    fundamentals = await fetch_primitives_nidp(_conn, nse_symbol)
+        except Exception as _e:
+            logger.debug("NIDP primitives unavailable for %s: %s — falling back to Groww", nse_symbol, _e)
+
+        if fundamentals is None:
+            try:
+                fundamentals = await fetch_stock_fundamentals(nse_symbol)
+            except Exception as e:
+                logger.warning("Failed to fetch fundamentals for %s: %s", nse_symbol, e)
+
+        if fundamentals:
+            stock_holding = {**stock_holding, **fundamentals}
+            logger.info(
+                "Fetched fundamentals for %s: P/E=%s, ROE=%s",
+                stock_holding.get("name", nse_symbol),
+                fundamentals.get("pe_ratio") or fundamentals.get("pe_ttm"),
+                fundamentals.get("roe_pct"),
+            )
     
     # Calculate tax impact
     tax_result = tax_calculator.calculate_tax_impact(stock_holding)

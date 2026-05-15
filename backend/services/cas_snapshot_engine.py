@@ -503,18 +503,29 @@ async def create_cas_snapshot(
         aggs=aggs,
     )
 
-    # Trigger NIDP portfolio sync immediately so intelligence is fresh for
-    # this client without waiting for the 23:00 scheduled run.
-    # Fire-and-forget — a NIDP outage must never block the CAS upload response.
-    try:
-        from services import nidp_query_client as _nqc
-        if _nqc.is_configured():
-            import asyncio as _asyncio
-            _asyncio.ensure_future(
-                _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
-            )
-    except Exception:  # noqa: BLE001
-        logger.debug("NIDP portfolio sync trigger skipped (query client not configured)")
+    # Export fresh holdings to GCS then trigger NIDP sync — fire-and-forget.
+    # NIDP reads from GCS (no cross-VM PG bridge needed).
+    import asyncio as _asyncio
+
+    async def _export_then_sync() -> None:
+        try:
+            from services.pg_client import get_pool as _get_pg_pool
+            from services.portfolio_gcs_export import export_portfolio_to_gcs
+            pool = await _get_pg_pool()
+            if pool:
+                result = await export_portfolio_to_gcs(pool, target_date=snapshot_date)
+                logger.info("portfolio GCS export after CAS import: %s", result)
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning("portfolio GCS export failed (non-blocking): %s", _exc)
+            return  # don't attempt NIDP sync if export failed
+        try:
+            from services import nidp_query_client as _nqc
+            if _nqc.is_configured():
+                await _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
+        except Exception as _exc:  # noqa: BLE001
+            logger.debug("NIDP portfolio sync trigger skipped: %s", _exc)
+
+    _asyncio.ensure_future(_export_then_sync())
 
     # If this snapshot is now the latest → mirror to the live holdings table
     if is_latest:
