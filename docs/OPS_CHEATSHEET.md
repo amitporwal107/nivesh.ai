@@ -57,37 +57,76 @@ sudo EXTERNAL_IP=34.100.186.141 bash /opt/nivesh/deploy/deploy.sh
 
 ## 2. nivesh-app-vm — Redeploy (Code Changes)
 
+**Always use `redeploy.sh` — never build images or restart containers manually.**
+
+`redeploy.sh` does 7 steps every run:
+1. `git reset --hard origin/<branch>` — pulls latest code
+2. Syncs ALL deploy files from repo → `/opt/nivesh/deploy/` **(prevents stale-file failures)**
+3. Detects external IP
+4. Builds backend image (if needed)
+5. Builds frontend image with `PUBLIC_URL=/v2` **(mandatory — prevents MIME errors)**
+6. Replaces and restarts changed containers
+7. Health-checks `/api/health`
+
 ```bash
-# SSH into VM first
-gcloud compute ssh nivesh-app-vm \
-  --project=niveshdataintelligence --zone=asia-south1-a
+# Full redeploy (both backend + frontend) — standard workflow
+bash deploy/nivesh-app/redeploy.sh
 
-# Full deploy (pulls latest code, rebuilds if needed, restarts all services)
-sudo bash /opt/nivesh/deploy/deploy.sh
+# Frontend only (CSS/JS changes — much faster, skips backend build)
+bash deploy/nivesh-app/redeploy.sh --frontend-only
 
-# Code-only restart (no image rebuild — fastest, use when only .py files changed)
-sudo git -C /opt/nivesh/repo pull && \
-  docker compose -f /opt/nivesh/deploy/docker-compose.prod.yml restart backend
+# Backend only (Python changes, requirements.txt changes)
+bash deploy/nivesh-app/redeploy.sh --backend-only
+
+# Specific branch
+bash deploy/nivesh-app/redeploy.sh --branch main
+```
+
+> Run from your laptop — the script detects the local context and SSH-forwards to the VM automatically.
+
+**When does each option apply?**
+
+| Changed file(s) | Command |
+|---|---|
+| `frontend/src/**` (JS/CSS) | `--frontend-only` |
+| `backend/**` (Python, no new deps) | `--backend-only` |
+| `backend/requirements.txt` | (full rebuild, no flag) |
+| `deploy/*/Dockerfile*` or `nginx.conf` | (full rebuild, no flag) |
+| Both frontend and backend | (no flag) |
+
+**Emergency: fast Python-only restart (no rebuild)**
+
+```bash
+# On the VM — pull code and restart backend process without rebuilding image
+git -C /opt/nivesh/repo reset --hard origin/nivesh-v2-copilot
+docker restart nivesh-backend
 ```
 
 ---
 
 ## 3. nivesh-app-vm — Build Images Manually
 
+Use `redeploy.sh --backend-only` or `--frontend-only` instead. If you must build manually:
+
 ```bash
-# Build backend image (only needed when requirements.txt changes)
+# On the VM — backend image
 docker build \
   -f /opt/nivesh/deploy/Dockerfile.backend.prod \
   -t nivesh/backend:prod \
   /opt/nivesh/repo
 
-# Build frontend image (only needed when frontend/src changes)
+# On the VM — frontend image (PUBLIC_URL=/v2 is MANDATORY)
 docker build \
   -f /opt/nivesh/deploy/Dockerfile.frontend.prod \
-  --build-arg REACT_APP_BACKEND_URL=http://34.100.186.141.nip.io \
+  --build-arg PUBLIC_URL=/v2 \
+  --build-arg REACT_APP_BACKEND_URL=https://niveshcopilot.com \
   -t nivesh/frontend:prod \
   /opt/nivesh/repo
 ```
+
+> **Without `PUBLIC_URL=/v2`**: webpack bakes `/static/js/...` paths into `index.html`.
+> nginx serves `/v2/` but not `/static/`, so all JS/CSS 301-redirect to `/v2/` and browsers get HTML
+> instead of JS/CSS → MIME type error → blank page.
 
 ---
 
