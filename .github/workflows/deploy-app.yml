@@ -1,0 +1,91 @@
+name: Deploy → nivesh-app-vm
+
+# Triggers on pushes to the deploy branch when app code changes.
+# Also triggerable manually with granular control.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '!backend/nidp/**'
+      - 'deploy/nivesh-app/**'
+
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'What to deploy'
+        type: choice
+        options:
+          - both
+          - frontend-only
+          - backend-only
+        default: both
+      branch:
+        description: 'Branch to deploy (default: main)'
+        type: string
+        default: main
+
+# Only one deploy at a time; new pushes cancel in-progress deploys.
+concurrency:
+  group: deploy-app
+  cancel-in-progress: false   # never cancel a running deploy — let it finish
+
+jobs:
+  deploy:
+    name: Deploy to nivesh-app-vm
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Resolve deploy args ──────────────────────────────────────────────
+      - name: Resolve deploy target and branch
+        id: config
+        run: |
+          TARGET="${{ github.event.inputs.target || 'both' }}"
+          BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
+
+          ARGS=""
+          [[ "$TARGET" == "frontend-only" ]] && ARGS="--frontend-only"
+          [[ "$TARGET" == "backend-only"  ]] && ARGS="--backend-only"
+
+          echo "args=$ARGS"       >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH"   >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET"   >> "$GITHUB_OUTPUT"
+
+      # ── Deploy via SSH ────────────────────────────────────────────────────
+      # Secrets required in GitHub → Settings → Secrets → Actions:
+      #   NIVESH_APP_VM_HOST    IP address of nivesh-app-vm
+      #   NIVESH_APP_VM_SSH_KEY Ed25519 private key (matching a key in VM's
+      #                         ~/.ssh/authorized_keys for the SSH_USER)
+      #   SSH_USER              aporwal107_gmail_com  (or whichever user has sudo)
+      - name: SSH into VM and redeploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIVESH_APP_VM_HOST }}
+          username:         ${{ secrets.SSH_USER }}
+          key:              ${{ secrets.NIVESH_APP_VM_SSH_KEY }}
+          port:             22
+          timeout:          10m
+          command_timeout:  30m
+          script: |
+            set -euo pipefail
+            echo "=== Deploy triggered by GitHub Actions ==="
+            echo "    Branch : ${{ steps.config.outputs.branch }}"
+            echo "    Target : ${{ steps.config.outputs.target }}"
+            echo "    Commit : ${{ github.sha }}"
+            echo ""
+
+            # Run the existing redeploy script as root with the correct branch.
+            sudo BRANCH="${{ steps.config.outputs.branch }}" \
+              bash /opt/nivesh/deploy/redeploy.sh ${{ steps.config.outputs.args }}
+
+      # ── Post-deploy health probe from runner ──────────────────────────────
+      - name: External health check
+        run: |
+          echo "Waiting 15s for containers to stabilise..."
+          sleep 15
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --max-time 10 https://niveshcopilot.com/api/health \
+            2>/dev/null || echo "000")
+          echo "Health check → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || { echo "::warning::Health check returned $HTTP"; }

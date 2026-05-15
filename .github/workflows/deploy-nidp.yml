@@ -1,0 +1,95 @@
+name: Deploy → nidp-stack-vm
+
+# Triggers when NIDP backend code changes on the deploy branch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/nidp/**'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy from'
+        type: string
+        default: main
+
+concurrency:
+  group: deploy-nidp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy NIDP to nidp-stack-vm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      # ── SSH agent ─────────────────────────────────────────────────────────
+      # Secrets required:
+      #   NIDP_VM_SSH_KEY   Ed25519 private key authorised on nidp-stack-vm
+      #   NIDP_VM_HOST      IP of nidp-stack-vm (currently 34.93.60.254)
+      #   SSH_USER          aporwal107_gmail_com
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.NIDP_VM_SSH_KEY }}
+
+      - name: Add nidp-stack-vm to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.NIDP_VM_HOST }}" >> ~/.ssh/known_hosts
+
+      # ── Rsync NIDP code ───────────────────────────────────────────────────
+      - name: Sync backend/nidp → VM
+        run: |
+          rsync -az --delete \
+            --exclude="__pycache__" \
+            --exclude="*.pyc" \
+            --exclude=".git" \
+            --exclude="*.egg-info" \
+            --exclude=".pytest_cache" \
+            backend/nidp/ \
+            "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}:/opt/nidp/repo/backend/nidp/"
+
+          echo "✅ Code synced. Commit: ${{ github.sha }}"
+
+      # ── Restart NIDP services ─────────────────────────────────────────────
+      - name: Restart NIDP services on VM
+        run: |
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-ci]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-ci]\033[0m %s\n' "$*"; }
+
+            # Reload cron jobs (new scheduler scripts)
+            sudo systemctl reload cron 2>/dev/null && ok "Cron reloaded." || log "Cron: skipped."
+
+            # Restart query API if it exists as a systemd service
+            if sudo systemctl is-active --quiet nidp-query-api 2>/dev/null; then
+              sudo systemctl restart nidp-query-api
+              ok "nidp-query-api restarted."
+            fi
+
+            # Restart DaaS API if it exists
+            if sudo systemctl is-active --quiet nidp-daas 2>/dev/null; then
+              sudo systemctl restart nidp-daas
+              ok "nidp-daas restarted."
+            fi
+
+            ok "All NIDP services reloaded."
+          REMOTE
+
+      # ── Health check ──────────────────────────────────────────────────────
+      - name: Health check DaaS
+        run: |
+          sleep 8
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --max-time 10 "http://${{ secrets.NIDP_VM_HOST }}:8010/health" \
+            2>/dev/null || echo "000")
+          echo "DaaS health → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || echo "::warning::DaaS health returned $HTTP (may be internal-only)"

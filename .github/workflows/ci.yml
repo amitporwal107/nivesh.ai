@@ -1,0 +1,57 @@
+name: CI — Quality Gates
+
+on:
+  pull_request:
+    branches: [main, nivesh-v2-copilot]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Backend: Python syntax + import check ──────────────────────────────────
+  backend-check:
+    name: Backend — syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Syntax check all Python files
+        run: |
+          find backend -name "*.py" -not -path "*/__pycache__/*" \
+            -exec python -m py_compile {} +
+          echo "✅ All Python files compile cleanly."
+
+  # ── Frontend: build check ──────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend — build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn --cwd frontend install --frozen-lockfile --network-timeout 600000
+
+      - name: Build
+        run: yarn --cwd frontend build
+        env:
+          REACT_APP_BACKEND_URL: https://niveshcopilot.com
+          PUBLIC_URL: /v2
+          CI: 'false'   # don't treat warnings as errors
+
+      - name: Report bundle size
+        run: |
+          du -sh frontend/build/ || true
+          echo "✅ Frontend build succeeded."
