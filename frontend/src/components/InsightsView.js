@@ -19,6 +19,7 @@ import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
 import PortfolioIntelligenceTab from "@/components/insights/PortfolioIntelligenceTab";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import V3PortfolioInsights from "@/components/insights/V3PortfolioInsights";
+import { PerformanceAnalyticsCockpit, DiversificationHero } from "@/components/insights/PortfolioAnalyticsCharts";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -236,7 +237,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
   const tabs = [
     { id: "overview", label: "AI Overview" },
     { id: "performance_benchmark", label: "Performance & Benchmark" },
-    { id: "fund_overlap_insights", label: "Fund & Overlap Insights" },
+    { id: "fund_overlap_insights", label: "Diversification & Consolidation" },
     { id: "tax", label: "Tax", wip: true },
     { id: "risk", label: "Risk" },
   ];
@@ -349,11 +350,18 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
                   <button
+                    data-testid="jump-to-cockpit"
+                    onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                    className="px-3 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-900 hover:bg-violet-100 dark:hover:bg-violet-950/70"
+                  >
+                    ↑ Analytics Cockpit
+                  </button>
+                  <button
                     data-testid="jump-to-performance"
                     onClick={() => document.getElementById("section-performance")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
                   >
-                    ↓ Performance (per-holding)
+                    ↓ Per-holding Table
                   </button>
                   <button
                     data-testid="jump-to-benchmark"
@@ -373,6 +381,14 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                   </button>
                 </div>
               </div>
+
+              {/* Visual Analytics Cockpit — Health Gauge, Risk/Return, Action Matrix, Waterfall */}
+              <PerformanceAnalyticsCockpit
+                perfCards={perfCards}
+                fundPerformance={fundPerformance}
+                portfolioHealth={portfolioHealth}
+                fmt={fmt}
+              />
 
               {/* Section 1: Performance */}
               <CollapsibleSection
@@ -420,7 +436,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
             </div>
           )}
 
-          {/* ══════════════ TAB: FUND & OVERLAP INSIGHTS (merged) ══════════════ */}
+          {/* ══════════════ TAB: DIVERSIFICATION & CONSOLIDATION ══════════════ */}
           {activeTab === "fund_overlap_insights" && (
             <div className="space-y-6" data-testid="tab-fund-overlap-content">
               {/* Sticky section quick-nav */}
@@ -451,6 +467,12 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                   </button>
                 </div>
               </div>
+
+              {/* Diversification Score Hero */}
+              <DiversificationHero
+                perfCards={perfCards}
+                fundPerformance={fundPerformance}
+              />
 
               {/* Section 1: Fund Overlap (stock-level) */}
               <CollapsibleSection
