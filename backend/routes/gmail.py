@@ -7,7 +7,7 @@ import os
 import uuid
 import logging
 
-from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI
+from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
 from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
 from services.gmail_service import (
     get_authorization_url, exchange_code_for_tokens,
@@ -141,7 +141,28 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     )
 
     logger.info("Gmail connected for user %s", user_id)
-    return RedirectResponse(url=f"{return_to}?gmail=connected")
+
+    # Issue a fresh session cookie on the redirect response so the user is
+    # always authenticated when they land back on the app — the existing
+    # cookie may not survive the Google OAuth redirect chain through Cloudflare.
+    new_session_token = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": new_session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response = RedirectResponse(url=f"{return_to}?gmail=connected")
+    response.set_cookie(
+        key="session_token",
+        value=new_session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7 * 24 * 3600,
+    )
+    return response
 
 
 @router.get("/gmail/status")
