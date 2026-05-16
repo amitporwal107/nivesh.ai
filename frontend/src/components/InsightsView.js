@@ -5,6 +5,7 @@ import {
   ArrowRight, Target, DollarSign, Shield, Layers, Building2,
   BarChart3, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Filter, Zap,
   HelpCircle, Lightbulb, GripHorizontal, Maximize2, Minimize2, RotateCcw, MessageSquare,
+  TableProperties,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -346,95 +347,17 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
 
           {/* ══════════════ TAB: PERFORMANCE & BENCHMARK (merged) ══════════════ */}
           {activeTab === "performance_benchmark" && (
-            <div className="space-y-6" data-testid="tab-performance-benchmark-content">
-              {/* Sticky section quick-nav */}
-              <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-                  <button
-                    data-testid="jump-to-cockpit"
-                    onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-                    className="px-3 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-900 hover:bg-violet-100 dark:hover:bg-violet-950/70"
-                  >
-                    ↑ Analytics Cockpit
-                  </button>
-                  <button
-                    data-testid="jump-to-performance"
-                    onClick={() => document.getElementById("section-performance")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
-                  >
-                    ↓ Per-holding Table
-                  </button>
-                  <button
-                    data-testid="jump-to-benchmark"
-                    onClick={() => document.getElementById("section-benchmark")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    className="px-3 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-400 border border-sky-200 dark:border-sky-900 hover:bg-sky-100 dark:hover:bg-sky-950/70"
-                  >
-                    ↓ Benchmark comparison
-                  </button>
-                  <button
-                    data-testid="reset-layout-perf-bench"
-                    onClick={() => resetSectionLayouts(["section-performance", "section-benchmark"])}
-                    className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-500 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5"
-                    title="Reset collapsed state and heights for this tab"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Reset layout
-                  </button>
-                </div>
-              </div>
-
-              {/* Visual Analytics Cockpit — Health Gauge, Risk/Return, Action Matrix, Waterfall */}
-              <PerformanceAnalyticsCockpit
-                perfCards={perfCards}
-                fundPerformance={fundPerformance}
-                portfolioHealth={portfolioHealth}
-                fmt={fmt}
-              />
-
-              {/* Section 1: Performance */}
-              <CollapsibleSection
-                id="section-performance"
-                title="Performance"
-                subtitle="Return, risk and cost per holding"
-                accent="bg-emerald-500"
-                defaultHeight={700}
-                focusedId={focusedSection}
-                onToggleFocus={setFocusedSection}
-              >
-                <PerformanceTab
-                  cards={sortedPerfCards}
-                  allCards={perfCards}
-                  sort={perfSort}
-                  dir={perfDir}
-                  filter={perfFilter}
-                  setSort={setPerfSort}
-                  setDir={setPerfDir}
-                  setFilter={setPerfFilter}
-                  fmt={fmt}
-                />
-              </CollapsibleSection>
-
-              {/* Divider */}
-              <div className="border-t border-slate-200 dark:border-white/5" />
-
-              {/* Section 2: Benchmark */}
-              <CollapsibleSection
-                id="section-benchmark"
-                title="Benchmark Comparison"
-                subtitle="How each fund ranks vs its category benchmark"
-                accent="bg-sky-500"
-                defaultHeight={700}
-                focusedId={focusedSection}
-                onToggleFocus={setFocusedSection}
-              >
-                <BenchmarkTab
-                  data={fundPerformance}
-                  loading={loadingBenchmark}
-                  onLoad={fetchFundPerformance}
-                  fmt={fmt}
-                />
-              </CollapsibleSection>
-            </div>
+            <PerformanceBenchmarkTab
+              perfCards={perfCards}
+              sortedPerfCards={sortedPerfCards}
+              fundPerformance={fundPerformance}
+              portfolioHealth={portfolioHealth}
+              loadingBenchmark={loadingBenchmark}
+              fetchFundPerformance={fetchFundPerformance}
+              perfSort={perfSort} perfDir={perfDir} perfFilter={perfFilter}
+              setPerfSort={setPerfSort} setPerfDir={setPerfDir} setPerfFilter={setPerfFilter}
+              fmt={fmt}
+            />
           )}
 
           {/* ══════════════ TAB: DIVERSIFICATION & CONSOLIDATION ══════════════ */}
@@ -473,8 +396,9 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 fundPerformance={fundPerformance}
               />
 
-              {/* AMC / Sector / Company Exposure (Diversification & Concentration PRD, May 2026) */}
+              {/* AMC / Sector / Company Exposure + Category Overlap */}
               <ConcentrationAnalyticsTab
+                deepAnalytics={deepAnalytics}
                 onOpenChat={(prompt) => {
                   try {
                     sessionStorage.setItem("nivesh_chat_prefill", prompt || "");
@@ -608,6 +532,85 @@ const DailyMarketBriefing = ({ onOpenChat }) => {
   );
 };
 
+
+// ── Performance & Benchmark tab ──────────────────────────────────────────
+const PerformanceBenchmarkTab = ({
+  perfCards, sortedPerfCards, fundPerformance, portfolioHealth,
+  loadingBenchmark, fetchFundPerformance,
+  perfSort, perfDir, perfFilter, setPerfSort, setPerfDir, setPerfFilter, fmt,
+}) => {
+  const [showHoldings, setShowHoldings] = useState(false);
+
+  return (
+    <div className="space-y-6" data-testid="tab-performance-benchmark-content">
+      {/* Visual Analytics Cockpit — Health Gauge, Risk/Return, Action Matrix, Waterfall */}
+      <PerformanceAnalyticsCockpit
+        perfCards={perfCards}
+        fundPerformance={fundPerformance}
+        portfolioHealth={portfolioHealth}
+        fmt={fmt}
+      />
+
+      {/* Benchmark comparison (always visible) */}
+      <section id="section-benchmark">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-1.5 h-6 bg-sky-500 rounded-full" />
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Benchmark Comparison</h2>
+          <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1 hidden sm:inline">
+            · How each fund ranks vs its category benchmark
+          </span>
+        </div>
+        <BenchmarkTab
+          data={fundPerformance}
+          loading={loadingBenchmark}
+          onLoad={fetchFundPerformance}
+          fmt={fmt}
+        />
+      </section>
+
+      {/* Per-holding table — hidden by default, reveal on demand */}
+      <section id="section-performance">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Holdings Detail</h2>
+            <span className="text-xs text-slate-500 dark:text-zinc-500 ml-1 hidden sm:inline">
+              · Return, cost and weight per holding
+            </span>
+          </div>
+          <button
+            data-testid="toggle-holdings-table"
+            onClick={() => setShowHoldings(v => !v)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors
+              border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-300
+              hover:border-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-400
+              bg-white dark:bg-[#111]"
+          >
+            <TableProperties className="w-4 h-4" />
+            {showHoldings ? "Hide holdings table" : `Show all ${perfCards.length} holdings`}
+            {showHoldings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {showHoldings && (
+          <div className="mt-4">
+            <PerformanceTab
+              cards={sortedPerfCards}
+              allCards={perfCards}
+              sort={perfSort}
+              dir={perfDir}
+              filter={perfFilter}
+              setSort={setPerfSort}
+              setDir={setPerfDir}
+              setFilter={setPerfFilter}
+              fmt={fmt}
+            />
+          </div>
+        )}
+      </section>
+    </div>
+  );
+};
 
 // ── Tax tab ──────────────────────────────────────────────────────────
 const TaxInsightsTab = ({ onOpenChat }) => {
@@ -2630,63 +2633,6 @@ const BenchmarkTab = ({ data, loading, onLoad, fmt }) => {
           </Card>
         </motion.div>
       </div>
-
-      {/* MF Category Overlap — Visual Card Grid */}
-      {overlapBarData.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card className="bg-white dark:bg-[#121212] border-slate-100 dark:border-slate-200 dark:border-white/5 rounded-2xl">
-            <CardContent className="p-6 md:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
-                  <Layers className="w-5 h-5 text-amber-600" strokeWidth={1.5} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-medium text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                    MF Category Overlap
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-zinc-500">
-                    Categories with 2+ funds indicate potential overlap and redundancy
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" data-testid="category-overlap-chart">
-                {overlapBarData.map((d, i) => {
-                  const isOverlapping = d.overlapping;
-                  return (
-                    <div
-                      key={`cat-${d.name}`}
-                      className={`rounded-xl p-4 border transition-all hover:shadow-sm ${
-                        isOverlapping
-                          ? "border-amber-200 bg-amber-50/50 dark:bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800"
-                          : "border-emerald-200 bg-emerald-50/50 dark:bg-emerald-900/10 dark:border-emerald-800"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={`text-2xl font-bold ${isOverlapping ? "text-amber-600" : "text-emerald-600"}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-                          {d.count}
-                        </span>
-                        {isOverlapping && (
-                          <AlertTriangle className="w-4 h-4 text-amber-500" strokeWidth={1.5} />
-                        )}
-                      </div>
-                      <p className="text-xs font-medium text-slate-700 dark:text-zinc-300">{d.fullName || d.name}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        {isOverlapping ? "Potential overlap" : "Unique category"}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center gap-4 mt-4 text-[10px] font-bold tracking-wider uppercase">
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-500" />Overlapping (2+ funds)</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-500" />Unique</div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
 
       {/* Fund-by-Fund Benchmark Heatmap */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>

@@ -285,26 +285,32 @@ def compute_concentration(
         amc = _amc_from_scheme_name(h.get("name"))
         amc_buckets[amc]["value_inr"] += v
         amc_buckets[amc]["count"] += 1
-    amc_items = [{"name": k, "value_inr": v["value_inr"], "count": v["count"]} for k, v in amc_buckets.items()]
+        amc_buckets[amc].setdefault("funds", [])
+        fname = (h.get("name") or "")[:60]
+        if fname and fname not in amc_buckets[amc]["funds"]:
+            amc_buckets[amc]["funds"].append(fname)
+    amc_items = [{"name": k, "value_inr": v["value_inr"], "count": v["count"], "funds": v.get("funds", [])} for k, v in amc_buckets.items()]
     amc_section = _build_section(amc_items, warn_largest_pct=30, warn_top_label="AMC")
 
     # 3. Sector buckets — equity uses its `sector`, MF dissolves via lookthrough
     sector_buckets: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"value_inr": 0.0, "via": defaultdict(float)}
+        lambda: {"value_inr": 0.0, "via": defaultdict(float), "holdings": []}
     )
     for h in holdings:
         v = _hv(h)
         if v <= 0:
             continue
         atype = (h.get("asset_type") or "").lower()
+        hname = (h.get("name") or "")[:50]
         if atype == "equity":
             sec = (h.get("sector") or "Other").strip() or "Other"
             sector_buckets[sec]["value_inr"] += v
             sector_buckets[sec]["via"]["direct"] += v
+            if hname and hname not in sector_buckets[sec]["holdings"]:
+                sector_buckets[sec]["holdings"].append(hname)
         elif atype in {"mutual_fund", "etf"}:
             lookup = fund_lookthrough.get(h.get("ticker") or "")
             if lookup and (lookup.get("sectors") or []):
-                # Dissolve into underlying sectors by pct
                 for s in (lookup.get("sectors") or []):
                     name = s.get("name") or "Other"
                     pct = float(s.get("pct") or 0)
@@ -312,21 +318,26 @@ def compute_concentration(
                         continue
                     sector_buckets[name]["value_inr"] += v * (pct / 100.0)
                     sector_buckets[name]["via"]["mf"] += v * (pct / 100.0)
+                    if hname and hname not in sector_buckets[name]["holdings"]:
+                        sector_buckets[name]["holdings"].append(hname)
             else:
-                # Fallback — treat the whole MF value under its own sector field
                 sec = (h.get("sector") or "Other").strip() or "Other"
-                # MF "sector" is often broad like "Gold", "Liquid" — keep it
                 sector_buckets[sec]["value_inr"] += v
                 sector_buckets[sec]["via"]["mf"] += v
+                if hname and hname not in sector_buckets[sec]["holdings"]:
+                    sector_buckets[sec]["holdings"].append(hname)
         elif atype == "gold":
             sector_buckets["Gold"]["value_inr"] += v
             sector_buckets["Gold"]["via"]["gold"] += v
+            if hname and hname not in sector_buckets["Gold"]["holdings"]:
+                sector_buckets["Gold"]["holdings"].append(hname)
     sector_items = []
     for k, vobj in sector_buckets.items():
         sector_items.append({
             "name": k,
             "value_inr": vobj["value_inr"],
             "via": dict(vobj["via"]),
+            "holdings": list(vobj.get("holdings", []))[:10],
         })
     sector_section = _build_section(sector_items, warn_largest_pct=35, warn_top_label="Sector")
 

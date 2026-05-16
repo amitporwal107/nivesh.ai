@@ -134,7 +134,7 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                 scheme_data[code] = result
             await asyncio.sleep(0.2)  # Rate limit
 
-    tasks = [fetch_one(code) for code in codes_to_fetch[:30]]  # Max 30 funds
+    tasks = [fetch_one(code) for code in codes_to_fetch[:100]]
     await asyncio.gather(*tasks, return_exceptions=True)
 
     # Step 3: Group by category and compute category averages
