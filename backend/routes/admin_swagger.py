@@ -183,10 +183,24 @@ _SWAGGER_HTML = """<!DOCTYPE html>
 </html>"""
 
 
+_SWAGGER_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' https://unpkg.com 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://unpkg.com",
+    "img-src 'self' data: https:",
+    "font-src 'self' https://unpkg.com",
+    "connect-src 'self' https:",
+    "frame-ancestors 'none'",
+])
+
+
 @router.get("/api/admin/swagger", response_class=HTMLResponse, include_in_schema=False)
 async def swagger_ui(_user: dict = Depends(require_admin)):
     """Unified Swagger UI for all Nivesh APIs. Admin session required."""
-    return HTMLResponse(_SWAGGER_HTML)
+    response = HTMLResponse(_SWAGGER_HTML)
+    # Set before middleware runs — middleware uses setdefault so this won't be overwritten.
+    response.headers["Content-Security-Policy"] = _SWAGGER_CSP
+    return response
 
 
 @router.get("/api/admin/openapi/app.yaml", include_in_schema=False)
