@@ -737,6 +737,58 @@ async def v3_portfolio_summary(request: Request):
     except Exception as e:  # noqa: BLE001
         logger.warning("v3-portfolio category-rank build failed: %s", e)
 
+    # ── NIDP scorecard enrichment (best-effort, parallel) ─────────────────
+    # Resolve scheme_code for each holding: try holding directly, then
+    # fall back to v3_primitives if the holding doesn't carry the field.
+    nidp_scorecard_by_name: Dict[str, Optional[dict]] = {}
+    try:
+        import asyncio as _asyncio
+        from services.copilot_tools import daas_client as _dc
+
+        def _scheme_code_for(holding_doc: dict, v3_data: Optional[dict]) -> Optional[str]:
+            code = holding_doc.get("scheme_code")
+            if not code and v3_data:
+                code = (v3_data.get("v3_primitives") or {}).get("scheme_code")
+            return str(code) if code else None
+
+        # Build (name, scheme_code) pairs — de-duplicate by scheme_code
+        _seen_codes: set = set()
+        _tasks: list = []
+        _task_names: list = []
+        for _m in mf_investments:
+            _name = _m.get("scheme_name", "")
+            _iid  = _m.get("instrument_id")
+            _v3   = v3_integration.lookup_v3(_iid, _name, v3_by_key)
+            _h    = next((h for h in mf_holdings
+                          if _normalize_fund_name(h.get("name","")) ==
+                             _normalize_fund_name(_name)), {})
+            _code = _scheme_code_for(_h, _v3)
+            if _code and _code not in _seen_codes:
+                _seen_codes.add(_code)
+                _tasks.append(_dc.get_mf_scorecard(_code))
+                _task_names.append((_name, _code))
+
+        if _tasks:
+            _results = await _asyncio.gather(*_tasks, return_exceptions=True)
+            # Map scheme_code → scorecard; also index by name for the loop below
+            _code_to_sc: Dict[str, dict] = {}
+            for (_n, _c), _r in zip(_task_names, _results):
+                if isinstance(_r, dict):
+                    _code_to_sc[_c] = _r
+
+            # Re-walk investments so every name gets its scorecard
+            for _m in mf_investments:
+                _name = _m.get("scheme_name", "")
+                _iid  = _m.get("instrument_id")
+                _v3   = v3_integration.lookup_v3(_iid, _name, v3_by_key)
+                _h    = next((h for h in mf_holdings
+                              if _normalize_fund_name(h.get("name","")) ==
+                                 _normalize_fund_name(_name)), {})
+                _code = _scheme_code_for(_h, _v3)
+                nidp_scorecard_by_name[_name] = _code_to_sc.get(_code) if _code else None
+    except Exception as _e:  # noqa: BLE001
+        logger.info("NIDP scorecard batch-fetch skipped: %s", _e)
+
     for m in mf_investments:
         iid = m.get("instrument_id")
         name = m.get("scheme_name", "")
@@ -876,7 +928,28 @@ async def v3_portfolio_summary(request: Request):
             "category_rank": None,
             "category_rank_total": None,
             "category_rank_sub": None,
+            "nidp_scorecard": None,
         }
+        # Attach NIDP composite scorecard when available.
+        _nsc = nidp_scorecard_by_name.get(name)
+        if _nsc:
+            entry["nidp_scorecard"] = {
+                "composite_score":    _nsc.get("composite_score"),
+                "quality_label":      _nsc.get("quality_label"),
+                "composite_rank":     _nsc.get("composite_rank"),
+                "total_in_category":  _nsc.get("total_in_category"),
+                "top_position_pct":   _nsc.get("top_position_pct"),
+                "return_1y":          _nsc.get("return_1y"),
+                "return_3y":          _nsc.get("return_3y"),
+                "return_5y":          _nsc.get("return_5y"),
+                "sharpe_1y":          _nsc.get("sharpe_1y"),
+                "ter":                _nsc.get("ter"),
+                "qtile_ret1y":        _nsc.get("qtile_ret1y"),
+                "qtile_ret3y":        _nsc.get("qtile_ret3y"),
+                "qtile_sharpe":       _nsc.get("qtile_sharpe"),
+                "qtile_ter":          _nsc.get("qtile_ter"),
+                "qtile_maxdd":        _nsc.get("qtile_maxdd"),
+            }
         # Surface Morningstar + Category Rank from v3 + master catalogue.
         prim = (v3 or {}).get("v3_primitives") or {}
         entry["morningstar_rating"] = prim.get("morningstar_rating")
@@ -1030,6 +1103,29 @@ async def v3_portfolio_summary(request: Request):
         "n_morningstar_4plus": sum(1 for v in ms_values if v >= 4),
         "n_category_ranked": sum(1 for f in funds_out if f.get("category_rank")),
         "n_top_quartile": top_quartile,
+        # NIDP composite scorecard counters
+        "n_nidp_scored": sum(1 for f in funds_out if f.get("nidp_scorecard")),
+        "n_nidp_elite_good": sum(
+            1 for f in funds_out
+            if (f.get("nidp_scorecard") or {}).get("quality_label") in ("Elite", "Good")
+        ),
+        "n_nidp_underperformer": sum(
+            1 for f in funds_out
+            if (f.get("nidp_scorecard") or {}).get("quality_label") == "Underperformer"
+        ),
+        "avg_nidp_composite": round(
+            sum(
+                (f["nidp_scorecard"]["composite_score"] or 0)
+                for f in funds_out
+                if (f.get("nidp_scorecard") or {}).get("composite_score") is not None
+            ) / max(1, sum(
+                1 for f in funds_out
+                if (f.get("nidp_scorecard") or {}).get("composite_score") is not None
+            )), 1
+        ) if any(
+            (f.get("nidp_scorecard") or {}).get("composite_score") is not None
+            for f in funds_out
+        ) else None,
     }
     coverage_pct = round((covered_aum / total_aum) * 100, 1) if total_aum else 0
 

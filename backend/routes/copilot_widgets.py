@@ -75,16 +75,32 @@ class FundCardRequest(BaseModel):
                        description="Scheme name, code, or natural-language fragment")
 
 
+_QUALITY_LABEL_VERDICT = {
+    "Elite":           "Strong Buy",
+    "Good":            "Buy",
+    "Average":         "Hold",
+    "Below Average":   "Hold",
+    "Underperformer":  "Sell",
+}
+
+_RED_FLAG_EVENT_TYPES = {
+    "MANAGER_CHANGE", "TER_INCREASE", "RISK_INCREASE", "MERGER", "CATEGORY_CHANGE",
+}
+
+
 @router.post("/fund_card")
 async def fund_card(request: Request, payload: FundCardRequest):
     """Produce a Fund Card widget envelope for the given scheme.
 
     Reads from `mf_master` for static facts (category, AUM, expense),
-    `mf_nav_daily` (via DaaS or fallback to local `mf_nav_master`) for
-    current NAV, and computes return windows from `mf_nav_history` if
-    available. Verdict + rationale are deterministic for now (no LLM
-    call) — Phase C will swap in the MF Research agent.
+    enriches with NIDP DaaS scorecard (composite_score, quality_label,
+    peer-group rank) and lifecycle events (manager changes, TER hikes, mergers)
+    when available. Falls back to heuristic scoring when NIDP has no data.
     """
+    import asyncio
+    from services.copilot_tools import daas_client
+    from services.copilot_tools.daas_client import DaasError
+
     await get_current_user(request)
     q = payload.query.strip()
 
@@ -113,31 +129,131 @@ async def fund_card(request: Request, payload: FundCardRequest):
     aum_cr = scheme.get("aum_cr") or scheme.get("aum")
     expense_ratio = scheme.get("expense_ratio")
 
-    # Heuristic verdict (placeholder until MF Research agent ships).
-    score = 50
+    # ── NIDP DaaS enrichment ─────────────────────────────────────────
+    nidp_scorecard: Optional[dict] = None
+    nidp_events: List[dict] = []
+    if scheme_code:
+        try:
+            sc_task = daas_client.get_mf_scorecard(scheme_code)
+            ev_task = daas_client.get_mf_events(scheme_code, limit=20)
+            nidp_scorecard, nidp_events = await asyncio.gather(sc_task, ev_task,
+                                                                return_exceptions=True)
+            # gather returns exceptions as values when return_exceptions=True
+            if isinstance(nidp_scorecard, Exception):
+                logger.info("NIDP scorecard unavailable for %s: %s", scheme_code, nidp_scorecard)
+                nidp_scorecard = None
+            if isinstance(nidp_events, Exception):
+                nidp_events = []
+        except Exception as exc:
+            logger.info("NIDP fund_card enrichment failed for %s: %s", scheme_code, exc)
+            nidp_scorecard = None
+            nidp_events = []
+
+    # ── Derive score + verdict ────────────────────────────────────────
     why: List[str] = []
     watch_outs: List[str] = []
-    if expense_ratio and expense_ratio <= 0.8:
-        score += 15
-        why.append(f"Low expense ratio ({expense_ratio:.2f}%)")
-    if rets.get("5Y") and rets["5Y"] >= 15:
-        score += 15
-        why.append(f"Strong 5Y rolling return ({rets['5Y']:.1f}%)")
-    if rets.get("3Y") and rets["3Y"] >= 15:
-        score += 10
+    nidp_composite_score = None
+    nidp_quality_label = None
+    nidp_composite_rank = None
+    nidp_total_in_category = None
+    nidp_top_position_pct = None
+    nidp_red_flags: List[str] = []
+
+    if nidp_scorecard:
+        # Use NIDP composite_score (0–100) as the authoritative score
+        nidp_composite_score = nidp_scorecard.get("composite_score")
+        nidp_quality_label   = nidp_scorecard.get("quality_label")
+        nidp_composite_rank  = nidp_scorecard.get("composite_rank")
+        nidp_total_in_category = nidp_scorecard.get("total_in_category")
+        nidp_top_position_pct  = nidp_scorecard.get("top_position_pct")
+
+        score = int(round(nidp_composite_score)) if nidp_composite_score is not None else 50
+        verdict = _QUALITY_LABEL_VERDICT.get(nidp_quality_label or "", "Hold")
+
+        # Peer-group rank bullet
+        if nidp_composite_rank and nidp_total_in_category:
+            sub_cat = nidp_scorecard.get("sub_category") or scheme.get("category") or "category"
+            why.append(
+                f"Ranked #{nidp_composite_rank} of {nidp_total_in_category} "
+                f"{sub_cat} funds (NIDP composite score)"
+            )
+
+        # Q1 strengths from quartile flags
+        for metric, label in (
+            ("qtile_ret1y",  "1Y return"), ("qtile_ret3y", "3Y return"),
+            ("qtile_sharpe", "Sharpe ratio"), ("qtile_ter",   "TER"),
+        ):
+            q_val = nidp_scorecard.get(metric)
+            if q_val == 1:
+                why.append(f"Top quartile {label} within peer group")
+
+        # Return metrics from scorecard if local data sparse
+        if not rets:
+            rets = {
+                k: nidp_scorecard.get(v)
+                for k, v in (("1Y", "return_1y"), ("3Y", "return_3y"),
+                             ("5Y", "return_5y"), ("6M", "return_6m"))
+                if nidp_scorecard.get(v) is not None
+            }
+
+        # TER from scorecard if missing locally
+        if expense_ratio is None and nidp_scorecard.get("ter") is not None:
+            expense_ratio = nidp_scorecard["ter"]
+        if expense_ratio and expense_ratio <= 0.8:
+            why.append(f"Low expense ratio ({expense_ratio:.2f}%)")
+
+        # Q4 red flags
+        for metric, label in (
+            ("qtile_maxdd", "max drawdown"), ("qtile_sortino", "Sortino ratio"),
+        ):
+            if nidp_scorecard.get(metric) == 4:
+                watch_outs.append(f"Bottom quartile {label} within peer group")
+
+    else:
+        # ── Heuristic fallback (no NIDP data yet) ────────────────────
+        score = 50
+        if expense_ratio and expense_ratio <= 0.8:
+            score += 15
+            why.append(f"Low expense ratio ({expense_ratio:.2f}%)")
+        if rets.get("5Y") and rets["5Y"] >= 15:
+            score += 15
+            why.append(f"Strong 5Y rolling return ({rets['5Y']:.1f}%)")
+        if rets.get("3Y") and rets["3Y"] >= 15:
+            score += 10
+        if (scheme.get("category") or "").lower().startswith("flexi"):
+            why.append("Flexi-cap mandate gives manager full freedom")
+        score = max(20, min(score, 95))
+        verdict = (
+            "Strong Buy" if score >= 80 else
+            "Buy"        if score >= 65 else
+            "Hold"       if score >= 50 else
+            "Sell"
+        )
+
+    # ── Lifecycle events → watch-outs ────────────────────────────────
+    if isinstance(nidp_events, list):
+        for ev in nidp_events:
+            ev_type = (ev.get("event_type") or "").upper()
+            if ev_type in _RED_FLAG_EVENT_TYPES:
+                label = ev_type.replace("_", " ").title()
+                detail = ev.get("description") or ev.get("detail") or ""
+                nidp_red_flags.append(label)
+                msg = f"⚠️ {label}"
+                if detail:
+                    msg += f": {detail[:80]}"
+                if msg not in watch_outs:
+                    watch_outs.append(msg)
+
+    # Regular-plan cost warning (local data)
     if scheme.get("plan_type", "").lower() == "regular":
         watch_outs.append("Regular plan — Direct version saves ~0.8%/yr on expense")
-        score -= 5
-    if (scheme.get("category") or "").lower().startswith("flexi"):
-        why.append("Flexi-cap mandate gives manager full freedom")
-    score = max(20, min(score, 95))
+        if not nidp_scorecard:
+            score -= 5
 
-    verdict = (
-        "Strong Buy" if score >= 80 else
-        "Buy"        if score >= 65 else
-        "Hold"       if score >= 50 else
-        "Sell"
-    )
+    if not why:
+        why = ["Stable manager tenure", "Consistent rolling returns"]
+
+    data_source = ["AMFI", "mf_master", "NIDP"] if nidp_scorecard else ["AMFI", "mf_master"]
 
     data = FundCardData(
         scheme_code=scheme_code,
@@ -149,26 +265,32 @@ async def fund_card(request: Request, payload: FundCardRequest):
         risk_label=scheme.get("risk_label") or scheme.get("riskometer"),
         verdict=verdict,
         verdict_score=score,
-        why=why or ["Stable manager tenure", "Consistent rolling returns"],
+        why=why,
         watch_outs=watch_outs,
         returns=rets,
         benchmark=scheme.get("benchmark"),
-        alpha=scheme.get("alpha"),
+        alpha=scheme.get("alpha") or (nidp_scorecard or {}).get("alpha_1y"),
         expense_ratio=expense_ratio,
         manager_tenure_years=scheme.get("manager_tenure_years"),
+        nidp_composite_score=nidp_composite_score,
+        nidp_quality_label=nidp_quality_label,
+        nidp_composite_rank=nidp_composite_rank,
+        nidp_total_in_category=nidp_total_in_category,
+        nidp_top_position_pct=nidp_top_position_pct,
+        nidp_red_flags=nidp_red_flags,
     )
 
     env = WidgetEnvelope(
         kind="fund_card",
         title=scheme_name,
         freshness=FreshnessChip(
-            state="cached",
+            state="live" if nidp_scorecard else "cached",
             last_updated=_iso_now(),
-            source=["AMFI", "mf_master"],
+            source=data_source,
             confidence=score,
         ),
         agent=AgentInfo(id="mf_research", label="Mutual Fund Research",
-                        version="v1", confidence=score),
+                        version="v2" if nidp_scorecard else "v1", confidence=score),
         data=data.model_dump(),
         primary_cta={"label": "Compare with my fund", "action": "compare_with_mine"},
         suggestions=[

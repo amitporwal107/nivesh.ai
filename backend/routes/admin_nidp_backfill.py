@@ -419,8 +419,8 @@ class TriggerYfinanceReq(BaseModel):
     start_date:       date  = Field(default_factory=lambda: date(2006, 1, 1))
     end_date:         date  = Field(default_factory=date.today)
     symbols:          Optional[str] = Field(None, description="Comma-separated NSE symbols (default: Nifty 500)")
-    concurrency:      int   = Field(default=4, ge=1, le=12)
-    per_request_delay: float = Field(default=2.0, ge=0.5, le=10.0)
+    concurrency:      int   = Field(default=8, ge=1, le=20)
+    per_request_delay: float = Field(default=1.0, ge=0.5, le=10.0)
 
     @field_validator("end_date")
     @classmethod
@@ -435,14 +435,14 @@ class TriggerNavHistoryReq(BaseModel):
     scheme_codes:     Optional[str] = Field(None, description="Comma-separated scheme codes (default: all active)")
     from_date:        Optional[date] = None
     to_date:          Optional[date] = None
-    concurrency:      int = Field(default=12, ge=1, le=20)
+    concurrency:      int = Field(default=30, ge=1, le=40)
     only_stale_days:  int = Field(default=0, ge=0, description="0 = full backfill (recommended for initial run)")
 
 
 class TriggerFinancialsReq(BaseModel):
     symbols:          Optional[str] = Field(None, description="Comma-separated NSE symbols (default: Nifty 500)")
-    concurrency:      int = Field(default=5, ge=1, le=10)
-    per_request_delay: float = Field(default=2.5, ge=1.0, le=10.0)
+    concurrency:      int = Field(default=8, ge=1, le=15)
+    per_request_delay: float = Field(default=1.5, ge=0.5, le=10.0)
     only_missing:     bool = Field(default=False, description="Skip symbols already having ≥8 quarters")
 
 

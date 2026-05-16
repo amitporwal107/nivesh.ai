@@ -43,8 +43,12 @@ SERVICE_NAME = "nse_financials_backfill"
 # If NSE returns fewer than this, fall back to Screener.
 MIN_QUARTERS_TARGET = 8
 
-DEFAULT_CONCURRENCY = 5          # conservative — NSE throttles hard
-PER_REQUEST_DELAY_S = 2.5
+DEFAULT_CONCURRENCY = 8          # was 5 — NSE tolerates 8 with proper cookies
+PER_REQUEST_DELAY_S = 1.5        # was 2.5 — 1.5s keeps us within ~30 NSE req/min
+
+_MAX_RETRIES = 3                 # retry budget for 403/429/connection errors
+_RETRY_BASE_S = 4.0              # first backoff 4s → 8s → 16s
+_SESSION_REFRESH_EVERY = 40      # re-hit NSE homepage every N symbols to refresh cookies
 
 NSE_XBRL_URL = (
     "https://www.nseindia.com/api/results-comparator"
@@ -83,41 +87,63 @@ async def _fetch_xbrl(
     symbol: str,
     stmt_type: str,  # "Standalone" | "Consolidated"
 ) -> Optional[str]:
+    """Fetch NSE XBRL comparator with retry on 403/429/transient errors."""
     url = NSE_XBRL_URL.format(symbol=symbol, type=stmt_type)
-    try:
-        async with session.get(url, headers=_HEADERS_NSE,
-                               timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r:
-            if r.status != 200:
-                logger.debug("NSE XBRL %s/%s: HTTP %d", symbol, stmt_type, r.status)
-                return None
-            return await r.text()
-    except Exception as exc:
-        logger.debug("NSE XBRL %s/%s: %s", symbol, stmt_type, exc)
-        return None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            async with session.get(url, headers=_HEADERS_NSE,
+                                   timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r:
+                if r.status in (403, 429):
+                    if attempt < _MAX_RETRIES:
+                        sleep_s = _RETRY_BASE_S * (2 ** attempt)
+                        logger.debug("NSE XBRL %s/%s: HTTP %d, retry %d after %.0fs",
+                                     symbol, stmt_type, r.status, attempt + 1, sleep_s)
+                        await asyncio.sleep(sleep_s)
+                        continue
+                    logger.debug("NSE XBRL %s/%s: HTTP %d after %d retries",
+                                 symbol, stmt_type, r.status, _MAX_RETRIES)
+                    return None
+                if r.status != 200:
+                    logger.debug("NSE XBRL %s/%s: HTTP %d", symbol, stmt_type, r.status)
+                    return None
+                return await r.text()
+        except Exception as exc:                                      # noqa: BLE001
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_RETRY_BASE_S)
+                continue
+            logger.debug("NSE XBRL %s/%s: %s", symbol, stmt_type, exc)
+            return None
+    return None
 
 
 async def _fetch_screener(
     session: aiohttp.ClientSession,
     symbol: str,
 ) -> Optional[str]:
+    """Fetch Screener.in quarterly table with retry on transient errors."""
     url = SCREENER_URL.format(symbol=symbol)
-    try:
-        async with session.get(url, headers=_HEADERS_SCREENER,
-                               timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r:
-            if r.status == 404:
-                # Try standalone version
-                url2 = url.replace("/consolidated/", "/")
-                async with session.get(url2, headers=_HEADERS_SCREENER,
-                                       timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r2:
-                    if r2.status != 200:
-                        return None
-                    return await r2.text()
-            if r.status != 200:
-                return None
-            return await r.text()
-    except Exception as exc:
-        logger.debug("Screener %s: %s", symbol, exc)
-        return None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            async with session.get(url, headers=_HEADERS_SCREENER,
+                                   timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r:
+                if r.status == 404:
+                    url2 = url.replace("/consolidated/", "/")
+                    async with session.get(url2, headers=_HEADERS_SCREENER,
+                                           timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)) as r2:
+                        return await r2.text() if r2.status == 200 else None
+                if r.status in (429, 503):
+                    if attempt < _MAX_RETRIES:
+                        await asyncio.sleep(_RETRY_BASE_S * (2 ** attempt))
+                        continue
+                    return None
+                return await r.text() if r.status == 200 else None
+        except Exception as exc:                                      # noqa: BLE001
+            if attempt < _MAX_RETRIES:
+                await asyncio.sleep(_RETRY_BASE_S)
+                continue
+            logger.debug("Screener %s: %s", symbol, exc)
+            return None
+    return None
 
 
 async def _resolve_symbols(symbols_arg: Optional[List[str]]) -> List[str]:
@@ -265,32 +291,46 @@ async def run(
         total_failed = 0
 
         with time_ingester(SERVICE_NAME):
-            connector = aiohttp.TCPConnector(limit=concurrency, ssl=False)
+            connector = aiohttp.TCPConnector(limit=concurrency + 2, ssl=False)
             async with aiohttp.ClientSession(connector=connector) as session:
-                # Warm NSE session cookie once
+                # Warm NSE session cookie before the first request
                 await _get_nse_session(session)
 
                 semaphore = asyncio.Semaphore(concurrency)
-                CHUNK = 20
-                for i in range(0, len(sym_list), CHUNK):
-                    chunk = sym_list[i : i + CHUNK]
-                    results = await asyncio.gather(
-                        *[_process_symbol(session, sym, semaphore, per_request_delay)
-                          for sym in chunk],
-                        return_exceptions=True,
-                    )
-                    for res in results:
-                        if isinstance(res, Exception):
-                            total_failed += 1
-                        elif res.get("error"):
-                            total_failed += 1
-                        else:
-                            total_upserted += res.get("total_upserted", 0)
+                completed = 0
 
-                    logger.info(
-                        "nse_financials_backfill: %d/%d symbols done, %d rows upserted",
-                        min(i + CHUNK, len(sym_list)), len(sym_list), total_upserted,
-                    )
+                async def _process_with_refresh(sym: str) -> Any:
+                    """Wrapper that periodically re-warms the NSE session cookie."""
+                    nonlocal completed
+                    result = await _process_symbol(session, sym, semaphore, per_request_delay)
+                    completed += 1
+                    # Refresh NSE cookie every _SESSION_REFRESH_EVERY symbols to
+                    # prevent 403s caused by cookie expiry mid-run.
+                    if completed % _SESSION_REFRESH_EVERY == 0:
+                        logger.info(
+                            "nse_financials_backfill: refreshing NSE session cookie "
+                            "at symbol %d/%d", completed, len(sym_list),
+                        )
+                        await _get_nse_session(session)
+                    if completed % 20 == 0:
+                        logger.info(
+                            "nse_financials_backfill: %d/%d done, %d rows upserted",
+                            completed, len(sym_list), total_upserted,
+                        )
+                    return result
+
+                # Queue all symbols at once — semaphore controls actual concurrency.
+                all_results = await asyncio.gather(
+                    *[_process_with_refresh(sym) for sym in sym_list],
+                    return_exceptions=True,
+                )
+                for res in all_results:
+                    if isinstance(res, Exception):
+                        total_failed += 1
+                    elif isinstance(res, dict) and res.get("error"):
+                        total_failed += 1
+                    elif isinstance(res, dict):
+                        total_upserted += res.get("total_upserted", 0)
 
         run_.rows_inserted = total_upserted
         run_.rows_skipped  = total_failed

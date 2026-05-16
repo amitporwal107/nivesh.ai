@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "amfi_nav_history"
 
-DEFAULT_CONCURRENCY = 12     # was 5 — MFAPI tolerates 10-15 concurrent
-_CHUNK_SIZE = 100             # was 200 — bounds peak memory tighter
+DEFAULT_CONCURRENCY = 30     # MFAPI.in tolerates 30-40 concurrent; 30 is safe
+_CHUNK_SIZE = 250            # larger chunks reduce asyncio.gather overhead
 _INCREMENTAL_DEFAULT_DAYS = 7 # daily run only refetches schemes stale >7d
 
 

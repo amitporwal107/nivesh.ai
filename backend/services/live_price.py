@@ -1,5 +1,11 @@
-"""Live Price Service — Fetches real-time prices for equity and ETF holdings from Yahoo Finance via NSE symbols."""
+"""Live Price Service — Fetches real-time equity/ETF prices.
 
+Primary source: NIDP DaaS `/v1/prices/latest/{symbol}` (NSE official EOD data).
+Fallback: Yahoo Finance via yfinance (used when NIDP data lake is empty or
+the DaaS is unreachable, e.g. before the initial yfinance backfill job runs).
+"""
+
+import asyncio
 import csv
 import io
 import logging
@@ -27,6 +33,13 @@ _PRICE_CACHE_TTL = 300  # 5 minutes
 # polling (live overlay refreshes every 60s on the frontend).
 _BATCH_PRICE_CACHE: Dict[str, Tuple[float, float]] = {}  # sym -> (price, ts)
 _BATCH_PRICE_TTL = 90.0
+
+# NIDP price cache — separate from yfinance cache so they don't interfere.
+_NIDP_PRICE_CACHE: Dict[str, Tuple[float, float]] = {}  # sym -> (price, ts)
+_NIDP_PRICE_TTL = 300.0   # 5 minutes (EOD data changes at most once per day)
+# Coverage threshold: if NIDP returns prices for >= this fraction of requested
+# symbols, we use NIDP as the authoritative source and skip yfinance entirely.
+_NIDP_COVERAGE_THRESHOLD = 0.75
 
 NSE_EQUITY_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 NSE_ETF_URL = "https://nsearchives.nseindia.com/content/equities/eq_etfseclist.csv"
@@ -180,6 +193,39 @@ def _batch_fetch_prices(symbols: List[str]) -> Dict[str, float]:
     return prices
 
 
+async def _nidp_fetch_prices(symbols: List[str]) -> Dict[str, float]:
+    """Try to fetch latest close prices from NIDP DaaS concurrently.
+
+    Returns a symbol→price dict. Missing / errored symbols are simply absent.
+    Results are cached for _NIDP_PRICE_TTL seconds so dashboard polling
+    doesn't flood the DaaS with redundant requests.
+    """
+    now = time.time()
+    result: Dict[str, float] = {}
+    uncached: List[str] = []
+
+    for sym in symbols:
+        hit = _NIDP_PRICE_CACHE.get(sym)
+        if hit and (now - hit[1]) < _NIDP_PRICE_TTL:
+            result[sym] = hit[0]
+        else:
+            uncached.append(sym)
+
+    if not uncached:
+        return result
+
+    try:
+        from services.copilot_tools.daas_client import get_prices_latest_batch
+        fetched = await get_prices_latest_batch(uncached)
+        for sym, price in fetched.items():
+            result[sym] = price
+            _NIDP_PRICE_CACHE[sym] = (price, now)
+    except Exception as exc:
+        logger.info("NIDP price fetch failed (will fall back to yfinance): %s", exc)
+
+    return result
+
+
 async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
     """
     Fetch live prices for equity and ETF holdings.
@@ -209,28 +255,38 @@ async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
     if not isins_to_fetch:
         return holdings, {"updated": 0, "failed": 0, "skipped": len(holdings), "source": "no_mapping"}
 
-    # Check cache freshness
-    use_cache = (time.time() - _price_cache_ts) < _PRICE_CACHE_TTL and _price_cache
     symbols_needed = list(set(isins_to_fetch.values()))
 
-    if use_cache:
-        # Only fetch symbols not in cache
-        uncached = [s for s in symbols_needed if s not in _price_cache]
-        if uncached:
-            new_prices = _batch_fetch_prices(uncached)
-            _price_cache.update({s: {"price": p, "ts": time.time()} for s, p in new_prices.items()})
-        prices = {s: _price_cache[s]["price"] for s in symbols_needed if s in _price_cache}
-    else:
-        # Fetch all in batches of 50
-        all_prices: Dict[str, float] = {}
-        for i in range(0, len(symbols_needed), 50):
-            batch = symbols_needed[i:i + 50]
-            batch_prices = _batch_fetch_prices(batch)
-            all_prices.update(batch_prices)
+    # ── 1. Try NIDP DaaS first (async, NSE official EOD) ──────────────
+    nidp_prices = await _nidp_fetch_prices(symbols_needed)
+    nidp_coverage = len(nidp_prices) / max(len(symbols_needed), 1)
 
-        _price_cache = {s: {"price": p, "ts": time.time()} for s, p in all_prices.items()}
-        _price_cache_ts = time.time()
-        prices = all_prices
+    if nidp_coverage >= _NIDP_COVERAGE_THRESHOLD:
+        # NIDP has enough data — use it as the authoritative source
+        prices = nidp_prices
+        price_source = "nidp_daas"
+    else:
+        # ── 2. Fall back to Yahoo Finance ─────────────────────────────
+        use_cache = (time.time() - _price_cache_ts) < _PRICE_CACHE_TTL and _price_cache
+
+        if use_cache:
+            uncached = [s for s in symbols_needed if s not in _price_cache]
+            if uncached:
+                new_prices = _batch_fetch_prices(uncached)
+                _price_cache.update({s: {"price": p, "ts": time.time()} for s, p in new_prices.items()})
+            prices = {s: _price_cache[s]["price"] for s in symbols_needed if s in _price_cache}
+        else:
+            all_prices: Dict[str, float] = {}
+            for i in range(0, len(symbols_needed), 50):
+                batch = symbols_needed[i:i + 50]
+                all_prices.update(_batch_fetch_prices(batch))
+            _price_cache = {s: {"price": p, "ts": time.time()} for s, p in all_prices.items()}
+            _price_cache_ts = time.time()
+            prices = all_prices
+
+        # Overlay any NIDP prices we did get (partial coverage)
+        prices.update(nidp_prices)
+        price_source = "yahoo_finance" if not nidp_prices else "yahoo_finance+nidp_partial"
 
     # Apply prices to holdings
     updated_count = 0
@@ -243,7 +299,7 @@ async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
         nse_sym = isins_to_fetch.get(isin)
         if nse_sym and nse_sym in prices:
             h["current_price"] = prices[nse_sym]
-            h["price_source"] = "yahoo_finance"
+            h["price_source"] = price_source
             h["price_updated_at"] = datetime.now(timezone.utc).isoformat()
             h["nse_symbol"] = nse_sym
             updated_count += 1
@@ -255,5 +311,6 @@ async def fetch_live_prices(holdings: List[dict]) -> Tuple[List[dict], dict]:
         "failed": failed_count,
         "skipped": len(holdings) - updated_count - failed_count,
         "total_symbols": len(symbols_needed),
-        "source": "yahoo_finance",
+        "nidp_coverage_pct": round(nidp_coverage * 100, 1),
+        "source": price_source,
     }

@@ -104,3 +104,62 @@ async def get_stock_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     if data is None:
         return None
     return data.get("data")
+
+
+async def get_mf_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
+    """Full category scorecard for a scheme: composite_score, quality_label, quartile ranks.
+
+    Returns None on 404 or DaaS unavailability so callers can degrade gracefully.
+    """
+    data = await _get(f"/mf/performance/scorecard/{scheme_code}")
+    if data is None:
+        return None
+    return data.get("data") or data
+
+
+async def get_mf_events(scheme_code: str, limit: int = 20) -> list[Dict[str, Any]]:
+    """Lifecycle events for a scheme: TER changes, manager changes, risk shifts, mergers.
+
+    Returns empty list on failure so callers never need to guard against None.
+    """
+    data = await _get(f"/mf/schemes/{scheme_code}/events", params={"limit": limit})
+    if data is None:
+        return []
+    rows = data.get("data") or data.get("events") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_price_latest(symbol: str) -> Optional[float]:
+    """Fetch the latest EOD close price for a single NSE symbol from NIDP.
+
+    Returns None if the symbol has no price data yet (data lake may be empty
+    before the yfinance backfill runs).
+    """
+    data = await _get(f"/prices/latest/{symbol}")
+    if data is None:
+        return None
+    row = data.get("data") or data
+    price = row.get("close_price") or row.get("prev_close")
+    return float(price) if price is not None else None
+
+
+async def get_prices_latest_batch(symbols: list[str]) -> Dict[str, float]:
+    """Concurrently fetch latest close prices for a list of NSE symbols.
+
+    Fires individual /prices/latest/{symbol} calls in parallel. Returns a
+    symbol→close_price dict — missing symbols are simply absent (not errored).
+    """
+    import asyncio
+
+    result: Dict[str, float] = {}
+
+    async def _one(sym: str) -> None:
+        try:
+            p = await get_price_latest(sym)
+            if p is not None:
+                result[sym] = p
+        except DaasError:
+            pass
+
+    await asyncio.gather(*(_one(s) for s in symbols), return_exceptions=True)
+    return result

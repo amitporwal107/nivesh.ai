@@ -766,27 +766,99 @@ const ROLLING_SERVICES = [
   { id: "fii_dii",            label: "FII / DII Flows" },
 ];
 
+// Priority labels for new one-shot backfill modes
+const PRIORITY_MODES = [
+  {
+    id: "yfinance",
+    label: "Stock Prices 3Y",
+    priority: "P1a",
+    runtime: "~30-45 min",
+    desc: "3 years of daily OHLCV for all Nifty 500 symbols via Yahoo Finance. Populates prices_eod.",
+    unlocks: ["1Y/3Y/5Y return CAGR", "volatility", "Sharpe ratio", "Beta", "max drawdown", "COVID & GFC stress tests", "tax cost basis"],
+    color: "indigo",
+  },
+  {
+    id: "nav-history",
+    label: "MF NAV History",
+    priority: "P1b",
+    runtime: "~1.5-2 h",
+    desc: "Full historical NAV for all active MF schemes via MFAPI.in (from scheme inception). Populates mf_nav_daily.",
+    unlocks: ["MF 1Y/3Y/5Y CAGR", "rolling returns", "MF volatility", "SIP projections", "MF stress tests", "MF tax cost basis"],
+    color: "violet",
+  },
+  {
+    id: "financials",
+    label: "Quarterly Financials",
+    priority: "P2",
+    runtime: "~2-2.5 h",
+    desc: "NSE XBRL comparator (8 qtrs) + Screener.in fallback (20 qtrs) for all Nifty 500. Populates nse_financials_quarterly.",
+    unlocks: ["EPS CAGR 3Y", "Revenue CAGR 3Y", "earnings consistency", "debt trend", "margin trend", "Piotroski F-Score", "V3 quality score"],
+    color: "amber",
+  },
+  {
+    id: "price-adjuster",
+    label: "Adjusted Prices",
+    priority: "P1c",
+    runtime: "~30 min",
+    desc: "Computes split/bonus/dividend-adjusted closes into prices_eod_adjusted. Run AFTER stock prices (3Y) backfill completes.",
+    unlocks: ["accurate multi-year returns", "split-adjusted charts", "precise CAGR after corporate actions"],
+    color: "emerald",
+  },
+];
+
+const MODE_COLOR = {
+  indigo:  { tab: "border-indigo-500 text-indigo-700", badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200", btn: "bg-indigo-600 hover:bg-indigo-700" },
+  violet:  { tab: "border-violet-500 text-violet-700", badge: "bg-violet-50 text-violet-700 ring-1 ring-violet-200", btn: "bg-violet-600 hover:bg-violet-700" },
+  amber:   { tab: "border-amber-500 text-amber-700",   badge: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",   btn: "bg-amber-600 hover:bg-amber-700"   },
+  emerald: { tab: "border-emerald-500 text-emerald-700", badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200", btn: "bg-emerald-600 hover:bg-emerald-700" },
+};
+
 
 function TriggerModal({ onClose }) {
-  const [mode, setMode] = useState("daily");
+  const [tab, setTab] = useState("priority");   // "priority" | "daily" | "rolling"
+  const [mode, setMode] = useState("daily");    // for existing daily/rolling
+  const [priorityMode, setPriorityMode] = useState("yfinance");
   const [health, setHealth] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const today    = new Date();
+  const today     = new Date();
   const ninetyAgo = new Date(today.getTime() - 90 * 24 * 3600 * 1000);
-  const fmtDate  = d => d.toISOString().slice(0, 10);
+  const threeYrsAgo = new Date(today.getFullYear() - 3, today.getMonth(), today.getDate());
+  const fmtDate   = d => d.toISOString().slice(0, 10);
 
+  // Shared form state
   const [form, setForm] = useState({
-    start_date: fmtDate(ninetyAgo),
-    end_date:   fmtDate(today),
-    ingesters:  ["fno_bhavcopy"],
-    services:   ["bulk_deals", "block_deals", "corporate_actions", "rbi_yields"],
-    wipe_first: false,
+    // daily / rolling
+    start_date:    fmtDate(ninetyAgo),
+    end_date:      fmtDate(today),
+    ingesters:     ["fno_bhavcopy"],
+    services:      ["bulk_deals", "block_deals", "corporate_actions", "rbi_yields"],
+    wipe_first:    false,
     politeness_ms: 4000,
-    parallel: 1,
+    parallel:      1,
     skip_existing: true,
+    // yfinance
+    yf_start:      fmtDate(threeYrsAgo),
+    yf_end:        fmtDate(today),
+    yf_symbols:    "",
+    yf_concurrency: 8,
+    yf_delay:      1.0,
+    // nav-history
+    nav_scheme_codes: "",
+    nav_from:      "",
+    nav_to:        "",
+    nav_concurrency: 30,
+    nav_stale_days: 0,
+    // financials
+    fin_symbols:   "",
+    fin_concurrency: 8,
+    fin_delay:     1.5,
+    fin_only_missing: false,
+    // price-adjuster
+    pa_start:      fmtDate(threeYrsAgo),
+    pa_end:        fmtDate(today),
   });
 
   useEffect(() => {
@@ -806,21 +878,69 @@ function TriggerModal({ onClose }) {
   const submit = async () => {
     setSubmitting(true); setError(null); setResult(null);
     try {
-      const body = mode === "daily" ? {
-        start_date: form.start_date,
-        end_date:   form.end_date,
-        ingesters:  form.ingesters,
-        wipe_first: form.wipe_first,
-        politeness_ms: form.politeness_ms,
-        parallel: form.parallel,
-      } : {
-        start_date: form.start_date,
-        end_date:   form.end_date,
-        services:   form.services,
-        skip_existing: form.skip_existing,
-      };
-      const r = await axios.post(`${BF}/trigger/${mode}`, body, { withCredentials: true });
-      setResult(r.data);
+      let endpoint, body;
+
+      if (tab === "priority") {
+        switch (priorityMode) {
+          case "yfinance":
+            endpoint = "yfinance";
+            body = {
+              start_date:        form.yf_start,
+              end_date:          form.yf_end,
+              concurrency:       form.yf_concurrency,
+              per_request_delay: form.yf_delay,
+              ...(form.yf_symbols ? { symbols: form.yf_symbols } : {}),
+            };
+            break;
+          case "nav-history":
+            endpoint = "nav-history";
+            body = {
+              concurrency:      form.nav_concurrency,
+              only_stale_days:  form.nav_stale_days,
+              ...(form.nav_scheme_codes ? { scheme_codes: form.nav_scheme_codes } : {}),
+              ...(form.nav_from ? { from_date: form.nav_from } : {}),
+              ...(form.nav_to   ? { to_date:   form.nav_to   } : {}),
+            };
+            break;
+          case "financials":
+            endpoint = "financials";
+            body = {
+              concurrency:       form.fin_concurrency,
+              per_request_delay: form.fin_delay,
+              only_missing:      form.fin_only_missing,
+              ...(form.fin_symbols ? { symbols: form.fin_symbols } : {}),
+            };
+            break;
+          case "price-adjuster":
+            endpoint = "price-adjuster";
+            body = null; // uses query params
+            const params = new URLSearchParams({ start_date: form.pa_start, end_date: form.pa_end });
+            const r2 = await axios.post(`${BF}/trigger/price-adjuster?${params}`, {}, { withCredentials: true });
+            setResult(r2.data);
+            return;
+          default:
+            return;
+        }
+        const r = await axios.post(`${BF}/trigger/${endpoint}`, body, { withCredentials: true });
+        setResult(r.data);
+      } else {
+        // existing daily / rolling
+        const body = mode === "daily" ? {
+          start_date:    form.start_date,
+          end_date:      form.end_date,
+          ingesters:     form.ingesters,
+          wipe_first:    form.wipe_first,
+          politeness_ms: form.politeness_ms,
+          parallel:      form.parallel,
+        } : {
+          start_date:    form.start_date,
+          end_date:      form.end_date,
+          services:      form.services,
+          skip_existing: form.skip_existing,
+        };
+        const r = await axios.post(`${BF}/trigger/${mode}`, body, { withCredentials: true });
+        setResult(r.data);
+      }
     } catch (e) {
       setError(formatApiError(e));
     } finally {
@@ -828,11 +948,25 @@ function TriggerModal({ onClose }) {
     }
   };
 
+  const isSubmitDisabled = () => {
+    if (submitting || !health?.ok) return true;
+    if (tab === "daily"   && form.ingesters.length === 0) return true;
+    if (tab === "rolling" && form.services.length === 0)  return true;
+    return false;
+  };
+
+  const activePriorityMeta = PRIORITY_MODES.find(m => m.id === priorityMode);
+  const btnColor = tab === "priority"
+    ? (MODE_COLOR[activePriorityMeta?.color]?.btn || "bg-indigo-600 hover:bg-indigo-700")
+    : "bg-indigo-600 hover:bg-indigo-700";
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-16 px-4"
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center pt-8 px-4 overflow-y-auto"
          onClick={onClose} data-testid="backfill-trigger-modal">
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700"
+      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 mb-8"
            onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
         <div className="px-5 py-3 border-b flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-indigo-600" />
@@ -856,55 +990,242 @@ function TriggerModal({ onClose }) {
             </div>
           )}
           {health?.ok && (
-            <div className="flex items-start gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700"
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-700"
                  data-testid="backfill-trigger-ssh-ok">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <div className="font-mono text-[10px] truncate">{health.vm_echo?.split("\n").join(" · ")}</div>
             </div>
           )}
 
-          {/* Mode tabs */}
-          <div className="flex items-center gap-1 border-b border-slate-200">
+          {/* Top-level tab: Priority / Daily / Rolling */}
+          <div className="flex items-center gap-0 border border-slate-200 rounded-md overflow-hidden text-xs">
             {[
-              { id: "daily",   label: "Daily NSE (per-trading-day)",   blurb: "bhavcopy · delivery · index · F&O — uses nidp.services.backfill" },
-              { id: "rolling", label: "Rolling + reference",            blurb: "bulk/block/CA/RBI/calendar/constituents — uses nidp.cli backfill" },
-            ].map(m => (
-              <button
-                key={m.id}
-                data-testid={`backfill-mode-${m.id}`}
-                onClick={() => setMode(m.id)}
-                title={m.blurb}
+              { id: "priority", label: "Priority Backfills", hint: "3Y prices · NAV history · Quarterly financials" },
+              { id: "daily",    label: "Daily NSE",          hint: "bhavcopy · delivery · index · F&O" },
+              { id: "rolling",  label: "Rolling + Reference",hint: "bulk deals · corporate actions · RBI" },
+            ].map((t, i) => (
+              <button key={t.id}
+                data-testid={`backfill-tab-${t.id}`}
+                onClick={() => { setTab(t.id); setResult(null); setError(null); }}
+                title={t.hint}
                 className={cls(
-                  "px-3 py-1.5 -mb-px text-xs border-b-2 transition",
-                  mode === m.id
-                    ? "border-indigo-500 text-indigo-700 font-medium"
-                    : "border-transparent text-slate-500 hover:text-slate-800",
+                  "flex-1 px-3 py-2 transition text-center",
+                  i > 0 && "border-l border-slate-200",
+                  tab === t.id
+                    ? "bg-indigo-600 text-white font-semibold"
+                    : "bg-white dark:bg-slate-800 text-slate-600 hover:bg-slate-50",
                 )}
-              >{m.label}</button>
+              >
+                {t.id === "priority" && <span className="mr-1 text-amber-300">★</span>}
+                {t.label}
+              </button>
             ))}
           </div>
 
-          {/* Window */}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs text-slate-600 space-y-1">
-              <span>Start date</span>
-              <input type="date" value={form.start_date}
-                     data-testid="trigger-start-date"
-                     onChange={e => setForm({ ...form, start_date: e.target.value })}
-                     className="w-full px-2 py-1.5 border rounded-md text-sm" />
-            </label>
-            <label className="text-xs text-slate-600 space-y-1">
-              <span>End date</span>
-              <input type="date" value={form.end_date}
-                     data-testid="trigger-end-date"
-                     onChange={e => setForm({ ...form, end_date: e.target.value })}
-                     className="w-full px-2 py-1.5 border rounded-md text-sm" />
-            </label>
-          </div>
+          {/* ── PRIORITY BACKFILLS ──────────────────────────────── */}
+          {tab === "priority" && (
+            <div className="space-y-4">
+              {/* Priority mode selector */}
+              <div className="grid grid-cols-2 gap-2">
+                {PRIORITY_MODES.map(pm => {
+                  const col = MODE_COLOR[pm.color];
+                  const active = priorityMode === pm.id;
+                  return (
+                    <button key={pm.id}
+                      data-testid={`priority-mode-${pm.id}`}
+                      onClick={() => { setPriorityMode(pm.id); setResult(null); setError(null); }}
+                      className={cls(
+                        "text-left px-3 py-2.5 rounded-lg border-2 transition",
+                        active ? `border-current ${col?.badge}` : "border-slate-200 hover:border-slate-300 bg-white dark:bg-slate-800",
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">{pm.label}</span>
+                        <span className={cls("text-[9px] font-bold px-1.5 py-0.5 rounded", col?.badge)}>{pm.priority}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">{pm.runtime}</div>
+                    </button>
+                  );
+                })}
+              </div>
 
-          {/* Per-mode body */}
-          {mode === "daily" ? (
-            <div className="space-y-2">
+              {/* Description + unlocks */}
+              {activePriorityMeta && (
+                <div className="px-3 py-2.5 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 space-y-2">
+                  <div className="text-xs text-slate-600">{activePriorityMeta.desc}</div>
+                  <div>
+                    <div className="text-[10px] font-medium text-slate-500 mb-1">Unlocks analytics:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {activePriorityMeta.unlocks.map(u => (
+                        <span key={u} className="px-1.5 py-0.5 bg-white dark:bg-slate-700 border border-slate-200 rounded text-[10px] text-slate-600">
+                          {u}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Per-priority-mode fields */}
+              {priorityMode === "yfinance" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>From</span>
+                      <input type="date" value={form.yf_start} data-testid="yf-start"
+                             onChange={e => setForm({ ...form, yf_start: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>To</span>
+                      <input type="date" value={form.yf_end} data-testid="yf-end"
+                             onChange={e => setForm({ ...form, yf_end: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs text-slate-600 space-y-1 block">
+                    <span>Symbols <span className="text-slate-400">(comma-separated NSE tickers; leave blank for full Nifty 500)</span></span>
+                    <input type="text" placeholder="RELIANCE,TCS,INFY  — or leave blank for Nifty 500"
+                           value={form.yf_symbols} data-testid="yf-symbols"
+                           onChange={e => setForm({ ...form, yf_symbols: e.target.value })}
+                           className="w-full px-2 py-1.5 border rounded text-sm font-mono" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Concurrency <span className="text-slate-400">(8 recommended; 429s auto-retried)</span></span>
+                      <input type="number" value={form.yf_concurrency} min={1} max={20} data-testid="yf-concurrency"
+                             onChange={e => setForm({ ...form, yf_concurrency: parseInt(e.target.value, 10) || 8 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Delay between requests (s) <span className="text-slate-400">(1.0 recommended)</span></span>
+                      <input type="number" value={form.yf_delay} min={0.5} max={10} step={0.5} data-testid="yf-delay"
+                             onChange={e => setForm({ ...form, yf_delay: parseFloat(e.target.value) || 1.0 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {priorityMode === "nav-history" && (
+                <div className="space-y-3">
+                  <label className="text-xs text-slate-600 space-y-1 block">
+                    <span>Scheme codes <span className="text-slate-400">(comma-separated; blank = all active schemes)</span></span>
+                    <input type="text" placeholder="119551,119552  — or leave blank for all"
+                           value={form.nav_scheme_codes} data-testid="nav-scheme-codes"
+                           onChange={e => setForm({ ...form, nav_scheme_codes: e.target.value })}
+                           className="w-full px-2 py-1.5 border rounded text-sm font-mono" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>From date <span className="text-slate-400">(optional)</span></span>
+                      <input type="date" value={form.nav_from} data-testid="nav-from"
+                             onChange={e => setForm({ ...form, nav_from: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>To date <span className="text-slate-400">(optional)</span></span>
+                      <input type="date" value={form.nav_to} data-testid="nav-to"
+                             onChange={e => setForm({ ...form, nav_to: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Concurrency</span>
+                      <input type="number" value={form.nav_concurrency} min={1} max={20} data-testid="nav-concurrency"
+                             onChange={e => setForm({ ...form, nav_concurrency: parseInt(e.target.value, 10) || 12 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Only stale days <span className="text-slate-400">(0 = full backfill)</span></span>
+                      <input type="number" value={form.nav_stale_days} min={0} data-testid="nav-stale-days"
+                             onChange={e => setForm({ ...form, nav_stale_days: parseInt(e.target.value, 10) || 0 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                  </div>
+                  <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                    Set <b>Only stale days = 0</b> for the initial full backfill. The daily Cloud Run job uses 7 (incremental).
+                  </div>
+                </div>
+              )}
+
+              {priorityMode === "financials" && (
+                <div className="space-y-3">
+                  <label className="text-xs text-slate-600 space-y-1 block">
+                    <span>Symbols <span className="text-slate-400">(comma-separated; blank = full Nifty 500)</span></span>
+                    <input type="text" placeholder="RELIANCE,TCS  — or leave blank for Nifty 500"
+                           value={form.fin_symbols} data-testid="fin-symbols"
+                           onChange={e => setForm({ ...form, fin_symbols: e.target.value })}
+                           className="w-full px-2 py-1.5 border rounded text-sm font-mono" />
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Concurrency <span className="text-slate-400">(NSE throttles; ≤ 8)</span></span>
+                      <input type="number" value={form.fin_concurrency} min={1} max={10} data-testid="fin-concurrency"
+                             onChange={e => setForm({ ...form, fin_concurrency: parseInt(e.target.value, 10) || 5 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>Delay between requests (s)</span>
+                      <input type="number" value={form.fin_delay} min={1} max={10} step={0.5} data-testid="fin-delay"
+                             onChange={e => setForm({ ...form, fin_delay: parseFloat(e.target.value) || 2.5 })}
+                             className="w-full px-2 py-1 border rounded text-xs" />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked={form.fin_only_missing} data-testid="fin-only-missing"
+                           onChange={e => setForm({ ...form, fin_only_missing: e.target.checked })} />
+                    <span>Only missing — skip symbols already having ≥ 8 quarters (safe for incremental runs)</span>
+                  </label>
+                  <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded px-2 py-1.5">
+                    Source 1: NSE XBRL comparator (up to 8 quarters/symbol) · Source 2: Screener.in fallback (up to 20 quarters)
+                  </div>
+                </div>
+              )}
+
+              {priorityMode === "price-adjuster" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>From</span>
+                      <input type="date" value={form.pa_start} data-testid="pa-start"
+                             onChange={e => setForm({ ...form, pa_start: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                    <label className="text-xs text-slate-600 space-y-1">
+                      <span>To</span>
+                      <input type="date" value={form.pa_end} data-testid="pa-end"
+                             onChange={e => setForm({ ...form, pa_end: e.target.value })}
+                             className="w-full px-2 py-1.5 border rounded text-sm" />
+                    </label>
+                  </div>
+                  <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                    Run this <b>after</b> the Stock Prices (3Y) backfill completes. Reads raw prices_eod and writes
+                    split/bonus/dividend-adjusted series to prices_eod_adjusted.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── DAILY NSE ───────────────────────────────────────── */}
+          {tab === "daily" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-slate-600 space-y-1">
+                  <span>Start date</span>
+                  <input type="date" value={form.start_date} data-testid="trigger-start-date"
+                         onChange={e => setForm({ ...form, start_date: e.target.value })}
+                         className="w-full px-2 py-1.5 border rounded-md text-sm" />
+                </label>
+                <label className="text-xs text-slate-600 space-y-1">
+                  <span>End date</span>
+                  <input type="date" value={form.end_date} data-testid="trigger-end-date"
+                         onChange={e => setForm({ ...form, end_date: e.target.value })}
+                         className="w-full px-2 py-1.5 border rounded-md text-sm" />
+                </label>
+              </div>
               <div className="text-xs font-medium text-slate-700">Ingesters</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {DAILY_INGESTERS.map(ing => (
@@ -916,7 +1237,7 @@ function TriggerModal({ onClose }) {
                   </label>
                 ))}
               </div>
-              <div className="grid grid-cols-3 gap-3 pt-2 text-xs text-slate-600">
+              <div className="grid grid-cols-3 gap-3 pt-1 text-xs text-slate-600">
                 <label className="space-y-1">
                   <span>Politeness (ms)</span>
                   <input type="number" value={form.politeness_ms} min={500} step={500}
@@ -932,15 +1253,31 @@ function TriggerModal({ onClose }) {
                          className="w-full px-2 py-1 border rounded text-xs" />
                 </label>
                 <label className="flex items-end gap-1.5">
-                  <input type="checkbox" checked={form.wipe_first}
-                         data-testid="trigger-wipe-first"
+                  <input type="checkbox" checked={form.wipe_first} data-testid="trigger-wipe-first"
                          onChange={e => setForm({ ...form, wipe_first: e.target.checked })} />
                   <span>wipe window first</span>
                 </label>
               </div>
             </div>
-          ) : (
-            <div className="space-y-2">
+          )}
+
+          {/* ── ROLLING + REFERENCE ──────────────────────────────── */}
+          {tab === "rolling" && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-slate-600 space-y-1">
+                  <span>Start date</span>
+                  <input type="date" value={form.start_date} data-testid="trigger-start-date"
+                         onChange={e => setForm({ ...form, start_date: e.target.value })}
+                         className="w-full px-2 py-1.5 border rounded-md text-sm" />
+                </label>
+                <label className="text-xs text-slate-600 space-y-1">
+                  <span>End date</span>
+                  <input type="date" value={form.end_date} data-testid="trigger-end-date"
+                         onChange={e => setForm({ ...form, end_date: e.target.value })}
+                         className="w-full px-2 py-1.5 border rounded-md text-sm" />
+                </label>
+              </div>
               <div className="text-xs font-medium text-slate-700">Services</div>
               <div className="grid grid-cols-2 gap-1.5">
                 {ROLLING_SERVICES.map(s => (
@@ -952,9 +1289,8 @@ function TriggerModal({ onClose }) {
                   </label>
                 ))}
               </div>
-              <label className="flex items-center gap-2 text-xs pt-2 cursor-pointer">
-                <input type="checkbox" checked={form.skip_existing}
-                       data-testid="trigger-skip-existing"
+              <label className="flex items-center gap-2 text-xs pt-1 cursor-pointer">
+                <input type="checkbox" checked={form.skip_existing} data-testid="trigger-skip-existing"
                        onChange={e => setForm({ ...form, skip_existing: e.target.checked })} />
                 Skip dates already succeeded (resumable)
               </label>
@@ -969,29 +1305,42 @@ function TriggerModal({ onClose }) {
             </div>
           )}
           {result && (
-            <div className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800"
+            <div className="px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 space-y-1.5"
                  data-testid="backfill-trigger-success">
               <div className="font-semibold flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Backfill kicked off
+                <CheckCircle2 className="w-3.5 h-3.5" /> Backfill kicked off on VM
               </div>
-              <div className="opacity-80 mt-0.5 font-mono text-[10px]">log: {result.log_path}</div>
-              <div className="opacity-80 mt-0.5">Watch progress under the <b>Backfill Runs</b> tab — auto-polls while RUNNING.</div>
+              <div className="opacity-75 font-mono text-[10px]">log: {result.log_path}</div>
+              {result.estimated_runtime && (
+                <div className="opacity-80">Estimated runtime: <b>{result.estimated_runtime}</b></div>
+              )}
+              {result.unlocks?.length > 0 && (
+                <div>
+                  <span className="opacity-70">Unlocks: </span>
+                  <span>{result.unlocks.join(" · ")}</span>
+                </div>
+              )}
+              <div className="opacity-70 pt-0.5">
+                Watch progress in the <b>Job Log</b> tab — filter by ingester, auto-polls while RUNNING.
+              </div>
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t flex items-center justify-end gap-2 bg-slate-50">
+        {/* Footer */}
+        <div className="px-5 py-3 border-t flex items-center justify-end gap-2 bg-slate-50 dark:bg-slate-800">
           <button onClick={onClose} className="px-3 py-1.5 text-xs border rounded">cancel</button>
           <button
             data-testid="backfill-trigger-submit"
-            disabled={submitting || !health?.ok ||
-              (mode === "daily" && form.ingesters.length === 0) ||
-              (mode === "rolling" && form.services.length === 0)}
+            disabled={isSubmitDisabled()}
             onClick={submit}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            className={cls(
+              "flex items-center gap-1.5 px-3 py-1.5 text-xs text-white rounded disabled:opacity-50",
+              btnColor,
+            )}
           >
             {submitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-            kick off
+            {tab === "priority" ? `Start ${activePriorityMeta?.label || ""}` : "Kick off"}
           </button>
         </div>
       </div>

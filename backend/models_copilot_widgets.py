@@ -88,6 +88,13 @@ class FundCardData(BaseModel):
     alpha: Optional[float] = None
     expense_ratio: Optional[float] = None
     manager_tenure_years: Optional[float] = None
+    # NIDP DaaS scorecard fields (populated when NIDP has data for this scheme)
+    nidp_composite_score: Optional[float] = None    # 0–100
+    nidp_quality_label: Optional[str] = None        # Elite | Good | Average | Below Average | Underperformer
+    nidp_composite_rank: Optional[int] = None       # peer-group rank (1 = best)
+    nidp_total_in_category: Optional[int] = None    # peer-group size
+    nidp_top_position_pct: Optional[float] = None   # 0–1 (0.05 = top 5%)
+    nidp_red_flags: List[str] = Field(default_factory=list)  # ⚠️ lifecycle event labels
 
 
 class CompareRow(BaseModel):
