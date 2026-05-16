@@ -513,3 +513,130 @@ async def reset_onboarding_by_email(request: Request) -> Dict[str, Any]:
         {"$set": {"onboarding_completed": False, "journey_type": None}},
     )
     return {"ok": True, "user_id": user_id, "email": email}
+
+
+@router.post("/gmail-scan")
+async def admin_gmail_scan(request: Request) -> Dict[str, Any]:
+    """Scan Gmail for CAS emails using stored tokens for a user.
+    Protected by X-Admin-Key header. Bypasses OAuth UI for testing.
+
+    curl -X POST https://niveshcopilot.com/api/admin/gmail-scan \\
+         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -H 'Content-Type: application/json' \\
+         -d '{"email": "user@example.com"}'
+    """
+    key = request.headers.get("X-Admin-Key", "")
+    if key != "niv3sh-reset-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found: {email}")
+    user_id = user["user_id"]
+
+    token_doc = await db.gmail_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="No Gmail tokens found — user must connect Gmail first via OAuth")
+
+    from services.gmail_service import get_gmail_credentials, build_gmail_service, scan_for_cas_emails
+    creds = get_gmail_credentials(token_doc)
+    service = build_gmail_service(creds)
+
+    # Refresh token if needed
+    if creds.token != token_doc.get("access_token"):
+        await db.gmail_tokens.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "access_token": creds.token,
+                "expires_at": creds.expiry.isoformat() if creds.expiry else None,
+            }}
+        )
+
+    emails = scan_for_cas_emails(service, max_results=20)
+
+    imported_ids = set()
+    existing = await db.gmail_imports.find(
+        {"user_id": user_id, "status": "completed"},
+        {"_id": 0, "message_id": 1}
+    ).to_list(500)
+    imported_ids = {e["message_id"] for e in existing}
+
+    for e in emails:
+        e["already_imported"] = e["message_id"] in imported_ids
+
+    return {
+        "user_id": user_id,
+        "gmail_connected": True,
+        "emails_found": len(emails),
+        "emails": emails,
+    }
+
+
+@router.post("/gmail-import")
+async def admin_gmail_import(request: Request) -> Dict[str, Any]:
+    """Import a specific CAS email for a user using stored Gmail tokens.
+    Protected by X-Admin-Key header.
+
+    curl -X POST https://niveshcopilot.com/api/admin/gmail-import \\
+         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -H 'Content-Type: application/json' \\
+         -d '{"email": "user@example.com", "message_id": "...", "attachment_id": "...", "filename": "CAS.pdf", "password": "PANXXXX"}'
+    """
+    from fastapi import BackgroundTasks
+    key = request.headers.get("X-Admin-Key", "")
+    if key != "niv3sh-reset-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    message_id = body.get("message_id", "")
+    attachment_id = body.get("attachment_id", "")
+    filename = body.get("filename", "cas.pdf")
+    password = body.get("password", "")
+
+    if not email or not message_id or not attachment_id:
+        raise HTTPException(status_code=400, detail="email, message_id, attachment_id required")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found: {email}")
+    user_id = user["user_id"]
+
+    token_doc = await db.gmail_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    if not token_doc:
+        raise HTTPException(status_code=400, detail="No Gmail tokens found")
+
+    from services.gmail_service import get_gmail_credentials, build_gmail_service, download_attachment
+    from routes.gmail import _process_gmail_cas_background, _persist_gmail_pdf
+    import uuid as _uuid
+
+    creds = get_gmail_credentials(token_doc)
+    service = build_gmail_service(creds)
+    content = download_attachment(service, message_id, attachment_id)
+
+    task_id = f"admin_gmail_{_uuid.uuid4().hex[:12]}"
+    await db.upload_tasks.insert_one({
+        "task_id": task_id, "user_id": user_id,
+        "status": "processing", "message": f"Importing {filename}...",
+        "count": 0, "source": "email",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    file_id, file_path, file_sha256 = _persist_gmail_pdf(user_id, content, filename)
+
+    import asyncio
+    asyncio.create_task(_process_gmail_cas_background(
+        content, user_id, task_id, "", password,
+        message_id, attachment_id, file_id, filename,
+    ))
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "message": f"Import started for {filename}. Poll /api/portfolio/upload-status/{task_id} for result.",
+    }
