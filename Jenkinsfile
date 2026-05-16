@@ -15,7 +15,7 @@ pipeline {
         NIVESH_VM_HOST  = credentials('NIVESH_APP_VM_HOST')   // secret text
         NIDP_VM_HOST    = '34.93.60.254'
         SSH_USER        = 'aporwal107_gmail_com'
-        DEPLOY_BRANCH   = 'main'
+        DEPLOY_BRANCH   = 'nivesh-v2-copilot'
     }
 
     options {
