@@ -79,6 +79,7 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "amfi_nav",                    "cadence": "daily"},
     {"ingester": "amfi_circulars",              "cadence": "daily"},
     {"ingester": "amfi_nav_history",            "cadence": "manual"},
+    {"ingester": "nse_financials_backfill",     "cadence": "manual"},
     {"ingester": "mf_disclosure_snapshot",      "cadence": "monthly"},
     {"ingester": "mf_holdings",                 "cadence": "monthly"},
     # Corporate event intelligence pipeline

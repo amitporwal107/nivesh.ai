@@ -415,6 +415,229 @@ async def trigger_rolling(req: TriggerRollingReq, request: Request) -> Dict[str,
     }
 
 
+class TriggerYfinanceReq(BaseModel):
+    start_date:       date  = Field(default_factory=lambda: date(2006, 1, 1))
+    end_date:         date  = Field(default_factory=date.today)
+    symbols:          Optional[str] = Field(None, description="Comma-separated NSE symbols (default: Nifty 500)")
+    concurrency:      int   = Field(default=4, ge=1, le=12)
+    per_request_delay: float = Field(default=2.0, ge=0.5, le=10.0)
+
+    @field_validator("end_date")
+    @classmethod
+    def _end_ge_start(cls, v: date, info: Any) -> date:
+        s = info.data.get("start_date")
+        if s and v < s:
+            raise ValueError("end_date must be >= start_date")
+        return v
+
+
+class TriggerNavHistoryReq(BaseModel):
+    scheme_codes:     Optional[str] = Field(None, description="Comma-separated scheme codes (default: all active)")
+    from_date:        Optional[date] = None
+    to_date:          Optional[date] = None
+    concurrency:      int = Field(default=12, ge=1, le=20)
+    only_stale_days:  int = Field(default=0, ge=0, description="0 = full backfill (recommended for initial run)")
+
+
+class TriggerFinancialsReq(BaseModel):
+    symbols:          Optional[str] = Field(None, description="Comma-separated NSE symbols (default: Nifty 500)")
+    concurrency:      int = Field(default=5, ge=1, le=10)
+    per_request_delay: float = Field(default=2.5, ge=1.0, le=10.0)
+    only_missing:     bool = Field(default=False, description="Skip symbols already having ≥8 quarters")
+
+
+@router.post(
+    "/trigger/yfinance",
+    summary="SSH → VM: launch yfinance 20-year price backfill (Priority 1a)",
+)
+async def trigger_yfinance(req: TriggerYfinanceReq, request: Request) -> Dict[str, Any]:
+    """Triggers `python -m nidp.services.yfinance_backfill` on the NIDP VM.
+
+    Default: 20 years of daily OHLCV for all Nifty 500 symbols.
+    Populates `nidp.prices_eod` — unlocks 1Y/3Y/5Y CAGR, volatility,
+    Sharpe, Beta, drawdown, stress tests, and tax cost basis.
+    Runtime: ~5-6 hours at default concurrency.
+    """
+    user = await require_admin(request)
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/yfinance_{int(time.time())}.log"
+
+    sym_arg = f"--symbols {shlex.quote(req.symbols)}" if req.symbols else ""
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.services.yfinance_backfill "
+        f"--from {req.start_date.isoformat()} "
+        f"--to {req.end_date.isoformat()} "
+        f"--concurrency {req.concurrency} "
+        f"--per-request-delay {req.per_request_delay} "
+        f"{sym_arg}"
+    ).strip()
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}")
+
+    return {
+        "ok":            True,
+        "mode":          "yfinance",
+        "log_path":      log_path,
+        "initiated_by":  init_by,
+        "estimated_runtime": "5-6 hours for Nifty 500 at default concurrency",
+        "unlocks": ["1Y/3Y/5Y CAGR", "volatility", "Sharpe", "Beta", "drawdown",
+                    "stress_tests (COVID/GFC)", "tax cost basis"],
+        "command_echo":  inner,
+        "ssh_stdout":    out.strip()[-400:],
+    }
+
+
+@router.post(
+    "/trigger/nav-history",
+    summary="SSH → VM: launch AMFI full NAV history backfill (Priority 1b)",
+)
+async def trigger_nav_history(req: TriggerNavHistoryReq, request: Request) -> Dict[str, Any]:
+    """Triggers `python -m nidp.services.amfi_nav_history --only-stale-days 0` on VM.
+
+    Fetches complete NAV history for all active MF schemes from MFAPI.in
+    (which has data from scheme inception). Populates `nidp.mf_nav_daily`.
+    Unlocks 1Y/3Y/5Y MF returns, rolling returns, MF stress tests, SIP projections.
+    Runtime: ~1.5-2 hours at default concurrency (12 concurrent).
+    """
+    user = await require_admin(request)
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/nav_history_{int(time.time())}.log"
+
+    codes_arg   = f"--scheme-codes {shlex.quote(req.scheme_codes)}" if req.scheme_codes else ""
+    from_arg    = f"--from {req.from_date.isoformat()}" if req.from_date else ""
+    to_arg      = f"--to {req.to_date.isoformat()}" if req.to_date else ""
+
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.services.amfi_nav_history "
+        f"--only-stale-days {req.only_stale_days} "
+        f"--concurrency {req.concurrency} "
+        f"{codes_arg} {from_arg} {to_arg}"
+    ).strip()
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}")
+
+    return {
+        "ok":            True,
+        "mode":          "nav_history",
+        "log_path":      log_path,
+        "initiated_by":  init_by,
+        "estimated_runtime": "1.5-2 hours for all active schemes",
+        "unlocks": ["MF 1Y/3Y/5Y CAGR", "rolling returns", "MF volatility",
+                    "MF stress tests", "SIP projections", "MF tax cost basis"],
+        "command_echo":  inner,
+        "ssh_stdout":    out.strip()[-400:],
+    }
+
+
+@router.post(
+    "/trigger/financials",
+    summary="SSH → VM: launch NSE quarterly financials batch backfill (Priority 2)",
+)
+async def trigger_financials(req: TriggerFinancialsReq, request: Request) -> Dict[str, Any]:
+    """Triggers `python -m nidp.services.nse_financials_backfill` on the NIDP VM.
+
+    Batch-scrapes NSE XBRL comparator for all Nifty 500 symbols (up to 8 quarters),
+    then falls back to Screener.in for older quarters (up to 20 total).
+    Populates `nidp.nse_financials_quarterly` — the single most critical missing dataset.
+
+    Unlocks: EPS CAGR, Revenue CAGR, earnings consistency, debt trend,
+    margin trend, ROE/ROCE, Piotroski F-Score, V3 quality score.
+    Runtime: ~3-4 hours at default concurrency (NSE rate-limited).
+    """
+    user = await require_admin(request)
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/financials_{int(time.time())}.log"
+
+    sym_arg     = f"--symbols {shlex.quote(req.symbols)}" if req.symbols else ""
+    missing_arg = "--only-missing" if req.only_missing else ""
+
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.services.nse_financials_backfill "
+        f"--concurrency {req.concurrency} "
+        f"--delay {req.per_request_delay} "
+        f"{sym_arg} {missing_arg}"
+    ).strip()
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}")
+
+    return {
+        "ok":            True,
+        "mode":          "financials",
+        "log_path":      log_path,
+        "initiated_by":  init_by,
+        "estimated_runtime": "3-4 hours for Nifty 500 (NSE rate-limited)",
+        "coverage": {
+            "nse_xbrl":   "up to 8 quarters per symbol",
+            "screener_in": "up to 20 quarters (fallback when NSE < 8 quarters)",
+        },
+        "unlocks": ["EPS_CAGR_3Y", "Revenue_CAGR_3Y", "earnings_consistency",
+                    "debt_trend", "profit_margin_trend", "Piotroski_F_Score",
+                    "V3_quality_score", "V3_health_score"],
+        "command_echo":  inner,
+        "ssh_stdout":    out.strip()[-400:],
+    }
+
+
+@router.post(
+    "/trigger/price-adjuster",
+    summary="SSH → VM: run price_adjuster to compute split/bonus-adjusted prices (run after yfinance)",
+)
+async def trigger_price_adjuster(
+    request: Request,
+    start_date: date = Query(default_factory=lambda: date(2006, 1, 1)),
+    end_date:   date = Query(default_factory=date.today),
+) -> Dict[str, Any]:
+    """Triggers the price_adjuster ingester over the backfill window.
+
+    Must be run AFTER yfinance_backfill completes. Computes split/bonus/dividend
+    adjusted prices into `nidp.prices_eod_adjusted` — required for accurate
+    multi-year return calculations.
+    """
+    user = await require_admin(request)
+    init_by = _safe_initiator(user)
+    log_path = f"/opt/nidp/logs/backfill/price_adj_{int(time.time())}.log"
+
+    inner = (
+        f"/opt/nidp/venv/bin/python -m nidp.services.backfill "
+        f"--start-date {start_date.isoformat()} "
+        f"--end-date {end_date.isoformat()} "
+        f"--ingesters price_adjuster "
+        f"--wipe-first false"
+    )
+
+    try:
+        rc, out, err = await ssh_run_detached_as_nidp(inner, log_path=log_path)
+    except SSHUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"VM SSH failed (rc={rc}): {(err or out)[:600]}")
+
+    return {
+        "ok":           True,
+        "mode":         "price_adjuster",
+        "log_path":     log_path,
+        "initiated_by": init_by,
+        "note":         "Run this AFTER yfinance backfill completes.",
+        "command_echo": inner,
+        "ssh_stdout":   out.strip()[-400:],
+    }
+
+
 @router.get("/trigger/health", summary="Whether the pod can SSH into the NIDP VM")
 async def trigger_health(request: Request) -> Dict[str, Any]:
     await require_admin(request)
