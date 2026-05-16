@@ -25,74 +25,55 @@ _SWAGGER_HTML = """<!DOCTYPE html>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fc; color: #1e293b; }
 
     #topbar {
       display: flex; align-items: center; gap: 16px;
       padding: 12px 24px;
-      background: #1a1d27;
-      border-bottom: 1px solid #2d3148;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
       position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
     }
 
     #topbar .logo {
-      font-size: 18px; font-weight: 700; color: #7c6af7;
+      font-size: 18px; font-weight: 700; color: #4f46e5;
       letter-spacing: -0.3px;
     }
 
     #topbar .badge {
-      font-size: 11px; background: #2d3148; color: #94a3b8;
-      padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; background: #ede9fe; color: #6d28d9;
+      padding: 2px 8px; border-radius: 10px; font-weight: 600;
     }
 
-    #topbar label { font-size: 13px; color: #94a3b8; margin-left: auto; }
+    #topbar label { font-size: 13px; color: #64748b; margin-left: auto; }
 
     #api-selector {
       appearance: none;
-      background: #252836;
-      border: 1px solid #3d4263;
-      color: #e2e8f0;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #1e293b;
       font-size: 13px;
       padding: 6px 32px 6px 12px;
       border-radius: 6px;
       cursor: pointer;
       outline: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
       background-position: right 10px center;
     }
-    #api-selector:focus { border-color: #7c6af7; }
+    #api-selector:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79,70,229,.15); }
 
     #swagger-ui { max-width: 1280px; margin: 0 auto; padding: 24px; }
 
-    /* Override Swagger UI dark theme */
-    .swagger-ui { filter: invert(0); }
+    /* Clean up Swagger UI — hide its own topbar, use ours */
     .swagger-ui .topbar { display: none !important; }
-    .swagger-ui .info .title { color: #e2e8f0; }
-    .swagger-ui .info .description p,
-    .swagger-ui .info table { color: #94a3b8; }
-    .swagger-ui .scheme-container { background: #1a1d27; border: 1px solid #2d3148; border-radius: 6px; }
-    .swagger-ui .opblock-tag { color: #c4b5fd; border-color: #2d3148; }
-    .swagger-ui .opblock { border-radius: 6px; margin: 4px 0; border: 1px solid #2d3148; }
-    .swagger-ui .opblock .opblock-summary { border-radius: 5px; }
-    .swagger-ui .opblock.opblock-get .opblock-summary { background: rgba(59,130,246,.08); }
-    .swagger-ui .opblock.opblock-post .opblock-summary { background: rgba(34,197,94,.08); }
-    .swagger-ui .opblock.opblock-put .opblock-summary { background: rgba(234,179,8,.08); }
-    .swagger-ui .opblock.opblock-patch .opblock-summary { background: rgba(168,85,247,.08); }
-    .swagger-ui .opblock.opblock-delete .opblock-summary { background: rgba(239,68,68,.08); }
-    .swagger-ui section.models { border: 1px solid #2d3148; border-radius: 6px; }
-    .swagger-ui .model-container { background: #1a1d27; }
-    .swagger-ui select, .swagger-ui input { background: #252836; color: #e2e8f0; border-color: #3d4263; }
-    .swagger-ui .btn { border-radius: 4px; }
-    .swagger-ui .btn.authorize { background: #7c6af7; border-color: #7c6af7; color: #fff; }
-    .swagger-ui .response-col_status { color: #e2e8f0; }
-    .swagger-ui .response-col_description { color: #94a3b8; }
-    .swagger-ui table thead tr td, .swagger-ui table thead tr th { color: #94a3b8; border-color: #2d3148; }
-    .swagger-ui .parameter__name { color: #c4b5fd; }
-    .swagger-ui .parameter__type { color: #7dd3fc; }
-    .swagger-ui .markdown p, .swagger-ui .renderedMarkdown p { color: #94a3b8; }
-    body .swagger-ui .wrapper, body .swagger-ui .info { background: transparent; }
-    .swagger-ui .loading-container .loading:after { color: #7c6af7; }
+    .swagger-ui .info .title { color: #1e293b; }
+    .swagger-ui .scheme-container { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+    .swagger-ui .opblock-tag { color: #4f46e5; border-color: #e2e8f0; font-weight: 600; }
+    .swagger-ui .opblock { border-radius: 6px; margin: 4px 0; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+    .swagger-ui .btn.authorize { background: #4f46e5; border-color: #4f46e5; color: #fff; border-radius: 6px; }
+    .swagger-ui .btn { border-radius: 5px; }
   </style>
 </head>
 <body>
