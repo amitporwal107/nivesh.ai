@@ -40,6 +40,7 @@ function AppRouter() {
       <Route path="/chat/:threadId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
+      <Route path="/v2" element={<Navigate to="/app" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

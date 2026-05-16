@@ -186,13 +186,15 @@ async def seed_admin_and_whitelist():
             logger.info("Seeded founder user: %s (%s)", mask_email(email), user_id)
         else:
             user_id = existing_user["user_id"]
+            # Only set is_admin — do NOT overwrite onboarding_completed so
+            # admins can manually reset it to false for testing onboarding flows.
             await db.users.update_one(
                 {"email": email},
-                {"$set": {"is_admin": True, "onboarding_completed": True, "updated_at": now}},
+                {"$set": {"is_admin": True, "updated_at": now}},
             )
 
-        # 3. user_profiles — same pre-seeding so dashboard treats them
-        #    as fully-onboarded immediately.
+        # 3. user_profiles — pre-seed on insert only; never overwrite
+        #    onboarding_completed so manual resets survive server restarts.
         await db.user_profiles.update_one(
             {"user_id": user_id},
             {"$setOnInsert": {
@@ -203,8 +205,9 @@ async def seed_admin_and_whitelist():
                 "goals": [],
                 "playbook": None,
                 "selected_sources": [],
+                "onboarding_completed": True,
             },
-             "$set": {"onboarding_completed": True, "updated_at": now}},
+             "$set": {"updated_at": now}},
             upsert=True,
         )
 
