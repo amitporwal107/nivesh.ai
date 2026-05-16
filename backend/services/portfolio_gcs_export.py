@@ -1,15 +1,17 @@
 """Export Nivesh portfolio holdings to GCS for NIDP consumption.
 
+Reads from MongoDB (the canonical holdings store) — no Postgres dependency.
+
 Landing zone layout:
-  gs://{bucket}/portfolio/holdings/{YYYY-MM-DD}/holdings.jsonl  — one JSON line per client
-  gs://{bucket}/portfolio/holdings/latest.json                   — pointer to newest date
+  gs://{bucket}/portfolio/holdings/{YYYY-MM-DD}/holdings.jsonl  — one JSON line per user
+  gs://{bucket}/portfolio/holdings/latest.json                  — pointer to newest file
 
-NIDP's portfolio_holdings_sync reads these files; no Postgres-to-Postgres
-bridge is needed.
+NIDP's portfolio_holdings_sync reads these files.
 
-Env vars (both are already required by the main backend):
-  NIDP_GCS_BUCKET   — GCS bucket name (defaults to nidp-raw-niveshdataintelligence)
-  POSTGRES_URL      — Nivesh Postgres connection string
+Env vars:
+  NIDP_GCS_BUCKET — GCS bucket (default: nidp-raw-niveshdataintelligence)
+  MONGO_URL       — MongoDB connection string
+  DB_NAME         — database name
 """
 from __future__ import annotations
 
@@ -19,107 +21,24 @@ import os
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-import asyncpg
-
 logger = logging.getLogger(__name__)
 
 GCS_BUCKET = os.environ.get("NIDP_GCS_BUCKET", "nidp-raw-niveshdataintelligence")
 HOLDINGS_PREFIX = "portfolio/holdings"
 
 _ASSET_CLASS: dict[str, str] = {
-    "EQUITY":      "EQUITY",
-    "MUTUAL_FUND": "MF",
-    "SGB":         "GOLD",
-    "ETF":         "ETF",
-    "DEBT":        "DEBT",
-    "CASH":        "CASH",
+    "equity":      "EQUITY",
+    "mutual_fund": "MF",
+    "etf":         "ETF",
+    "gold":        "GOLD",
+    "debt":        "DEBT",
+    "cash":        "CASH",
+    "sgb":         "GOLD",
 }
 
 
-def _asset_class(instrument_type: str) -> str:
-    return _ASSET_CLASS.get((instrument_type or "").upper(), "OTHER")
-
-
-async def _fetch_all_snapshots(
-    conn: asyncpg.Connection,
-    target_date: Optional[date],
-) -> list[asyncpg.Record]:
-    if target_date:
-        return await conn.fetch(
-            """
-            SELECT
-                psm.client_id,
-                cum.email           AS external_user_id,
-                cum.display_name,
-                psm.snapshot_date,
-                psm.total_value,
-                psm.total_invested,
-                psm.id              AS snapshot_id
-            FROM portfolio_snapshot_master psm
-            JOIN client_user_map cum ON cum.client_id = psm.client_id
-            WHERE psm.snapshot_date = $1
-            ORDER BY cum.email
-            """,
-            target_date,
-        )
-    return await conn.fetch(
-        """
-        SELECT DISTINCT ON (psm.client_id)
-            psm.client_id,
-            cum.email           AS external_user_id,
-            cum.display_name,
-            psm.snapshot_date,
-            psm.total_value,
-            psm.total_invested,
-            psm.id              AS snapshot_id
-        FROM portfolio_snapshot_master psm
-        JOIN client_user_map cum ON cum.client_id = psm.client_id
-        ORDER BY psm.client_id, psm.snapshot_date DESC
-        """,
-    )
-
-
-async def _fetch_holdings(
-    conn: asyncpg.Connection,
-    snapshot_id: str,
-    total_value: float,
-) -> list[dict[str, Any]]:
-    rows = await conn.fetch(
-        """
-        SELECT
-            im.instrument_type,
-            im.symbol,
-            im.isin,
-            im.instrument_name,
-            psh.units          AS quantity,
-            psh.current_value  AS market_value_inr,
-            psh.weight_pct
-        FROM portfolio_snapshot_holdings psh
-        JOIN instrument_master im ON im.instrument_id = psh.instrument_id::uuid
-        WHERE psh.snapshot_id = $1
-        """,
-        snapshot_id,
-    )
-    tv = float(total_value or 0)
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        itype = (r["instrument_type"] or "").upper()
-        mv = float(r["market_value_inr"] or 0)
-        out.append({
-            "asset_class":      _asset_class(itype),
-            "symbol":           r["symbol"] if itype == "EQUITY" else None,
-            "isin":             r["isin"],
-            "amfi_scheme_code": r["symbol"] if itype == "MUTUAL_FUND" else None,
-            "instrument_name":  r["instrument_name"],
-            "quantity":         float(r["quantity"] or 0),
-            "avg_buy_price":    None,
-            "market_value_inr": mv,
-            "weight_pct":       float(r["weight_pct"] or 0) or (
-                round(mv / tv * 100, 6) if tv > 0 else 0.0
-            ),
-            "source_system": "nivesh_cas",
-        })
-    return out
+def _to_asset_class(asset_type: str) -> str:
+    return _ASSET_CLASS.get((asset_type or "").lower(), "OTHER")
 
 
 def _gcs_client():
@@ -136,74 +55,100 @@ def _upload_to_gcs(blob_path: str, data: bytes, content_type: str = "application
 
 
 async def export_portfolio_to_gcs(
-    db_pool: asyncpg.Pool,
+    db,
     target_date: Optional[date] = None,
 ) -> dict[str, Any]:
     """
-    Query Nivesh Postgres and write one JSONL file to GCS.
+    Read holdings from MongoDB and write one JSONL file to GCS per export run.
 
     Args:
-        db_pool: existing asyncpg pool connected to Nivesh Postgres
-        target_date: snapshot date to export; None = latest per client
+        db: Motor AsyncIOMotorDatabase instance
+        target_date: snapshot date label to embed in the file path (default: today)
 
     Returns summary dict.
     """
-    async with db_pool.acquire() as conn:
-        snapshots = await _fetch_all_snapshots(conn, target_date)
+    export_date = target_date or date.today()
+    date_str = export_date.isoformat()
 
-        if not snapshots:
-            logger.info("portfolio_gcs_export: no snapshots found for %s", target_date or "latest")
-            return {"exported": 0, "skipped": 0, "date": str(target_date or "latest")}
+    # Load all users with email for the user_id → email mapping
+    user_cursor = db.users.find({}, {"user_id": 1, "email": 1, "name": 1, "_id": 0})
+    user_map: dict[str, dict] = {}
+    async for u in user_cursor:
+        if u.get("user_id") and u.get("email"):
+            user_map[u["user_id"]] = {"email": u["email"], "name": u.get("name", "")}
 
-        logger.info("portfolio_gcs_export: %d clients to export", len(snapshots))
+    if not user_map:
+        logger.info("portfolio_gcs_export: no users found")
+        return {"exported": 0, "skipped": 0, "date": date_str}
 
-        lines: list[bytes] = []
-        exported = skipped = 0
-        export_date = target_date or date.today()
+    # Load all holdings grouped by user_id
+    holdings_by_user: dict[str, list] = {}
+    async for h in db.holdings.find({}):
+        uid = h.get("user_id")
+        if uid:
+            holdings_by_user.setdefault(uid, []).append(h)
 
-        for snap in snapshots:
-            email     = snap["external_user_id"]
-            snap_date = snap["snapshot_date"]
-            snap_id   = snap["snapshot_id"]
-            tv        = float(snap["total_value"] or 0)
+    lines: list[bytes] = []
+    exported = skipped = 0
 
-            try:
-                holdings = await _fetch_holdings(conn, str(snap_id), tv)
-                if not holdings:
-                    skipped += 1
-                    continue
+    for user_id, user_info in user_map.items():
+        raw_holdings = holdings_by_user.get(user_id, [])
+        if not raw_holdings:
+            skipped += 1
+            continue
 
-                record = {
-                    "schema_version":   "1",
-                    "exported_at":      datetime.now(timezone.utc).isoformat(),
-                    "external_user_id": email,
-                    "client_id":        str(snap["client_id"]),
-                    "display_name":     snap["display_name"],
-                    "snapshot_date":    snap_date.isoformat(),
-                    "total_value":      tv,
-                    "total_invested":   float(snap["total_invested"] or 0),
-                    "holdings":         holdings,
-                }
-                lines.append(json.dumps(record, default=str).encode())
-                export_date = snap_date
-                exported += 1
+        total_value = sum(
+            float(h.get("current_price") or 0) * float(h.get("quantity") or 0)
+            for h in raw_holdings
+        )
 
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("portfolio_gcs_export: error for %s: %s", email, exc)
-                skipped += 1
+        holdings: list[dict] = []
+        for h in raw_holdings:
+            qty = float(h.get("quantity") or 0)
+            price = float(h.get("current_price") or 0)
+            mv = qty * price
+            asset_type = (h.get("asset_type") or "").lower()
+            is_equity = asset_type == "equity"
+            isin = h.get("isin") or h.get("ticker")
+            holdings.append({
+                "asset_class":      _to_asset_class(asset_type),
+                "symbol":           h.get("nse_symbol") if is_equity else None,
+                "isin":             isin,
+                "amfi_scheme_code": None,
+                "instrument_name":  h.get("name"),
+                "quantity":         qty,
+                "avg_buy_price":    float(h.get("buy_price") or 0) or None,
+                "market_value_inr": mv,
+                "weight_pct":       round(mv / total_value * 100, 6) if total_value > 0 else 0.0,
+                "source_system":    "nivesh_cas",
+            })
+
+        record = {
+            "schema_version":   "1",
+            "exported_at":      datetime.now(timezone.utc).isoformat(),
+            "external_user_id": user_info["email"],
+            "client_id":        user_id,
+            "display_name":     user_info["name"],
+            "snapshot_date":    date_str,
+            "total_value":      total_value,
+            "total_invested":   None,
+            "holdings":         holdings,
+        }
+        lines.append(json.dumps(record, default=str).encode())
+        exported += 1
+        logger.info("portfolio_gcs_export: queued %s — %d holdings", user_info["email"], len(holdings))
 
     if not lines:
-        return {"exported": 0, "skipped": skipped, "date": str(target_date or "latest")}
+        return {"exported": 0, "skipped": skipped, "date": date_str}
 
-    date_str = export_date.isoformat()
     blob_path = f"{HOLDINGS_PREFIX}/{date_str}/holdings.jsonl"
     payload = b"\n".join(lines)
     _upload_to_gcs(blob_path, payload, content_type="application/x-ndjson")
 
     latest = json.dumps({
-        "date":      date_str,
-        "path":      blob_path,
-        "records":   exported,
+        "date":        date_str,
+        "path":        blob_path,
+        "records":     exported,
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }).encode()
     _upload_to_gcs(f"{HOLDINGS_PREFIX}/latest.json", latest)

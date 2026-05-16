@@ -143,6 +143,95 @@ async def top_funds_screener(
     )
 
 
+@router.get("/screener/advanced", summary="Composite-score-filtered MF screener")
+async def advanced_mf_screener(
+    category: Optional[str] = Query(None, description="sub_category filter e.g. 'Large Cap'"),
+    sort_by: str = Query("composite_score", description="composite_score | return_3y | sharpe | ter"),
+    min_composite: Optional[float] = Query(None, ge=0, le=100, description="Minimum composite_score"),
+    max_ter: Optional[float] = Query(None, ge=0, description="Maximum TER %"),
+    min_return_3y: Optional[float] = Query(None, description="Minimum 3-year return %"),
+    min_sharpe: Optional[float] = Query(None, description="Minimum Sharpe ratio"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Advanced MF screener driven by nidp.v_mf_category_scorecard (migration 052).
+
+    Every returned scheme has composite_score, quality_label, and quartile ranks.
+    Combines well with the MF intelligence tool in the copilot.
+    """
+    _SORT_MAP = {
+        "composite_score": ("composite_score", "DESC"),
+        "return_3y":       ("return_3y",        "DESC"),
+        "return_1y":       ("return_1y",         "DESC"),
+        "return_5y":       ("return_5y",         "DESC"),
+        "sharpe":          ("sharpe_1y",         "DESC"),
+        "ter":             ("ter",               "ASC"),
+        "aum":             ("aum_cr",            "DESC"),
+    }
+    if sort_by not in _SORT_MAP:
+        raise HTTPException(status_code=400, detail=f"sort_by must be one of {sorted(_SORT_MAP)}")
+    col, direction = _SORT_MAP[sort_by]
+
+    conditions = ["1=1"]
+    args: list = []
+    idx = 1
+
+    if category:
+        conditions.append(f"sub_category ILIKE ${idx}")
+        args.append(f"%{category}%")
+        idx += 1
+    if min_composite is not None:
+        conditions.append(f"composite_score >= ${idx}")
+        args.append(min_composite)
+        idx += 1
+    if max_ter is not None:
+        conditions.append(f"(ter IS NULL OR ter <= ${idx})")
+        args.append(max_ter)
+        idx += 1
+    if min_return_3y is not None:
+        conditions.append(f"return_3y >= ${idx}")
+        args.append(min_return_3y)
+        idx += 1
+    if min_sharpe is not None:
+        conditions.append(f"sharpe_1y >= ${idx}")
+        args.append(min_sharpe)
+        idx += 1
+
+    where = " AND ".join(conditions)
+    args_limit   = args + [page["limit"], page["offset"]]
+    args_count   = args[:]
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM nidp.v_mf_category_scorecard WHERE {where}",
+            *args_count,
+        )
+        rows = await conn.fetch(
+            f"""
+            SELECT *
+              FROM nidp.v_mf_category_scorecard
+             WHERE {where}
+             ORDER BY {col} {direction} NULLS LAST
+             LIMIT ${idx} OFFSET ${idx+1}
+            """,
+            *args_limit,
+        )
+    return envelope(
+        [row_to_dict(r) for r in rows],
+        total=total, **page,
+        extra={
+            "filters": {
+                "category":       category,
+                "min_composite":  min_composite,
+                "max_ter":        max_ter,
+                "min_return_3y":  min_return_3y,
+                "min_sharpe":     min_sharpe,
+            },
+            "sorted_by": sort_by,
+        },
+    )
+
+
 @router.get("/scorecard/{scheme_code}", summary="Full category scorecard for a scheme")
 async def scheme_scorecard(scheme_code: str = Path(...)) -> Dict[str, Any]:
     """Returns composite score, quality label, per-metric ranks and quartiles

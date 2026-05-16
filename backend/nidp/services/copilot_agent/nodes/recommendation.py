@@ -90,23 +90,60 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
         # ── MF recommendations ─────────────────────────────────────────────────
         if any(kw in msg_lower for kw in ("fund", "mf", "mutual", "sip", "invest in")):
             category = _infer_mf_category(user_msg)
-            mf_rec = await rec_mod.recommend_mf(
-                category=category,
-                risk_band=risk_band,
-            )
-            results.append(ToolResult(
-                ok=mf_rec.ok,
-                tool_name="recommend_mf",
-                summary=mf_rec.summary,
-                data={
-                    "risk_band":     mf_rec.risk_band,
-                    "category_used": mf_rec.category_used,
-                    "count":         len(mf_rec.rows),
-                },
-                rows=mf_rec.rows,
-                widget_type=WidgetType.FUND_COMPARISON,
-                error=mf_rec.error,
-            ))
+
+            # Try NIDP composite-score screener first
+            nidp_rows: list = []
+            try:
+                intel_mod = importlib.import_module("services.copilot_tools.mf_intelligence")
+                max_ter    = 0.5 if risk_band == "conservative" else None
+                min_comp   = 70.0 if risk_band == "conservative" else 60.0
+                nidp_rows  = await intel_mod.get_mf_screener(
+                    category=category,
+                    sort_by="composite_score",
+                    min_composite=min_comp,
+                    max_ter=max_ter,
+                    limit=8,
+                )
+            except Exception:
+                pass
+
+            if nidp_rows:
+                results.append(ToolResult(
+                    ok=True,
+                    tool_name="mf_composite_screener",
+                    summary=(
+                        f"NIDP composite screener: {len(nidp_rows)} funds"
+                        f"{' in ' + category if category else ''}"
+                        f", min_score={min_comp}"
+                    ),
+                    data={
+                        "risk_band":     risk_band,
+                        "category_used": category or "all",
+                        "count":         len(nidp_rows),
+                        "source":        "nidp_composite_scorecard",
+                    },
+                    rows=nidp_rows,
+                    widget_type=WidgetType.FUND_COMPARISON,
+                ))
+            else:
+                # Fallback to legacy recommender
+                mf_rec = await rec_mod.recommend_mf(
+                    category=category,
+                    risk_band=risk_band,
+                )
+                results.append(ToolResult(
+                    ok=mf_rec.ok,
+                    tool_name="recommend_mf",
+                    summary=mf_rec.summary,
+                    data={
+                        "risk_band":     mf_rec.risk_band,
+                        "category_used": mf_rec.category_used,
+                        "count":         len(mf_rec.rows),
+                    },
+                    rows=mf_rec.rows,
+                    widget_type=WidgetType.FUND_COMPARISON,
+                    error=mf_rec.error,
+                ))
 
         # ── Stock screener + composite scoring ─────────────────────────────────
         else:

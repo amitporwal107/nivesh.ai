@@ -509,12 +509,9 @@ async def create_cas_snapshot(
 
     async def _export_then_sync() -> None:
         try:
-            from services.pg_client import get_pool as _get_pg_pool
             from services.portfolio_gcs_export import export_portfolio_to_gcs
-            pool = await _get_pg_pool()
-            if pool:
-                result = await export_portfolio_to_gcs(pool, target_date=snapshot_date)
-                logger.info("portfolio GCS export after CAS import: %s", result)
+            result = await export_portfolio_to_gcs(db, target_date=snapshot_date)
+            logger.info("portfolio GCS export after CAS import: %s", result)
         except Exception as _exc:  # noqa: BLE001
             logger.warning("portfolio GCS export failed (non-blocking): %s", _exc)
             return  # don't attempt NIDP sync if export failed

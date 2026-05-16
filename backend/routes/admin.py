@@ -671,15 +671,10 @@ async def trigger_portfolio_gcs_export(request: Request):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
 
-    from services.pg_client import get_pool
     from services.portfolio_gcs_export import export_portfolio_to_gcs
 
-    pool = await get_pool()
-    if pool is None:
-        raise HTTPException(status_code=503, detail="Postgres pool not initialised — check POSTGRES_URL secret")
-
     try:
-        result = await export_portfolio_to_gcs(pool, target_date=target_date)
+        result = await export_portfolio_to_gcs(db, target_date=target_date)
         logger.info("portfolio GCS export triggered by admin: %s", result)
         return {"status": "ok", **result}
     except Exception as exc:
