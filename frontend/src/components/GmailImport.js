@@ -85,7 +85,10 @@ const GmailImport = ({ onRefresh }) => {
 
   const connect = async () => {
     try {
-      const res = await axios.get(`${API}/gmail/connect`, { withCredentials: true });
+      const res = await axios.get(`${API}/gmail/connect`, {
+        params: { return_to: window.location.pathname },
+        withCredentials: true,
+      });
       window.location.href = res.data.auth_url;
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to connect Gmail");

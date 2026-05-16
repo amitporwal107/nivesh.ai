@@ -6,6 +6,7 @@ import hashlib
 import os
 import uuid
 import logging
+import urllib.parse
 
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
 from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
@@ -142,11 +143,11 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
 
     logger.info("Gmail connected for user %s", user_id)
 
-    # Store a short-lived one-time code instead of relying on a cookie
-    # surviving the cross-site redirect chain through Cloudflare.
-    # The frontend exchanges this code for a real session via
-    # POST /api/auth/gmail-session — a normal same-origin call that
-    # always works for setting cookies.
+    # Store a short-lived one-time code then redirect through
+    # /api/auth/gmail-exchange (same-origin GET).  The exchange endpoint sets
+    # the session cookie on a same-origin response so browsers and Cloudflare
+    # accept it reliably — rather than relying on Set-Cookie surviving the
+    # cross-site OAuth redirect chain from Google.
     gmail_code = uuid.uuid4().hex
     await db.gmail_success_codes.insert_one({
         "code": gmail_code,
@@ -154,7 +155,12 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    return RedirectResponse(url=f"{return_to}?gmail_code={gmail_code}")
+    exchange_url = (
+        f"/api/auth/gmail-exchange"
+        f"?code={gmail_code}"
+        f"&return_to={urllib.parse.quote(return_to, safe='')}"
+    )
+    return RedirectResponse(url=exchange_url)
 
 
 @router.get("/gmail/status")

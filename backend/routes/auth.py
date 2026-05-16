@@ -1,6 +1,8 @@
 """Auth routes: Google OAuth, session management."""
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse as _RedirectResponse
 from datetime import datetime, timezone, timedelta
+import urllib.parse
 import uuid
 import httpx
 import logging
@@ -191,6 +193,64 @@ async def exchange_gmail_session(request: Request, response: Response):
     )
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return user
+
+
+@router.get("/auth/gmail-exchange")
+async def gmail_exchange(code: str, return_to: str = "/v2/app"):
+    """Exchange a short-lived gmail_code for a session cookie via a same-origin
+    GET redirect.
+
+    The Gmail OAuth callback now redirects HERE (same origin as the app) rather
+    than directly to the frontend with the code in the URL. This endpoint:
+      1. Looks up and validates the code
+      2. Creates a session and sets the cookie on THIS response
+      3. Redirects to `return_to?gmail=connected`
+
+    Because the Set-Cookie is on a same-origin niveshcopilot.com response (not
+    on the cross-site OAuth redirect from Google), browsers and Cloudflare
+    accept it reliably — solving the "goes to login page" bug without requiring
+    frontend changes.
+    """
+    # Guard against open-redirect: only relative paths allowed.
+    if not return_to.startswith("/") or "://" in return_to:
+        return_to = "/v2/app"
+
+    doc = await db.gmail_success_codes.find_one({"code": code}, {"_id": 0})
+    if not doc:
+        return _RedirectResponse(url=f"{return_to}?gmail_error=invalid_code", status_code=302)
+
+    expires_at = doc.get("expires_at", "")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        await db.gmail_success_codes.delete_one({"code": code})
+        return _RedirectResponse(url=f"{return_to}?gmail_error=code_expired", status_code=302)
+
+    await db.gmail_success_codes.delete_one({"code": code})
+
+    user_id = doc["user_id"]
+    session_token = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    target = f"{return_to}?gmail=connected"
+    redirect_resp = _RedirectResponse(url=target, status_code=302)
+    redirect_resp.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/",
+        max_age=7 * 24 * 3600,
+    )
+    return redirect_resp
 
 
 @router.get("/auth/dev-set-cookie")
