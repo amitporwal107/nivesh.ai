@@ -456,3 +456,21 @@ credentials.json
 deploy/nivesh-app/.env.prod
 frontend/node_modules/.cache/default-development/44.pack
 deploy/keys/
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
