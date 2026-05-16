@@ -3,7 +3,7 @@ name: Deploy → nidp-stack-vm
 # Triggers when NIDP backend code changes on the deploy branch.
 on:
   push:
-    branches: [main, nivesh-v2-copilot]
+    branches: [main]
     paths:
       - 'backend/nidp/**'
 
