@@ -3,9 +3,10 @@ import { Link, Navigate } from "react-router-dom";
 import {
   ArrowLeft, Database, PlayCircle, Activity, Server,
   ShieldCheck, TrendingUp, Award, BarChart3, Sparkles, History,
-  HardDriveDownload,
+  HardDriveDownload, KeyRound,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import NidpApiKeysSection    from "@/components/admin/NidpApiKeysSection";
 import NidpCatalogPanel      from "@/components/admin/NidpCatalogPanel";
 import NidpJobsPanel         from "@/components/admin/NidpJobsPanel";
 import NidpDumpRunner        from "@/components/admin/NidpDumpRunner";
@@ -19,6 +20,8 @@ import NidpReplayPanel       from "@/components/admin/NidpReplayPanel";
 import NidpBackfillPanel     from "@/components/admin/NidpBackfillPanel";
 
 const TABS = [
+  { id: "api_keys",      label: "API Keys",         icon: KeyRound,
+    blurb: "Manage and rotate NIDP DaaS (X-API-Key) and Query API (Bearer) tokens." },
   { id: "catalog",       label: "Data Catalog",    icon: Database,
     blurb: "Every NIDP table, every feed, freshness, and validation findings." },
   { id: "jobs",          label: "Jobs",            icon: PlayCircle,
@@ -131,6 +134,12 @@ export default function NidpConsole() {
         <div className="text-xs text-slate-500 dark:text-slate-400">
           {active.blurb}
         </div>
+
+        {tab === "api_keys" && (
+          <div data-testid="nidp-tab-panel-api_keys">
+            <NidpApiKeysSection />
+          </div>
+        )}
 
         {tab === "catalog" && (
           <div data-testid="nidp-tab-panel-catalog">

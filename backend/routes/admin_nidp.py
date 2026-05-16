@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import secrets as _secrets_mod
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -971,3 +972,39 @@ async def download_archive(
             "Content-Disposition": f'attachment; filename="{Path(filename).name}"',
         },
     )
+
+
+# ── NIDP API Key Management ───────────────────────────────────────────────────
+
+_REGENERABLE_KEYS = {
+    "NIDP_DAAS_API_KEY":    "nvd_",   # DaaS X-API-Key
+    "NIDP_QUERY_API_TOKEN": "nqt_",   # Query API Bearer token
+}
+
+
+@router.post("/api-keys/{key}/regenerate", dependencies=[])
+async def regenerate_nidp_api_key(key: str, request: Request):
+    """Generate a new secure token for a NIDP API key and persist it to the
+    secrets store. The new value is returned once — copy it immediately.
+
+    Supported keys: NIDP_DAAS_API_KEY, NIDP_QUERY_API_TOKEN
+    """
+    user = await require_admin(request)
+    if key not in _REGENERABLE_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only these keys can be regenerated: {', '.join(_REGENERABLE_KEYS)}",
+        )
+
+    prefix = _REGENERABLE_KEYS[key]
+    new_token = prefix + _secrets_mod.token_hex(24)  # 48 hex chars → 192 bits entropy
+
+    from deps import db
+    from helpers import secrets as _sec
+    await _sec.persist_to_db(db, key, new_token, updated_by=user.get("email", "admin"))
+
+    return {
+        "key": key,
+        "new_value": new_token,
+        "message": "Token regenerated. Copy it now — it will not be shown again in full.",
+    }
