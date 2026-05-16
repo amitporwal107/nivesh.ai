@@ -1,0 +1,3910 @@
+openapi: 3.1.0
+info:
+  title: NIDP — Nivesh Indian Data Platform
+  version: 1.0.0
+  description: |
+    Consolidated OpenAPI specification for all NIDP services.
+
+    ## Services
+
+    | Service | Base URL | Audience |
+    |---------|----------|----------|
+    | **DaaS API** | `https://daas.nivesh.ai` | External — partner/client API key required |
+    | **Query API** | `https://query.nidp.internal` | Internal — VPC-only, Bearer token |
+
+    ## DaaS Authentication
+
+    Every `/v1/*` endpoint requires an API key issued by Nivesh ops:
+
+    ```
+    X-API-Key: nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # or
+    Authorization: Bearer nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    `/admin/*` endpoints require the internal `NIDP_DAAS_INTERNAL_TOKEN` Bearer token.
+
+    ## Query API Authentication
+
+    All endpoints require:
+
+    ```
+    Authorization: Bearer <NIDP_QUERY_API_TOKEN>
+    ```
+
+    ## Rate Limits (DaaS)
+
+    Each key has a per-minute RPM cap and a daily quota. Every response includes:
+    - `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`
+    - `X-Daily-Limit` / `X-Daily-Remaining`
+
+    A 429 response includes a `Retry-After` header.
+
+    ## Pagination (DaaS)
+
+    List endpoints accept `limit` (1–5000, default 100) and `offset`.
+    Response envelopes include `pagination.next_offset` when more rows are available.
+
+    ## Conventions
+
+    - Dates: `YYYY-MM-DD`; timestamps: ISO 8601 UTC
+    - Symbols: canonical NSE tickers, upper-cased server-side
+    - Numeric values decoded from `NUMERIC` to JSON numbers
+
+  contact:
+    name: Nivesh
+    url: https://nivesh.com
+  license:
+    name: Commercial — see Nivesh DaaS terms
+
+servers:
+  - url: https://daas.nivesh.ai
+    description: NIDP Data-as-a-Service API (external)
+  - url: https://query.nidp.internal
+    description: NIDP Query API (internal VPC)
+
+tags:
+  # ── DaaS tags ──────────────────────────────────────────────────────────────
+  - name: health
+    description: Liveness probes — no auth required.
+  - name: admin
+    description: "Key lifecycle management. Requires `NIDP_DAAS_INTERNAL_TOKEN` Bearer auth."
+  - name: me
+    description: Caller identity, plan, and daily usage.
+  - name: catalog
+    description: Dataset index with live row counts.
+  - name: prices
+    description: NSE EOD OHLCV — raw bhavcopy and split/bonus/dividend-adjusted series.
+  - name: corporate_actions
+    description: Dividend, split, bonus, and rights calendar.
+  - name: indices
+    description: Index list and effective-dated constituent membership.
+  - name: reference
+    description: Symbol master, sector list, and NSE trading holidays.
+  - name: financials
+    description: Quarterly financials and shareholding pattern.
+  - name: fno
+    description: "F&O bhavcopy — futures and options OHLCV, options chain, expiry calendar."
+  - name: flows
+    description: "FII / DII net flows, bulk deals, and block deals."
+  - name: announcements
+    description: NSE + BSE corporate filings and exchange announcements.
+  - name: macro
+    description: RBI G-Sec yields and global macro series from FRED.
+  - name: snapshots
+    description: Pre-computed market-wide and per-stock daily snapshots.
+  - name: features
+    description: Engineered features from the Nivesh S4/S5 strategy pipeline.
+  - name: mutual_funds
+    description: "MF AMCs, schemes, daily NAV, monthly holdings, portfolio overlap, lifecycle events, TER/risk-o-meter, AMFI circulars."
+  - name: mf_performance
+    description: MF performance metrics, category leaderboards, composite-score screener.
+  - name: events
+    description: Corporate event calendar and AI-generated market signals.
+  - name: intelligence
+    description: Security master, entity graph, correlation matrix, portfolio intelligence.
+  - name: dq_ai
+    description: "AI-driven data quality: smell detection, expectation authoring, proposal review."
+  - name: replay
+    description: 90-day replay engine — policies, runs, per-date outcomes.
+  - name: backfill
+    description: Backfill status and per-job grid.
+  # ── Query API tags ──────────────────────────────────────────────────────────
+  - name: query_health
+    description: Query API liveness probe.
+  - name: query_catalog
+    description: Full warehouse table catalog with row counts and coverage dates.
+  - name: query_feeds
+    description: Per-ingester health view, run history, daily calendar.
+  - name: query_validation
+    description: Latest validation runs per ingester.
+  - name: query_quality
+    description: "Quality scores, certification gates, consistency runs, exception queue, quarantine."
+  - name: query_vm_ops
+    description: VM log tailing and on-demand ingester execution.
+  - name: query_archive
+    description: Raw-feed file archive listing and download.
+
+# ────────────────────────────────────────────────────────────────────────────
+# Security Schemes
+# ────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: "Pass your `nvd_...` token in the `X-API-Key` header."
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: "Internal admin token (`NIDP_DAAS_INTERNAL_TOKEN`) for `/admin/*` endpoints; or `NIDP_QUERY_API_TOKEN` for Query API."
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 5000
+        default: 100
+      description: Maximum rows to return.
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: Row offset for pagination.
+    symbol_path:
+      name: symbol
+      in: path
+      required: true
+      schema:
+        type: string
+        example: RELIANCE
+      description: Canonical NSE ticker symbol (upper-cased server-side).
+    scheme_code_path:
+      name: scheme_code
+      in: path
+      required: true
+      schema:
+        type: string
+        example: "120503"
+      description: AMFI scheme code.
+    start_date:
+      name: start
+      in: query
+      schema:
+        type: string
+        format: date
+        example: "2024-01-01"
+      description: "Start date (YYYY-MM-DD), inclusive."
+    end_date:
+      name: end
+      in: query
+      schema:
+        type: string
+        format: date
+        example: "2024-12-31"
+      description: "End date (YYYY-MM-DD), inclusive."
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 404
+            message:
+              type: string
+              example: "not_found"
+            request_id:
+              type: string
+              nullable: true
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          nullable: true
+        limit:
+          type: integer
+        offset:
+          type: integer
+        next_offset:
+          type: integer
+          nullable: true
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        db:
+          type: string
+          enum: [ok, error]
+        ts:
+          type: string
+          format: date-time
+
+    CatalogEntry:
+      type: object
+      properties:
+        dataset:
+          type: string
+        rows:
+          type: integer
+        first_date:
+          type: string
+          format: date
+          nullable: true
+        last_date:
+          type: string
+          format: date
+          nullable: true
+        description:
+          type: string
+
+    EodBar:
+      type: object
+      properties:
+        symbol:
+          type: string
+        date:
+          type: string
+          format: date
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: integer
+        trades:
+          type: integer
+          nullable: true
+        series:
+          type: string
+
+    AdjustedBar:
+      allOf:
+        - $ref: '#/components/schemas/EodBar'
+        - type: object
+          properties:
+            adj_close:
+              type: number
+            adj_factor:
+              type: number
+
+    ApiKey:
+      type: object
+      properties:
+        key_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        owner_email:
+          type: string
+          format: email
+        plan:
+          type: string
+          enum: [free, starter, pro, enterprise]
+        rate_limit_rpm:
+          type: integer
+          nullable: true
+        daily_quota:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        is_active:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+
+# ────────────────────────────────────────────────────────────────────────────
+# Paths
+# ────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Health
+  # ══════════════════════════════════════════════════════════════════════════
+  /health:
+    get:
+      tags: [health]
+      operationId: daas_health
+      summary: Liveness + DB readiness check
+      description: Returns 200 when the service is healthy. No auth required.
+      responses:
+        "200":
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        "503":
+          description: Service degraded (DB unreachable)
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Admin (key lifecycle)
+  # ══════════════════════════════════════════════════════════════════════════
+  /admin/keys:
+    post:
+      tags: [admin]
+      operationId: admin_create_key
+      summary: Issue a new DaaS API key
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, owner_email]
+              properties:
+                name:
+                  type: string
+                  description: Human-readable label for this key.
+                owner_email:
+                  type: string
+                  format: email
+                plan:
+                  type: string
+                  enum: [free, starter, pro, enterprise]
+                  default: free
+                rate_limit_rpm:
+                  type: integer
+                  nullable: true
+                  description: Requests per minute. Null = plan default.
+                daily_quota:
+                  type: integer
+                  nullable: true
+                  description: Daily request cap. Null = plan default.
+                expires_in_days:
+                  type: integer
+                  nullable: true
+                  description: Key TTL in days. Null = no expiry.
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        "201":
+          description: Key created — cleartext token shown once
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id:
+                    type: string
+                  token:
+                    type: string
+                    description: "Cleartext `nvd_...` token. Shown once only — store it now."
+                  plan:
+                    type: string
+                  rate_limit_rpm:
+                    type: integer
+                  daily_quota:
+                    type: integer
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+        "401":
+          description: Invalid internal token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags: [admin]
+      operationId: admin_list_keys
+      summary: List all API keys (no cleartext tokens)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Key list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKey'
+
+  /admin/keys/{key_id}:
+    delete:
+      tags: [admin]
+      operationId: admin_revoke_key
+      summary: Revoke a key
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Key revoked
+        "404":
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Me
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/me:
+    get:
+      tags: [me]
+      operationId: me_identity
+      summary: Caller identity, plan, and rate-limit state
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Caller info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id:
+                    type: string
+                  name:
+                    type: string
+                  owner_email:
+                    type: string
+                  plan:
+                    type: string
+                  rate_limit_rpm:
+                    type: integer
+                  daily_quota:
+                    type: integer
+                  daily_used:
+                    type: integer
+                  daily_remaining:
+                    type: integer
+
+  /v1/me/usage:
+    get:
+      tags: [me]
+      operationId: me_usage
+      summary: Daily request counters for the last N days
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+          description: Number of calendar days to look back.
+      responses:
+        "200":
+          description: Daily usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usage:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        requests:
+                          type: integer
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Catalog
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/catalog:
+    get:
+      tags: [catalog]
+      operationId: catalog_list
+      summary: Publicly-exposed datasets with coverage stats
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Dataset catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  datasets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CatalogEntry'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Prices
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/prices/eod/{symbol}:
+    get:
+      tags: [prices]
+      operationId: prices_eod_symbol
+      summary: Daily OHLCV for one symbol (raw bhavcopy)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - name: series
+          in: query
+          schema:
+            type: string
+            enum: [EQ, BE, BZ]
+          description: "NSE series filter. Default: EQ."
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: EOD OHLCV rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EodBar'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+        "404":
+          description: Symbol not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/prices/eod:
+    get:
+      tags: [prices]
+      operationId: prices_eod_by_date
+      summary: Daily OHLCV for all symbols on one date
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: on
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2024-11-29"
+          description: "Trading date (YYYY-MM-DD)."
+        - name: series
+          in: query
+          schema:
+            type: string
+            enum: [EQ, BE, BZ]
+            default: EQ
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Cross-symbol EOD snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EodBar'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/prices/adjusted/{symbol}:
+    get:
+      tags: [prices]
+      operationId: prices_adjusted
+      summary: Split/bonus/dividend-adjusted OHLCV
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Adjusted OHLCV rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdjustedBar'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/prices/latest/{symbol}:
+    get:
+      tags: [prices]
+      operationId: prices_latest
+      summary: Most-recent EOD bar for one symbol
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+      responses:
+        "200":
+          description: Latest EOD bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EodBar'
+        "404":
+          description: Symbol not found
+
+  /v1/prices/index/{index_name}:
+    get:
+      tags: [prices]
+      operationId: prices_index
+      summary: Daily OHLC for an index (e.g. Nifty 50)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: index_name
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "Nifty 50"
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Index OHLC series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        open:
+                          type: number
+                        high:
+                          type: number
+                        low:
+                          type: number
+                        close:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/prices/delivery/{symbol}:
+    get:
+      tags: [prices]
+      operationId: prices_delivery
+      summary: Daily delivered-quantity and delivery percentage
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Delivery data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        date:
+                          type: string
+                          format: date
+                        traded_qty:
+                          type: integer
+                        deliverable_qty:
+                          type: integer
+                        delivery_pct:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Corporate Actions
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/corporate-actions:
+    get:
+      tags: [corporate_actions]
+      operationId: corp_actions_list
+      summary: Corporate-action calendar (filterable)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: action_type
+          in: query
+          schema:
+            type: string
+            enum: [DIVIDEND, SPLIT, BONUS, RIGHTS, AGM, EGM, FACE_VALUE_CHANGE]
+        - name: ex_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: ex_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Corporate actions list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        action_type:
+                          type: string
+                        ex_date:
+                          type: string
+                          format: date
+                        record_date:
+                          type: string
+                          format: date
+                          nullable: true
+                        announcement_date:
+                          type: string
+                          format: date
+                          nullable: true
+                        details:
+                          type: object
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/corporate-actions/{symbol}:
+    get:
+      tags: [corporate_actions]
+      operationId: corp_actions_symbol
+      summary: Corporate actions for one symbol
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: action_type
+          in: query
+          schema:
+            type: string
+            enum: [DIVIDEND, SPLIT, BONUS, RIGHTS, AGM, EGM, FACE_VALUE_CHANGE]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol's corporate actions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Indices
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/indices:
+    get:
+      tags: [indices]
+      operationId: indices_list
+      summary: Distinct list of tracked indices
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Index list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index_name:
+                          type: string
+                          example: "Nifty 50"
+                        exchange:
+                          type: string
+                          example: NSE
+
+  /v1/indices/{index_name}/constituents:
+    get:
+      tags: [indices]
+      operationId: index_constituents
+      summary: Effective-dated constituent list for an index
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: index_name
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "Nifty 50"
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "Point-in-time date. Defaults to most recent rebalance."
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Constituents on given date
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  index_name:
+                    type: string
+                  as_of_date:
+                    type: string
+                    format: date
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        company_name:
+                          type: string
+                        weight:
+                          type: number
+                          nullable: true
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Reference
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/symbols:
+    get:
+      tags: [reference]
+      operationId: symbols_list
+      summary: Symbol master — symbol, company, sector, ISIN
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: sector
+          in: query
+          schema:
+            type: string
+        - name: series
+          in: query
+          schema:
+            type: string
+            enum: [EQ, BE, BZ]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol master list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        company_name:
+                          type: string
+                        isin:
+                          type: string
+                        sector:
+                          type: string
+                        series:
+                          type: string
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/symbols/search:
+    get:
+      tags: [reference]
+      operationId: symbols_search
+      summary: Substring search over symbol + company name
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: Search query string.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Matching symbols
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        company_name:
+                          type: string
+                        isin:
+                          type: string
+                        sector:
+                          type: string
+
+  /v1/symbols/{symbol}:
+    get:
+      tags: [reference]
+      operationId: symbol_detail
+      summary: Symbol master row for one ticker
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+      responses:
+        "200":
+          description: Symbol details
+        "404":
+          description: Symbol not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/sectors:
+    get:
+      tags: [reference]
+      operationId: sectors_list
+      summary: Distinct sector list with member counts
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Sector list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sectors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sector:
+                          type: string
+                        symbol_count:
+                          type: integer
+
+  /v1/holidays:
+    get:
+      tags: [reference]
+      operationId: holidays_list
+      summary: NSE trading holidays
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: segment
+          in: query
+          schema:
+            type: string
+            enum: [CM, FO, CD, COM, DEBT, MF]
+            default: CM
+          description: "Market segment. CM = Capital Market (equities)."
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Holiday list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        description:
+                          type: string
+                        segment:
+                          type: string
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Financials
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/financials/{symbol}:
+    get:
+      tags: [financials]
+      operationId: financials_symbol
+      summary: "Quarterly financials (revenue/PAT/EPS/etc)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: consolidated
+          in: query
+          schema:
+            type: boolean
+            nullable: true
+          description: "Filter by consolidated (true) or standalone (false). Null = both."
+        - name: period_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: period_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Quarterly financial rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        period_end:
+                          type: string
+                          format: date
+                        consolidated:
+                          type: boolean
+                        revenue:
+                          type: number
+                          nullable: true
+                        ebitda:
+                          type: number
+                          nullable: true
+                        pat:
+                          type: number
+                          nullable: true
+                        eps:
+                          type: number
+                          nullable: true
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/shareholding/{symbol}:
+    get:
+      tags: [financials]
+      operationId: shareholding_symbol
+      summary: Shareholding pattern (promoter/FII/DII split)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: period_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Shareholding pattern rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        period_end:
+                          type: string
+                          format: date
+                        promoter_pct:
+                          type: number
+                        fii_pct:
+                          type: number
+                        dii_pct:
+                          type: number
+                        public_pct:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — F&O
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/fno/{symbol}:
+    get:
+      tags: [fno]
+      operationId: fno_symbol
+      summary: "F&O contracts for one underlying (futures + options)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Trading date filter.
+        - name: instrument_type
+          in: query
+          schema:
+            type: string
+            enum: [FUTIDX, FUTSTK, OPTIDX, OPTSTK]
+        - name: expiry
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: F&O OHLCV rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        date:
+                          type: string
+                          format: date
+                        instrument_type:
+                          type: string
+                        expiry:
+                          type: string
+                          format: date
+                        strike:
+                          type: number
+                          nullable: true
+                        option_type:
+                          type: string
+                          nullable: true
+                          enum: [CE, PE, null]
+                        open:
+                          type: number
+                        high:
+                          type: number
+                        low:
+                          type: number
+                        close:
+                          type: number
+                        oi:
+                          type: integer
+                        volume:
+                          type: integer
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/fno/{symbol}/chain:
+    get:
+      tags: [fno]
+      operationId: fno_options_chain
+      summary: "Latest options chain (CE+PE per strike)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: expiry
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Expiry date. Defaults to nearest active expiry.
+      responses:
+        "200":
+          description: Options chain
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  expiry:
+                    type: string
+                    format: date
+                  underlying_price:
+                    type: number
+                  chain:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        strike:
+                          type: number
+                        ce_oi:
+                          type: integer
+                          nullable: true
+                        ce_ltp:
+                          type: number
+                          nullable: true
+                        pe_oi:
+                          type: integer
+                          nullable: true
+                        pe_ltp:
+                          type: number
+                          nullable: true
+                        pcr:
+                          type: number
+                          nullable: true
+
+  /v1/fno/{symbol}/expiries:
+    get:
+      tags: [fno]
+      operationId: fno_expiries
+      summary: Distinct expiries with contract counts
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+      responses:
+        "200":
+          description: Expiry list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  expiries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        expiry:
+                          type: string
+                          format: date
+                        futures_contracts:
+                          type: integer
+                        options_contracts:
+                          type: integer
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Flows
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/flows/fii-dii:
+    get:
+      tags: [flows]
+      operationId: flows_fii_dii
+      summary: "FII/DII net flows by category × segment"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [FII, DII, PROP, CLIENT]
+        - name: segment
+          in: query
+          schema:
+            type: string
+            enum: [EQUITY_CASH, INDEX_FUTURES, STOCK_FUTURES, INDEX_OPTIONS, STOCK_OPTIONS, CURRENCY_FUTURES, INTEREST_RATE_FUTURES]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: FII/DII flow rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        category:
+                          type: string
+                        segment:
+                          type: string
+                        buy_value:
+                          type: number
+                        sell_value:
+                          type: number
+                        net_value:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/flows/bulk-deals:
+    get:
+      tags: [flows]
+      operationId: flows_bulk_deals
+      summary: "Bulk deals (>0.5% of listed shares in one client name)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: client
+          in: query
+          schema:
+            type: string
+          description: Client name substring match.
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Bulk deal rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        symbol:
+                          type: string
+                        client_name:
+                          type: string
+                        trade_type:
+                          type: string
+                          enum: [BUY, SELL]
+                        quantity:
+                          type: integer
+                        price:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/flows/block-deals:
+    get:
+      tags: [flows]
+      operationId: flows_block_deals
+      summary: "Block deals (negotiated > ₹10 Cr or > 5L shares)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: client
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Block deal rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Announcements
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/announcements:
+    get:
+      tags: [announcements]
+      operationId: announcements_list
+      summary: Recent corporate filings (filterable)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: impact
+          in: query
+          schema:
+            type: string
+            enum: [high, medium, low]
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: sentiment
+          in: query
+          schema:
+            type: string
+            enum: [positive, neutral, negative]
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum: [NSE_ANN, BSE_ANN, RBI, SEBI, PIB]
+        - name: filed_from
+          in: query
+          schema:
+            type: string
+          description: "ISO timestamp or YYYY-MM-DD."
+        - name: filed_to
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Announcement list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        announcement_id:
+                          type: string
+                        symbol:
+                          type: string
+                          nullable: true
+                        source:
+                          type: string
+                        category:
+                          type: string
+                        headline:
+                          type: string
+                        filed_at:
+                          type: string
+                          format: date-time
+                        impact:
+                          type: string
+                          nullable: true
+                        sentiment:
+                          type: string
+                          nullable: true
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/announcements/{announcement_id}:
+    get:
+      tags: [announcements]
+      operationId: announcement_detail
+      summary: Full announcement record including body text
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: announcement_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Announcement detail
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Macro
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/macro/rbi-yields:
+    get:
+      tags: [macro]
+      operationId: macro_rbi_yields
+      summary: "Indian G-Sec / T-bill / repo yields"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: tenor
+          in: query
+          schema:
+            type: string
+            enum: [OVERNIGHT, 91D, 364D, 1Y, 5Y, 10Y]
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: RBI yield rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        tenor:
+                          type: string
+                        yield_pct:
+                          type: number
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/macro/fred:
+    get:
+      tags: [macro]
+      operationId: macro_fred
+      summary: "Global macro series from FRED (US10Y, DXY, VIX, …)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: series_id
+          in: query
+          schema:
+            type: string
+            example: DGS10
+          description: "FRED series identifier (e.g. DGS10, VIXCLS, DTWEXBGS)."
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: FRED data rows
+
+  /v1/macro/fred/series:
+    get:
+      tags: [macro]
+      operationId: macro_fred_series
+      summary: Distinct FRED series tracked by NIDP
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: FRED series list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        series_id:
+                          type: string
+                        title:
+                          type: string
+                        frequency:
+                          type: string
+                        first_date:
+                          type: string
+                          format: date
+                        last_date:
+                          type: string
+                          format: date
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Snapshots
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/snapshots/market:
+    get:
+      tags: [snapshots]
+      operationId: snapshot_market
+      summary: "Market-wide daily snapshot (indices, breadth, flows)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Trading date. Defaults to most recent.
+      responses:
+        "200":
+          description: Market snapshot
+
+  /v1/snapshots/market/recent:
+    get:
+      tags: [snapshots]
+      operationId: snapshot_market_recent
+      summary: Trailing N days of market snapshots
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Recent market snapshots
+
+  /v1/snapshots/stock/{symbol}:
+    get:
+      tags: [snapshots]
+      operationId: snapshot_stock
+      summary: "Per-stock daily snapshot (OHLCV + index flags + deals)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Trading date. Defaults to most recent.
+      responses:
+        "200":
+          description: Stock snapshot
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Features
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/features/stocks/{symbol}:
+    get:
+      tags: [features]
+      operationId: features_stock
+      summary: "Daily engineered features (SMA/RSI/MACD/ATR/Bollinger/volume-z)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Feature rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        date:
+                          type: string
+                          format: date
+                        sma_20:
+                          type: number
+                          nullable: true
+                        sma_50:
+                          type: number
+                          nullable: true
+                        sma_200:
+                          type: number
+                          nullable: true
+                        rsi_14:
+                          type: number
+                          nullable: true
+                        macd:
+                          type: number
+                          nullable: true
+                        macd_signal:
+                          type: number
+                          nullable: true
+                        atr_14:
+                          type: number
+                          nullable: true
+                        bb_upper:
+                          type: number
+                          nullable: true
+                        bb_lower:
+                          type: number
+                          nullable: true
+                        volume_z:
+                          type: number
+                          nullable: true
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/features/stocks/{symbol}/latest:
+    get:
+      tags: [features]
+      operationId: features_stock_latest
+      summary: Most-recent feature row for one symbol
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+      responses:
+        "200":
+          description: Latest feature row
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Events & Signals
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/events/calendar:
+    get:
+      tags: [events]
+      operationId: events_calendar
+      summary: Upcoming corporate event calendar
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Default today.
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Default +30 days.
+        - name: event_type
+          in: query
+          schema:
+            type: string
+            enum: [quarterly_results, dividend, bonus, split, agm, egm, buyback, rights]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Upcoming events
+
+  /v1/events/{symbol}:
+    get:
+      tags: [events]
+      operationId: events_symbol
+      summary: All corporate events for a stock
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol events
+
+  /v1/signals/latest:
+    get:
+      tags: [events]
+      operationId: signals_latest
+      summary: Latest AI signals across all stocks
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: sentiment
+          in: query
+          schema:
+            type: string
+            enum: [strongly_bullish, bullish, neutral, bearish, strongly_bearish]
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: min_confidence
+          in: query
+          schema:
+            type: number
+            minimum: 0
+            maximum: 100
+          description: Minimum AI confidence score (0–100).
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: AI signal rows
+
+  /v1/signals/{symbol}:
+    get:
+      tags: [events]
+      operationId: signals_symbol
+      summary: AI signals for a stock
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol signals
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Intelligence
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/intelligence/reference/securities:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_securities
+      summary: Canonical security master
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+        - name: asset_class
+          in: query
+          schema:
+            type: string
+        - name: symbol
+          in: query
+          schema:
+            type: string
+        - name: isin
+          in: query
+          schema:
+            type: string
+        - name: amfi_scheme_code
+          in: query
+          schema:
+            type: string
+        - name: sector
+          in: query
+          schema:
+            type: string
+        - name: industry
+          in: query
+          schema:
+            type: string
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Security master rows
+
+  /v1/intelligence/dq/scores:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_dq_scores
+      summary: Daily data quality scores
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: target_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dataset_name
+          in: query
+          schema:
+            type: string
+        - name: quality_tier
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: DQ scores
+
+  /v1/intelligence/features/stocks/{symbol}:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_features
+      summary: Intelligence feature rows for a stock
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/symbol_path'
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Intelligence feature rows
+
+  /v1/intelligence/graph/entity-links:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_entity_links
+      summary: Entity relationship graph edges
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: security_id
+          in: query
+          schema:
+            type: string
+        - name: relationship_type
+          in: query
+          schema:
+            type: string
+            enum: [STOCK_STOCK, STOCK_INDEX, STOCK_MACRO, FUND_STOCK]
+        - name: as_of_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Entity links
+
+  /v1/intelligence/graph/correlations:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_correlations
+      summary: Correlation graph edges
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: security_id
+          in: query
+          schema:
+            type: string
+        - name: relationship_type
+          in: query
+          schema:
+            type: string
+            enum: [STOCK_STOCK, STOCK_INDEX, STOCK_MACRO, FUND_STOCK]
+        - name: window_days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 3650
+        - name: as_of_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: min_abs_corr
+          in: query
+          schema:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.0
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Correlation edges
+
+  /v1/intelligence/graph/correlations/{security_id}/top:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_top_correlations
+      summary: Top correlation peers for one security
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: security_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: as_of_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: top_n
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [positive, negative, both]
+            default: both
+      responses:
+        "200":
+          description: Top correlated peers
+
+  /v1/intelligence/snapshots/market:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_market_snapshot
+      summary: Market intelligence snapshot
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Market intelligence snapshot
+
+  /v1/intelligence/snapshots/market/recent:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_market_recent
+      summary: Recent market intelligence snapshots
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Recent snapshots
+
+  /v1/intelligence/events:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_events
+      summary: Normalized intelligence events
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: security_id
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          schema:
+            type: string
+            enum: [DIVIDEND, SPLIT, BONUS, EARNINGS, MGMT_CHANGE, ANNOUNCEMENT]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Intelligence events
+
+  /v1/intelligence/events/search:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_events_search
+      summary: Search normalized intelligence events
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Matching events
+
+  /v1/intelligence/events/{event_id}:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_event_detail
+      summary: Single normalized event
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event detail
+        "404":
+          description: Not found
+
+  /v1/intelligence/portfolio/{external_user_id}/snapshot:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_portfolio_snapshot
+      summary: User portfolio intelligence snapshot
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: external_user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Portfolio snapshot
+
+  /v1/intelligence/portfolio/{external_user_id}/holdings:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_portfolio_holdings
+      summary: User holdings resolved against security master
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: external_user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: on
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Portfolio holdings
+
+  /v1/intelligence/portfolio/sync/status:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_portfolio_sync_status
+      summary: Portfolio sync audit log (latest run per client)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: external_user_id
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Sync status
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — DQ AI
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/dq/diagnostics/analyze:
+    post:
+      tags: [dq_ai]
+      operationId: dq_analyze_run
+      summary: Run AI smell analyzer on a validation run
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [run_id]
+              properties:
+                run_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Diagnostic result
+
+  /v1/dq/diagnostics:
+    get:
+      tags: [dq_ai]
+      operationId: dq_diagnostics_list
+      summary: List smell diagnostics for a dataset
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: dataset
+          in: query
+          schema:
+            type: string
+        - name: target_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Diagnostics list
+
+  /v1/dq/diagnostics/{diagnostic_id}:
+    get:
+      tags: [dq_ai]
+      operationId: dq_diagnostic_detail
+      summary: Get one smell diagnostic
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: diagnostic_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Diagnostic detail
+
+  /v1/dq/proposals/generate:
+    post:
+      tags: [dq_ai]
+      operationId: dq_generate_proposals
+      summary: Run AI expectation author for a dataset
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset]
+              properties:
+                dataset:
+                  type: string
+                sample_size:
+                  type: integer
+                  minimum: 10
+                  maximum: 10000
+                  default: 1000
+                failure_history_days:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                  default: 30
+      responses:
+        "200":
+          description: Generated proposals
+
+  /v1/dq/proposals/generate-all:
+    post:
+      tags: [dq_ai]
+      operationId: dq_generate_all_proposals
+      summary: Run AI expectation author across all feeds
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sample_size:
+                  type: integer
+                  minimum: 10
+                  maximum: 5000
+                  default: 200
+                failure_history_days:
+                  type: integer
+                  minimum: 0
+                  maximum: 365
+                  default: 30
+                feeds:
+                  type: array
+                  nullable: true
+                  items:
+                    type: string
+                skip_existing:
+                  type: boolean
+                  default: true
+      responses:
+        "200":
+          description: Batch proposal result
+
+  /v1/dq/proposals:
+    get:
+      tags: [dq_ai]
+      operationId: dq_proposals_list
+      summary: "List AI proposals (filterable by dataset, status)"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: dataset
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [proposed, accepted, rejected, superseded]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Proposals list
+
+  /v1/dq/proposals/{proposal_id}/accept:
+    post:
+      tags: [dq_ai]
+      operationId: dq_accept_proposal
+      summary: Promote proposal to active expectation
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewer]
+              properties:
+                reviewer:
+                  type: string
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Proposal accepted
+
+  /v1/dq/proposals/{proposal_id}/reject:
+    post:
+      tags: [dq_ai]
+      operationId: dq_reject_proposal
+      summary: Reject AI proposal
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: proposal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewer, reason]
+              properties:
+                reviewer:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Proposal rejected
+
+  /v1/dq/expectations/active:
+    get:
+      tags: [dq_ai]
+      operationId: dq_expectations_list
+      summary: List active expectation rules
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: dataset
+          in: query
+          schema:
+            type: string
+        - name: source
+          in: query
+          schema:
+            type: string
+            enum: [hand, ai_proposed, promoted]
+        - name: include_inactive
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Active expectations
+
+    post:
+      tags: [dq_ai]
+      operationId: dq_create_expectation
+      summary: Create hand-authored expectation
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset_name, name, expression, actor]
+              properties:
+                dataset_name:
+                  type: string
+                name:
+                  type: string
+                expression:
+                  type: string
+                severity:
+                  type: string
+                  enum: [INFO, WARN, ERROR, CRITICAL]
+                  default: ERROR
+                description:
+                  type: string
+                  nullable: true
+                rationale:
+                  type: string
+                  nullable: true
+                business_impact:
+                  type: string
+                  nullable: true
+                actor:
+                  type: string
+                  default: ui
+      responses:
+        "200":
+          description: Expectation created
+
+  /v1/dq/expectations/active/{rule_id}:
+    patch:
+      tags: [dq_ai]
+      operationId: dq_update_expectation
+      summary: "Edit/toggle active expectation"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expression:
+                  type: string
+                  nullable: true
+                severity:
+                  type: string
+                  enum: [INFO, WARN, ERROR, CRITICAL]
+                  nullable: true
+                description:
+                  type: string
+                  nullable: true
+                rationale:
+                  type: string
+                  nullable: true
+                business_impact:
+                  type: string
+                  nullable: true
+                active:
+                  type: boolean
+                  nullable: true
+                actor:
+                  type: string
+                  default: ui
+      responses:
+        "200":
+          description: Expectation updated
+
+    delete:
+      tags: [dq_ai]
+      operationId: dq_delete_expectation
+      summary: Soft-delete expectation (active=FALSE)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: actor
+          in: query
+          schema:
+            type: string
+            default: ui
+      responses:
+        "200":
+          description: Expectation deactivated
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Replay
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/replay/policies:
+    get:
+      tags: [replay]
+      operationId: replay_policies
+      summary: List registered scoring policies
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Policy list
+
+  /v1/replay/start:
+    post:
+      tags: [replay]
+      operationId: replay_start
+      summary: Kick off a new replay (returns replay_id immediately)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start_date, end_date]
+              properties:
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+                domains:
+                  type: array
+                  items:
+                    type: string
+                    enum: [mf, equity]
+                  default: [mf, equity]
+                policy_version:
+                  type: string
+                  default: v1
+                parallel:
+                  type: integer
+                  minimum: 1
+                  maximum: 32
+                  default: 4
+                inject_failures:
+                  type: boolean
+                  default: false
+                reset_data:
+                  type: boolean
+                  default: false
+                failure_seed:
+                  type: integer
+                  nullable: true
+                failure_rate:
+                  type: number
+                  minimum: 0.0
+                  maximum: 1.0
+                  default: 0.10
+                skip_weekends:
+                  type: boolean
+                  default: true
+      responses:
+        "200":
+          description: Replay started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replay_id:
+                    type: string
+
+  /v1/replay/runs:
+    get:
+      tags: [replay]
+      operationId: replay_list_runs
+      summary: List recent replays with summary stats
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Replay list
+
+  /v1/replay/status/{replay_id}:
+    get:
+      tags: [replay]
+      operationId: replay_status
+      summary: "Replay status + statistics + live progress"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Replay status
+
+  /v1/replay/runs/{replay_id}/dates:
+    get:
+      tags: [replay]
+      operationId: replay_run_dates
+      summary: Per-date outcomes for a replay
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: gate_outcome
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        "200":
+          description: Per-date outcomes
+
+  /v1/replay/runs/{replay_id}/failures:
+    get:
+      tags: [replay]
+      operationId: replay_run_failures
+      summary: Synthetic failures injected for the replay
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        "200":
+          description: Injected failures
+
+  /v1/replay/runs/{replay_id}:
+    delete:
+      tags: [replay]
+      operationId: replay_delete_run
+      summary: Delete a replay and its per-date rows
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Replay deleted
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Backfill
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/backfill/runs:
+    get:
+      tags: [backfill]
+      operationId: backfill_list_runs
+      summary: List recent backfill invocations
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Backfill run list
+
+  /v1/backfill/status/{backfill_id}:
+    get:
+      tags: [backfill]
+      operationId: backfill_status
+      summary: Detailed backfill status including per-job grid
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: backfill_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ingester
+          in: query
+          schema:
+            type: string
+        - name: job_status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, RUNNING, DONE, FAILED, SKIPPED]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+            default: 1000
+      responses:
+        "200":
+          description: Backfill status
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — Mutual Funds
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/mf/amcs:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_amcs
+      summary: AMC master list with scheme counts
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: AMC list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  amcs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        amc_id:
+                          type: string
+                          example: sbi
+                        amc_name:
+                          type: string
+                        scheme_count:
+                          type: integer
+
+  /v1/mf/schemes:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_schemes_search
+      summary: Search and filter scheme master
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Scheme name substring search.
+        - name: amc_id
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+          description: Category partial match (e.g. Large Cap, Debt).
+        - name: scheme_type
+          in: query
+          schema:
+            type: string
+            enum: [Open Ended, Close Ended, Interval]
+        - name: isin
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, closed, merged, suspended]
+            default: active
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Scheme list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scheme_code:
+                          type: string
+                        scheme_name:
+                          type: string
+                        amc_id:
+                          type: string
+                        category:
+                          type: string
+                        sub_category:
+                          type: string
+                        scheme_type:
+                          type: string
+                        status:
+                          type: string
+                        isin:
+                          type: string
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /v1/mf/schemes/{scheme_code}:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_scheme_detail
+      summary: Single scheme detail with latest disclosure
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+      responses:
+        "200":
+          description: Scheme detail
+        "404":
+          description: Scheme not found
+
+  /v1/mf/nav/latest:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_nav_latest
+      summary: Latest NAV for up to 100 schemes
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: scheme_codes
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Comma-separated AMFI scheme codes (max 100). E.g. `120503,120504`."
+      responses:
+        "200":
+          description: Latest NAV map
+
+  /v1/mf/nav/{scheme_code}:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_nav_series
+      summary: NAV time series for a scheme
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+        - $ref: '#/components/parameters/start_date'
+        - $ref: '#/components/parameters/end_date'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: NAV series
+
+  /v1/mf/holdings/{scheme_code}:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_scheme_holdings
+      summary: Monthly portfolio holdings for a scheme
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+        - name: as_of_month
+          in: query
+          schema:
+            type: string
+            format: date
+          description: "First day of the month (YYYY-MM-01). Defaults to latest."
+        - name: instrument_type
+          in: query
+          schema:
+            type: string
+            enum: [EQUITY, DEBT, CASH, DERIVATIVE, REIT]
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Scheme holdings
+
+  /v1/mf/holdings/overlap:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_holdings_overlap
+      summary: Equity holding overlap between two schemes
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: scheme_a
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: scheme_b
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: as_of_month
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Overlap analysis
+
+  /v1/mf/schemes/{scheme_code}/events:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_scheme_events
+      summary: "Lifecycle events: TER changes, manager changes, risk shifts, mergers"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+        - name: event_types
+          in: query
+          schema:
+            type: string
+          description: "Comma-separated: ter_change, manager_change, risk_change, merger, rename, launch, closure."
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Scheme lifecycle events
+
+  /v1/mf/schemes/{scheme_code}/disclosure:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_scheme_disclosure
+      summary: "TER, risk-o-meter, and fund manager history"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+        - name: history
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 52
+            default: 4
+          description: Number of historical snapshots to include.
+      responses:
+        "200":
+          description: Scheme disclosure history
+
+  /v1/mf/circulars:
+    get:
+      tags: [mutual_funds]
+      operationId: mf_circulars
+      summary: "AMFI notices, circulars, and addenda"
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [notice, circular, addendum]
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Title keyword search.
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: AMFI circulars
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DAAS API — MF Performance
+  # ══════════════════════════════════════════════════════════════════════════
+  /v1/mf/performance/{scheme_code}:
+    get:
+      tags: [mf_performance]
+      operationId: mf_performance_scheme
+      summary: Performance metrics for a single scheme
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+      responses:
+        "200":
+          description: Scheme performance
+
+  /v1/mf/performance/category/{category}:
+    get:
+      tags: [mf_performance]
+      operationId: mf_performance_category
+      summary: Top-N schemes within a category
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "Large Cap"
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [composite_rank, return_1y, return_3y, sharpe_1y, sortino_1y]
+            default: composite_rank
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Category leaderboard
+
+  /v1/mf/performance/screener/top:
+    get:
+      tags: [mf_performance]
+      operationId: mf_screener_top
+      summary: Top funds across all categories by a single metric
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [return_1y, sharpe_1y, sortino_1y, composite_rank]
+            default: composite_rank
+        - name: category_filter
+          in: query
+          schema:
+            type: string
+          description: Optional category substring filter.
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Top funds
+
+  /v1/mf/performance/screener/advanced:
+    get:
+      tags: [mf_performance]
+      operationId: mf_screener_advanced
+      summary: Composite-score-filtered MF screener
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [composite_score, return_3y, return_1y, return_5y, sharpe, ter, aum]
+            default: composite_score
+        - name: min_composite
+          in: query
+          schema:
+            type: number
+            minimum: 0
+            maximum: 100
+        - name: max_ter
+          in: query
+          schema:
+            type: number
+        - name: min_return_3y
+          in: query
+          schema:
+            type: number
+        - name: min_sharpe
+          in: query
+          schema:
+            type: number
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Screener results
+
+  /v1/mf/performance/scorecard/{scheme_code}:
+    get:
+      tags: [mf_performance]
+      operationId: mf_scorecard_scheme
+      summary: Full category scorecard for a scheme
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/scheme_code_path'
+      responses:
+        "200":
+          description: Scheme scorecard
+
+  /v1/mf/performance/scorecard/category/{sub_category}:
+    get:
+      tags: [mf_performance]
+      operationId: mf_scorecard_category
+      summary: Category leaderboard with composite scores
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: sub_category
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "Large Cap"
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [composite_score, ret_1y, ret_3y, ret_5y, sharpe, sortino, alpha, maxdd, ter, aum]
+            default: composite_score
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Category scorecard leaderboard
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Health
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/health:
+    get:
+      tags: [query_health]
+      operationId: query_health
+      summary: Query API liveness + DB readiness check
+      description: No auth required.
+      servers:
+        - url: https://query.nidp.internal
+          description: NIDP Query API
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Catalog
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/catalog:
+    get:
+      tags: [query_catalog]
+      operationId: query_catalog
+      summary: "Full warehouse table catalog with row counts and coverage dates"
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      responses:
+        "200":
+          description: Full warehouse catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tables:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        table_name:
+                          type: string
+                        domain:
+                          type: string
+                        row_count:
+                          type: integer
+                        first_date:
+                          type: string
+                          format: date
+                          nullable: true
+                        last_date:
+                          type: string
+                          format: date
+                          nullable: true
+                  domain_rollup:
+                    type: object
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Feeds
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/feeds:
+    get:
+      tags: [query_feeds]
+      operationId: query_feeds_list
+      summary: Per-ingester health view with trailing-week calendar
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      responses:
+        "200":
+          description: Feed health summary
+
+  /query/feeds/{ingester}/runs:
+    get:
+      tags: [query_feeds]
+      operationId: query_feed_runs
+      summary: Per-ingester run history
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Ingester name (e.g. nse_eod, mf_nav).
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Run history
+
+  /query/feeds/{ingester}/calendar:
+    get:
+      tags: [query_feeds]
+      operationId: query_feed_calendar
+      summary: Per-day status for the last N days
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+            default: 7
+      responses:
+        "200":
+          description: Daily status calendar
+
+  /query/feeds/{ingester}/logs:
+    get:
+      tags: [query_vm_ops]
+      operationId: query_feed_logs
+      summary: Tail the last N lines of the ingester's VM log file
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lines
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 200
+      responses:
+        "200":
+          description: Log tail
+
+  /query/feeds/{ingester}/execute:
+    post:
+      tags: [query_vm_ops]
+      operationId: query_feed_execute
+      summary: Spawn run_service.sh in the background for an ingester
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: target_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Override the target date (YYYY-MM-DD).
+      responses:
+        "200":
+          description: Execution started
+
+  /query/feeds/{ingester}/log_path:
+    get:
+      tags: [query_vm_ops]
+      operationId: query_feed_log_path
+      summary: Return the on-disk log path for the ingester
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log path
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Validation
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/validation:
+    get:
+      tags: [query_validation]
+      operationId: query_validation_latest
+      summary: Latest validation runs per (ingester, date)
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        "200":
+          description: Validation runs
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Quality
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/quality:
+    get:
+      tags: [query_quality]
+      operationId: query_quality_latest
+      summary: Latest quality score per domain
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+            enum: [mf, equity, all]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: Quality scores
+
+  /query/certification:
+    get:
+      tags: [query_quality]
+      operationId: query_certification
+      summary: "Certified dates — only dates that passed the quality gate"
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: Certified dates
+
+  /query/consistency:
+    get:
+      tags: [query_quality]
+      operationId: query_consistency
+      summary: Latest consistency run per (target_date, domain)
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 30
+      responses:
+        "200":
+          description: Consistency runs
+
+  /query/consistency/findings:
+    get:
+      tags: [query_quality]
+      operationId: query_consistency_findings
+      summary: "Individual consistency findings, newest first"
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: dimension
+          in: query
+          schema:
+            type: string
+            enum: [CROSS_SOURCE, INTERNAL, TEMPORAL, API, POINT_IN_TIME]
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [INFO, WARN, ERROR, CRITICAL]
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        "200":
+          description: Consistency findings
+
+  /query/publish-gate:
+    get:
+      tags: [query_quality]
+      operationId: query_publish_gate
+      summary: "Go/no-go publish decision per (date, domain)"
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        "200":
+          description: Publish gate decisions
+
+  /query/exception-queue:
+    get:
+      tags: [query_quality]
+      operationId: query_exception_queue
+      summary: Items in the manual-review queue (ops dashboard)
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: resolved
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Exception queue items
+
+  /query/exception-queue/{queue_id}:
+    patch:
+      tags: [query_quality]
+      operationId: query_resolve_exception
+      summary: Mark an exception queue item as resolved
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: queue_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [APPROVE, REJECT, OVERRIDE, ESCALATE]
+                resolution_note:
+                  type: string
+                  default: ""
+                resolved_by:
+                  type: string
+                  default: ops
+      responses:
+        "200":
+          description: Exception resolved
+
+  /query/quarantine:
+    get:
+      tags: [query_quality]
+      operationId: query_quarantine
+      summary: Dates condemned by the quality gate
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 30
+      responses:
+        "200":
+          description: Quarantined dates
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # QUERY API — Archive
+  # ════════════════════════════════════════════════════════════════════════════
+  /query/archive/{ingester}:
+    get:
+      tags: [query_archive]
+      operationId: query_archive_list
+      summary: Raw-feed-file archive listing
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: target_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit_dates
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: Archive file listing
+
+  /query/archive/{ingester}/{target_date}/{filename}:
+    get:
+      tags: [query_archive]
+      operationId: query_archive_download
+      summary: Download an archive file
+      security:
+        - BearerAuth: []
+      servers:
+        - url: https://query.nidp.internal
+      parameters:
+        - name: ingester
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: target_date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
