@@ -266,7 +266,10 @@ const OnboardingView = ({ onComplete, userProfile }) => {
 
   const handleGmailConnect = async () => {
     try {
-      const res = await axios.get(`${API}/gmail/connect`, { withCredentials: true });
+      const res = await axios.get(`${API}/gmail/connect`, {
+        params: { return_to: window.location.pathname },
+        withCredentials: true,
+      });
       if (res.data?.auth_url) {
         // Full-page redirect (matches Client 360 /cas-connect flow). A popup
         // gets blocked or traps the OAuth callback inside the new window —

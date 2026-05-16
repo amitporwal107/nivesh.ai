@@ -30,7 +30,7 @@ const Landing = () => {
     try {
       await loginWithGoogle(credentialResponse.credential);
       const v = localStorage.getItem("nivesh_version");
-      navigate(v === "2.0" ? "/v2" : "/dashboard", { replace: true });
+      navigate(v === "2.0" ? "/app" : "/dashboard", { replace: true });
     } catch {
       /* authError set inside loginWithGoogle */
     } finally {

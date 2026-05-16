@@ -56,8 +56,10 @@ def _resolve_gmail_redirect_uri(request: Request) -> str:
 
 
 @router.get("/gmail/connect")
-async def gmail_connect(request: Request):
-    """Start Gmail OAuth flow."""
+async def gmail_connect(request: Request, return_to: str = ""):
+    """Start Gmail OAuth flow. Optional `return_to` path is stored in the
+    state doc and used by the callback to redirect back to the caller's page
+    (e.g. /v2/app for V2 onboarding, /v2/dashboard for V1 dashboard)."""
     user = await get_current_user(request)
 
     redirect_uri = _resolve_gmail_redirect_uri(request)
@@ -66,6 +68,7 @@ async def gmail_connect(request: Request):
     await db.gmail_oauth_states.insert_one({
         "state": state,
         "user_id": user["user_id"],
+        "return_to": return_to or "/v2/dashboard",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
     })
@@ -116,6 +119,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
 
     user_id = state_doc["user_id"]
     code_verifier = state_doc.get("code_verifier")
+    return_to = state_doc.get("return_to") or "/v2/dashboard"
     await db.gmail_oauth_states.delete_one({"state": state})
 
     redirect_uri = _resolve_gmail_redirect_uri(request)
@@ -124,7 +128,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
         tokens = exchange_code_for_tokens(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect_uri, code, code_verifier=code_verifier)
     except Exception as e:
         logger.error("Gmail token exchange failed: %s", e)
-        return RedirectResponse(url="/v2/dashboard?gmail_error=token_exchange_failed")
+        return RedirectResponse(url=f"{return_to}?gmail_error=token_exchange_failed")
 
     await db.gmail_tokens.update_one(
         {"user_id": user_id},
@@ -137,7 +141,7 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
     )
 
     logger.info("Gmail connected for user %s", user_id)
-    return RedirectResponse(url="/v2/dashboard?gmail=connected")
+    return RedirectResponse(url=f"{return_to}?gmail=connected")
 
 
 @router.get("/gmail/status")
