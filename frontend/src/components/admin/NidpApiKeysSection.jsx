@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const KEY_META = {
-  NIDP_DAAS_API_KEY: {
+  NIDP_DAAS_INTERNAL_TOKEN: {
     label: "DaaS API Key",
     header: "X-API-Key",
     desc: "Sent as X-API-Key header to the NIDP DaaS API. Tokens start with nvd_.",
@@ -177,25 +177,45 @@ function KeyCard({ secretKey, env }) {
             )}
           </div>
           <p className="text-[11px] opacity-70 mb-2">{meta.desc}</p>
-          <code className={`font-mono text-xs break-all select-all ${showing ? "text-emerald-700 dark:text-emerald-400" : ""}`}>
-            {showing ? (revealed || "(empty)") : masked}
+          <code className="font-mono text-xs text-slate-600 dark:text-slate-300 break-all select-all">
+            {masked}
           </code>
+          {showing && revealed !== null && (
+            <div className="mt-2 p-2 rounded-lg bg-white/70 dark:bg-black/30 border border-current/10">
+              <p className="text-[10px] font-semibold opacity-60 mb-1 uppercase tracking-wide">Full value</p>
+              <code className="font-mono text-xs text-emerald-700 dark:text-emerald-400 break-all select-all">
+                {revealed || "(empty)"}
+              </code>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {configured && (
-            <>
-              <Button variant="ghost" size="sm" className="h-8 px-2" onClick={handleReveal} disabled={revealing} title={showing ? "Hide" : "Reveal"}>
-                {revealing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : showing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </Button>
-              {showing && (
-                <Button variant="ghost" size="sm" className={`h-8 px-2 ${copied ? "text-emerald-600" : ""}`} onClick={() => copyValue(revealed || "")} title="Copy">
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                </Button>
-              )}
-            </>
+        <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+          <Button
+            variant="ghost" size="sm"
+            className={`h-8 px-2.5 text-xs gap-1 ${showing ? "text-emerald-700 dark:text-emerald-400" : ""}`}
+            onClick={handleReveal}
+            disabled={revealing}
+            title={showing ? "Hide key" : "Show full key value"}
+          >
+            {revealing
+              ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              : showing
+                ? <><EyeOff className="w-3.5 h-3.5" /><span className="hidden sm:inline">Hide</span></>
+                : <><Eye className="w-3.5 h-3.5" /><span className="hidden sm:inline">Show Key</span></>
+            }
+          </Button>
+          {showing && (
+            <Button
+              variant="ghost" size="sm"
+              className={`h-8 px-2.5 text-xs gap-1 ${copied ? "text-emerald-600" : ""}`}
+              onClick={() => copyValue(revealed || "")}
+              title="Copy full value to clipboard"
+            >
+              {copied ? <><Check className="w-3.5 h-3.5" /><span className="hidden sm:inline">Copied</span></> : <><Copy className="w-3.5 h-3.5" /><span className="hidden sm:inline">Copy</span></>}
+            </Button>
           )}
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setEditing(!editing); setEditVal(""); }}>
+          <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs" onClick={() => { setEditing(!editing); setEditVal(""); }}>
             {editing ? "Cancel" : "Edit"}
           </Button>
           <Button

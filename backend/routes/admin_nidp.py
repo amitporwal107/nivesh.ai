@@ -977,8 +977,8 @@ async def download_archive(
 # ── NIDP API Key Management ───────────────────────────────────────────────────
 
 _REGENERABLE_KEYS = {
-    "NIDP_DAAS_API_KEY":    "nvd_",   # DaaS X-API-Key
-    "NIDP_QUERY_API_TOKEN": "nqt_",   # Query API Bearer token
+    "NIDP_DAAS_INTERNAL_TOKEN": "nvd_",   # DaaS X-API-Key
+    "NIDP_QUERY_API_TOKEN":     "nqt_",   # Query API Bearer token
 }
 
 

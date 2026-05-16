@@ -66,7 +66,7 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "test_fn": None,
         "category": "nidp",
     },
-    "NIDP_DAAS_API_KEY": {
+    "NIDP_DAAS_INTERNAL_TOKEN": {
         "display_name": "NIDP DaaS · API Key (X-API-Key)",
         "description": "Shared API key sent as X-API-Key header to the NIDP DaaS API. Tokens start with nvd_. Use the Regenerate button to rotate.",
         "test_fn": None,
