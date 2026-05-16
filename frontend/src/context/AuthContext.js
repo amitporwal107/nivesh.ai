@@ -33,6 +33,31 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = useCallback(async () => {
     try {
+      // If returning from Gmail OAuth, exchange the short-lived code for a
+      // real session cookie before checking auth — avoids cross-site cookie loss.
+      const params = new URLSearchParams(window.location.search);
+      const gmailCode = params.get("gmail_code");
+      if (gmailCode) {
+        params.delete("gmail_code");
+        // Keep ?gmail=connected so OnboardingView/GmailImport can detect it
+        params.set("gmail", "connected");
+        const newSearch = params.toString() ? `?${params.toString()}` : "";
+        window.history.replaceState({}, "", window.location.pathname + newSearch);
+        try {
+          const res = await axios.post(
+            `${API}/auth/gmail-session`,
+            { code: gmailCode },
+            { withCredentials: true }
+          );
+          setUser(res.data);
+          setAuthError(null);
+          setLoading(false);
+          return;
+        } catch {
+          // Fall through to normal checkAuth
+        }
+      }
+
       const res = await axios.get(`${API}/auth/me`, { withCredentials: true });
       setUser(res.data);
       setAuthError(null);

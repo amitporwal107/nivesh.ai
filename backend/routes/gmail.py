@@ -142,27 +142,19 @@ async def gmail_callback(request: Request, code: str = "", state: str = "", erro
 
     logger.info("Gmail connected for user %s", user_id)
 
-    # Issue a fresh session cookie on the redirect response so the user is
-    # always authenticated when they land back on the app — the existing
-    # cookie may not survive the Google OAuth redirect chain through Cloudflare.
-    new_session_token = str(uuid.uuid4())
-    await db.user_sessions.insert_one({
+    # Store a short-lived one-time code instead of relying on a cookie
+    # surviving the cross-site redirect chain through Cloudflare.
+    # The frontend exchanges this code for a real session via
+    # POST /api/auth/gmail-session — a normal same-origin call that
+    # always works for setting cookies.
+    gmail_code = uuid.uuid4().hex
+    await db.gmail_success_codes.insert_one({
+        "code": gmail_code,
         "user_id": user_id,
-        "session_token": new_session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    response = RedirectResponse(url=f"{return_to}?gmail=connected")
-    response.set_cookie(
-        key="session_token",
-        value=new_session_token,
-        httponly=True,
-        secure=COOKIE_SECURE,
-        samesite=COOKIE_SAMESITE,
-        path="/",
-        max_age=7 * 24 * 3600,
-    )
-    return response
+    return RedirectResponse(url=f"{return_to}?gmail_code={gmail_code}")
 
 
 @router.get("/gmail/status")

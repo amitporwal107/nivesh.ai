@@ -151,6 +151,48 @@ async def get_google_client_id():
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
     return {"client_id": GOOGLE_CLIENT_ID}
 
+@router.post("/auth/gmail-session")
+async def exchange_gmail_session(request: Request, response: Response):
+    """Exchange a short-lived gmail_code (set by the OAuth callback) for a
+    real session cookie. Called by the frontend immediately after landing
+    back from Gmail OAuth — avoids relying on cross-site cookie survival."""
+    body = await request.json()
+    code = (body.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="code required")
+
+    doc = await db.gmail_success_codes.find_one({"code": code}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=401, detail="Invalid or expired gmail code")
+
+    expires_at = doc.get("expires_at", "")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        await db.gmail_success_codes.delete_one({"code": code})
+        raise HTTPException(status_code=401, detail="Gmail code expired")
+
+    await db.gmail_success_codes.delete_one({"code": code})
+
+    user_id = doc["user_id"]
+    session_token = str(uuid.uuid4())
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response.set_cookie(
+        key="session_token", value=session_token,
+        httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE,
+        path="/", max_age=7 * 24 * 3600,
+    )
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return user
+
+
 @router.get("/auth/dev-set-cookie")
 async def dev_set_cookie(token: str, response: Response):
     """Dev-only: set a pre-created session cookie directly (screenshot helper)."""
