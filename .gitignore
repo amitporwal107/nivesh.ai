@@ -474,3 +474,6 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Claude Code settings (may contain tokens)
+.claude/
