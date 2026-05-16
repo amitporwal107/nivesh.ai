@@ -80,6 +80,7 @@ from routes.portfolio_exposure import router as portfolio_exposure_router  # Div
 from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primitives_router  # NIDP stock primitives completeness check
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
+from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 
 from core.correlation import CorrelationMiddleware
 from core.error_handlers import register_error_handlers
@@ -142,6 +143,7 @@ app.include_router(portfolio_exposure_router)      # Diversification & Concentra
 app.include_router(admin_nidp_stock_primitives_router)  # NIDP stock primitives completeness (/api/admin/nidp/stock-primitives/completeness)
 app.include_router(copilot_agents_router)          # Copilot agent + model picker
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
+app.include_router(admin_swagger_router)           # Admin-only Swagger UI + OpenAPI YAML serving
 
 
 # Root endpoint
