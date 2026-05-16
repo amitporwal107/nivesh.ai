@@ -13,7 +13,7 @@ from deps import require_admin
 
 router = APIRouter()
 
-_DOCS_DIR = Path(__file__).parent.parent.parent / "docs"
+_DOCS_DIR = Path(__file__).parent.parent / "docs"
 
 _SWAGGER_HTML = """<!DOCTYPE html>
 <html lang="en">
