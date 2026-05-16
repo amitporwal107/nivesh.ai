@@ -103,6 +103,8 @@ services:
     volumes:
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro
       - ./nginx.conf:/etc/nginx/conf.d/app.conf:ro
+    extra_hosts:
+      - "host-gateway:host-gateway"
     networks: [nivesh-prod]
     logging: *default-logging
     depends_on:
