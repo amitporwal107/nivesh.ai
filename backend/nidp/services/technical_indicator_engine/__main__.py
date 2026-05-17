@@ -89,7 +89,7 @@ async def _main(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging(service="technical_indicator_engine")
     parser = argparse.ArgumentParser(description="Nivesh Technical Indicator Engine")
     parser.add_argument("--date", type=_parse_date, default=None,
                         help="Target date (YYYY-MM-DD). Default: yesterday.")

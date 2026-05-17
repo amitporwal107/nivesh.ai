@@ -52,7 +52,7 @@ async def _main(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging(service="fundamental_engine")
     parser = argparse.ArgumentParser(description="Nivesh Fundamental Analytics Engine")
     parser.add_argument("--date", type=date.fromisoformat, default=None,
                         help="Target date (YYYY-MM-DD). Default: yesterday.")

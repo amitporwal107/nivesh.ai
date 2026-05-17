@@ -43,7 +43,7 @@ async def _main(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging(service="mf_analytics_engine")
     parser = argparse.ArgumentParser(description="Nivesh MF Analytics Engine")
     parser.add_argument("--date", type=date.fromisoformat, default=None,
                         help="Rank date (YYYY-MM-DD). Default: yesterday.")

@@ -86,7 +86,7 @@ async def _fetch_schemes(conn: asyncpg.Connection) -> list[dict]:
                d.ter
           FROM nidp.mf_scheme_master s
           LEFT JOIN LATERAL (
-              SELECT ter
+              SELECT ter_pct AS ter
                 FROM nidp.mf_scheme_disclosure_snapshot
                WHERE scheme_code = s.scheme_code
                ORDER BY snapshot_date DESC
@@ -162,7 +162,7 @@ async def _fetch_benchmark(
 
 # ── Ranking computation ────────────────────────────────────────────────
 
-_RANK_SQL = """
+_RANK_SQL_1 = """
 UPDATE analytics.fund_category_rank r
    SET return_1y_rank   = q.return_1y_rank,
        return_3y_rank   = q.return_3y_rank,
@@ -200,9 +200,10 @@ UPDATE analytics.fund_category_rank r
        w_ter  AS (PARTITION BY category ORDER BY ter        ASC  NULLS LAST)
   ) q
  WHERE r.scheme_code = q.scheme_code
-   AND r.rank_date   = $1;
+   AND r.rank_date   = $1
+"""
 
--- Convert composite_pct_rank to integer rank per category
+_RANK_SQL_2 = """
 UPDATE analytics.fund_category_rank outer_r
    SET composite_rank = inner_q.composite_rank
   FROM (
@@ -212,7 +213,7 @@ UPDATE analytics.fund_category_rank outer_r
      WHERE rank_date = $1
   ) inner_q
  WHERE outer_r.scheme_code = inner_q.scheme_code
-   AND outer_r.rank_date   = $1;
+   AND outer_r.rank_date   = $1
 """
 
 
@@ -394,10 +395,12 @@ async def compute_for_date(
                 logger.error("mf_engine_upsert_error date=%s error=%s", rank_date, exc)
                 report.errors.append(f"upsert: {exc}")
 
-        # Step 5: compute within-category rankings
+        # Step 5: compute within-category rankings (two separate statements — asyncpg
+        # does not support multiple commands in a single prepared statement)
         if report.rows_upserted > 0:
             try:
-                await conn.execute(_RANK_SQL, rank_date)
+                await conn.execute(_RANK_SQL_1, rank_date)
+                await conn.execute(_RANK_SQL_2, rank_date)
                 logger.info("mf_engine_rankings_updated date=%s", rank_date)
             except Exception as exc:
                 logger.warning("mf_engine_rank_error date=%s error=%s", rank_date, exc)
@@ -408,12 +411,17 @@ async def compute_for_date(
     return report
 
 
+_MAX_VAL = 99999.9999  # NUMERIC(10,4) max is 999999.9999; cap earlier to catch data errors
+
 def _r(val) -> Optional[float]:
-    """Round to 4 decimal places; None-safe."""
+    """Round to 4 decimal places; None-safe. Clamps to ±99999.9999 to avoid DB overflow."""
     if val is None:
         return None
     try:
-        return round(float(val), 4)
+        v = float(val)
+        if not np.isfinite(v):
+            return None
+        return round(max(-_MAX_VAL, min(_MAX_VAL, v)), 4)
     except (TypeError, ValueError):
         return None
 
