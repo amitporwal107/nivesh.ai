@@ -194,15 +194,15 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
     """Parse CAS PDF — tiered fallback chain.
 
     Chain (in order, first non-empty result wins):
-      1. casparser library    — fast (< 1 s), handles text-based CAMS /
-                                KFin / NSDL MF folios with embedded text
-      2. GPT-5 Vision         — handles image-based NSDL / CDSL CAS PDFs
-                                via OpenAI's native file ingestion (same
-                                path ChatGPT UI uses). Requires
-                                OPENAI_API_KEY. Latency ~35-70 s; cost
-                                ~$0.30 per parse.
-      3. Docling              — local OCR fallback if OpenAI key absent
-                                or the call fails
+      1. GPT-5 Vision         — PRIMARY. Handles every CAS PDF shape
+                                (text + image) via OpenAI's native file
+                                ingestion (same path ChatGPT UI uses).
+                                Requires OPENAI_API_KEY. Latency ~35-70
+                                s; cost ~$0.30 per parse.
+      2. casparser library    — fast (< 1 s) fallback for text-based
+                                CAMS / KFin / NSDL MF folios. Used when
+                                OPENAI_API_KEY is absent or GPT-5 fails.
+      3. Docling              — local OCR last-resort fallback
 
     Returns: (holdings: list,
               normalized_for_txns: dict | None,
@@ -215,7 +215,44 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
         "use PAN as the password."
     )
 
-    # ── 1. casparser fast-path (text-based PDFs, < 1 s) ──────────────
+    # ── 1. GPT-5 Vision (PRIMARY — handles every CAS shape) ───────────
+    try:
+        from services.openai_cas_parser import (
+            parse_with_openai_vision,
+            is_configured as _openai_ok,
+        )
+        if not _openai_ok():
+            logger.info(
+                "parse_cas_pdf_with_data: OPENAI_API_KEY not set — "
+                "skipping GPT-5 Vision, falling through to casparser"
+            )
+        else:
+            raw = await parse_with_openai_vision(content, password=password or "")
+            if raw:
+                from services.claude_cas_mapper import map_to_internal
+                holdings, normalized = map_to_internal(raw)
+                if holdings:
+                    logger.info(
+                        "parse_cas_pdf_with_data: GPT-5 Vision → %d holdings",
+                        len(holdings),
+                    )
+                    try:
+                        from services.masterdata import validate_and_enrich_holdings
+                        holdings = validate_and_enrich_holdings(holdings)
+                    except Exception:
+                        pass
+                    return holdings, normalized, raw, "openai_gpt5"
+                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no holdings, trying casparser")
+            else:
+                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no payload, trying casparser")
+    except ValueError as _e:
+        if "password" in str(_e).lower():
+            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
+        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
+    except Exception as _e:
+        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
+
+    # ── 2. casparser fallback (text-based PDFs, < 1 s) ────────────────
     try:
         import casparser as _casparser
         import time as _time
@@ -235,49 +272,12 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
             except Exception:
                 pass
             return _fast_holdings, _normalize_casparser_folios(_cas_data), _cas_data, "casparser_lib"
-        logger.info("parse_cas_pdf_with_data: casparser: no holdings, trying GPT-5 Vision")
+        logger.info("parse_cas_pdf_with_data: casparser: no holdings, trying Docling")
     except Exception as _e:
         err_lower = str(_e).lower()
         if any(t in err_lower for t in ["password", "incorrect", "decrypt", "protected"]):
             raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.info("parse_cas_pdf_with_data: casparser failed (%s), trying GPT-5 Vision", _e)
-
-    # ── 2. GPT-5 Vision (handles image-only NSDL / CDSL CAS PDFs) ─────
-    try:
-        from services.openai_cas_parser import (
-            parse_with_openai_vision,
-            is_configured as _openai_ok,
-        )
-        if not _openai_ok():
-            logger.info(
-                "parse_cas_pdf_with_data: OPENAI_API_KEY not set — "
-                "skipping GPT-5 Vision, falling through to Docling"
-            )
-        else:
-            raw = await parse_with_openai_vision(content, password=password or "")
-            if raw:
-                from services.claude_cas_mapper import map_to_internal
-                holdings, normalized = map_to_internal(raw)
-                if holdings:
-                    logger.info(
-                        "parse_cas_pdf_with_data: GPT-5 Vision → %d holdings",
-                        len(holdings),
-                    )
-                    try:
-                        from services.masterdata import validate_and_enrich_holdings
-                        holdings = validate_and_enrich_holdings(holdings)
-                    except Exception:
-                        pass
-                    return holdings, normalized, raw, "openai_gpt5"
-                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no holdings")
-            else:
-                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no payload")
-    except ValueError as _e:
-        if "password" in str(_e).lower():
-            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
-    except Exception as _e:
-        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
+        logger.info("parse_cas_pdf_with_data: casparser failed (%s), trying Docling", _e)
 
     # ── 3. Docling (local OCR fallback) ───────────────────────────────
     try:
