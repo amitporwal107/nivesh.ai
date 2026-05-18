@@ -5,6 +5,7 @@ import {
   Target, Users, User, Settings, Zap, ChevronRight, Sparkles,
   Bell, ArrowRight, History, Lightbulb, TrendingUp, Globe2,
   FlaskConical, Terminal, LogOut, RefreshCw, Bot, ArrowLeft,
+  Receipt, Shield, Beaker, LineChart as LineChartIcon, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -25,14 +26,25 @@ export const SCREEN_TO_TAB = {
   snapshot:       "snapshot",
   strategy:       "strategy_builder",
   admin:          "admin",
+  // Phase 2 screens
+  tax:            "tax",
+  risk:           "risk",
+  scenarios:      "scenarios",
+  benchmark:      "benchmark",
+  trade:          "trade",
 };
 
-// Retail nav
+// Retail nav — Phase 2 screens are grouped after Insights
 const RETAIL_NAV = [
   { id: "home",        label: "Dashboard",        icon: LayoutDashboard },
   { id: "markets",     label: "Market Dashboard", icon: Globe2 },
   { id: "portfolio",   label: "Portfolio",        icon: Briefcase },
   { id: "insights",    label: "Insights",         icon: Lightbulb },
+  { id: "risk",        label: "Risk Center",      icon: Shield },
+  { id: "tax",         label: "Tax Center",       icon: Receipt },
+  { id: "scenarios",   label: "What-If Lab",      icon: Beaker,         badge: "NEW" },
+  { id: "benchmark",   label: "Benchmark",        icon: LineChartIcon },
+  { id: "trade",       label: "Trading Hub",      icon: Activity,       badge: "NEW" },
   { id: "plan_board",  label: "Plan Board",       icon: TrendingUp },
   { id: "goals",       label: "Goals",            icon: Target },
   { id: "strategy",    label: "Strategy Builder", icon: FlaskConical,   badge: "BETA" },

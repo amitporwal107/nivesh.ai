@@ -477,3 +477,12 @@ credentials.json
 
 # Claude Code settings (may contain tokens)
 .claude/
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

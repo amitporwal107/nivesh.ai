@@ -1,9 +1,14 @@
 import React from "react";
 import {
-  AlertCircle, ShieldCheck, Briefcase, TrendingUp,
-  ArrowUpRight, ChevronRight, Zap,
+  AlertCircle, ShieldCheck, Briefcase, TrendingUp, ChevronRight, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import PersonaHero from "@/components/v2/PersonaHero";
+import HealthScoreHero from "@/components/v2/HealthScoreHero";
+import AIAdvisorSummary from "@/components/v2/AIAdvisorSummary";
+import Top3Actions from "@/components/v2/Top3Actions";
+import GoalsProgressPanel from "@/components/v2/GoalsProgressPanel";
+import { getPersonaActions, getPersonaHeadline } from "@/components/v2/personaActions";
 
 const fmtRs = (n) => {
   if (n == null || n === 0) return "—";
@@ -13,7 +18,7 @@ const fmtRs = (n) => {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 };
 
-// Maps V1 insight signal_type to icon + accent color
+// Maps V1 insight signal_type to icon + accent color for the feed
 const SIGNAL_ICON = {
   risk:        { icon: AlertCircle,  accent: "indigo" },
   cost:        { icon: Briefcase,    accent: "white"  },
@@ -27,7 +32,27 @@ const accentClasses = {
   white:   { card: "bg-white/[0.02] border-white/5 hover:bg-white/5",               icon: "bg-white/5 text-white/40"           },
 };
 
-export default function V2HomeScreen({ analytics, insights, loading, setScreen }) {
+const ACTION_COLOR = {
+  indigo:  "text-indigo-400",
+  emerald: "text-emerald-400",
+  violet:  "text-violet-400",
+  rose:    "text-rose-400",
+  amber:   "text-amber-400",
+  blue:    "text-blue-400",
+  teal:    "text-teal-400",
+  orange:  "text-orange-400",
+  sky:     "text-sky-400",
+};
+
+export default function V2HomeScreen({
+  analytics,
+  insights,
+  loading,
+  setScreen,
+  persona,
+  personaLoading,
+  onPersonaChange,
+}) {
   const score      = analytics?.health_score?.overall ?? analytics?.healthScore ?? null;
   const totalValue = analytics?.total_value ?? analytics?.totalValue ?? null;
   const xirr       = analytics?.xirr ?? null;
@@ -35,19 +60,18 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
   const riskBudget = analytics?.risk_budget_used ?? analytics?.riskBudgetUsed ?? null;
   const riskLabel  = analytics?.risk_profile?.category ?? "Moderate";
 
+  const personaKey = persona?.persona || "retail_investor";
+  const headline   = getPersonaHeadline(personaKey);
+  const actions    = getPersonaActions(personaKey);
+
+  // Compact KPI grid — Health Score now lives in its own hero card,
+  // so this row focuses on the remaining 3 numeric anchors.
   const kpis = [
     {
       label: "Total Wealth",
       value: totalValue ? fmtRs(totalValue) : loading ? "…" : "—",
       detail: xirr ? `${xirr > 0 ? "+" : ""}${xirr.toFixed(1)}% XIRR` : "No data yet",
       detailColor: xirr > 0 ? "text-emerald-400" : "text-white/30",
-    },
-    {
-      label: "Health Score",
-      value: score != null ? `${Math.round(score)}/100` : loading ? "…" : "—",
-      detail: score != null ? (score >= 75 ? "Above Peer Avg" : score >= 50 ? "Average" : "Needs Attention") : "Not analysed",
-      detailColor: score >= 75 ? "text-emerald-400" : score >= 50 ? "text-amber-400" : "text-rose-400",
-      progress: score,
     },
     {
       label: "Risk Budget",
@@ -63,8 +87,9 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
     },
   ];
 
-  // Build intelligence feed from real insights
-  const feedItems = (insights || []).slice(0, 4).map((ins) => {
+  // Build intelligence feed from real insights (drop the ones already
+  // surfaced in Top3Actions to avoid duplication).
+  const feedItems = (insights || []).slice(3, 7).map((ins) => {
     const typeKey = (ins.signal_type || ins.type || "default").toLowerCase();
     const cfg = SIGNAL_ICON[typeKey] || SIGNAL_ICON.default;
     return {
@@ -75,17 +100,54 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
     };
   });
 
-  // Fallback cards when no insights yet
   const placeholders = [
-    { icon: AlertCircle, accent: "indigo",  title: "Upload your CAS to get started", desc: "Connect your portfolio to see personalised AI insights and recommendations." },
-    { icon: ShieldCheck, accent: "emerald", title: "Risk profile pending", desc: "Complete your risk profile to unlock full portfolio analysis and rebalancing advice." },
+    { icon: AlertCircle, accent: "indigo",  title: "Upload your CAS to get started", desc: "Connect your portfolio to see personalised AI insights." },
+    { icon: ShieldCheck, accent: "emerald", title: "Risk profile pending", desc: "Complete your risk profile to unlock full portfolio analysis." },
   ];
   const displayFeed = feedItems.length > 0 ? feedItems : placeholders;
 
+  const askCopilot = (q) => {
+    if (q) sessionStorage.setItem("v2_pending_chat_message", q);
+    setScreen("copilot");
+  };
+
   return (
-    <div className="space-y-8">
-      {/* KPI grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-6">
+      {/* Persona-aware page title */}
+      <div>
+        <h2 className="text-2xl font-black text-white tracking-tight">{headline.title}</h2>
+        <p className="text-sm text-white/40 mt-0.5">{headline.tagline}</p>
+      </div>
+
+      {/* Persona hero — inferred from CAS, lets user override */}
+      <PersonaHero
+        persona={persona}
+        loading={personaLoading}
+        onPersonaChange={onPersonaChange}
+      />
+
+      {/* Health Score + AI Advisor Summary side-by-side on lg */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3">
+          <HealthScoreHero
+            analytics={analytics}
+            loading={loading}
+            onAsk={() => askCopilot("Explain my portfolio health score in detail — diversification, risk, cost, and performance.")}
+          />
+        </div>
+        <div className="lg:col-span-2">
+          <AIAdvisorSummary
+            persona={persona}
+            analytics={analytics}
+            loading={loading}
+            onAsk={() => askCopilot("Why is my portfolio rated this way? What's the single biggest improvement I can make?")}
+            onActions={() => setScreen("insights")}
+          />
+        </div>
+      </div>
+
+      {/* Compact KPI row — 3 cards (Wealth, Risk, Cost) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {kpis.map((kpi) => (
           <div
             key={kpi.label}
@@ -95,17 +157,7 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
             <p className="text-[9px] font-bold text-white/30 uppercase tracking-[0.2em] mb-2 font-mono">
               {kpi.label}
             </p>
-            <div className="flex items-end justify-between relative z-10">
-              <h3 className="text-xl font-black text-white tracking-tight">{kpi.value}</h3>
-              {kpi.progress != null && (
-                <div className="w-10 bg-white/5 h-1.5 rounded-full overflow-hidden mb-1 ml-2">
-                  <div
-                    className="h-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
-                    style={{ width: `${Math.min(kpi.progress, 100)}%` }}
-                  />
-                </div>
-              )}
-            </div>
+            <h3 className="text-xl font-black text-white tracking-tight relative z-10">{kpi.value}</h3>
             <p className={cn("text-[9px] font-bold mt-2 uppercase tracking-tighter", kpi.detailColor)}>
               {kpi.detail}
             </p>
@@ -113,8 +165,23 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
         ))}
       </div>
 
+      {/* Top 3 Actions + Goals progress side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Intelligence feed */}
+        <div className="lg:col-span-2">
+          <Top3Actions
+            insights={insights}
+            loading={loading}
+            onClick={() => setScreen("insights")}
+            onViewAll={() => setScreen("insights")}
+          />
+        </div>
+        <div className="lg:col-span-1">
+          <GoalsProgressPanel onNavigate={() => setScreen("goals")} />
+        </div>
+      </div>
+
+      {/* Intelligence Feed + Persona-branded Quick Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-[#1A1A1A] border border-white/5 rounded-3xl flex flex-col shadow-2xl overflow-hidden">
           <div className="p-6 border-b border-white/5 flex justify-between items-center">
             <h4 className="text-base font-bold text-white tracking-tight">Intelligence Feed</h4>
@@ -126,14 +193,14 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
           </div>
           <div className="p-6 space-y-4 flex-1">
             {displayFeed.map((item, i) => {
-              const cls = accentClasses[item.accent];
+              const cls = accentClasses[item.accent] || accentClasses.indigo;
               const Icon = item.icon;
               return (
                 <div
                   key={i}
                   className={cn(
                     "p-5 rounded-2xl border hover:scale-[1.01] transition-all cursor-pointer group",
-                    cls.card
+                    cls.card,
                   )}
                   onClick={() => setScreen("insights")}
                 >
@@ -164,27 +231,29 @@ export default function V2HomeScreen({ analytics, insights, loading, setScreen }
           </div>
         </div>
 
-        {/* Sentiment / quick actions */}
+        {/* Persona-branded Quick Actions */}
         <div className="bg-[#1A1A1A] border border-white/5 rounded-3xl flex flex-col shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/5 rounded-full blur-3xl -mr-24 -mt-24" />
-          <div className="p-6 border-b border-white/5">
+          <div className="p-6 border-b border-white/5 flex items-center justify-between">
             <h4 className="text-base font-bold text-white tracking-tight">Quick Actions</h4>
+            {persona?.label && (
+              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
+                for {persona.label}
+              </span>
+            )}
           </div>
           <div className="p-6 flex-1 space-y-3 relative z-10">
-            {[
-              { label: "AI Copilot Chat",       icon: TrendingUp,  screen: "copilot",    color: "text-indigo-400", desc: "Ask anything about your portfolio" },
-              { label: "Portfolio Analysis",    icon: Briefcase,   screen: "portfolio",  color: "text-emerald-400", desc: "Holdings, returns, allocation" },
-              { label: "Market Intelligence",   icon: ArrowUpRight, screen: "markets",   color: "text-amber-400",  desc: "Regime · Sectors · Trade ideas" },
-              { label: "Investment Goals",      icon: ShieldCheck, screen: "goals",      color: "text-rose-400",   desc: "Track your financial goals" },
-            ].map((a) => {
+            {actions.map((a) => {
               const Icon = a.icon;
+              const colorClass = ACTION_COLOR[a.color] || "text-indigo-400";
               return (
                 <button
                   key={a.label}
+                  data-testid={`quick-action-${a.label.toLowerCase().replace(/\s+/g, "-")}`}
                   onClick={() => setScreen(a.screen)}
                   className="w-full flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all group text-left"
                 >
-                  <Icon className={cn("w-5 h-5 shrink-0", a.color)} />
+                  <Icon className={cn("w-5 h-5 shrink-0", colorClass)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white">{a.label}</p>
                     <p className="text-[10px] text-white/30">{a.desc}</p>

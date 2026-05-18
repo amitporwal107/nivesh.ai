@@ -16,6 +16,12 @@ import { motion, AnimatePresence } from "framer-motion";
 // V2 shell
 import V2Layout, { SCREEN_TO_TAB } from "@/components/v2app/V2Layout";
 import V2HomeScreen from "@/components/v2app/screens/V2HomeScreen";
+import V2TaxCenterScreen from "@/components/v2app/screens/V2TaxCenterScreen";
+import V2RiskCenterScreen from "@/components/v2app/screens/V2RiskCenterScreen";
+import V2ScenarioSimScreen from "@/components/v2app/screens/V2ScenarioSimScreen";
+import V2BenchmarkScreen from "@/components/v2app/screens/V2BenchmarkScreen";
+import V2TradingScreen from "@/components/v2app/screens/V2TradingScreen";
+import PersonaOnboardingModal, { shouldShowPersonaOnboarding } from "@/components/v2/PersonaOnboardingModal";
 import { detectPersona } from "@/components/v2app/screens/V2CopilotWelcome";
 
 // V1 content components — rendered as-is inside the dark shell
@@ -39,6 +45,28 @@ import UserProfileDropdown from "@/components/UserProfileDropdown";
 import { DashboardSkeleton } from "@/components/ui/skeleton-loaders";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Maps the new backend persona keys to the existing V2CopilotWelcome.PERSONAS
+// keys so the Copilot welcome screen renders correctly. Falls back to the
+// heuristic detectPersona() when backend persona isn't available yet.
+function mapPersonaToCopilotKey(backendKey, workspace, holdings, userProfile) {
+  const COPILOT_MAP = {
+    retail_investor:      "retail_investor",
+    mutual_fund_investor: "mf_investor",
+    stock_investor:       "portfolio_analyst",
+    swing_trader:         "trader",
+    intraday_trader:      "trader",
+    options_trader:       "trader",
+    mfd_advisor:          "mfd",
+    hni_investor:         "wealth_manager",
+    retirement_planner:   "wealth_manager",
+    tax_saver:            "retail_investor",
+    beginner_investor:    "new_investor",
+    nri_investor:         "retail_investor",
+  };
+  if (backendKey && COPILOT_MAP[backendKey]) return COPILOT_MAP[backendKey];
+  return detectPersona(workspace, holdings, userProfile);
+}
 
 // ─── Thin dark wrapper for embedded V1 components ────────────────────────────
 // V1 components already have dark: variants; the wrapper ensures the `dark`
@@ -111,6 +139,9 @@ export default function NiveshV2() {
   const [workspace, setWorkspace]     = useState(null);
   const [activeProfile, setActiveProfile] = useState(null);
   const [recentChats, setRecentChats] = useState([]);
+  const [persona, setPersona]         = useState(null);
+  const [personaLoading, setPersonaLoading] = useState(true);
+  const [showPersonaOnboarding, setShowPersonaOnboarding] = useState(false);
 
   // ── Force dark mode while V2 is mounted ──────────────────────────────────
   useEffect(() => {
@@ -184,6 +215,26 @@ export default function NiveshV2() {
     }
   }, []);
 
+  // ── Fetch inferred persona ────────────────────────────────────────────────
+  const fetchPersona = useCallback(async (refresh = false) => {
+    try {
+      const res = await axios.get(
+        `${API}/user/persona${refresh ? "?refresh=true" : ""}`,
+        { withCredentials: true },
+      );
+      setPersona(res.data);
+      // One-shot onboarding for ambiguous personas — captures NRI + trader subtype
+      if (shouldShowPersonaOnboarding(res.data)) {
+        setShowPersonaOnboarding(true);
+      }
+    } catch (err) {
+      // Non-fatal — dashboard works without persona
+      console.warn("[V2] persona fetch failed:", err?.response?.status);
+    } finally {
+      setPersonaLoading(false);
+    }
+  }, []);
+
   // ── On user load ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!loading && !user) {
@@ -195,8 +246,9 @@ export default function NiveshV2() {
       fetchData();
       fetchWorkspace();
       fetchRecentChats();
+      fetchPersona();
     }
-  }, [user, loading, navigate, fetchData, fetchProfile, fetchWorkspace, fetchRecentChats]);
+  }, [user, loading, navigate, fetchData, fetchProfile, fetchWorkspace, fetchRecentChats, fetchPersona]);
 
   // ── Advisor: bounce to advisor tab on first load ─────────────────────────
   useEffect(() => {
@@ -240,6 +292,8 @@ export default function NiveshV2() {
     fetchWorkspace();
     fetchData();
     checkAuth();
+    // Force re-inference so the dashboard reflects the new CAS data
+    fetchPersona(true);
     setActiveScreen(opts?.destination || "home");
   };
 
@@ -324,6 +378,9 @@ export default function NiveshV2() {
             insights={insights}
             loading={dataLoading}
             setScreen={setActiveScreen}
+            persona={persona}
+            personaLoading={personaLoading}
+            onPersonaChange={setPersona}
           />
         );
 
@@ -363,8 +420,9 @@ export default function NiveshV2() {
             v2PersonaId={
               isImpersonating
                 ? detectPersona(null, holdings, activeProfile)
-                : detectPersona(workspace, holdings, userProfile)
+                : mapPersonaToCopilotKey(persona?.persona, workspace, holdings, userProfile)
             }
+            v2Persona={persona}
             v2Analytics={analytics}
             v2Holdings={holdings}
             v2Workspace={workspace}
@@ -443,6 +501,42 @@ export default function NiveshV2() {
           />
         );
 
+      // ── Phase 2 screens ──────────────────────────────────────────────────
+      case "tax":
+        return (
+          <DarkContent>
+            <V2TaxCenterScreen setScreen={setActiveScreen} />
+          </DarkContent>
+        );
+
+      case "risk":
+        return (
+          <DarkContent>
+            <V2RiskCenterScreen analytics={analytics} setScreen={setActiveScreen} />
+          </DarkContent>
+        );
+
+      case "scenarios":
+        return (
+          <DarkContent>
+            <V2ScenarioSimScreen />
+          </DarkContent>
+        );
+
+      case "benchmark":
+        return (
+          <DarkContent>
+            <V2BenchmarkScreen analytics={analytics} />
+          </DarkContent>
+        );
+
+      case "trade":
+        return (
+          <DarkContent>
+            <V2TradingScreen persona={persona} setScreen={setActiveScreen} />
+          </DarkContent>
+        );
+
       // ── Admin ────────────────────────────────────────────────────────────
       case "admin":
         return user?.is_admin ? (
@@ -458,6 +552,9 @@ export default function NiveshV2() {
             insights={insights}
             loading={dataLoading}
             setScreen={setActiveScreen}
+            persona={persona}
+            personaLoading={personaLoading}
+            onPersonaChange={setPersona}
           />
         );
     }
@@ -486,6 +583,17 @@ export default function NiveshV2() {
           {renderScreen()}
         </motion.div>
       </AnimatePresence>
+
+      {showPersonaOnboarding && (
+        <PersonaOnboardingModal
+          currentPersona={persona}
+          onClose={() => setShowPersonaOnboarding(false)}
+          onCommit={() => {
+            setShowPersonaOnboarding(false);
+            fetchPersona(true);
+          }}
+        />
+      )}
     </V2Layout>
   );
 }
