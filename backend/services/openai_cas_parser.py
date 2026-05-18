@@ -35,12 +35,13 @@ import openai
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-5"        # flagship — best vision OCR for CAS tables
+DEFAULT_REASONING_EFFORT = "low"  # gpt-5 reasoning adds latency; "low" is plenty for extraction
 MAX_PAGES = 24                 # safety cap — most CAS PDFs are 8-20 pages
-MAX_BATCH_PAGES = 8            # 8 images per request is comfortable
+MAX_BATCH_PAGES = 4            # smaller batches finish faster on reasoning models
 DEFAULT_DPI = 150              # dense tables — higher than image-only docs need
-MAX_PARALLEL_BATCHES = 2       # avoid OpenAI tier rate-limit throttling
+MAX_PARALLEL_BATCHES = 3       # 3 parallel calls so total time ≈ batch time
 JPEG_QUALITY = 85
-PER_BATCH_TIMEOUT = 120        # 2 min per batch — fail fast for SLA visibility
+PER_BATCH_TIMEOUT = 180        # reasoning models can need this even on 4-page batches
 
 
 # ── Extraction prompt ──────────────────────────────────────────────────
@@ -185,30 +186,42 @@ def _get_client() -> openai.AsyncOpenAI:
 # ── PDF → page images ─────────────────────────────────────────────────
 def _decrypt_and_render_pdf(content: bytes, password: str = "",
                              dpi: int = DEFAULT_DPI) -> List[bytes]:
-    """Render every PDF page to a JPEG byte array. Decrypts first when
-    a password is supplied. Caps at MAX_PAGES to avoid runaway costs.
+    """Render every PDF page to a JPEG byte array via PyMuPDF (fitz).
+    Decrypts first when a password is supplied. Caps at MAX_PAGES.
+
+    PyMuPDF is preferred over pdf2image because it ships as a pure Python
+    wheel — no `poppler` / `pdftoppm` system binary required.
     """
-    from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+    import fitz  # PyMuPDF
+    from PIL import Image
 
-    kwargs: Dict[str, Any] = {"dpi": dpi}
-    if password:
-        kwargs["userpw"] = password
+    doc = fitz.open(stream=content, filetype="pdf")
+    if doc.needs_pass:
+        if not password:
+            raise ValueError("PDF is password-protected and no password was provided")
+        if not doc.authenticate(password):
+            raise ValueError("PDF password rejected")
 
-    info = pdfinfo_from_bytes(content, **{k: v for k, v in kwargs.items() if k != "dpi"})
-    total_pages = int(info.get("Pages", 0) or 0)
+    total_pages = doc.page_count
     if total_pages == 0:
-        raise ValueError("PDF has 0 pages — file is corrupted or password rejected")
+        raise ValueError("PDF has 0 pages — file is corrupted")
     if total_pages > MAX_PAGES:
         logger.warning("CAS PDF has %s pages — capping at %s", total_pages, MAX_PAGES)
 
-    images = convert_from_bytes(content, **kwargs)[:MAX_PAGES]
+    # fitz uses a zoom factor where 1.0 == 72 dpi (standard PDF resolution)
+    zoom = dpi / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+
     out: List[bytes] = []
-    for img in images:
-        if img.mode != "RGB":
-            img = img.convert("RGB")
+    for i in range(min(total_pages, MAX_PAGES)):
+        pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
+        # fitz returns RGB samples; PIL re-encodes to JPEG with quality control
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
         out.append(buf.getvalue())
+    doc.close()
+
     logger.info(
         f"Rendered {len(out)} pages @ {dpi}dpi JPEG, "
         f"avg {sum(len(b) for b in out) // max(len(out), 1) // 1024}KB/page"
@@ -232,14 +245,23 @@ async def _ask_openai_for_json(images: List[bytes]) -> Dict[str, Any]:
 
     # GPT-5 uses `max_completion_tokens`; older models used `max_tokens`.
     # `response_format={"type": "json_object"}` forces valid JSON output.
+    # `reasoning_effort` controls GPT-5 thinking depth — extraction doesn't
+    # need deep reasoning, "low" cuts latency by ~2-3× with negligible
+    # accuracy impact on tabular OCR.
+    model_name = _model()
+    extra: Dict[str, Any] = {}
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        extra["reasoning_effort"] = DEFAULT_REASONING_EFFORT
+
     response = await client.chat.completions.create(
-        model=_model(),
+        model=model_name,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
         max_completion_tokens=16000,
+        **extra,
     )
 
     raw = (response.choices[0].message.content or "").strip()
