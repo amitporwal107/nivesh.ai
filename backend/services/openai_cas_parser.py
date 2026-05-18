@@ -35,7 +35,7 @@ import openai
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-5"        # flagship — best vision OCR for CAS tables
-DEFAULT_REASONING_EFFORT = "low"  # gpt-5 reasoning adds latency; "low" is plenty for extraction
+DEFAULT_REASONING_EFFORT = "medium"  # "low" causes the model to summarise instead of enumerating rows
 MAX_PAGES = 24                 # safety cap — informational only when sending native PDF
 SINGLE_CALL_TIMEOUT = 240      # one call sees the whole PDF — give it room
 MAX_COMPLETION_TOKENS = 32000  # 20+ holdings + transactions can be sizable
@@ -116,11 +116,17 @@ Required schema (use null when a field is missing):
   }
 }
 
-Rules:
+CRITICAL extraction rules:
+- You MUST enumerate EVERY row of EVERY holdings table on EVERY page.
+  Do not stop after the portfolio summary on page 1. The statement has
+  detailed holdings tables on later pages — open and read each one.
 - All numbers MUST be JSON numbers (no commas, no ₹/INR symbols, no quotes).
 - Dates MUST be ISO YYYY-MM-DD.
 - ISINs are exactly 12 characters starting with "IN" — double-check digits
   against the company name on the same row before emitting.
+- The statement contains SEPARATE sections for equities, preference shares,
+  sovereign gold bonds (SGBs, ISINs starting with "IN0020..."), demat mutual
+  funds, and mutual fund folios. Walk every section and emit every row.
 - For mutual fund transaction_type, classify based on the description:
   * "Purchase via SIP" / "SIP" / "Systematic" → "SIP_PURCHASE"
   * "Purchase" / "Allotment" / "Investment" → "PURCHASE"
@@ -128,8 +134,9 @@ Rules:
   * "Switch In" → "SWITCH_IN", "Switch Out" → "SWITCH_OUT"
   * "Dividend" / "IDCW" → "DIVIDEND"
   * "Stamp Duty" / "STT" / "TDS" → "STAMP_DUTY"
-- If a section is empty or absent, return an empty array.
-- Capture EVERY row in tables — do not summarise.
+- If a section is genuinely absent from the statement, return an empty
+  array — but ONLY after confirming you've scanned every page.
+- Capture EVERY row in EVERY table — do not summarise or truncate.
 - Do not invent data; if you can't read it cleanly, set the field to null.
 """
 
@@ -212,50 +219,58 @@ def _decrypt_pdf(content: bytes, password: str = "") -> bytes:
 
 # ── GPT-5 call ────────────────────────────────────────────────────────
 async def _ask_openai_for_json(pdf_bytes: bytes) -> Dict[str, Any]:
-    """Send the whole CAS PDF natively (one API call) with the extraction
-    prompt and return the parsed JSON dict. Mirrors how ChatGPT-5 UI
-    receives a PDF upload — OpenAI's server-side pipeline handles
-    rendering + OCR rather than us rasterizing client-side.
+    """Upload the CAS PDF via the Files API, then reference it by file_id
+    in the chat message. This mirrors how the ChatGPT UI handles a PDF
+    upload — OpenAI's server stores the file once and the server-side
+    pipeline can apply richer preprocessing (page indexing, OCR, layout
+    analysis) than the inline-base64 path.
 
-    Returns the merged JSON dict. Raises on hard failures.
+    Cleans up the uploaded file after the call so it doesn't accumulate
+    in your Files quota.
     """
     client = _get_client()
     model_name = _model()
 
-    b64_pdf = base64.b64encode(pdf_bytes).decode("ascii")
-    user_content = [
-        {
-            "type": "file",
-            "file": {
-                "filename": "cas.pdf",
-                "file_data": f"data:application/pdf;base64,{b64_pdf}",
-            },
-        },
-        {"type": "text", "text": EXTRACTION_PROMPT},
-    ]
-
-    extra: Dict[str, Any] = {}
-    # GPT-5 / o-series reasoning controls (chat.completions API spelling)
-    if model_name.startswith("gpt-5") or model_name.startswith("o"):
-        extra["reasoning_effort"] = DEFAULT_REASONING_EFFORT
-
-    response = await client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        response_format={"type": "json_object"},
-        max_completion_tokens=MAX_COMPLETION_TOKENS,
-        **extra,
+    file_obj = await client.files.create(
+        file=("cas.pdf", pdf_bytes, "application/pdf"),
+        purpose="user_data",
     )
+    logger.info(f"Uploaded PDF to Files API: file_id={file_obj.id} ({file_obj.bytes:,} bytes)")
 
-    raw = (response.choices[0].message.content or "").strip()
-    logger.info(
-        f"GPT-5 native-PDF parse: input={response.usage.prompt_tokens} "
-        f"output={response.usage.completion_tokens} tokens"
-    )
-    return _coerce_json(raw)
+    try:
+        user_content = [
+            {"type": "file", "file": {"file_id": file_obj.id}},
+            {"type": "text", "text": EXTRACTION_PROMPT},
+        ]
+
+        extra: Dict[str, Any] = {}
+        if model_name.startswith("gpt-5") or model_name.startswith("o"):
+            extra["reasoning_effort"] = DEFAULT_REASONING_EFFORT
+
+        response = await client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
+            **extra,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        logger.info(
+            f"GPT-5 native-PDF parse: input={response.usage.prompt_tokens} "
+            f"output={response.usage.completion_tokens} tokens "
+            f"(reasoning={getattr(response.usage, 'completion_tokens_details', None)})"
+        )
+        return _coerce_json(raw)
+    finally:
+        # Best-effort delete — don't block on cleanup failures
+        try:
+            await client.files.delete(file_obj.id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("files.delete cleanup failed: %s", e)
 
 
 def _coerce_json(s: str) -> Dict[str, Any]:

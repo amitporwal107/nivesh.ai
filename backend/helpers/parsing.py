@@ -191,12 +191,18 @@ def _normalize_casparser_folios(cas_data: dict) -> dict:
 
 
 async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
-    """Parse CAS PDF — fully local, no external API calls.
+    """Parse CAS PDF — tiered fallback chain.
 
-    Local chain (in order):
-      1. casparser library  — fast (< 1 s), handles CAMS / KFin / NSDL MF folios
-      2. Docling            — table extraction + casparser merge for complex /
-                              demat layouts (NSDL / CDSL equity + all MF types)
+    Chain (in order, first non-empty result wins):
+      1. casparser library    — fast (< 1 s), handles text-based CAMS /
+                                KFin / NSDL MF folios with embedded text
+      2. GPT-5 Vision         — handles image-based NSDL / CDSL CAS PDFs
+                                via OpenAI's native file ingestion (same
+                                path ChatGPT UI uses). Requires
+                                OPENAI_API_KEY. Latency ~35-70 s; cost
+                                ~$0.30 per parse.
+      3. Docling              — local OCR fallback if OpenAI key absent
+                                or the call fails
 
     Returns: (holdings: list,
               normalized_for_txns: dict | None,
@@ -229,14 +235,51 @@ async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
             except Exception:
                 pass
             return _fast_holdings, _normalize_casparser_folios(_cas_data), _cas_data, "casparser_lib"
-        logger.info("parse_cas_pdf_with_data: casparser: no holdings, trying Docling")
+        logger.info("parse_cas_pdf_with_data: casparser: no holdings, trying GPT-5 Vision")
     except Exception as _e:
         err_lower = str(_e).lower()
         if any(t in err_lower for t in ["password", "incorrect", "decrypt", "protected"]):
             raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.info("parse_cas_pdf_with_data: casparser failed (%s), trying Docling", _e)
+        logger.info("parse_cas_pdf_with_data: casparser failed (%s), trying GPT-5 Vision", _e)
 
-    # ── 2. Docling (table extraction + casparser merge) ───────────────
+    # ── 2. GPT-5 Vision (handles image-only NSDL / CDSL CAS PDFs) ─────
+    try:
+        from services.openai_cas_parser import (
+            parse_with_openai_vision,
+            is_configured as _openai_ok,
+        )
+        if not _openai_ok():
+            logger.info(
+                "parse_cas_pdf_with_data: OPENAI_API_KEY not set — "
+                "skipping GPT-5 Vision, falling through to Docling"
+            )
+        else:
+            raw = await parse_with_openai_vision(content, password=password or "")
+            if raw:
+                from services.claude_cas_mapper import map_to_internal
+                holdings, normalized = map_to_internal(raw)
+                if holdings:
+                    logger.info(
+                        "parse_cas_pdf_with_data: GPT-5 Vision → %d holdings",
+                        len(holdings),
+                    )
+                    try:
+                        from services.masterdata import validate_and_enrich_holdings
+                        holdings = validate_and_enrich_holdings(holdings)
+                    except Exception:
+                        pass
+                    return holdings, normalized, raw, "openai_gpt5"
+                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no holdings")
+            else:
+                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no payload")
+    except ValueError as _e:
+        if "password" in str(_e).lower():
+            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
+        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
+    except Exception as _e:
+        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
+
+    # ── 3. Docling (local OCR fallback) ───────────────────────────────
     try:
         from services.docling_cas_parser import parse_with_docling, is_available as _docling_ok
         if not _docling_ok():

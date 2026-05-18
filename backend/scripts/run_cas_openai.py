@@ -79,14 +79,19 @@ def _parser_isins(holdings: list) -> set:
 
 
 async def main():
-    key = sys.stdin.read().strip()
-    if not key.startswith("sk-"):
-        print("ERROR: no OpenAI key on stdin (expected sk-... prefix)", file=sys.stderr)
+    # Key source priority: env var → stdin (for piped-in setups).
+    # The parser itself reads from helpers.secrets (which falls back to
+    # env), so an exported OPENAI_API_KEY is enough.
+    import os
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key and not sys.stdin.isatty():
+        key = sys.stdin.read().strip()
+    if not key or not key.startswith("sk-"):
+        print("ERROR: no OpenAI key (set OPENAI_API_KEY env var, or pipe key to stdin)",
+              file=sys.stderr)
         sys.exit(2)
     secrets.set_override("OPENAI_API_KEY", key)
-    # Don't print the key anywhere
-    print(f"[setup] OPENAI_API_KEY loaded into secrets cache "
-          f"({len(key)} chars, prefix {key[:7]}...)")
+    print(f"[setup] OPENAI_API_KEY loaded ({len(key)} chars, prefix {key[:7]}...)")
     print(f"[setup] CAS_OPENAI_MODEL = {secrets.get('CAS_OPENAI_MODEL') or 'gpt-5 (default)'}")
     print()
 
