@@ -36,12 +36,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-5"        # flagship — best vision OCR for CAS tables
 DEFAULT_REASONING_EFFORT = "low"  # gpt-5 reasoning adds latency; "low" is plenty for extraction
-MAX_PAGES = 24                 # safety cap — most CAS PDFs are 8-20 pages
-MAX_BATCH_PAGES = 4            # smaller batches finish faster on reasoning models
-DEFAULT_DPI = 150              # dense tables — higher than image-only docs need
-MAX_PARALLEL_BATCHES = 3       # 3 parallel calls so total time ≈ batch time
-JPEG_QUALITY = 85
-PER_BATCH_TIMEOUT = 180        # reasoning models can need this even on 4-page batches
+MAX_PAGES = 24                 # safety cap — informational only when sending native PDF
+SINGLE_CALL_TIMEOUT = 240      # one call sees the whole PDF — give it room
+MAX_COMPLETION_TOKENS = 32000  # 20+ holdings + transactions can be sizable
 
 
 # ── Extraction prompt ──────────────────────────────────────────────────
@@ -183,73 +180,62 @@ def _get_client() -> openai.AsyncOpenAI:
     return _client
 
 
-# ── PDF → page images ─────────────────────────────────────────────────
-def _decrypt_and_render_pdf(content: bytes, password: str = "",
-                             dpi: int = DEFAULT_DPI) -> List[bytes]:
-    """Render every PDF page to a JPEG byte array via PyMuPDF (fitz).
-    Decrypts first when a password is supplied. Caps at MAX_PAGES.
+# ── PDF prep ──────────────────────────────────────────────────────────
+def _decrypt_pdf(content: bytes, password: str = "") -> bytes:
+    """Return a PDF byte string with any user-password removed. If no
+    password is supplied and the PDF is encrypted, raises. If the PDF
+    isn't encrypted, returns `content` unchanged.
 
-    PyMuPDF is preferred over pdf2image because it ships as a pure Python
-    wheel — no `poppler` / `pdftoppm` system binary required.
+    OpenAI's `type: "file"` content block accepts the PDF as-is — we no
+    longer rasterize pages client-side; the server-side pipeline does
+    rendering + OCR with whatever ChatGPT itself uses.
     """
     import fitz  # PyMuPDF
-    from PIL import Image
 
     doc = fitz.open(stream=content, filetype="pdf")
-    if doc.needs_pass:
+    try:
+        if not doc.needs_pass:
+            if doc.page_count == 0:
+                raise ValueError("PDF has 0 pages — file is corrupted")
+            return content
         if not password:
             raise ValueError("PDF is password-protected and no password was provided")
         if not doc.authenticate(password):
             raise ValueError("PDF password rejected")
-
-    total_pages = doc.page_count
-    if total_pages == 0:
-        raise ValueError("PDF has 0 pages — file is corrupted")
-    if total_pages > MAX_PAGES:
-        logger.warning("CAS PDF has %s pages — capping at %s", total_pages, MAX_PAGES)
-
-    # fitz uses a zoom factor where 1.0 == 72 dpi (standard PDF resolution)
-    zoom = dpi / 72.0
-    matrix = fitz.Matrix(zoom, zoom)
-
-    out: List[bytes] = []
-    for i in range(min(total_pages, MAX_PAGES)):
-        pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
-        # fitz returns RGB samples; PIL re-encodes to JPEG with quality control
-        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
-        out.append(buf.getvalue())
-    doc.close()
-
-    logger.info(
-        f"Rendered {len(out)} pages @ {dpi}dpi JPEG, "
-        f"avg {sum(len(b) for b in out) // max(len(out), 1) // 1024}KB/page"
-    )
-    return out
+        # Re-emit decrypted — `save(garbage=4)` rewrites the xref clean.
+        out = io.BytesIO()
+        doc.save(out, garbage=4, deflate=True, encryption=fitz.PDF_ENCRYPT_NONE)
+        return out.getvalue()
+    finally:
+        doc.close()
 
 
 # ── GPT-5 call ────────────────────────────────────────────────────────
-async def _ask_openai_for_json(images: List[bytes]) -> Dict[str, Any]:
-    """Send a batch of base64 images to GPT-5 with the extraction prompt
-    and return the parsed JSON dict. Raises on hard failures."""
+async def _ask_openai_for_json(pdf_bytes: bytes) -> Dict[str, Any]:
+    """Send the whole CAS PDF natively (one API call) with the extraction
+    prompt and return the parsed JSON dict. Mirrors how ChatGPT-5 UI
+    receives a PDF upload — OpenAI's server-side pipeline handles
+    rendering + OCR rather than us rasterizing client-side.
+
+    Returns the merged JSON dict. Raises on hard failures.
+    """
     client = _get_client()
-
-    user_content: List[Dict[str, Any]] = [{"type": "text", "text": EXTRACTION_PROMPT}]
-    for img_bytes in images:
-        b64 = base64.b64encode(img_bytes).decode("ascii")
-        user_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-        })
-
-    # GPT-5 uses `max_completion_tokens`; older models used `max_tokens`.
-    # `response_format={"type": "json_object"}` forces valid JSON output.
-    # `reasoning_effort` controls GPT-5 thinking depth — extraction doesn't
-    # need deep reasoning, "low" cuts latency by ~2-3× with negligible
-    # accuracy impact on tabular OCR.
     model_name = _model()
+
+    b64_pdf = base64.b64encode(pdf_bytes).decode("ascii")
+    user_content = [
+        {
+            "type": "file",
+            "file": {
+                "filename": "cas.pdf",
+                "file_data": f"data:application/pdf;base64,{b64_pdf}",
+            },
+        },
+        {"type": "text", "text": EXTRACTION_PROMPT},
+    ]
+
     extra: Dict[str, Any] = {}
+    # GPT-5 / o-series reasoning controls (chat.completions API spelling)
     if model_name.startswith("gpt-5") or model_name.startswith("o"):
         extra["reasoning_effort"] = DEFAULT_REASONING_EFFORT
 
@@ -260,11 +246,15 @@ async def _ask_openai_for_json(images: List[bytes]) -> Dict[str, Any]:
             {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
-        max_completion_tokens=16000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
         **extra,
     )
 
     raw = (response.choices[0].message.content or "").strip()
+    logger.info(
+        f"GPT-5 native-PDF parse: input={response.usage.prompt_tokens} "
+        f"output={response.usage.completion_tokens} tokens"
+    )
     return _coerce_json(raw)
 
 
@@ -334,60 +324,40 @@ async def parse_with_openai_vision(content: bytes, password: str = "") -> Option
         return None
 
     try:
-        page_jpegs = _decrypt_and_render_pdf(content, password=password)
+        decrypted_pdf = _decrypt_pdf(content, password=password)
     except Exception as e:
-        logger.error("PDF render failed: %s", e)
+        logger.error("PDF prep failed: %s", e)
         raise
 
-    if not page_jpegs:
+    logger.info(
+        f"GPT-5 Vision: native PDF call (size={len(decrypted_pdf):,} bytes, "
+        f"model={_model()}, reasoning_effort={DEFAULT_REASONING_EFFORT})"
+    )
+
+    try:
+        result = await asyncio.wait_for(
+            _ask_openai_for_json(decrypted_pdf),
+            timeout=SINGLE_CALL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error("GPT-5 call timed out after %ss", SINGLE_CALL_TIMEOUT)
+        return None
+    except openai.AuthenticationError:
+        logger.error("OpenAI auth failed — check OPENAI_API_KEY")
+        raise
+    except openai.RateLimitError as e:
+        logger.error("GPT-5 rate-limited: %s", e)
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.error("GPT-5 call failed: %s", e)
+        return None
+
+    if not result:
         return None
 
     logger.info(
-        f"GPT-5 Vision: parsing {len(page_jpegs)} pages in batches of {MAX_BATCH_PAGES} "
-        f"(parallelism={MAX_PARALLEL_BATCHES}, model={_model()})"
+        f"GPT-5 native-PDF parse done — "
+        f"holdings={sum(len(v or []) for v in (result.get('holdings') or {}).values())}, "
+        f"txns={sum(len(v or []) for v in (result.get('transactions') or {}).values())}"
     )
-
-    batches: List[List[bytes]] = [
-        page_jpegs[i:i + MAX_BATCH_PAGES]
-        for i in range(0, len(page_jpegs), MAX_BATCH_PAGES)
-    ]
-
-    sem = asyncio.Semaphore(MAX_PARALLEL_BATCHES)
-
-    async def _run_batch(idx: int, chunk: List[bytes]) -> Optional[Dict[str, Any]]:
-        async with sem:
-            try:
-                return await asyncio.wait_for(
-                    _ask_openai_for_json(chunk),
-                    timeout=PER_BATCH_TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("GPT-5 batch %d timed out after %ss", idx, PER_BATCH_TIMEOUT)
-                return None
-            except openai.AuthenticationError as e:
-                logger.error("OpenAI auth failed — check OPENAI_API_KEY: %s", e)
-                raise
-            except openai.RateLimitError as e:
-                logger.warning("GPT-5 batch %d rate-limited: %s", idx, e)
-                return None
-            except Exception as e:  # noqa: BLE001
-                logger.warning("GPT-5 batch %d failed: %s", idx, e)
-                return None
-
-    results = await asyncio.gather(*[_run_batch(i, c) for i, c in enumerate(batches)])
-
-    aggregate: Dict[str, Any] = {}
-    for data in results:
-        if data:
-            aggregate = _merge(aggregate, data)
-
-    if not aggregate:
-        logger.error("GPT-5 Vision returned no parseable batches")
-        return None
-
-    logger.info(
-        f"GPT-5 Vision parse done — "
-        f"holdings={sum(len(v or []) for v in (aggregate.get('holdings') or {}).values())}, "
-        f"txns={sum(len(v or []) for v in (aggregate.get('transactions') or {}).values())}"
-    )
-    return aggregate
+    return result

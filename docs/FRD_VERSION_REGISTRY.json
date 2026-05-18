@@ -4,8 +4,8 @@
     "FRD_ADMIN_CONSOLE": {
       "version": "1.0.1",
       "file": "docs/FRD_ADMIN_CONSOLE.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 18,
         "partial": 1,
@@ -39,8 +39,8 @@
     "FRD_COPILOT_V1": {
       "version": "1.0.1",
       "file": "docs/FRD_COPILOT_V1.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 19,
         "partial": 0,
@@ -74,8 +74,8 @@
     "FRD_COPILOT_V2": {
       "version": "1.0.4",
       "file": "docs/FRD_COPILOT_V2.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 12,
         "partial": 1,
@@ -105,8 +105,8 @@
     "FRD_NIDP_PROJECT": {
       "version": "1.0.0",
       "file": "docs/FRD_NIDP_PROJECT.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 23,
         "partial": 2,
@@ -146,8 +146,8 @@
     "FRD_V1_BACKEND": {
       "version": "1.0.1",
       "file": "docs/FRD_V1_BACKEND.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 23,
         "partial": 5,
@@ -190,8 +190,8 @@
     "FRD_V1_FRONTEND": {
       "version": "1.1.1",
       "file": "docs/FRD_V1_FRONTEND.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 14,
         "partial": 0,
@@ -220,8 +220,8 @@
     "FRD_V2_BACKEND": {
       "version": "1.0.1",
       "file": "docs/FRD_V2_BACKEND.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 25,
         "partial": 1,
@@ -262,8 +262,8 @@
     "FRD_V2_FRONTEND": {
       "version": "1.1.1",
       "file": "docs/FRD_V2_FRONTEND.md",
-      "last_validated": "2026-05-18T22:19:31Z",
-      "last_commit": "5823a95",
+      "last_validated": "2026-05-18T22:26:21Z",
+      "last_commit": "ad4e452",
       "counts": {
         "implemented": 16,
         "partial": 0,
@@ -292,5 +292,5 @@
       "broken_refs": []
     }
   },
-  "last_updated": "2026-05-18T22:19:31.518916+00:00"
+  "last_updated": "2026-05-18T22:26:21.067000+00:00"
 }
