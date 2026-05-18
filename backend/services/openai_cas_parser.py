@@ -1,20 +1,23 @@
-"""Claude Vision CAS Parser — official Anthropic SDK.
+"""OpenAI Vision CAS Parser — official OpenAI SDK (GPT-5 vision).
 
-Sends each PDF page as a JPEG image to Anthropic Claude via the official
-`anthropic` Python SDK using ANTHROPIC_API_KEY. Claude returns a single
-JSON object describing the entire NSDL / CDSL CAS (holdings, transactions,
-accounts, investor info).
+Sends each PDF page as a JPEG image to GPT-5 via the official `openai`
+Python SDK using OPENAI_API_KEY. GPT-5 returns a single JSON object
+describing the entire NSDL or CDSL Consolidated Account Statement.
+
+Mirrors the interface of `services.claude_cas_parser` so the calling
+code (helpers/parsing.py → claude_cas_mapper.map_to_internal) is a
+drop-in swap.
 
 Usage:
-    from services.claude_cas_parser import parse_with_claude_vision
-    raw_json = await parse_with_claude_vision(pdf_bytes, password="ABCDE1234F")
+    from services.openai_cas_parser import parse_with_openai_vision
+    raw_json = await parse_with_openai_vision(pdf_bytes, password="ABCDE1234F")
 
-Auth: reads `ANTHROPIC_API_KEY` from `helpers.secrets` first (so admin
+Auth: reads `OPENAI_API_KEY` from `helpers.secrets` first (so admin
 console updates take effect immediately), then env var.
 
-Model: defaults to claude-opus-4-7 for vision accuracy. Override via DB
-setting CAS_CLAUDE_MODEL (e.g. "claude-sonnet-4-6" for ~3× cheaper /
-~2× faster at moderate accuracy loss).
+Model: defaults to gpt-5 (flagship vision quality for dense tables).
+Override via DB setting CAS_OPENAI_MODEL (e.g. "gpt-5-mini" for ~3×
+cheaper / ~2× faster at moderate accuracy loss).
 """
 from __future__ import annotations
 
@@ -25,26 +28,28 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-import anthropic
+import openai
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "claude-opus-4-7"   # best vision accuracy for CAS tables
-MAX_PAGES = 24             # safety cap — most CAS PDFs are 8-15 pages
-MAX_BATCH_PAGES = 8        # Claude handles 8 images comfortably per request
-DEFAULT_DPI = 150          # higher than before — CAS tables are dense, OCR needs it
-MAX_PARALLEL_BATCHES = 2   # 2 parallel calls avoids Anthropic rate-limit throttling
-JPEG_QUALITY = 85          # bumped from 78 — readability matters more than payload
-PER_BATCH_TIMEOUT = 120    # 2 min per batch — fail fast for SLA visibility
+DEFAULT_MODEL = "gpt-5"        # flagship — best vision OCR for CAS tables
+MAX_PAGES = 24                 # safety cap — most CAS PDFs are 8-20 pages
+MAX_BATCH_PAGES = 8            # 8 images per request is comfortable
+DEFAULT_DPI = 150              # dense tables — higher than image-only docs need
+MAX_PARALLEL_BATCHES = 2       # avoid OpenAI tier rate-limit throttling
+JPEG_QUALITY = 85
+PER_BATCH_TIMEOUT = 120        # 2 min per batch — fail fast for SLA visibility
 
 
 # ── Extraction prompt ──────────────────────────────────────────────────
-# Mirrors the user-provided CAS_PARSER.txt schema verbatim so downstream
-# mappers can rely on a stable shape.
+# Same schema as the Claude parser so downstream mappers are unchanged.
+# Generalized from "NSDL only" to "NSDL or CDSL" since CDSL is also valid.
 EXTRACTION_PROMPT = """You are a financial-data extraction engine. The user has uploaded one
-or more PAGE IMAGES of an NSDL Consolidated Account Statement (CAS).
+or more PAGE IMAGES of an Indian Consolidated Account Statement (CAS).
+The statement is issued by either NSDL or CDSL — read the page header
+to identify which depository it is.
 
 Your job: read every page carefully and emit a SINGLE JSON object that
 captures the entire statement. Return ONLY valid JSON — no markdown
@@ -52,7 +57,7 @@ fences, no commentary, no preamble.
 
 Required schema (use null when a field is missing):
 {
-  "statement_info":     {"depository": "NSDL", "id": "...", "statement_type": "...", "period": "..."},
+  "statement_info":     {"depository": "NSDL|CDSL", "id": "...", "statement_type": "...", "period": "..."},
   "investor_info":      {"name": "...", "pan": "...", "address": "..."},
   "portfolio_summary":  {
                           "total_value_inr": 0.0,
@@ -62,8 +67,8 @@ Required schema (use null when a field is missing):
                         },
   "portfolio_value_trend": [{"month": "FEB", "year": 2025, "value_inr": 0.0}],
   "accounts": [
-    {"type": "NSDL Demat Account", "broker": "...", "dp_id": "...",
-     "client_id": "...", "value_inr": 0.0}
+    {"type": "NSDL Demat Account | CDSL Demat Account | Mutual Fund Folio",
+     "broker": "...", "dp_id": "...", "client_id": "...", "value_inr": 0.0}
   ],
   "holdings": {
     "equities": [
@@ -104,7 +109,8 @@ Required schema (use null when a field is missing):
     ],
     "mutual_fund_transactions": [
       {"isin": "...", "fund_name": "...", "folio_number": "...",
-       "date": "YYYY-MM-DD", "transaction_type": "PURCHASE|SIP_PURCHASE|REDEMPTION|SWITCH_IN|SWITCH_OUT|DIVIDEND|STAMP_DUTY|OTHER",
+       "date": "YYYY-MM-DD",
+       "transaction_type": "PURCHASE|SIP_PURCHASE|REDEMPTION|SWITCH_IN|SWITCH_OUT|DIVIDEND|STAMP_DUTY|OTHER",
        "amount_inr": 0.0, "stamp_duty_inr": 0.0, "nav_inr": 0.0,
        "price_inr": 0.0, "units": 0.0,
        "opening_balance_units": 0.0, "closing_balance_units": 0.0}
@@ -115,6 +121,8 @@ Required schema (use null when a field is missing):
 Rules:
 - All numbers MUST be JSON numbers (no commas, no ₹/INR symbols, no quotes).
 - Dates MUST be ISO YYYY-MM-DD.
+- ISINs are exactly 12 characters starting with "IN" — double-check digits
+  against the company name on the same row before emitting.
 - For mutual fund transaction_type, classify based on the description:
   * "Purchase via SIP" / "SIP" / "Systematic" → "SIP_PURCHASE"
   * "Purchase" / "Allotment" / "Investment" → "PURCHASE"
@@ -127,46 +135,49 @@ Rules:
 - Do not invent data; if you can't read it cleanly, set the field to null.
 """
 
+SYSTEM_PROMPT = (
+    "You are a precise financial-document extractor. "
+    "You always respond with a single valid JSON object — no prose, "
+    "no markdown fences."
+)
+
 
 # ── Provider toggle ───────────────────────────────────────────────────
 def is_configured() -> bool:
-    """True iff ANTHROPIC_API_KEY is set, so Claude Vision can be invoked."""
+    """True iff OPENAI_API_KEY is set, so GPT-5 Vision can be invoked."""
     return bool(_api_key())
 
 
 def _api_key() -> Optional[str]:
-    # `helpers.secrets` is optional — the parser must be runnable as a
-    # standalone script (e.g. from /scripts/compare_cas_parsers.py) where
-    # only env vars are available.
     try:
         from helpers import secrets as _secrets
-        key = _secrets.get("ANTHROPIC_API_KEY")
+        key = _secrets.get("OPENAI_API_KEY")
         if key:
             return key
     except ImportError:
         pass
-    return os.environ.get("ANTHROPIC_API_KEY")
+    return os.environ.get("OPENAI_API_KEY")
 
 
 def _model() -> str:
     try:
         from helpers import secrets as _secrets
-        return _secrets.get("CAS_CLAUDE_MODEL") or DEFAULT_MODEL
+        return _secrets.get("CAS_OPENAI_MODEL") or DEFAULT_MODEL
     except ImportError:
-        return os.environ.get("CAS_CLAUDE_MODEL") or DEFAULT_MODEL
+        return os.environ.get("CAS_OPENAI_MODEL") or DEFAULT_MODEL
 
 
-_client: Optional[anthropic.AsyncAnthropic] = None
+_client: Optional[openai.AsyncOpenAI] = None
 
 
-def _get_client() -> anthropic.AsyncAnthropic:
-    """Lazy client init. Re-created if the API key changes between calls."""
+def _get_client() -> openai.AsyncOpenAI:
+    """Lazy client init. Re-creates if the API key changes between calls."""
     global _client
     key = _api_key()
     if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY missing — cannot call Claude Vision")
+        raise RuntimeError("OPENAI_API_KEY missing — cannot call GPT-5 Vision")
     if _client is None or getattr(_client, "_cached_key", None) != key:
-        _client = anthropic.AsyncAnthropic(api_key=key)
+        _client = openai.AsyncOpenAI(api_key=key)
         _client._cached_key = key  # type: ignore[attr-defined]
     return _client
 
@@ -174,7 +185,7 @@ def _get_client() -> anthropic.AsyncAnthropic:
 # ── PDF → page images ─────────────────────────────────────────────────
 def _decrypt_and_render_pdf(content: bytes, password: str = "",
                              dpi: int = DEFAULT_DPI) -> List[bytes]:
-    """Render every PDF page to a PNG byte array. Decrypts first when
+    """Render every PDF page to a JPEG byte array. Decrypts first when
     a password is supplied. Caps at MAX_PAGES to avoid runaway costs.
     """
     from pdf2image import convert_from_bytes, pdfinfo_from_bytes
@@ -193,8 +204,6 @@ def _decrypt_and_render_pdf(content: bytes, password: str = "",
     images = convert_from_bytes(content, **kwargs)[:MAX_PAGES]
     out: List[bytes] = []
     for img in images:
-        # Convert to RGB → JPEG. JPEG is ~3-4× smaller than PNG for
-        # screenshots of text/tables and Claude reads them just fine.
         if img.mode != "RGB":
             img = img.convert("RGB")
         buf = io.BytesIO()
@@ -207,54 +216,42 @@ def _decrypt_and_render_pdf(content: bytes, password: str = "",
     return out
 
 
-# ── Claude call ───────────────────────────────────────────────────────
-SYSTEM_PROMPT = (
-    "You are a precise financial-document extractor. "
-    "You always respond with a single valid JSON object — no prose, "
-    "no markdown fences."
-)
-
-
-async def _ask_claude_for_json(images: List[bytes]) -> Dict[str, Any]:
-    """Send a batch of base64 images to Claude with the extraction prompt
+# ── GPT-5 call ────────────────────────────────────────────────────────
+async def _ask_openai_for_json(images: List[bytes]) -> Dict[str, Any]:
+    """Send a batch of base64 images to GPT-5 with the extraction prompt
     and return the parsed JSON dict. Raises on hard failures."""
     client = _get_client()
 
-    # Extraction prompt first so it renders BEFORE images — keeps the
-    # cacheable prefix stable across batches even though the images differ.
     user_content: List[Dict[str, Any]] = [{"type": "text", "text": EXTRACTION_PROMPT}]
     for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("ascii")
         user_content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": base64.b64encode(img_bytes).decode("ascii"),
-            },
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
         })
 
-    # Stream the response — large image input + JSON output is the kind of
-    # request that risks SDK HTTP timeouts on non-streaming calls. Use
-    # `.get_final_message()` to recover the full Message object.
-    async with client.messages.stream(
+    # GPT-5 uses `max_completion_tokens`; older models used `max_tokens`.
+    # `response_format={"type": "json_object"}` forces valid JSON output.
+    response = await client.chat.completions.create(
         model=_model(),
-        max_tokens=16000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-    ) as stream:
-        final = await stream.get_final_message()
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={"type": "json_object"},
+        max_completion_tokens=16000,
+    )
 
-    text = next((b.text for b in final.content if b.type == "text"), "")
-    return _coerce_json(text)
+    raw = (response.choices[0].message.content or "").strip()
+    return _coerce_json(raw)
 
 
 def _coerce_json(s: str) -> Dict[str, Any]:
-    """Parse a Claude reply into a dict. Strips markdown fences and
+    """Parse a GPT-5 reply into a dict. Strips markdown fences and
     falls back to greedy `{...}` capture if the reply has prose."""
     if not s:
-        raise ValueError("Empty response from Claude")
+        raise ValueError("Empty response from GPT-5")
     text = s.strip()
-    # Strip ```json ... ``` fences
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```\s*$", "", text)
@@ -262,42 +259,33 @@ def _coerce_json(s: str) -> Dict[str, Any]:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Greedy fallback — last-chance attempt to find the outermost object
     m = re.search(r"\{[\s\S]*\}", text)
     if m:
         try:
             return json.loads(m.group())
         except json.JSONDecodeError as e:
-            raise ValueError(f"Claude returned non-JSON: {e}") from e
-    raise ValueError("Claude returned no parsable JSON")
+            raise ValueError(f"GPT-5 returned non-JSON: {e}") from e
+    raise ValueError("GPT-5 returned no parsable JSON")
 
 
 # ── Multi-batch merge ─────────────────────────────────────────────────
 def _merge(into: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
-    """Merge a follow-up batch's JSON into the running aggregate. We
-    extend list-typed children (holdings.*, transactions.*, accounts,
-    portfolio_value_trend) and fill scalar/object children only when
-    missing in `into`.
-    """
+    """Merge a follow-up batch's JSON into the running aggregate."""
     if not into:
         return dict(extra)
 
-    # Statement / investor — keep first non-null
     for top in ("statement_info", "investor_info"):
         if not into.get(top) and extra.get(top):
             into[top] = extra[top]
 
-    # Portfolio summary — total_value_inr from latest, allocation from latest
     if not into.get("portfolio_summary") and extra.get("portfolio_summary"):
         into["portfolio_summary"] = extra["portfolio_summary"]
 
-    # Trend / accounts → extend
     for k in ("portfolio_value_trend", "accounts"):
         if extra.get(k):
             into.setdefault(k, [])
             into[k].extend(extra[k] or [])
 
-    # Holdings + transactions: extend per sub-key
     for parent in ("holdings", "transactions"):
         sub = extra.get(parent) or {}
         if not isinstance(sub, dict):
@@ -313,33 +301,33 @@ def _merge(into: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── Public entry point ────────────────────────────────────────────────
-async def parse_with_claude_vision(content: bytes, password: str = "") -> Optional[Dict[str, Any]]:
-    """Parse a CAS PDF via Claude Vision. Returns the raw extracted
-    JSON dict (Claude's shape, NOT the casparser.in shape) — call
+async def parse_with_openai_vision(content: bytes, password: str = "") -> Optional[Dict[str, Any]]:
+    """Parse a CAS PDF via GPT-5 Vision. Returns the raw extracted JSON
+    dict (same shape as claude_cas_parser) — call
     `claude_cas_mapper.map_to_holdings_and_normalized()` to get the
-    internal formats. Returns None if Claude isn't configured.
+    internal formats. Returns None if OPENAI_API_KEY isn't configured.
     """
     if not is_configured():
-        logger.warning("Claude Vision not configured (ANTHROPIC_API_KEY missing)")
+        logger.warning("GPT-5 Vision not configured (OPENAI_API_KEY missing)")
         return None
 
     try:
-        page_pngs = _decrypt_and_render_pdf(content, password=password)
+        page_jpegs = _decrypt_and_render_pdf(content, password=password)
     except Exception as e:
         logger.error("PDF render failed: %s", e)
         raise
 
-    if not page_pngs:
+    if not page_jpegs:
         return None
 
     logger.info(
-        f"Claude Vision: parsing {len(page_pngs)} pages in batches of {MAX_BATCH_PAGES} "
+        f"GPT-5 Vision: parsing {len(page_jpegs)} pages in batches of {MAX_BATCH_PAGES} "
         f"(parallelism={MAX_PARALLEL_BATCHES}, model={_model()})"
     )
 
     batches: List[List[bytes]] = [
-        page_pngs[i:i + MAX_BATCH_PAGES]
-        for i in range(0, len(page_pngs), MAX_BATCH_PAGES)
+        page_jpegs[i:i + MAX_BATCH_PAGES]
+        for i in range(0, len(page_jpegs), MAX_BATCH_PAGES)
     ]
 
     sem = asyncio.Semaphore(MAX_PARALLEL_BATCHES)
@@ -348,20 +336,20 @@ async def parse_with_claude_vision(content: bytes, password: str = "") -> Option
         async with sem:
             try:
                 return await asyncio.wait_for(
-                    _ask_claude_for_json(chunk),
+                    _ask_openai_for_json(chunk),
                     timeout=PER_BATCH_TIMEOUT,
                 )
             except asyncio.TimeoutError:
-                logger.warning("Claude batch %d timed out after %ss", idx, PER_BATCH_TIMEOUT)
+                logger.warning("GPT-5 batch %d timed out after %ss", idx, PER_BATCH_TIMEOUT)
                 return None
-            except anthropic.AuthenticationError as e:
-                logger.error("Claude auth failed — check ANTHROPIC_API_KEY: %s", e)
+            except openai.AuthenticationError as e:
+                logger.error("OpenAI auth failed — check OPENAI_API_KEY: %s", e)
                 raise
-            except anthropic.RateLimitError as e:
-                logger.warning("Claude batch %d rate-limited: %s", idx, e)
+            except openai.RateLimitError as e:
+                logger.warning("GPT-5 batch %d rate-limited: %s", idx, e)
                 return None
             except Exception as e:  # noqa: BLE001
-                logger.warning("Claude batch %d failed: %s", idx, e)
+                logger.warning("GPT-5 batch %d failed: %s", idx, e)
                 return None
 
     results = await asyncio.gather(*[_run_batch(i, c) for i, c in enumerate(batches)])
@@ -372,11 +360,11 @@ async def parse_with_claude_vision(content: bytes, password: str = "") -> Option
             aggregate = _merge(aggregate, data)
 
     if not aggregate:
-        logger.error("Claude Vision returned no parseable batches")
+        logger.error("GPT-5 Vision returned no parseable batches")
         return None
 
     logger.info(
-        f"Claude Vision parse done — "
+        f"GPT-5 Vision parse done — "
         f"holdings={sum(len(v or []) for v in (aggregate.get('holdings') or {}).values())}, "
         f"txns={sum(len(v or []) for v in (aggregate.get('transactions') or {}).values())}"
     )

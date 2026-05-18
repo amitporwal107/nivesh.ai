@@ -53,18 +53,17 @@ async def _resolve_name_to_instrument_id(scheme_name: str) -> Optional[str]:
 
 
 async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-    """One-shot PG read: pull every V3 input column for the given funds.
+    """One-shot read of V3 input columns for the given funds.
 
-    Reads from nidp.v_v3_mf_primitives (migration 050) which joins NIDP
-    tables (analytics.fund_category_rank, mf_scheme_disclosure_snapshot,
-    mf_holdings_monthly, mf_scheme_events) and COALESCEs to
-    mutual_fund_metadata for fields not yet in NIDP (consistency_score,
-    downside_capture_pct, aum_trend_score, turnover_ratio, credit/duration
-    risk scores).
+    Source order:
+      1. NIDP DaaS HTTP — POST /v1/mf/v3-primitives/bulk
+         (preferred; keeps V3 reading from a service boundary)
+      2. Direct PG fallback to nidp.v_v3_mf_primitives (migration 050)
+         when DaaS is unreachable or unconfigured
+      3. Legacy mutual_fund_metadata query when migration 050 hasn't
+         been applied on this environment
 
     Returns {instrument_id (str): {col → value}}. Skips non-UUID inputs.
-    Falls back to the legacy mutual_fund_metadata query when the NIDP view
-    is absent (e.g. migration 050 not yet applied on this environment).
     """
     import re
     UUID_RE = re.compile(
@@ -73,6 +72,28 @@ async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[
     real_ids = [i for i in instrument_ids if isinstance(i, str) and UUID_RE.match(i)]
     if not real_ids:
         return {}
+
+    # ── 1. Prefer DaaS HTTP when configured AND admin flag is ON ─────
+    # Flag: v3_data_source_daas (admin panel). Set mode="off" for an
+    # instant revert to PG-direct without redeploying.
+    import feature_flags as _ff
+    from services.copilot_tools import daas_client as _daas
+    if _ff.mode_enabled("v3_data_source_daas") and _daas.is_configured():
+        try:
+            data = await _daas.get_v3_mf_primitives_bulk(real_ids)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[V3 primitives] DaaS bulk fetch failed: %s — falling back to PG", exc,
+            )
+            data = {}
+        if data:
+            logger.debug(
+                "[V3 primitives] DaaS: %d/%d instruments found", len(data), len(real_ids),
+            )
+            return data
+        # Empty payload + DaaS configured = treat as transient; fall through to PG.
+
+    # ── 2/3. Fallback: direct PG read (view or legacy table) ──────────
     pool = await pg_client.get_pool()
     if pool is None:
         return {}

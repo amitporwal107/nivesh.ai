@@ -83,12 +83,35 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
                 widget_type=WidgetType.TAX_HARVEST,
             ))
 
-        if any(kw in user_msg for kw in ("stress", "crash", "covid", "2008", "rate shock", "lose")):
-            stress = await port_mod.run_stress_test(user_id, scenario=scenario)
+        if any(kw in user_msg for kw in ("stress", "crash", "covid", "2008", "rate shock", "lose", "falls", "drops", "what if market")):
+            # Extract custom percentage if present (e.g. "falls 20%")
+            import re as _re
+            pct_m = _re.search(r"(\d{1,3})\s*%", user_msg)
+            if pct_m:
+                stress = await port_mod.run_stress_test(
+                    user_id, scenario="custom", custom_equity_drop=-float(pct_m.group(1))
+                )
+            else:
+                stress = await port_mod.run_stress_test(user_id, scenario=scenario)
             results.append(ToolResult(
                 ok=stress.ok, tool_name="run_stress_test",
                 summary=stress.summary, data=stress.data, rows=stress.rows,
                 widget_type=WidgetType.STRESS_TEST,
+            ))
+
+        if any(kw in user_msg for kw in ("fd", "fixed deposit", "beat fd", "vs fd", "compare to fd", "better than fd")):
+            fd = await port_mod.get_fd_comparison(user_id)
+            results.append(ToolResult(
+                ok=fd.ok, tool_name="get_fd_comparison",
+                summary=fd.summary, data=fd.data, rows=fd.rows,
+            ))
+
+        if any(kw in user_msg for kw in ("when to sell", "tax timing", "ltcg flip", "minimise tax", "minimize tax", "save tax on", "long-term eligib", "long term eligib", "wait to sell")):
+            timing = await port_mod.get_tax_timing_advice(user_id)
+            results.append(ToolResult(
+                ok=timing.ok, tool_name="get_tax_timing_advice",
+                summary=timing.summary, data=timing.data, rows=timing.rows,
+                widget_type=WidgetType.TAX_HARVEST,
             ))
 
         if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund")):

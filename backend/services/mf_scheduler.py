@@ -219,6 +219,34 @@ async def _portfolio_snapshot_job():
         logger.warning("portfolio_snapshot error: %s", e)
 
 
+async def _nidp_gcs_export_job():
+    """Daily NIDP GCS export — runs 22:50 IST. Refreshes holdings,
+    transactions and goals in the GCS landing zone so NIDP's nightly
+    portfolio_*_sync jobs (23:00 onward) see today's state for every
+    user — not just users who happened to upload a CAS that day.
+
+    The CAS-import hook in cas_snapshot_engine.py already triggers an
+    event-driven export, so this job is the catch-all for goal edits
+    and idle days.
+    """
+    try:
+        from services.portfolio_gcs_export import (
+            export_portfolio_to_gcs,
+            export_cas_transactions_to_gcs,
+            export_user_goals_to_gcs,
+        )
+        from server import db  # avoid circular import at module load
+        h = await export_portfolio_to_gcs(db)
+        t = await export_cas_transactions_to_gcs(db)
+        g = await export_user_goals_to_gcs(db)
+        logger.info(
+            "nidp_gcs_export: holdings=%s txns=%s goals=%s",
+            h.get("exported"), t.get("exported"), g.get("exported"),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("nidp_gcs_export error: %s", e)
+
+
 async def _gmail_auto_import_job():
     """Daily 06:30 IST — for every Gmail-connected user with a saved CAS
     password, scan the inbox and import any new monthly statements
@@ -282,6 +310,14 @@ def start():
     _scheduler.add_job(
         _portfolio_snapshot_job, CronTrigger(hour=23, minute=30),
         id="portfolio_snapshot_daily", replace_existing=True, max_instances=1,
+    )
+    # NIDP GCS export: daily 22:50 IST — refreshes holdings + transactions
+    # + goals into the GCS landing zone so NIDP's portfolio_*_sync jobs
+    # (running 23:00–23:15 on the NIDP VM) see today's state. Event-driven
+    # exports after CAS imports remain in place for immediate refresh.
+    _scheduler.add_job(
+        _nidp_gcs_export_job, CronTrigger(hour=22, minute=50),
+        id="nidp_gcs_export_daily", replace_existing=True, max_instances=1,
     )
     # Benchmark indices: daily 18:30 IST per the PRD. Pulls NSE indices
     # (Nifty 50, Midcap 150, Smallcap 250, Bank, IT, etc.) from yfinance,

@@ -10,7 +10,8 @@ Examples:
   # Single symbol
   python -m nidp.services.nse_financials_backfill --symbols RELIANCE
 
-  # Only symbols with fewer than 8 quarters already stored
+  # Only symbols with fewer than 16 quarters already stored
+  # (16 is the threshold needed for 3Y CAGR in migration 054).
   python -m nidp.services.nse_financials_backfill --only-missing
 
   # Faster (more concurrent, more likely to get throttled by NSE)
@@ -45,7 +46,7 @@ def main() -> None:
     )
     p.add_argument(
         "--only-missing", action="store_true",
-        help="Skip symbols that already have ≥ 8 quarters stored.",
+        help="Skip symbols that already have ≥ MIN_QUARTERS_TARGET (16) quarters stored.",
     )
     p.add_argument(
         "--metrics", action="store_true",

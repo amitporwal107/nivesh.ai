@@ -221,7 +221,7 @@ def _holding_from_mf_folio(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         expected = qty * nav
         if expected > 0 and abs(expected - value) / value > 0.05:
             qty = round(value / nav, 4)
-    if not isin or not name:
+    if not name:
         return None
     plan, option = _classify_mf(name)
     is_etf = any(k in name.lower() for k in ["etf", "bees"])

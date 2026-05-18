@@ -25,6 +25,7 @@ from services.copilot_tools import technical as T
 from services.copilot_tools import fundamental as F
 from services.copilot_tools import mf as MF
 from services.copilot_tools import portfolio as PORT
+from services.copilot_tools import company_financials as CF
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +173,17 @@ def _format_rows_for_llm(retrieval: R.Retrieval, intent: Intent) -> str:
             loss_part = f" loss=₹{loss:,.0f}" if loss is not None else ""
             curr_part = f" now=₹{curr:,.0f}" if curr is not None else ""
             lines.append(f"  - {r.get('name', '')}:{drop_part}{loss_part}{curr_part}")
+        elif intent.name == "fd_comparison":
+            xirr = r.get("portfolio_xirr_pct")
+            fd_gross = r.get("fd_gross_pct")
+            fd_net = r.get("fd_post_tax_pct")
+            diff = r.get("outperformance_gross_pp")
+            verdict = r.get("verdict", "")
+            label = r.get("label", "FD")
+            xirr_part = f" portfolio_xirr={xirr:+.1f}%" if xirr is not None else ""
+            fd_part = f" fd_gross={fd_gross:.1f}% fd_post_tax={fd_net:.1f}%" if fd_gross else ""
+            diff_part = f" diff={diff:+.1f}pp" if diff is not None else ""
+            lines.append(f"  - {label}:{xirr_part}{fd_part}{diff_part} [{verdict}]")
         elif intent.name == "tax":
             gain = r.get("capital_gain", r.get("gain_rs", 0))
             tax  = r.get("tax_if_sold", 0)
@@ -186,6 +198,48 @@ def _format_rows_for_llm(retrieval: R.Retrieval, intent: Intent) -> str:
                 f"  - {r.get('name', '')} [{gt}/{cat}] "
                 f"gain=₹{gain:+,.0f} tax-if-sold=₹{tax:,.0f} "
                 f"held={days}d{grandf}{exempt}{harvest_part}"
+            )
+        elif intent.name == "tax_timing":
+            name = r.get("name", "")
+            days = r.get("days_to_ltcg", 0)
+            saving = r.get("tax_saving_if_wait_rs", 0)
+            gain = r.get("gain_rs", 0)
+            is_ltcg = r.get("is_ltcg", False)
+            status = "LTCG" if is_ltcg else f"STCG→LTCG in {days}d"
+            saving_part = f" tax-saving-if-wait=₹{saving:,.0f}" if saving > 0 else ""
+            lines.append(f"  - {name}: {status} gain=₹{gain:+,.0f}{saving_part}")
+        elif intent.name == "company_financials":
+            if r.get("_type") == "shareholding":
+                p = r.get("period", "")
+                fii = r.get("fii_pct"); dii = r.get("dii_pct")
+                prom = r.get("promoter_pct"); pledge = r.get("promoter_pledged_pct")
+                lines.append(
+                    f"  - SH {p}: promoter={prom or 0:.1f}% fii={fii or 0:.1f}% "
+                    f"dii={dii or 0:.1f}% pledge={pledge or 0:.1f}%"
+                )
+            else:
+                q = r.get("quarter", "")
+                rev = r.get("revenue_cr"); pat = r.get("pat_cr")
+                rev_yoy = r.get("revenue_yoy_pct"); pat_yoy = r.get("pat_yoy_pct")
+                margin = r.get("ebitda_margin_pct")
+                rev_part = f" rev=₹{rev:,.0f}cr" if rev else ""
+                pat_part = f" PAT=₹{pat:,.0f}cr" if pat else ""
+                yoy_part = (
+                    f" rev_yoy={rev_yoy:+.1f}%" if rev_yoy is not None else ""
+                ) + (
+                    f" pat_yoy={pat_yoy:+.1f}%" if pat_yoy is not None else ""
+                )
+                margin_part = f" ebitda_margin={margin:.1f}%" if margin is not None else ""
+                lines.append(f"  - {q}:{rev_part}{pat_part}{yoy_part}{margin_part}")
+        elif intent.name == "shareholding":
+            p = r.get("period", "")
+            fii = r.get("fii_pct"); dii = r.get("dii_pct")
+            prom = r.get("promoter_pct"); pledge = r.get("promoter_pledged_pct")
+            fii_chg = r.get("fii_change_qoq")
+            chg_part = f" fii_chg={fii_chg:+.2f}pp" if fii_chg is not None else ""
+            lines.append(
+                f"  - {p}: promoter={prom or 0:.1f}% fii={fii or 0:.1f}% "
+                f"dii={dii or 0:.1f}% pledge={pledge or 0:.1f}%{chg_part}"
             )
         elif intent.name == "rebalance":
             amt = r.get("amount_rs")
@@ -366,6 +420,43 @@ async def _retrieve(intent: Intent, user_id: str) -> R.Retrieval:
             reason="no_symbol" if not rows else None,
         )
 
+    if intent.name == "company_financials":
+        symbols = (intent.extras or {}).get("symbols", [])
+        if not symbols:
+            return R.Retrieval(
+                ok=False,
+                summary="Please specify a stock symbol (e.g. RELIANCE, TCS) for company financials.",
+                rows=[],
+                reason="no_symbol",
+            )
+        sym = symbols[0]
+        result = await CF.get_company_overview(sym)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows[:8],
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "shareholding":
+        symbols = (intent.extras or {}).get("symbols", [])
+        if not symbols:
+            return R.Retrieval(
+                ok=False,
+                summary="Please specify a stock symbol for shareholding analysis.",
+                rows=[],
+                reason="no_symbol",
+            )
+        result = await CF.get_shareholding_analysis(symbols[0])
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
     if intent.name == "technical_analysis":
         symbols = (intent.extras or {}).get("symbols", [])
         if symbols:
@@ -425,8 +516,34 @@ async def _retrieve(intent: Intent, user_id: str) -> R.Retrieval:
         )
 
     if intent.name == "stress_test":
-        scenario = (intent.extras or {}).get("scenario", "covid_2020")
-        result = await PORT.run_stress_test(user_id, scenario=scenario)
+        extras = intent.extras or {}
+        scenario = extras.get("scenario", "covid_2020")
+        custom_equity_drop = extras.get("custom_equity_drop")
+        result = await PORT.run_stress_test(
+            user_id,
+            scenario=scenario,
+            custom_equity_drop=custom_equity_drop,
+        )
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "fd_comparison":
+        result = await PORT.get_fd_comparison(user_id)
+        return R.Retrieval(
+            ok=result.ok,
+            summary=result.summary,
+            rows=result.rows,
+            reason=result.error,
+            extras=result.data,
+        )
+
+    if intent.name == "tax_timing":
+        result = await PORT.get_tax_timing_advice(user_id)
         return R.Retrieval(
             ok=result.ok,
             summary=result.summary,

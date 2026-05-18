@@ -77,6 +77,53 @@ _GOALS = re.compile(
     re.IGNORECASE,
 )
 _HEALTH = re.compile(r"\b(health\s*score|grade|risk drivers?|portfolio score)\b", re.IGNORECASE)
+_COMPANY_FINANCIALS = re.compile(
+    r"\b("
+    r"quarterly\s+(?:results|financials|earnings|numbers)|"
+    r"q[1-4]\s*(?:results|fy\w*|earnings|numbers)|"
+    r"(?:revenue|sales|pat|profit|earnings|margin|ebitda|eps)\s+(?:trend|history|growth|of|for)|"
+    r"(?:financial\s+)?results\s+of|"
+    r"(?:income|p&l|p\s*and\s*l|profit\s*and\s*loss)\s+statement|"
+    r"balance\s+sheet|"
+    r"company\s+(?:overview|financials|prospects?|outlook|fundamentals)|"
+    r"future\s+(?:prospects?|outlook|growth)|"
+    r"tell\s+me\s+about\s+\b[A-Z]{2,}\b|"
+    r"(?:full|complete)\s+analysis\s+of"
+    r")\b",
+    re.IGNORECASE,
+)
+_SHAREHOLDING = re.compile(
+    r"\b("
+    r"shareholding|share\s*holding|"
+    r"(?:fii|dii|mf|promoter|public|institutional)\s+(?:holding|stake|buying|selling)|"
+    r"who\s+(?:is\s+)?(?:buying|selling|holding)|"
+    r"promoter\s+(?:pledg\w+|stake)|"
+    r"institutional\s+(?:flow|ownership|holding)"
+    r")\b",
+    re.IGNORECASE,
+)
+_TAX_TIMING = re.compile(
+    r"\b("
+    r"when\s+(?:should|to)\s+(?:i\s+)?sell|"
+    r"(?:tax\s+)?timing|"
+    r"(?:close\s+to|near|about\s+to\s+(?:become|turn))\s+(?:long.?term|ltcg)|"
+    r"(?:ltcg|long.?term)\s+(?:flip|threshold|eligib\w+)|"
+    r"how\s+long\s+(?:should\s+i\s+hold|more\s+to\s+hold)|"
+    r"wait\s+to\s+sell|(?:minimis[ez]|reduce|save)\s+tax\s+(?:on\s+)?(?:my\s+)?(?:gains?|holdings?|sale)"
+    r")\b",
+    re.IGNORECASE,
+)
+_FD_COMPARE = re.compile(
+    r"\b("
+    r"(?:am\s+i\s+)?beat(?:ing)?\s+(?:fd|fixed\s*deposit)|"
+    r"(?:vs?|versus|compared?\s+to|better\s+than|compare\s+with)\s+(?:fd|fixed\s*deposit)|"
+    r"(?:fd|fixed\s*deposit)\s+(?:vs?|versus|comparison|rate)|"
+    r"(?:how\s+does\s+my|is\s+my)\s+(?:portfolio|return|investment)\s+(?:compare|stack\s+up)"
+    r")\b",
+    re.IGNORECASE,
+)
+# Extract a percentage from stress-test queries like "what if market falls 20%"
+_STRESS_PCT = re.compile(r"(\d{1,3})\s*%", re.IGNORECASE)
 # "Where should I invest ₹X" / "deploy fresh money" / "improve
 # diversification" — distinct from `_PLAN`. The user is NOT asking for
 # a full rebalance; they're asking which underweight bucket should
@@ -368,8 +415,18 @@ def classify_intent(message: str) -> Intent:
 
     # ── 0e. Stress test / crash scenario ─────────────────────────────
     if _STRESS_TEST.search(msg):
-        # Extract scenario keyword
         msg_l = msg.lower()
+        # Check for user-specified percentage first ("falls 20%", "drops 30%", "-25%")
+        pct_match = _STRESS_PCT.search(msg)
+        if pct_match:
+            drop_val = float(pct_match.group(1))
+            # Treat as negative drop (market falls)
+            return Intent(
+                name="stress_test",
+                chart_requested=False,
+                raw=msg,
+                extras={"scenario": "custom", "custom_equity_drop": -drop_val},
+            )
         if "gfc" in msg_l or "2008" in msg_l:
             scenario = "gfc_2008"
         elif "rate" in msg_l and ("shock" in msg_l or "hike" in msg_l):
@@ -381,6 +438,34 @@ def classify_intent(message: str) -> Intent:
             chart_requested=False,
             raw=msg,
             extras={"scenario": scenario},
+        )
+
+    # ── 0f. FD comparison ─────────────────────────────────────────────
+    if _FD_COMPARE.search(msg):
+        return Intent(name="fd_comparison", chart_requested=False, raw=msg)
+
+    # ── 0g. Tax timing / LTCG optimisation ───────────────────────────
+    if _TAX_TIMING.search(msg):
+        return Intent(name="tax_timing", chart_requested=False, raw=msg)
+
+    # ── 0h. Company financials / quarterly results / prospects ─────────
+    if _COMPANY_FINANCIALS.search(msg):
+        symbols = _extract_symbols(msg)
+        return Intent(
+            name="company_financials",
+            chart_requested=False,
+            raw=msg,
+            extras={"symbols": symbols},
+        )
+
+    # ── 0i. Shareholding pattern / institutional flows ─────────────────
+    if _SHAREHOLDING.search(msg):
+        symbols = _extract_symbols(msg)
+        return Intent(
+            name="shareholding",
+            chart_requested=False,
+            raw=msg,
+            extras={"symbols": symbols},
         )
 
     # ── 1. Concentration / breakdown questions ────────────────────────

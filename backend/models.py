@@ -158,3 +158,22 @@ class Recommendation(BaseModel):
     description: str
     priority: Priority
     impact: str  # "Save ₹32K/yr", "Reduce risk by 20%"
+
+
+class PersonaType(str, Enum):
+    RETAIL_INVESTOR      = "retail_investor"
+    MUTUAL_FUND_INVESTOR = "mutual_fund_investor"
+    STOCK_INVESTOR       = "stock_investor"
+    SWING_TRADER         = "swing_trader"
+    INTRADAY_TRADER      = "intraday_trader"
+    OPTIONS_TRADER       = "options_trader"
+    MFD_ADVISOR          = "mfd_advisor"
+    HNI_INVESTOR         = "hni_investor"
+    RETIREMENT_PLANNER   = "retirement_planner"
+    TAX_SAVER            = "tax_saver"
+    BEGINNER_INVESTOR    = "beginner_investor"
+    NRI_INVESTOR         = "nri_investor"
+
+
+class PersonaOverrideInput(BaseModel):
+    persona: PersonaType

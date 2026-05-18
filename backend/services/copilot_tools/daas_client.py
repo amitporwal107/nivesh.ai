@@ -61,6 +61,45 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None, timeout: floa
         raise DaasError(f"DAAS connectivity error on {path}: {exc}")
 
 
+async def _post(path: str, body: Dict[str, Any], timeout: float = _DEFAULT_TIMEOUT) -> Any:
+    base, key = _creds()
+    url = f"{base}/v1{path}"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                url,
+                json=body,
+                headers={
+                    "X-API-Key": key,
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+            )
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise DaasError(
+                f"DAAS {path} returned HTTP {resp.status_code}: {resp.text[:200]}",
+                status_code=resp.status_code,
+            )
+        return resp.json()
+    except httpx.TimeoutException:
+        raise DaasError(f"DAAS POST timed out after {timeout}s: {path}")
+    except httpx.HTTPError as exc:
+        raise DaasError(f"DAAS connectivity error on {path}: {exc}")
+
+
+def is_configured() -> bool:
+    """True when both NIDP_DAAS_BASE_URL and NIDP_DAAS_API_KEY are set.
+    Callers use this to decide whether to attempt DaaS HTTP before
+    falling back to a direct PG read.
+    """
+    return bool(
+        os.environ.get("NIDP_DAAS_BASE_URL", "").strip()
+        and os.environ.get("NIDP_DAAS_API_KEY", "").strip()
+    )
+
+
 async def get_stock_features_latest(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch the most recent technical feature row for a symbol.
 
@@ -104,6 +143,38 @@ async def get_stock_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     if data is None:
         return None
     return data.get("data")
+
+
+async def get_quarterly_financials(
+    symbol: str,
+    limit: int = 8,
+    consolidated: bool = True,
+) -> list[Dict[str, Any]]:
+    """Fetch recent quarterly P&L, balance sheet rows from nse_financials_quarterly.
+
+    Returns newest-first list of up to `limit` quarters.
+    """
+    params: Dict[str, Any] = {"limit": limit, "consolidated": str(consolidated).lower()}
+    data = await _get(f"/financials/{symbol}", params=params)
+    if data is None:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
+async def get_shareholding_history(
+    symbol: str,
+    limit: int = 5,
+) -> list[Dict[str, Any]]:
+    """Fetch recent shareholding pattern rows (promoter/FII/DII/MF).
+
+    Returns newest-first list of up to `limit` periods.
+    """
+    data = await _get(f"/shareholding/{symbol}", params={"limit": limit})
+    if data is None:
+        return []
+    rows = data.get("data") or data.get("rows") or []
+    return rows if isinstance(rows, list) else []
 
 
 async def get_mf_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
@@ -163,3 +234,61 @@ async def get_prices_latest_batch(symbols: list[str]) -> Dict[str, float]:
 
     await asyncio.gather(*(_one(s) for s in symbols), return_exceptions=True)
     return result
+
+
+# ── V3 primitives (bulk) ─────────────────────────────────────────────
+
+async def get_v3_mf_primitives_bulk(
+    instrument_ids: list[str],
+    timeout: float = 15.0,
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch the V3 primitive row for each instrument_id.
+
+    Drop-in replacement for the PG-direct read in
+    ``services/v3_integration.py::_load_v3_primitives_bulk``. Returns
+    ``{instrument_id: {primitive_row}}`` keyed by the UUID string.
+
+    Empty dict on connectivity failure / missing config so the caller
+    can fall back to a direct PG read without raising.
+    """
+    if not instrument_ids:
+        return {}
+    try:
+        payload = await _post(
+            "/mf/v3-primitives/bulk",
+            {"instrument_ids": instrument_ids},
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        logger.warning("get_v3_mf_primitives_bulk: %s", exc)
+        return {}
+    if not payload:
+        return {}
+    data = payload.get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+async def get_v3_stock_primitives_bulk(
+    symbols: list[str],
+    timeout: float = 15.0,
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch the latest V3 primitive row for each NSE symbol.
+
+    Empty dict on connectivity failure so callers can degrade to the
+    PG-direct path.
+    """
+    if not symbols:
+        return {}
+    try:
+        payload = await _post(
+            "/stocks/v3-primitives/bulk",
+            {"symbols": symbols},
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        logger.warning("get_v3_stock_primitives_bulk: %s", exc)
+        return {}
+    if not payload:
+        return {}
+    data = payload.get("data") or {}
+    return data if isinstance(data, dict) else {}

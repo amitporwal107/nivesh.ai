@@ -18,42 +18,55 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM = """You are the Stock Analyst for Nivesh AI, an Indian investment platform.
 
-You have live technical indicators and fundamental data for the stock in TOOL_DATA.
-Ground every claim in those numbers. Flag clearly if data is unavailable.
+You have live technical indicators, fundamental data, and quarterly financial
+trends for the stock in TOOL_DATA. Ground every claim in those numbers. Flag
+clearly if data is unavailable.
 
 Style:
-- ≤ 250 words
+- ≤ 300 words
 - Section: **Technical** — RSI, MACD, SMA signals, trend
 - Section: **Fundamental** — PE/PB vs sector, ROE, debt/equity, PAT growth
+- Section: **Quarterly Trend** — revenue/PAT trajectory + margin direction
+- Section: **Smart Money** — FII/DII flows + promoter pledge if non-zero
 - Section: **Verdict** — BULLISH / BEARISH / NEUTRAL with one key reason
 - End with: DISCLAIMER: AI-generated. Not SEBI registered investment advice.
 
-Never fabricate figures. If a metric is missing, say "data unavailable"."""
+Never fabricate figures. If a metric is missing, say "data unavailable".
+If asked about price targets, analyst estimates or future guidance, say plainly
+that we do not have analyst feeds — only historical exchange filings."""
 
 
 async def _fetch_stock_data(symbol: str) -> list:
     # import app-level tools
     try:
         # add backend dir to path if needed
-        import importlib
+        import importlib, asyncio
         tech_mod = importlib.import_module("services.copilot_tools.technical")
         fund_mod = importlib.import_module("services.copilot_tools.fundamental")
+        cf_mod   = importlib.import_module("services.copilot_tools.company_financials")
 
-        tech = await tech_mod.get_technical_analysis(symbol)
-        fund = await fund_mod.get_fundamental_analysis(symbol)
+        tech_task = asyncio.create_task(tech_mod.get_technical_analysis(symbol))
+        fund_task = asyncio.create_task(fund_mod.get_fundamental_analysis(symbol))
+        cf_task   = asyncio.create_task(cf_mod.get_company_financials(symbol, limit=8))
+        shr_task  = asyncio.create_task(cf_mod.get_shareholding_analysis(symbol))
 
-        results = [
-            ToolResult(
+        tech, fund, cf_res, shr_res = await asyncio.gather(
+            tech_task, fund_task, cf_task, shr_task, return_exceptions=True,
+        )
+
+        results: list = []
+
+        if not isinstance(tech, Exception):
+            results.append(ToolResult(
                 ok=tech.ok,
                 tool_name="get_technical_analysis",
                 summary=tech.summary,
                 data=tech.data,
                 rows=[],
                 error=tech.error,
-            ),
-        ]
+            ))
 
-        if hasattr(fund, "ok"):
+        if not isinstance(fund, Exception) and hasattr(fund, "ok"):
             results.append(ToolResult(
                 ok=fund.ok,
                 tool_name="get_fundamental_analysis",
@@ -62,6 +75,27 @@ async def _fetch_stock_data(symbol: str) -> list:
                 rows=[],
                 error=fund.error if hasattr(fund, "error") else None,
             ))
+
+        if not isinstance(cf_res, Exception) and hasattr(cf_res, "ok"):
+            results.append(ToolResult(
+                ok=cf_res.ok,
+                tool_name="get_company_financials",
+                summary=cf_res.summary,
+                data=cf_res.data,
+                rows=cf_res.rows[:6],
+                error=cf_res.error,
+            ))
+
+        if not isinstance(shr_res, Exception) and hasattr(shr_res, "ok"):
+            results.append(ToolResult(
+                ok=shr_res.ok,
+                tool_name="get_shareholding_analysis",
+                summary=shr_res.summary,
+                data=shr_res.data,
+                rows=shr_res.rows[:4],
+                error=shr_res.error,
+            ))
+
         return results
     except Exception as exc:
         logger.warning("stock data fetch failed for %s: %s", symbol, exc)

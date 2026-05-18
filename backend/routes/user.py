@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import logging
 
 from deps import db, get_current_user
-from models import JourneyInput, RiskProfileInput, QuickSetupInput
+from models import JourneyInput, RiskProfileInput, QuickSetupInput, PersonaOverrideInput
+from services.persona_engine import PERSONAS, infer_persona, refresh_persona
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -241,6 +242,91 @@ async def save_quick_setup(request: Request, body: QuickSetupInput):
         upsert=True
     )
     return {"quick_setup": quick_setup, "starter_plan": starter_plan}
+
+
+@router.get("/user/persona")
+async def get_user_persona(request: Request, refresh: bool = False):
+    """
+    Return the user's current persona.
+    Infers from portfolio data on first call or when ?refresh=true.
+    Returns cached result otherwise (fast path for dashboard load).
+    """
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    profile = await db.user_profiles.find_one({"user_id": uid}, {"_id": 0})
+
+    cached = (profile or {}).get("persona")
+    source = (profile or {}).get("persona_source")
+
+    # Return cached manual override as-is
+    if cached and source == "manual" and not refresh:
+        return cached
+
+    # Return cached inference if fresh (< 24 h) and not forced refresh
+    if cached and source == "inferred" and not refresh:
+        updated_at = (profile or {}).get("persona_updated_at", "")
+        if updated_at:
+            try:
+                age_hours = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromisoformat(updated_at)
+                ).total_seconds() / 3600
+                if age_hours < 24:
+                    return cached
+            except Exception:
+                pass
+
+    # Infer (or re-infer) from portfolio
+    result = await refresh_persona(uid, db)
+    return {
+        "persona":     result.persona,
+        "confidence":  result.confidence,
+        "label":       result.label,
+        "icon":        result.icon,
+        "color":       result.color,
+        "signals":     result.signals,
+        "inferred":    result.inferred,
+        "inferred_at": result.inferred_at,
+    }
+
+
+@router.post("/user/persona")
+async def set_user_persona(request: Request, body: PersonaOverrideInput):
+    """
+    Manually set (or override) the user's persona.
+    Persists as persona_source='manual' so inference won't overwrite it.
+    """
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    persona_key = body.persona.value
+    meta = PERSONAS[persona_key]
+    now = datetime.now(timezone.utc).isoformat()
+
+    persona_doc = {
+        "persona":     persona_key,
+        "confidence":  100,
+        "label":       meta["label"],
+        "icon":        meta["icon"],
+        "color":       meta["color"],
+        "signals":     ["Manually selected by user"],
+        "inferred":    False,
+        "inferred_at": now,
+    }
+
+    await db.user_profiles.update_one(
+        {"user_id": uid},
+        {
+            "$set": {
+                "persona":            persona_doc,
+                "persona_source":     "manual",
+                "persona_updated_at": now,
+                "updated_at":         now,
+            },
+            "$setOnInsert": {"user_id": uid, "created_at": now},
+        },
+        upsert=True,
+    )
+    return persona_doc
 
 
 @router.post("/user/complete-onboarding")

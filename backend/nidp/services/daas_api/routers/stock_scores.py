@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
@@ -239,3 +239,53 @@ async def stock_primitives(
     if row is None:
         raise HTTPException(404, f"No feature data for {symbol.upper()!r}")
     return {"symbol": symbol.upper(), "data": row_to_dict(row)}
+
+
+@router.post(
+    "/v3-primitives/bulk",
+    summary="Bulk V3 stock primitives by NSE symbol",
+)
+async def stock_v3_primitives_bulk(
+    body: Dict[str, Any] = Body(
+        ...,
+        example={"symbols": ["HDFCBANK", "INFY", "RELIANCE"]},
+    ),
+) -> Dict[str, Any]:
+    """Return the latest V3 primitive row for each requested symbol,
+    keyed by symbol in the response.
+
+    Saves N HTTP round-trips vs ``GET /v1/stocks/{symbol}/score`` when
+    the V3 engine enriches an entire portfolio in one shot. The Nivesh-side
+    ``services/portfolio_enrichment.py`` calls this endpoint instead of
+    reading ``nidp.v_v3_stock_primitives`` over the shared PG pool.
+    """
+    raw_symbols = body.get("symbols") or []
+    if not isinstance(raw_symbols, list):
+        raise HTTPException(status_code=400, detail="symbols must be a list")
+    symbols = [s.upper() for s in raw_symbols if isinstance(s, str) and s.strip()]
+    if not symbols:
+        return {"data": {}, "count": 0, "requested": len(raw_symbols)}
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            WITH latest AS (
+                SELECT symbol, MAX(as_of_date) AS d
+                  FROM nidp.stock_features_daily
+                 WHERE symbol = ANY($1::text[])
+                 GROUP BY symbol
+            )
+            SELECT {_PRIMITIVE_COLS}
+              FROM nidp.stock_features_daily f
+              JOIN latest l ON l.symbol = f.symbol AND l.d = f.as_of_date
+            """,
+            symbols,
+        )
+
+    data = {r["symbol"]: row_to_dict(r) for r in rows}
+    return {
+        "data":      data,
+        "count":     len(data),
+        "requested": len(raw_symbols),
+    }

@@ -27,7 +27,10 @@ Style:
 - Always include a one-line market sentiment call (bullish/bearish/neutral)
 - End with DISCLAIMER: "AI-generated. Past performance ≠ future results. Consult a SEBI-registered advisor."
 
-If TOOL_DATA is unavailable or empty, say so and answer from general knowledge only."""
+If TOOL_DATA is unavailable or empty, say so and answer from general knowledge only.
+If asked about index targets, analyst consensus or future market forecasts,
+say plainly that we do not have analyst feeds — only historical exchange data
+and macro indicators."""
 
 
 async def _fetch_market_data(state: CopilotState) -> List[ToolResult]:

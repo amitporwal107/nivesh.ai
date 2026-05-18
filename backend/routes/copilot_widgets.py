@@ -1191,3 +1191,256 @@ async def portfolio_var_widget(request: Request):
         ],
     )
     return env.model_dump()
+
+
+# ── 10. FD Comparison ───────────────────────────────────────────────
+
+@router.post("/fd_comparison")
+async def fd_comparison_widget(request: Request):
+    """Compare portfolio XIRR against current FD benchmark rates.
+
+    Used for: "Am I beating FD?", "Is my portfolio better than fixed deposit?"
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.portfolio import get_fd_comparison
+        result = await get_fd_comparison(user_id)
+    except Exception as exc:
+        logger.warning("fd_comparison widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="fd_comparison",
+            title="Portfolio vs FD",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
+                            version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    verdict = result.data.get("verdict", "")
+    xirr = result.data.get("portfolio_xirr_pct", 0)
+    outperformance = result.data.get("outperformance_pp", 0)
+
+    env = WidgetEnvelope(
+        kind="fd_comparison",
+        title="Portfolio vs Fixed Deposit",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings", "fd_rates"],
+        ),
+        agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
+                        version="v1", confidence=85),
+        data={**result.data, "rows": result.rows},
+        primary_cta={
+            "label": "How to improve returns?",
+            "action": "improve_returns",
+        },
+        suggestions=[
+            "Show my best performing holdings",
+            "Which funds should I switch?",
+            "How does my equity compare to Nifty?",
+        ],
+    )
+    return env.model_dump()
+
+
+# ── 11. Tax Timing Advice ────────────────────────────────────────────
+
+@router.post("/tax_timing")
+async def tax_timing_widget(request: Request):
+    """Identify holdings where waiting for LTCG classification saves tax.
+
+    Used for: "When should I sell?", "Am I close to long-term?",
+              "Which holdings flip to LTCG soon?"
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.portfolio import get_tax_timing_advice
+        result = await get_tax_timing_advice(user_id)
+    except Exception as exc:
+        logger.warning("tax_timing widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="tax_timing",
+            title="Tax Timing Advice",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="tax_agent", label="Tax Agent",
+                            version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    total_saving = result.data.get("total_tax_saving_if_wait_rs", 0)
+    flip_count = result.data.get("ltcg_flip_count", 0)
+
+    env = WidgetEnvelope(
+        kind="tax_timing",
+        title="Tax Timing · LTCG Optimiser",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings"],
+        ),
+        agent=AgentInfo(id="tax_agent", label="Tax Agent",
+                        version="v1", confidence=88),
+        data={**result.data, "rows": result.rows},
+        primary_cta={
+            "label": f"View {flip_count} LTCG flip opportunities",
+            "action": "view_ltcg_flips",
+        } if flip_count else {
+            "label": "Show full tax report",
+            "action": "full_tax_report",
+        },
+        suggestions=[
+            "What's my total capital gains this year?",
+            "Which losses can I harvest?",
+            "Show tax report for FY 2025-26",
+        ],
+    )
+    return env.model_dump()
+
+
+# ── 12. Company Financials & Prospects ───────────────────────────────
+
+class CompanyFinancialsRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20,
+                        description="NSE symbol (e.g. RELIANCE, TCS, INFY)")
+    quarters: int = Field(8, ge=2, le=16,
+                          description="Number of quarters to fetch (2-16)")
+
+
+@router.post("/company_financials")
+async def company_financials_widget(request: Request, payload: CompanyFinancialsRequest):
+    """Multi-quarter P&L trend + balance sheet + shareholding + prospects signal.
+
+    Used for: "Show RELIANCE quarterly results", "Future prospects of TCS",
+              "Company overview", "Revenue trend", "Earnings history"
+    """
+    _ = await get_current_user(request)
+
+    try:
+        from services.copilot_tools.company_financials import get_company_overview
+        result = await get_company_overview(payload.symbol)
+    except Exception as exc:
+        logger.warning("company_financials widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="company_financials",
+            title=f"{payload.symbol} — Financials",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="fundamental_analyst", label="Fundamental Analyst",
+                            version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    outlook = result.data.get("outlook_label", "Neutral")
+    trend = result.data.get("growth_trend", "")
+
+    env = WidgetEnvelope(
+        kind="company_financials",
+        title=f"{payload.symbol.upper()} — Financials & Prospects",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["nse_financials_quarterly", "shareholding_pattern", "stock_features_daily"],
+        ),
+        agent=AgentInfo(id="fundamental_analyst", label="Fundamental Analyst",
+                        version="v1", confidence=80),
+        data={**result.data, "rows": result.rows},
+        primary_cta={
+            "label": f"View peer comparison",
+            "action": "peer_compare",
+        },
+        suggestions=[
+            f"Technical setup for {payload.symbol.upper()}",
+            f"Should I add {payload.symbol.upper()} to my portfolio?",
+            f"Recent announcements for {payload.symbol.upper()}",
+        ],
+    )
+    return env.model_dump()
+
+
+@router.post("/fd_comparison")
+async def fd_comparison_widget(request: Request):
+    """Compare portfolio XIRR vs FD benchmark rates.
+
+    Used for quick-action: 'Am I beating FD?'
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.portfolio import get_fd_comparison
+        result = await get_fd_comparison(user_id)
+    except Exception as exc:
+        logger.warning("fd_comparison widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="fd_comparison",
+            title="FD Comparison",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer", version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    env = WidgetEnvelope(
+        kind="fd_comparison",
+        title="Portfolio vs Fixed Deposit",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings"],
+        ),
+        agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
+                        version="v1", confidence=80),
+        data={**result.data, "rows": result.rows},
+        primary_cta={"label": "Improve my returns", "action": "rebalance"},
+        suggestions=[
+            "How to beat FD consistently?",
+            "Which asset class is underperforming?",
+            "Show my top performing holdings",
+        ],
+    )
+    return env.model_dump()
+
+
+@router.post("/tax_timing")
+async def tax_timing_widget(request: Request):
+    """Identify LTCG flip opportunities and tax-optimal sell timing.
+
+    Used for: 'When should I sell?', 'Am I close to LTCG?'
+    """
+    user = await get_current_user(request)
+    user_id = str(user.get("_id") or user.get("id") or "")
+
+    try:
+        from services.copilot_tools.portfolio import get_tax_timing_advice
+        result = await get_tax_timing_advice(user_id)
+    except Exception as exc:
+        logger.warning("tax_timing widget error: %s", exc)
+        return WidgetEnvelope(
+            kind="tax_timing",
+            title="Tax Timing",
+            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
+            agent=AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=0),
+            data={"error": str(exc)},
+        ).model_dump()
+
+    env = WidgetEnvelope(
+        kind="tax_timing",
+        title="Tax Timing Optimiser",
+        freshness=FreshnessChip(
+            state="live" if result.ok else "stale",
+            last_updated=_iso_now(),
+            source=["portfolio_holdings"],
+        ),
+        agent=AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=85),
+        data={**result.data, "rows": result.rows},
+        primary_cta={"label": "Show full tax report", "action": "full_tax_report"},
+        suggestions=[
+            "Which holdings should I harvest losses on?",
+            "Show my LTCG vs STCG breakdown",
+            "How much LTCG exemption is left?",
+        ],
+    )
+    return env.model_dump()

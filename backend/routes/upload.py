@@ -263,6 +263,12 @@ async def _process_cas_background(content: bytes, user_id: str, task_id: str, po
             )
             return
         await save_holdings(user_id, parsed, "CAS PDF", task_id, portfolio_id)
+        # Re-infer persona now that holdings have changed
+        try:
+            from services.persona_engine import refresh_persona
+            await refresh_persona(user_id, db)
+        except Exception as pe:
+            logger.warning("Persona refresh failed (non-fatal): %s", pe)
     except HTTPException as he:
         error_msg = he.detail if hasattr(he, 'detail') else str(he)
         logger.error("Background CAS processing HTTPException: %s", error_msg)

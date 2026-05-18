@@ -4,13 +4,19 @@ Served from analytics.fund_category_rank (populated by the MF analytics engine).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, page_params, row_to_dict
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 router = APIRouter(
     prefix="/mf/performance",
@@ -308,3 +314,126 @@ async def category_scorecard_leaderboard(
         total=total, **page,
         extra={"sub_category": sub_category, "sorted_by": sort_by},
     )
+
+
+# ── V3 primitives (bulk) ─────────────────────────────────────────────
+#
+# Mirrors the column set that services/v3_integration.py expects from
+# nidp.v_v3_mf_primitives. Kept in lock-step with that file's
+# _load_v3_primitives_bulk SELECT so the V3 engine can switch from
+# direct-PG to HTTP without a payload migration.
+
+_V3_MF_PRIMITIVE_COLS = """
+    v.instrument_id::text                  AS instrument_id,
+    v.category,
+    v.sub_category,
+    v.aum_cr::float                        AS aum_cr,
+    v.fund_age_years::float                AS fund_age_years,
+    v.expense_ratio::float                 AS expense_ratio,
+    v.expense_ratio_direct::float          AS expense_ratio_direct,
+    v.expense_ratio_regular::float         AS expense_ratio_regular,
+    v.expense_trend_delta::float           AS expense_trend_delta,
+    v.manager_tenure_years::float          AS manager_tenure_years,
+    v.turnover_ratio::float                AS turnover_ratio,
+    v.top10_concentration_pct::float       AS top10_concentration_pct,
+    v.category_avg_1y::float               AS category_avg_1y,
+    v.category_avg_3y::float               AS category_avg_3y,
+    v.category_avg_5y::float               AS category_avg_5y,
+    v.max_drawdown_pct::float              AS max_drawdown_pct,
+    v.consistency_score::float             AS consistency_score,
+    v.downside_capture_pct::float          AS downside_capture_pct,
+    v.aum_trend_score::float               AS aum_trend_score,
+    v.credit_quality_score::float          AS credit_quality_score,
+    v.duration_risk_score::float           AS duration_risk_score,
+    v.ytm::float                           AS ytm,
+    v.modified_duration::float             AS modified_duration,
+    v.investment_style,
+    v.moneycontrol_imid,
+    v.morningstar_rating::int              AS morningstar_rating,
+    v.ret_1y::float                        AS ret_1y,
+    v.ret_3y::float                        AS ret_3y,
+    v.ret_5y::float                        AS ret_5y,
+    v.sharpe::float                        AS sharpe,
+    v.sortino::float                       AS sortino,
+    v.return_1m::float                     AS return_1m,
+    v.return_3m::float                     AS return_3m,
+    v.return_6m::float                     AS return_6m,
+    v.return_2y::float                     AS return_2y,
+    v.return_since_launch_cagr::float      AS return_since_launch_cagr,
+    v.alpha_1y::float                      AS alpha_1y,
+    v.beta_1y::float                       AS beta_1y,
+    v.volatility_1y::float                 AS volatility_1y,
+    v.category_rank,
+    v.return_1y_rank,
+    v.nidp_returns_available,
+    v.nidp_snapshot_available,
+    v.nidp_holdings_available,
+    v.primary_manager,
+    v.risk_o_meter
+"""
+
+
+@router.post(
+    "/v3-primitives/bulk",
+    summary="Bulk V3 MF primitives by instrument_id",
+)
+async def v3_mf_primitives_bulk(
+    body: Dict[str, Any] = Body(
+        ...,
+        example={"instrument_ids": ["a1b2c3d4-...", "..."]},
+    ),
+) -> Dict[str, Any]:
+    """Return the V3 primitive row for each requested ``instrument_id``,
+    keyed by instrument_id in the response.
+
+    Drop-in replacement for the PG-direct read in
+    ``services/v3_integration.py::_load_v3_primitives_bulk``. The V3
+    scoring engine stays in the Nivesh app; this endpoint hands it the
+    data it needs without coupling it to NIDP's Postgres pool.
+
+    Non-UUID inputs are silently dropped (matches the existing app-side
+    behaviour). Missing instrument_ids are simply absent from the
+    response — callers should already degrade gracefully when a fund
+    has no V3 primitives.
+    """
+    raw_ids: List[str] = body.get("instrument_ids") or []
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="instrument_ids must be a list")
+    real_ids = [i for i in raw_ids if isinstance(i, str) and _UUID_RE.match(i)]
+    if not real_ids:
+        return {"data": {}, "count": 0, "requested": len(raw_ids)}
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Defensive: in environments where migration 050 hasn't been
+        # applied, surface a clear error rather than a generic SQL fail.
+        view_exists = await conn.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.views
+                 WHERE table_schema = 'nidp'
+                   AND table_name   = 'v_v3_mf_primitives'
+            )
+            """
+        )
+        if not view_exists:
+            raise HTTPException(
+                status_code=503,
+                detail="nidp.v_v3_mf_primitives missing — migration 050 not applied",
+            )
+        rows = await conn.fetch(
+            f"""
+            SELECT {_V3_MF_PRIMITIVE_COLS}
+              FROM nidp.v_v3_mf_primitives v
+             WHERE v.instrument_id::text = ANY($1::text[])
+            """,
+            real_ids,
+        )
+
+    data = {r["instrument_id"]: row_to_dict(r) for r in rows}
+    return {
+        "data":      data,
+        "count":     len(data),
+        "requested": len(raw_ids),
+        "invalid":   len(raw_ids) - len(real_ids),
+    }

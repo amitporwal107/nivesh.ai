@@ -417,26 +417,84 @@ async def build_enriched_portfolio(
                 except Exception as e:  # noqa: BLE001
                     logger.debug("isin→symbol backfill skipped: %s", e)
             if symbols:
+                # Fetch 1Y returns for each symbol from NIDP DaaS first
+                # (POST /v1/stocks/v3-primitives/bulk). Direct PG read is the
+                # fallback for environments where DaaS isn't configured or
+                # migration 055 hasn't been applied. The Nivesh scoring tables
+                # (stock_scores, stock_master) still live in the Nivesh PG
+                # and are joined locally below — the cutover here is about
+                # the *primitive* data source, not the Nivesh-side scores.
+                nidp_returns: Dict[str, Optional[float]] = {}
+                try:
+                    import feature_flags as _ff
+                    from services.copilot_tools import daas_client as _daas
+                    if _ff.mode_enabled("v3_data_source_daas") and _daas.is_configured():
+                        primitives = await _daas.get_v3_stock_primitives_bulk(symbols)
+                        for sym, row in primitives.items():
+                            nidp_returns[sym] = row.get("return_252d_pct")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("DaaS stock primitives bulk fetch failed: %s", e)
+
                 async with pool.acquire() as conn:
-                    rows = await conn.fetch(
-                        """SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
-                                  ss.quality_score, ss.health_score,
-                                  ss.exit_score, ss.add_score,
-                                  ss.recommendation, ss.recommendation_reason,
-                                  ss.low_confidence, ss.morningstar_rating,
-                                  sp.return_1y_pct
-                           FROM stock_scores ss
-                           JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
-                           LEFT JOIN LATERAL (
-                             SELECT return_1y_pct FROM stock_primitives
-                             WHERE nse_symbol = ss.nse_symbol
-                             ORDER BY as_of_date DESC LIMIT 1
-                           ) sp ON TRUE
-                           WHERE ss.nse_symbol = ANY($1::text[])""",
-                        symbols,
-                    )
+                    if nidp_returns:
+                        # DaaS already supplied returns; skip the lateral join.
+                        rows = await conn.fetch(
+                            """SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
+                                      ss.quality_score, ss.health_score,
+                                      ss.exit_score, ss.add_score,
+                                      ss.recommendation, ss.recommendation_reason,
+                                      ss.low_confidence, ss.morningstar_rating
+                               FROM stock_scores ss
+                               JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                               WHERE ss.nse_symbol = ANY($1::text[])""",
+                            symbols,
+                        )
+                    else:
+                        # DaaS unavailable — fall back to PG-direct lateral join
+                        # against the NIDP view (or legacy stock_primitives).
+                        nidp_view_present = await conn.fetchval(
+                            """
+                            SELECT EXISTS (
+                                SELECT 1 FROM information_schema.views
+                                 WHERE table_schema = 'nidp'
+                                   AND table_name   = 'v_v3_stock_primitives'
+                            )
+                            """
+                        )
+                        if nidp_view_present:
+                            sql_returns_join = """
+                               LEFT JOIN LATERAL (
+                                 SELECT return_252d_pct AS return_1y_pct
+                                   FROM nidp.v_v3_stock_primitives
+                                  WHERE symbol = ss.nse_symbol
+                                  ORDER BY as_of_date DESC LIMIT 1
+                               ) sp ON TRUE
+                            """
+                        else:
+                            sql_returns_join = """
+                               LEFT JOIN LATERAL (
+                                 SELECT return_1y_pct FROM stock_primitives
+                                  WHERE nse_symbol = ss.nse_symbol
+                                  ORDER BY as_of_date DESC LIMIT 1
+                               ) sp ON TRUE
+                            """
+                        rows = await conn.fetch(
+                            f"""SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
+                                      ss.quality_score, ss.health_score,
+                                      ss.exit_score, ss.add_score,
+                                      ss.recommendation, ss.recommendation_reason,
+                                      ss.low_confidence, ss.morningstar_rating,
+                                      sp.return_1y_pct
+                               FROM stock_scores ss
+                               JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                               {sql_returns_join}
+                               WHERE ss.nse_symbol = ANY($1::text[])""",
+                            symbols,
+                        )
                 for r in rows:
-                    stock_scores_by_sym[r["nse_symbol"]] = {
+                    sym = r["nse_symbol"]
+                    ret_1y = nidp_returns.get(sym) if nidp_returns else r.get("return_1y_pct")
+                    stock_scores_by_sym[sym] = {
                         "scores": {
                             "quality": float(r["quality_score"]) if r["quality_score"] else None,
                             "health":  float(r["health_score"])  if r["health_score"]  else None,
@@ -448,7 +506,7 @@ async def build_enriched_portfolio(
                         "sector": r["sector"],
                         "cap_bucket": r["cap_bucket"],
                         "low_confidence": bool(r["low_confidence"]) if r["low_confidence"] is not None else False,
-                        "return_1y_pct": float(r["return_1y_pct"]) if r["return_1y_pct"] is not None else None,
+                        "return_1y_pct": float(ret_1y) if ret_1y is not None else None,
                         "morningstar_rating": int(r["morningstar_rating"]) if r["morningstar_rating"] is not None else None,
                     }
     except Exception as e:  # noqa: BLE001

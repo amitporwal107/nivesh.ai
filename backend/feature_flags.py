@@ -34,6 +34,17 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "v3_data_source_daas": {
+        "display_name": "V3 Data Source: NIDP DaaS",
+        "description": (
+            "When ON, V3 scoring reads MF + stock primitives via NIDP DaaS HTTP "
+            "(POST /v1/mf/v3-primitives/bulk, /v1/stocks/v3-primitives/bulk). "
+            "When OFF, V3 falls back to direct PG reads against nidp.v_v3_* views — "
+            "this is the pre-cutover behaviour, kept as a fast revert path."
+        ),
+        "default_mode": "everyone",
+        "default_allowlist": [],
+    },
 }
 
 # In-memory state — {flag: {mode, allowlist}}
@@ -66,6 +77,22 @@ def is_enabled(flag: str, email: Optional[str]) -> bool:
         return False
     al = {e.lower() for e in cfg.get("allowlist", [])}
     return email.lower().strip() in al
+
+
+def mode_enabled(flag: str) -> bool:
+    """Mode-only check: True iff the flag's mode is 'everyone'.
+
+    For flags where per-user routing isn't meaningful — e.g. data-source
+    selectors that run in non-user contexts — callers consult this instead
+    of `is_enabled`. The off / everyone semantics still let admins flip
+    the flag globally from the admin panel; allowlist mode is treated as
+    'off' here so unknown-user contexts default safely.
+    """
+    _ensure_defaults()
+    cfg = _flags.get(flag)
+    if not cfg:
+        return False
+    return cfg.get("mode", "off") == "everyone"
 
 
 def set_flag(flag: str, mode: Optional[str] = None, allowlist: Optional[List[str]] = None) -> None:

@@ -171,7 +171,7 @@ UPDATE analytics.fund_category_rank r
        sortino_rank     = q.sortino_rank,
        alpha_rank       = q.alpha_rank,
        ter_rank         = q.ter_rank,
-       composite_rank   = q.composite_rank
+       composite_rank   = q.composite_pct_rank
   FROM (
     SELECT scheme_code,
            RANK() OVER w_ret1  AS return_1y_rank,
@@ -205,10 +205,10 @@ UPDATE analytics.fund_category_rank r
 
 _RANK_SQL_2 = """
 UPDATE analytics.fund_category_rank outer_r
-   SET composite_rank = inner_q.composite_rank
+   SET composite_rank = inner_q.composite_int_rank
   FROM (
     SELECT scheme_code,
-           RANK() OVER (PARTITION BY category ORDER BY composite_rank ASC NULLS LAST) AS composite_rank
+           RANK() OVER (PARTITION BY category ORDER BY composite_rank ASC NULLS LAST) AS composite_int_rank
       FROM analytics.fund_category_rank
      WHERE rank_date = $1
   ) inner_q

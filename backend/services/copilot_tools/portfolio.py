@@ -572,20 +572,38 @@ async def get_full_tax_report(
 
 # ── Stress test ───────────────────────────────────────────────────────────
 
-async def run_stress_test(user_id: str, scenario: str = "covid_2020") -> PortfolioResult:
-    """Simulate portfolio value under a historical crash scenario.
+async def run_stress_test(
+    user_id: str,
+    scenario: str = "covid_2020",
+    custom_equity_drop: Optional[float] = None,
+    custom_debt_drop: Optional[float] = None,
+) -> PortfolioResult:
+    """Simulate portfolio value under a historical or custom crash scenario.
 
     Used for: "What if market crashes?", "Run a stress test", "COVID scenario",
-              "How much would I lose in a 2008-style crash?"
+              "How much would I lose in a 2008-style crash?",
+              "What if market falls 20%?"
 
     Args:
-        scenario: "covid_2020" | "gfc_2008" | "rate_shock"
+        scenario: "covid_2020" | "gfc_2008" | "rate_shock" | "custom"
+        custom_equity_drop: equity drop % (e.g. -20.0) — used when scenario=="custom"
+        custom_debt_drop: debt drop % — defaults to 10% of equity drop if not set
     """
     holdings = await _load_holdings(user_id)
     if not holdings:
         return PortfolioResult(ok=False, summary="No holdings found", error="no_holdings")
 
-    scen = _STRESS_SCENARIOS.get(scenario, _STRESS_SCENARIOS["covid_2020"])
+    if scenario == "custom" and custom_equity_drop is not None:
+        eq_drop = float(custom_equity_drop)
+        dbt_drop = float(custom_debt_drop) if custom_debt_drop is not None else round(eq_drop * 0.1, 1)
+        scen: Dict[str, Any] = {
+            "name": f"Custom Scenario ({eq_drop:+.0f}% equity)",
+            "equity_drop": eq_drop,
+            "debt_drop": dbt_drop,
+            "recovery_years": round(abs(eq_drop) / 15, 1),
+        }
+    else:
+        scen = _STRESS_SCENARIOS.get(scenario, _STRESS_SCENARIOS["covid_2020"])
 
     current_value = 0.0
     stressed_value = 0.0
@@ -638,4 +656,214 @@ async def run_stress_test(user_id: str, scenario: str = "covid_2020") -> Portfol
             "recovery_years": scen["recovery_years"],
         },
         rows=rows,
+    )
+
+
+# ── FD benchmark comparison ───────────────────────────────────────────────
+
+# Indicative SBI FD rates as of FY 2025-26 (annualised, pre-tax)
+_FD_RATES: Dict[str, Dict[str, Any]] = {
+    "1y": {"rate": 6.80, "label": "SBI 1-Year FD", "tax_note": "Interest taxed as income"},
+    "3y": {"rate": 7.00, "label": "SBI 3-Year FD", "tax_note": "Interest taxed as income"},
+    "5y": {"rate": 6.50, "label": "SBI 5-Year FD (tax-saving)", "tax_note": "Interest taxed as income; principal 80C eligible"},
+}
+
+# Post-tax FD yield assuming 30% income-tax slab (conservative estimate for comparison)
+_FD_POST_TAX_RATE_PCT = 0.70  # 1 − 30% slab
+
+
+async def get_fd_comparison(user_id: str) -> PortfolioResult:
+    """Compare portfolio XIRR against FD reference rates.
+
+    Used for: "Am I beating FD?", "Is my portfolio better than fixed deposit?",
+              "How does my return compare to FD rates?", "FD vs my portfolio"
+    """
+    xirr_result = await get_portfolio_xirr(user_id)
+    if not xirr_result.ok:
+        return xirr_result
+
+    portfolio_xirr = xirr_result.data.get("portfolio_xirr_pct")
+    portfolio_abs_ret = xirr_result.data.get("portfolio_return_pct")
+    total_invested = xirr_result.data.get("total_invested_rs", 0)
+    total_current = xirr_result.data.get("total_current_rs", 0)
+
+    # Use XIRR if available; fall back to absolute return for comparison
+    portfolio_rate = portfolio_xirr if portfolio_xirr is not None else portfolio_abs_ret or 0.0
+
+    rows: List[Dict[str, Any]] = []
+    for tenure, fd in _FD_RATES.items():
+        fd_gross = fd["rate"]
+        fd_post_tax = round(fd_gross * _FD_POST_TAX_RATE_PCT, 2)
+        diff_gross = round(portfolio_rate - fd_gross, 2)
+        diff_post_tax = round(portfolio_rate - fd_post_tax, 2)
+        rows.append({
+            "label": fd["label"],
+            "tenure": tenure,
+            "fd_gross_pct": fd_gross,
+            "fd_post_tax_pct": fd_post_tax,
+            "portfolio_xirr_pct": round(portfolio_rate, 2),
+            "outperformance_gross_pp": diff_gross,
+            "outperformance_post_tax_pp": diff_post_tax,
+            "verdict": (
+                "Beating FD" if diff_gross > 0 else
+                "Trailing FD"
+            ),
+        })
+
+    best_fd_gross = max(r["fd_gross_pct"] for r in rows)
+    best_fd_post_tax = max(r["fd_post_tax_pct"] for r in rows)
+    diff = round(portfolio_rate - best_fd_gross, 2)
+
+    if portfolio_rate > best_fd_gross:
+        verdict = f"Your portfolio XIRR of {portfolio_rate:+.1f}% beats the best FD rate ({best_fd_gross:.1f}%) by {diff:+.1f} pp."
+    else:
+        verdict = (
+            f"Your portfolio XIRR of {portfolio_rate:+.1f}% trails the best FD rate ({best_fd_gross:.1f}%) "
+            f"by {abs(diff):.1f} pp. FD would give ₹{total_invested * (1 + best_fd_gross/100):,.0f} after 1 year."
+        )
+
+    # Post-tax note for equity (LTCG 12.5% above ₹1.25L, vs 30% on FD interest)
+    post_tax_note = (
+        f"Post-tax edge: equity LTCG is taxed at 12.5% vs FD interest at your income-tax slab. "
+        f"After tax, FD effective yield ≈ {best_fd_post_tax:.1f}% — your {portfolio_rate:+.1f}% XIRR "
+        + ("has a further tax advantage." if portfolio_rate > best_fd_post_tax else "is still trailing.")
+    )
+
+    summary = f"{verdict} {post_tax_note}"
+    return PortfolioResult(
+        ok=True,
+        summary=summary,
+        data={
+            "portfolio_xirr_pct": round(portfolio_rate, 2),
+            "portfolio_abs_return_pct": round(portfolio_abs_ret or 0, 2),
+            "total_invested_rs": total_invested,
+            "total_current_rs": total_current,
+            "best_fd_gross_pct": best_fd_gross,
+            "best_fd_post_tax_pct": best_fd_post_tax,
+            "outperformance_pp": diff,
+            "verdict": "beats_fd" if diff > 0 else "trails_fd",
+            "note": "FD rates are indicative (SBI, FY 2025-26). Portfolio returns are not guaranteed.",
+        },
+        rows=rows,
+    )
+
+
+# ── Tax timing optimisation ───────────────────────────────────────────────
+
+_EQUITY_LTCG_DAYS = 365     # >365 days → LTCG for equity/MF
+_DEBT_LTCG_DAYS   = 1095    # >3 years → LTCG for debt (pre-Apr 2023 purchases)
+_EQUITY_STCG_RATE = 0.20    # 20% STCG on equity (post-Jul 2024 budget)
+_EQUITY_LTCG_RATE = 0.125   # 12.5% LTCG on equity above ₹1.25L exemption
+_DEBT_INCOME_RATE = 0.30    # Debt capital gains taxed as income
+
+
+async def get_tax_timing_advice(user_id: str) -> PortfolioResult:
+    """Identify holdings where waiting for LTCG classification saves tax.
+
+    Used for: "When should I sell to minimise tax?",
+              "Which holdings should I wait to sell?",
+              "Am I close to becoming long-term?", "Tax timing advice"
+
+    Shows:
+      - Holdings currently STCG that flip to LTCG within 90 days
+      - Estimated tax saving from waiting
+      - Holdings where selling NOW saves tax (large STCG losses to harvest)
+    """
+    from datetime import date as _date, datetime as _dt
+
+    holdings = await _load_holdings(user_id)
+    if not holdings:
+        return PortfolioResult(ok=False, summary="No holdings found", error="no_holdings")
+
+    today = _date.today()
+    rows: List[Dict[str, Any]] = []
+    sell_now_saves: List[Dict[str, Any]] = []
+
+    for h in holdings:
+        try:
+            bp  = float(h.get("buy_price") or 0)
+            cp  = float(h.get("current_price") or 0)
+            qty = float(h.get("quantity") or 0)
+            bd_raw = h.get("buy_date") or h.get("purchase_date")
+
+            if bp <= 0 or cp <= 0 or qty <= 0 or not bd_raw:
+                continue
+
+            if isinstance(bd_raw, str):
+                bd = _dt.fromisoformat(bd_raw.replace("Z", "+00:00")).date()
+            elif isinstance(bd_raw, _dt):
+                bd = bd_raw.date()
+            else:
+                bd = bd_raw
+
+            name   = h.get("fund_name") or h.get("scheme_name") or h.get("name") or "Unknown"
+            atype  = (h.get("asset_type") or "equity").lower()
+            gain   = (cp - bp) * qty
+            invested = bp * qty
+
+            if invested <= 0:
+                continue
+
+            days_held = (today - bd).days
+            is_equity = atype in ("equity", "stock", "mutual_fund", "etf")
+            ltcg_days = _EQUITY_LTCG_DAYS if is_equity else _DEBT_LTCG_DAYS
+
+            is_ltcg = days_held >= ltcg_days
+            days_to_ltcg = max(0, ltcg_days - days_held)
+
+            if is_equity:
+                current_tax = gain * _EQUITY_LTCG_RATE if is_ltcg else gain * _EQUITY_STCG_RATE
+                ltcg_tax = gain * _EQUITY_LTCG_RATE  # tax after LTCG threshold reached
+            else:
+                current_tax = gain * _DEBT_INCOME_RATE  # always income for debt post Apr 2023
+                ltcg_tax = gain * _DEBT_INCOME_RATE
+
+            tax_saving = current_tax - ltcg_tax if not is_ltcg else 0.0
+            row = {
+                "name": name,
+                "asset_type": atype,
+                "gain_rs": round(gain, 0),
+                "days_held": days_held,
+                "is_ltcg": is_ltcg,
+                "days_to_ltcg": days_to_ltcg,
+                "current_tax_estimate_rs": round(max(0, current_tax), 0),
+                "ltcg_tax_estimate_rs": round(max(0, ltcg_tax), 0),
+                "tax_saving_if_wait_rs": round(max(0, tax_saving), 0),
+            }
+
+            if not is_ltcg and gain > 0 and days_to_ltcg <= 90:
+                rows.append(row)   # close to flipping — worth waiting
+            elif gain < 0 and not is_ltcg:
+                sell_now_saves.append(row)   # loss — harvest now
+
+        except Exception as exc:
+            logger.debug("tax_timing skip: %s", exc)
+
+    rows.sort(key=lambda r: r["tax_saving_if_wait_rs"], reverse=True)
+    all_rows = rows + sell_now_saves
+
+    if not all_rows:
+        return PortfolioResult(
+            ok=True,
+            summary="No STCG-to-LTCG conversion opportunities within 90 days. Your holdings are either already long-term or have no significant gains.",
+            rows=[],
+            data={"opportunities": 0},
+        )
+
+    total_saving = sum(r["tax_saving_if_wait_rs"] for r in rows)
+    summary = (
+        f"Found {len(rows)} holding(s) that flip LTCG within 90 days, "
+        f"saving ~₹{total_saving:,.0f} in tax if you wait. "
+        + (f"{len(sell_now_saves)} loss position(s) worth harvesting now." if sell_now_saves else "")
+    )
+
+    return PortfolioResult(
+        ok=True,
+        summary=summary,
+        data={
+            "ltcg_flip_count": len(rows),
+            "harvest_count": len(sell_now_saves),
+            "total_tax_saving_if_wait_rs": round(total_saving, 0),
+        },
+        rows=all_rows,
     )

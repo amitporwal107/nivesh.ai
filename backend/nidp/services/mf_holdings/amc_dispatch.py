@@ -29,10 +29,12 @@ PARTIAL until each is filled in.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Awaitable, Callable, Optional
 
 import aiohttp
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,8 @@ _URL_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
-# AMC portfolio page — used in the warning message to guide URL discovery.
+# AMC portfolio listing pages — scraped first to auto-discover the
+# current xlsx link, then used in the warning message if discovery fails.
 _PORTFOLIO_PAGE: dict[str, str] = {
     "sbi":       "https://www.sbimf.com/portfolios",
     "icici_pru": "https://www.icicipruamc.com/portfolio-disclosure",
@@ -140,30 +143,108 @@ def _render_url(template: str, m: date) -> str:
             .replace("{yyyy}",  m.strftime("%Y")))
 
 
+def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:
+    """Scan the AMC portfolio listing page for an xlsx link matching `m`.
+
+    Match on month-name (full or abbreviated, case-insensitive) AND year.
+    Returns the first match; AMCs typically list most-recent-first.
+    """
+    month_long  = m.strftime("%B").lower()
+    month_short = m.strftime("%b").lower()
+    year_full   = m.strftime("%Y")
+    year_short  = m.strftime("%y")
+
+    soup = BeautifulSoup(html, "lxml")
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if not re.search(r"\.xlsx?($|\?)", href, re.IGNORECASE):
+            continue
+        token_source = (href + " " + a.get_text(" ", strip=True)).lower()
+        has_month = month_long in token_source or month_short in token_source
+        has_year  = year_full in token_source or year_short in token_source
+        if has_month and has_year:
+            if href.startswith("//"):
+                href = "https:" + href
+            elif href.startswith("/"):
+                href = base_url.rstrip("/") + href
+            elif not href.startswith("http"):
+                href = base_url.rstrip("/") + "/" + href.lstrip("/")
+            return href
+    return None
+
+
+async def _try_listing_page_discovery(
+    amc_id: str,
+    http: aiohttp.ClientSession,
+    as_of_month: date,
+) -> Optional[str]:
+    page = _PORTFOLIO_PAGE.get(amc_id)
+    if not page:
+        return None
+    try:
+        async with http.get(page, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.info("mf_holdings[%s]: listing page returned status=%d at %s",
+                            amc_id, resp.status, page)
+                return None
+            html = await resp.text(errors="replace")
+    except Exception as e:  # noqa: BLE001
+        logger.info("mf_holdings[%s]: listing page fetch error %s: %s",
+                    amc_id, type(e).__name__, e)
+        return None
+    return _discover_xlsx_link(html, page, as_of_month)
+
+
+async def _try_download(
+    http: aiohttp.ClientSession,
+    url: str,
+    amc_id: str,
+) -> Optional[bytes]:
+    try:
+        async with http.get(url, allow_redirects=True) as resp:
+            if resp.status != 200:
+                logger.debug("mf_holdings[%s]: %s → status=%d", amc_id, url, resp.status)
+                return None
+            ct = resp.headers.get("content-type", "").lower()
+            if "html" in ct:
+                logger.debug("mf_holdings[%s]: %s → html content-type (likely error page)", amc_id, url)
+                return None
+            data = await resp.read()
+            if len(data) < 1024:
+                logger.debug("mf_holdings[%s]: %s → suspiciously small (%d bytes)", amc_id, url, len(data))
+                return None
+            return data
+    except Exception as e:  # noqa: BLE001
+        logger.debug("mf_holdings[%s]: %s → %s: %s", amc_id, url, type(e).__name__, e)
+        return None
+
+
 async def _fetch_portfolio(
     amc_id: str,
     http: aiohttp.ClientSession,
     as_of_month: date,
 ) -> tuple[Optional[bytes], Optional[str]]:
+    # 1) Listing-page auto-discovery (robust to URL renames).
+    discovered = await _try_listing_page_discovery(amc_id, http, as_of_month)
+    if discovered:
+        data = await _try_download(http, discovered, amc_id)
+        if data is not None:
+            logger.info("mf_holdings[%s]: discovered xlsx via listing page: %s", amc_id, discovered)
+            return data, discovered
+
+    # 2) Hardcoded URL templates as fallback.
     templates = _URL_TEMPLATES.get(amc_id, [])
     for tmpl in templates:
         url = _render_url(tmpl, as_of_month)
-        try:
-            async with http.get(url, allow_redirects=True) as resp:
-                if resp.status != 200:
-                    continue
-                ct = resp.headers.get("content-type", "").lower()
-                if "html" in ct:
-                    continue        # error page redirect
-                data = await resp.read()
-                if len(data) < 1024:
-                    continue        # suspiciously small
-                return data, url
-        except Exception:           # noqa: BLE001
-            continue
+        data = await _try_download(http, url, amc_id)
+        if data is not None:
+            return data, url
+
     logger.warning(
-        "mf_holdings[%s]: no portfolio Excel found for %s; tried %d URL patterns. "
-        "Verify current URL at %s and add it to _URL_TEMPLATES in amc_dispatch.py",
+        "mf_holdings[%s]: no portfolio Excel found for %s; "
+        "listing-page discovery failed and %d URL pattern(s) returned no xlsx. "
+        "Inspect %s in a browser and either add a current pattern to "
+        "_URL_TEMPLATES or confirm the listing page exposes a matching link.",
         amc_id, as_of_month.isoformat(), len(templates),
         _PORTFOLIO_PAGE.get(amc_id, "(unknown)"),
     )

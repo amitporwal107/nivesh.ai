@@ -41,7 +41,12 @@ SERVICE_NAME = "nse_financials_backfill"
 
 # Screener delivers 20 quarters; NSE XBRL ~ 4-8.
 # If NSE returns fewer than this, fall back to Screener.
-MIN_QUARTERS_TARGET = 8
+#
+# Set to 16 because the 3Y CAGR computation in migration 054 needs
+# quarter ranks 1-16 (current TTM and 3Y-ago TTM, each 4 quarters).
+# Anything lower leaves eps_growth_3y_cagr_pct /
+# revenue_growth_3y_cagr_pct NULL for the affected symbols.
+MIN_QUARTERS_TARGET = 16
 
 DEFAULT_CONCURRENCY = 8          # was 5 — NSE tolerates 8 with proper cookies
 PER_REQUEST_DELAY_S = 1.5        # was 2.5 — 1.5s keeps us within ~30 NSE req/min

@@ -63,6 +63,12 @@ MAILTO=""
 # amfi_nav_history is a one-time backfill — run manually:
 #   sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav_history
 
+# ── MF derived analytics refresh (post-NAV, post-holdings) ────────
+# Calls nidp.refresh_mf_derived_analytics(): consistency, downside
+# capture, AUM trend, turnover, credit & duration risk. Function has
+# its own 7-day skip so nightly invocation is cheap.
+50 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
+
 # ── Corporate event intelligence pipeline ─────────────────────────
 30 6  * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
 30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
@@ -74,8 +80,12 @@ MAILTO=""
 30 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh quality_gate
 
 # ── Intelligence layer (materializer + per-user portfolio sync) ───
-15 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
+# Order is load-bearing: holdings → transactions → goals → intelligence pass.
+# The intelligence sync joins all three datasets, so they must land first.
 0  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_holdings_sync
+10 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_transactions_sync
+15 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_goals_sync
+20 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.
