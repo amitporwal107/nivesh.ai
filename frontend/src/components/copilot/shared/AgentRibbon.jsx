@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 import { BarChart3, Search, LineChart, Receipt, Shield, FileText, Compass, Sparkles } from "lucide-react";
+import { resolveAgent } from "./agentRegistry";
 
 const ICON_BY_NAME = {
   "compass": Compass,
@@ -21,13 +22,14 @@ const ICON_BY_NAME = {
  *   compact: boolean
  */
 const AgentRibbon = ({ agent, onViewReasoning, compact = false, testId }) => {
-  if (!agent) return null;
-  const Icon = ICON_BY_NAME[agent.icon] || ICON_BY_NAME["compass"] || Sparkles;
-  const conf = agent.confidence;
+  const resolved = resolveAgent(agent);
+  if (!resolved) return null;
+  const Icon = ICON_BY_NAME[resolved.icon] || ICON_BY_NAME["compass"] || Sparkles;
+  const conf = resolved.confidence;
 
   return (
     <div
-      data-testid={testId || `agent-ribbon-${agent.id}`}
+      data-testid={testId || `agent-ribbon-${resolved.id}`}
       className={`inline-flex items-center gap-2 ${compact ? "text-[11px]" : "text-xs"} text-slate-600 dark:text-slate-300`}
     >
       <span
@@ -36,9 +38,9 @@ const AgentRibbon = ({ agent, onViewReasoning, compact = false, testId }) => {
       >
         <Icon className="w-3 h-3 text-white" strokeWidth={2} />
       </span>
-      <span className="font-medium">{agent.label}</span>
-      {agent.version && (
-        <span className="text-slate-400">· {agent.version}</span>
+      <span className="font-medium">{resolved.label}</span>
+      {resolved.version && (
+        <span className="text-slate-400">· {resolved.version}</span>
       )}
       {conf != null && (
         <span className="text-slate-400 cp-num">· {Math.round(conf)}% confidence</span>
@@ -46,7 +48,7 @@ const AgentRibbon = ({ agent, onViewReasoning, compact = false, testId }) => {
       {onViewReasoning && (
         <button
           type="button"
-          data-testid={`agent-ribbon-${agent.id}-reasoning`}
+          data-testid={`agent-ribbon-${resolved.id}-reasoning`}
           onClick={onViewReasoning}
           className="ml-1 text-[11px] underline-offset-2 hover:underline text-[color:var(--cp-accent-brand)]"
         >

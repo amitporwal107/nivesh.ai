@@ -9,7 +9,9 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
 
-from deps import get_current_user
+from datetime import datetime, timezone
+
+from deps import db, get_current_user
 from services import copilot_agents
 
 router = APIRouter(prefix="/api/copilot", tags=["copilot-agents"])
@@ -93,3 +95,36 @@ async def agent_oneshot(request: Request, payload: AgentOneShotRequest):
         session_id=payload.session_id or f"oneshot:{user_id}",
     )
     return {"text": text, "agent_id": payload.agent_id, "model_id": payload.model_id or "gpt-4o"}
+
+
+class MessageFeedbackRequest(BaseModel):
+    message_id: str = Field(..., min_length=1, max_length=64)
+    session_id: Optional[str] = None
+    rating: str = Field(..., pattern="^(up|down)$")
+    agent_id: Optional[str] = None
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+@router.post("/feedback")
+async def message_feedback(request: Request, payload: MessageFeedbackRequest):
+    """Record a thumbs-up / thumbs-down on an assistant message. The chat UI
+    fires this fire-and-forget when the user clicks the toolbar under a
+    bubble. We persist to `copilot_feedback` for offline review — no
+    business logic depends on the response shape beyond {ok: true}."""
+    user = await get_current_user(request)
+    doc = {
+        "user_id": user["user_id"],
+        "message_id": payload.message_id,
+        "session_id": payload.session_id,
+        "rating": payload.rating,
+        "agent_id": payload.agent_id,
+        "comment": payload.comment,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db.copilot_feedback.insert_one(doc)
+    except Exception:
+        # Persistence failure is non-blocking for the user; surface a soft
+        # ok so the toolbar still reflects the click.
+        return {"ok": False}
+    return {"ok": True}
