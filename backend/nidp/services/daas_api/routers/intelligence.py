@@ -364,10 +364,22 @@ async def portfolio_holdings(
             SELECT h.snapshot_id, h.snapshot_date, h.asset_class, h.symbol, h.isin, h.amfi_scheme_code,
                    h.instrument_name, h.quantity, h.avg_buy_price, h.market_value_inr, h.weight_pct,
                    m.security_id, m.match_confidence, m.match_method,
-                   sm.security_name, sm.sector, sm.industry
+                   sm.security_name, sm.sector, sm.industry,
+                   fcr.ter             AS expense_ratio,
+                   fcr.return_1y       AS ret_1y,
+                   fcr.return_3y       AS ret_3y,
+                   fcr.return_5y       AS ret_5y,
+                   fcr.rank_date       AS perf_as_of
               FROM portfolio.user_holdings_snapshot h
               LEFT JOIN portfolio.holding_security_map m ON m.snapshot_id = h.snapshot_id
               LEFT JOIN ref.security_master sm           ON sm.security_id = m.security_id
+              LEFT JOIN LATERAL (
+                  SELECT ter, return_1y, return_3y, return_5y, rank_date
+                    FROM analytics.fund_category_rank
+                   WHERE scheme_code = h.amfi_scheme_code
+                   ORDER BY rank_date DESC
+                   LIMIT 1
+              ) fcr ON h.amfi_scheme_code IS NOT NULL
              WHERE h.external_user_id = $1
                AND ($2::date IS NULL OR h.snapshot_date = $2)
              ORDER BY h.market_value_inr DESC
