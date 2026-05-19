@@ -1,7 +1,7 @@
 """Thin async client for the NIDP DAAS API.
 
 Uses env vars:
-  NIDP_DAAS_BASE_URL  — e.g. http://34.93.60.254:8083
+  NIDP_DAAS_BASE_URL  — e.g. https://data.niveshcopilot.com/daas
   NIDP_DAAS_API_KEY   — API key issued by the DAAS /admin/keys endpoint
 
 All methods raise DaasError on HTTP or connectivity failures so callers

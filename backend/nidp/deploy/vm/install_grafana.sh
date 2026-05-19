@@ -40,7 +40,7 @@ if sudo docker ps --format '{{.Names}}' | grep -q '^nidp-grafana$'; then
   sudo docker restart nidp-grafana >/dev/null
   sleep 3
   if curl -sf http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
-    log "✓ Grafana is healthy at http://34.47.191.39:3000"
+    log "✓ Grafana is healthy at https://data.niveshcopilot.com/grafana"
     log "  Login: admin / admin (change on first login)"
     log "  Dashboard: → NIDP folder → 'NIDP Job Health'"
   else

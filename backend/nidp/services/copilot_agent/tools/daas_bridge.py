@@ -24,7 +24,7 @@ def _headers() -> dict:
 
 
 def _base() -> str:
-    return os.environ.get("NIDP_DAAS_BASE_URL", "http://localhost:8083").rstrip("/")
+    return os.environ.get("NIDP_DAAS_BASE_URL", "https://data.niveshcopilot.com/daas").rstrip("/")
 
 
 async def call_daas(

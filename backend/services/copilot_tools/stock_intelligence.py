@@ -72,7 +72,7 @@ class StockIntelResult:
 async def _daas_get(path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
     """Thin async GET against DAAS; mirrors daas_bridge.call_daas() without circular import."""
     import os, httpx
-    base = os.environ.get("NIDP_DAAS_BASE_URL", "http://localhost:8083").rstrip("/")
+    base = os.environ.get("NIDP_DAAS_BASE_URL", "https://data.niveshcopilot.com/daas").rstrip("/")
     key  = os.environ.get("NIDP_DAAS_API_KEY", "")
     headers = {"X-API-Key": key, "Accept": "application/json"} if key else {"Accept": "application/json"}
     try:

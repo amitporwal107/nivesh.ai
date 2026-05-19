@@ -67,7 +67,7 @@ fi
 # ── 6. Print connection details (token only on stdout, never logged) ─
 log "================================================================"
 log "NIDP Query API is running on port $PORT"
-log "  Public URL:  http://34.47.191.39:$PORT"
+log "  Public URL:  https://data.niveshcopilot.com/query"
 log "  Token:       $TOKEN"
 log "  Status:      systemctl status nidp-query-api"
 log "  Logs:        journalctl -u nidp-query-api -f"

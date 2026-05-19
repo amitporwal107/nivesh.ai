@@ -1,8 +1,8 @@
 # NIDP DaaS API — VM Service Operations
 
 ## Service location
-- VM:        `nidp-stack-vm` (34.93.60.254)
-- Port:      `8083` (chosen because 8081/8082 are taken by schema-registry and redpanda)
+- VM:        `nidp-stack-vm` (behind `data.niveshcopilot.com`)
+- Port:      `8083` on loopback (nginx reverse-proxies `/daas/*` → `127.0.0.1:8083`)
 - Process:   `uvicorn nidp.services.daas_api.app:app`
 - systemd:   `/etc/systemd/system/nidp-daas-api.service`
 - Logs:      `journalctl -u nidp-daas-api -f`
@@ -25,41 +25,21 @@ The current internal token is stored in:
 Rotate by generating a new `nvd_internal_<random>` and updating both
 locations + restarting `nidp-daas-api.service`.
 
-## Required GCP firewall rule
+## Access
 
-Port 8083 is **not** yet exposed externally; only `localhost` and the
-internal VPC can reach it. The VM service account lacks
-`compute.firewalls.list/create` permission, so this needs to be done by
-a user with project-level IAM:
-
-```bash
-gcloud compute firewall-rules create allow-nidp-daas-api \
-  --project=niveshdataintelligence \
-  --direction=INGRESS \
-  --priority=1000 \
-  --network=default \
-  --action=ALLOW \
-  --rules=tcp:8083 \
-  --source-ranges=0.0.0.0/0 \
-  --target-tags=nidp-stack
-```
-
-(VM's actual network tag is `nidp-stack`, verified via the instance
-metadata service.)
-
-After the firewall rule is in place:
+Port 8083 is **loopback-only** — nginx terminates TLS and proxies through.
+All external callers must use the HTTPS domain:
 
 ```bash
 curl -H "X-API-Key: $NIDP_DAAS_API_KEY" \
-  http://34.93.60.254:8083/v1/intelligence/snapshots/market
+  https://data.niveshcopilot.com/daas/v1/intelligence/snapshots/market
 ```
 
-should return the latest market snapshot from the pod / any external
-caller. Until that rule lands, callers must SSH-tunnel:
+For direct debugging on the VM (bypassing nginx):
 
 ```bash
-ssh -L 8083:localhost:8083 aporwal107_gmail_com@34.93.60.254
-curl -H "X-API-Key: $NIDP_DAAS_API_KEY" http://localhost:8083/v1/catalog
+# SSH into the VM first, then:
+curl -H "X-API-Key: $NIDP_DAAS_API_KEY" http://127.0.0.1:8083/v1/catalog
 ```
 
 ## Endpoints exposed (35 datasets in `/v1/catalog`)
