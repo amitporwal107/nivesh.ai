@@ -64,7 +64,12 @@ export default function CasUploadButton({
           enableCdslFetch: true, // CDSL OTP flow
           enableInbox: true,     // Gmail CAS auto-fetch
           inbox: {
-            redirectUri: `${window.location.origin}/cas-callback`,
+            // Must include the SPA basename ("/v2") so React Router can
+            // match the CasCallback page when Google redirects back.
+            // Without it, the route falls through to the "*" catch-all
+            // and the user lands on the homepage instead of the popup
+            // closing and posting inbox_token back to the opener.
+            redirectUri: `${window.location.origin}/v2/cas-callback`,
           },
         },
       });
