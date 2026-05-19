@@ -26,55 +26,47 @@ import httpx
 logger = logging.getLogger("cas_api_client")
 
 # ── Env ────────────────────────────────────────────────────────
-# Secrets (CASPARSER_API_KEY, CASPARSER_BASE_URL) resolved via helpers.secrets
-# which checks DB overrides first then env. Other config stays as env-only.
+# CASPARSER_BASE_URL still resolves via helpers.secrets (admin-tunable).
+# CAS Parser API KEYS now live in Google Secret Manager only — no env-var
+# fallback, no admin-console editing. See helpers/gsm.py.
 from helpers import secrets as _secrets
+from helpers import gsm as _gsm
 
 SANDBOX_KEY = os.environ.get("CASPARSER_SANDBOX_KEY", "sandbox-with-json-responses")
 USE_SANDBOX = os.environ.get("CASPARSER_USE_SANDBOX", "false").lower() == "true"
 TIMEOUT_S = float(os.environ.get("CASPARSER_TIMEOUT", "120"))
 API_SIZE_LIMIT = 1_800_000
 
-# Admin overrides for sandbox toggle (legacy — key override now goes via helpers.secrets)
+# Admin overrides for sandbox toggle (sandbox is a config flag, not a secret).
 _override_sandbox: Optional[bool] = None
 
-# ── Rotating key pool ──────────────────────────────────────────
-# Pool sources (merged, deduped, file ordering preserved first):
-#   1. File at CASPARSER_KEYS_FILE — one key per line, '#' comments ok
-#   2. DB-backed admin secret CASPARSER_API_KEYS — newline or
-#      comma-separated (admin console can paste it)
-# Head of the pool is the active key. On 401/402/403 (or a body
-# indicating expiry / quota), the key is retired in-memory and, if it
-# came from disk, the file is atomically rewritten. DB-sourced keys
-# are only retired in-process (the admin must clean the DB string when
-# convenient — we log a warning so it's visible).
-CASPARSER_KEYS_FILE = os.environ.get("CASPARSER_KEYS_FILE", "/app/.gcp/.casparser_key")
+# ── Rotating key pool — sourced ONLY from Google Secret Manager ────────
+# Secret name is environment-scoped: `casparser-api-keys-{APP_ENV}` where
+# APP_ENV is `production` or `preview` (matches helpers.secrets convention).
+# Value is whitespace- or comma-separated CAS Parser keys.
+#
+# On 401/402/403 (or a body indicating expiry/quota) the active key is
+# dropped from the in-memory pool and a warning is logged so the operator
+# can publish a cleaned version via:
+#   echo -n "<remaining>" | gcloud secrets versions add casparser-api-keys-production \\
+#       --data-file=- --project=niveshdataintelligence
+# Auto-version-bump is intentionally NOT implemented — keeps the runtime
+# SA's IAM surface read-only (`roles/secretmanager.secretAccessor`).
 _pool_lock = threading.Lock()
 _pool_cache: Optional[List[str]] = None  # None = not yet loaded
-_pool_file_keys: set = set()  # subset of _pool_cache that came from disk
 
 
-def _load_pool_from_disk() -> List[str]:
-    try:
-        with open(CASPARSER_KEYS_FILE) as f:
-            return [
-                line.strip() for line in f
-                if line.strip() and not line.strip().startswith("#")
-            ]
-    except FileNotFoundError:
-        return []
-    except OSError as e:
-        logger.warning("CAS Parser key pool unreadable (%s): %s", CASPARSER_KEYS_FILE, e)
-        return []
+def _secret_name() -> str:
+    env = _secrets.current_env()  # "production" | "preview"
+    return f"casparser-api-keys-{env}"
 
 
-def _load_pool_from_secret() -> List[str]:
-    raw = _secrets.get("CASPARSER_API_KEYS") or ""
+def _load_pool() -> List[str]:
+    raw = _gsm.get(_secret_name()) or ""
     if not raw.strip():
         return []
-    # Strip comment lines first (so '# tmp key' isn't broken into tokens),
     # then split each remaining line on any whitespace or comma so admins
-    # can paste keys in whatever shape is convenient.
+    # can shape the GSM payload however is convenient.
     out: List[str] = []
     for line in raw.splitlines():
         stripped = line.strip()
@@ -83,74 +75,45 @@ def _load_pool_from_secret() -> List[str]:
         for k in re.split(r"[\s,]+", stripped):
             if k:
                 out.append(k)
-    return out
-
-
-def _persist_pool_to_disk(keys: List[str]) -> None:
-    tmp = CASPARSER_KEYS_FILE + ".tmp"
-    try:
-        with open(tmp, "w") as f:
-            if keys:
-                f.write("\n".join(keys) + "\n")
-        os.replace(tmp, CASPARSER_KEYS_FILE)
-    except OSError as e:
-        logger.warning("Failed to persist CAS Parser key pool: %s", e)
-
-
-def _build_pool() -> List[str]:
-    """Merge disk + DB sources, preserving order, deduping."""
-    global _pool_file_keys
-    disk = _load_pool_from_disk()
-    db   = _load_pool_from_secret()
-    _pool_file_keys = set(disk)
+    # Dedupe while preserving order
     seen: set = set()
-    merged: List[str] = []
-    for k in disk + db:
-        if k not in seen:
-            seen.add(k)
-            merged.append(k)
-    return merged
+    return [k for k in out if not (k in seen or seen.add(k))]
 
 
 def _get_pool() -> List[str]:
     global _pool_cache
     with _pool_lock:
         if _pool_cache is None:
-            _pool_cache = _build_pool()
+            _pool_cache = _load_pool()
         return list(_pool_cache)
 
 
 def reload_pool() -> int:
-    """Drop the in-process pool cache so the next call rebuilds it from
-    file + DB. Returns the new pool size. Useful after the admin updates
-    CASPARSER_API_KEYS via the secrets UI."""
+    """Drop the in-process pool cache so the next call re-reads the
+    GSM-hosted secret. Returns the new pool size. Call after publishing a
+    new secret version with ``gcloud secrets versions add``."""
     global _pool_cache
     with _pool_lock:
-        _pool_cache = _build_pool()
+        _gsm.reload(_secret_name())
+        _pool_cache = _load_pool()
         return len(_pool_cache)
 
 
 def _retire_pool_key(bad_key: str) -> None:
-    """Remove a dead key from the in-process pool. Persist to disk if
-    the key came from the file; otherwise just log so the admin can
-    clean it from the DB secret when convenient."""
+    """Drop a dead key from the in-process pool. Persisting the cleaned
+    list back to GSM is intentionally an operator action — logs the next
+    step so it's visible."""
     global _pool_cache
     with _pool_lock:
         if _pool_cache is None:
-            _pool_cache = _build_pool()
+            _pool_cache = _load_pool()
         if bad_key not in _pool_cache:
             return
         _pool_cache.remove(bad_key)
-        from_disk = bad_key in _pool_file_keys
-        if from_disk:
-            _pool_file_keys.discard(bad_key)
-            # Rewrite file with only file-sourced survivors
-            survivors = [k for k in _pool_cache if k in _pool_file_keys]
-            _persist_pool_to_disk(survivors)
         logger.warning(
-            "CAS Parser key retired (expired/exhausted, source=%s): %s — %d remaining",
-            "file" if from_disk else "db_secret",
-            _secrets.mask(bad_key), len(_pool_cache),
+            "CAS Parser key retired (expired/exhausted): %s — %d remaining in-process. "
+            "Publish a cleaned version to GSM secret %s to make this survive a restart.",
+            _secrets.mask(bad_key), len(_pool_cache), _secret_name(),
         )
 
 
@@ -158,33 +121,28 @@ def _base_url() -> str:
     return _secrets.get("CASPARSER_BASE_URL") or "https://api.casparser.in"
 
 
-# Legacy shim — kept so existing admin endpoint call sites still work.
-def set_override(prod_key: Optional[str] = None, use_sandbox: Optional[bool] = None) -> None:
+def set_override(use_sandbox: Optional[bool] = None, **_ignored) -> None:
+    """Sandbox toggle is admin-tunable (it's a config flag, not a secret).
+    Accepts kwargs for back-compat with old callers — any other kwargs are
+    silently ignored (the legacy ``prod_key`` knob is gone; CAS keys now
+    live in GSM only)."""
     global _override_sandbox
-    if prod_key is not None:
-        _secrets.set_override("CASPARSER_API_KEY", prod_key.strip() or None)
     if use_sandbox is not None:
         _override_sandbox = bool(use_sandbox)
 
 
 def get_effective_config() -> Dict:
-    prod = _secrets.get("CASPARSER_API_KEY")
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
     pool = _get_pool()
     active_key = _active_key()
-    disk_count = len(_load_pool_from_disk())
-    db_count   = len(_load_pool_from_secret())
     return {
-        "prod_key_masked": _secrets.mask(prod),
-        "prod_key_configured": bool(prod),
         "use_sandbox": use_sb,
         "active_key_masked": _secrets.mask(active_key),
-        "source_override": "CASPARSER_API_KEY" in _secrets._cache or _override_sandbox is not None,
         "base_url": _base_url(),
         "pool_size": len(pool),
-        "pool_file": CASPARSER_KEYS_FILE,
-        "pool_from_file": disk_count,
-        "pool_from_db_secret": db_count,
+        "pool_source": "gsm",
+        "gsm_secret_name": _secret_name(),
+        "gsm_project": _gsm.project_id(),
     }
 
 
@@ -195,8 +153,9 @@ def _mask(s: Optional[str]) -> str:
 def _active_key() -> str:
     """Resolve the key to use for the next upstream call.
 
-    Order: sandbox toggle → pool head (rotating file) → single secret
-    (CASPARSER_API_KEY from DB/env) → sandbox key as last-resort.
+    Order: sandbox toggle → GSM-sourced pool head → sandbox key as
+    last-resort (so calls fail loudly with sandbox data rather than
+    sending an empty x-api-key header).
     """
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
     if use_sb:
@@ -204,9 +163,6 @@ def _active_key() -> str:
     pool = _get_pool()
     if pool:
         return pool[0]
-    prod = _secrets.get("CASPARSER_API_KEY")
-    if prod:
-        return prod
     return SANDBOX_KEY
 
 

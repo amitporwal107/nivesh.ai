@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { KeyRound, RefreshCw, Eye, EyeOff, FlaskConical, CheckCircle2, XCircle, Save, Sparkles, Server } from "lucide-react";
+import { KeyRound, RefreshCw, FlaskConical, CheckCircle2, XCircle, Sparkles, Server, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
@@ -13,9 +12,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const CasConfigSection = () => {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [newKey, setNewKey] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   // CAS parser provider switch (Claude Vision vs casparser.in API)
@@ -43,27 +41,17 @@ const CasConfigSection = () => {
     load();
   }, [load]);
 
-  const saveKey = async () => {
-    if (!newKey.trim()) {
-      toast.error("Enter a key first");
-      return;
-    }
-    setSaving(true);
+  const reloadPool = async () => {
+    setReloading(true);
     try {
-      const res = await axios.put(
-        `${API}/admin/cas-config`,
-        { prod_key: newKey.trim() },
-        { withCredentials: true }
-      );
+      const res = await axios.post(`${API}/admin/cas-config/reload`, {}, { withCredentials: true });
       setConfig(res.data.config);
-      setNewKey("");
       setTestResult(null);
-      toast.success("API key updated");
-      load();
+      toast.success(`Pool reloaded · ${res.data.pool_size} key(s) from GSM`);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Update failed");
+      toast.error(err.response?.data?.detail || "Reload failed");
     } finally {
-      setSaving(false);
+      setReloading(false);
     }
   };
 
@@ -177,10 +165,10 @@ const CasConfigSection = () => {
               </div>
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700">
                 <div className="text-[10px] font-bold tracking-[0.15em] uppercase text-slate-400 mb-1">
-                  Prod Key
+                  Pool Size
                 </div>
-                <div className="font-mono text-xs text-slate-900 dark:text-white" data-testid="cas-prod-key">
-                  {config.prod_key_configured ? config.prod_key_masked : "Not configured"}
+                <div className="font-mono text-xs text-slate-900 dark:text-white" data-testid="cas-pool-size">
+                  {config.pool_size ?? 0} key{config.pool_size === 1 ? "" : "s"}
                 </div>
               </div>
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700">
@@ -318,42 +306,36 @@ const CasConfigSection = () => {
               />
             </div>
 
-            {/* Update key */}
-            <div>
-              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                Update API Key
-              </Label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    data-testid="cas-key-input"
-                    type={showKey ? "text" : "password"}
-                    value={newKey}
-                    onChange={(e) => setNewKey(e.target.value)}
-                    placeholder="sk_live_..."
-                    className="pr-10 rounded-xl border-slate-200 dark:border-slate-700 font-mono text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                  >
-                    {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <Button
-                  data-testid="cas-key-save"
-                  onClick={saveKey}
-                  disabled={saving || !newKey.trim()}
-                  className="bg-teal-600 hover:bg-teal-700 text-white rounded-xl"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  {saving ? "Saving…" : "Save"}
-                </Button>
+            {/* GSM-managed key pool */}
+            <div className="rounded-xl border border-sky-200 dark:border-sky-900 bg-sky-50/50 dark:bg-sky-950/30 p-4" data-testid="cas-gsm-panel">
+              <div className="flex items-center gap-2 mb-2">
+                <Cloud className="w-4 h-4 text-sky-600" />
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  Key pool · managed in Google Secret Manager
+                </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                Paste a new key to override the env variable. Persists in DB across restarts.
+              <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">
+                Keys are no longer editable from this console. Publish a new version with:
               </p>
+              <pre className="text-[11px] bg-slate-900 text-slate-100 rounded-lg p-3 overflow-x-auto mb-3">
+                {`echo -n "<space-or-newline-separated keys>" \\\n  | gcloud secrets versions add ${config.gsm_secret_name || "casparser-api-keys-<env>"} \\\n      --data-file=- --project=${config.gsm_project || "niveshdataintelligence"}`}
+              </pre>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  data-testid="cas-reload-pool"
+                  onClick={reloadPool}
+                  disabled={reloading}
+                  size="sm"
+                  className="bg-sky-600 hover:bg-sky-700 text-white rounded-lg"
+                >
+                  {reloading ? <RefreshCw className="w-3.5 h-3.5 mr-2 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
+                  Reload pool from GSM
+                </Button>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Secret: <code className="font-mono">{config.gsm_secret_name || "—"}</code>{" "}
+                  · Project: <code className="font-mono">{config.gsm_project || "—"}</code>
+                </span>
+              </div>
             </div>
 
             {/* Test connection */}
@@ -402,12 +384,6 @@ const CasConfigSection = () => {
               )}
             </div>
 
-            {config.persisted_at && (
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-700">
-                Last updated: {new Date(config.persisted_at).toLocaleString("en-IN")}
-                {config.persisted_by && ` · by ${config.persisted_by}`}
-              </div>
-            )}
           </div>
         ) : (
           <div className="py-6 text-center text-sm text-red-500">Couldn't load config</div>

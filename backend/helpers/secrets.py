@@ -12,18 +12,10 @@ from typing import Dict, Optional, List
 
 
 KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
-    "CASPARSER_API_KEY": {
-        "display_name": "CAS Parser API Key",
-        "description": "Single CAS Parser API key — fallback when CASPARSER_API_KEYS (pool) is empty. Used for CAS PDF parsing + Connect widget.",
-        "test_fn": "cas_parser",
-        "category": "parsing",
-    },
-    "CASPARSER_API_KEYS": {
-        "display_name": "CAS Parser API Keys (rotating pool)",
-        "description": "CAS Parser keys separated by whitespace (space / tab / newline) or comma. Used as a rotating pool — when the active key returns 401/402/403 (expired or out of quota), it is retired and the next key takes over. Saves are hot-reloaded; no restart needed.",
-        "test_fn": None,
-        "category": "parsing",
-    },
+    # NOTE: CAS Parser API keys are intentionally NOT registered here.
+    # They live in Google Secret Manager only (secret name:
+    # `casparser-api-keys-{production|preview}`). The admin console must
+    # not edit them — see helpers/gsm.py and services/cas_api_client.py.
     "EMERGENT_LLM_KEY": {
         "display_name": "Emergent LLM Key",
         "description": "Universal key for all AI (insights, copilot, chat)",
