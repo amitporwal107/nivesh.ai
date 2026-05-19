@@ -174,26 +174,37 @@ $COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate up migrate
 
 ## 5. nidp-stack-vm — Deploy (Code Changes)
 
-### Option A: Quick sync from dev pod (fastest)
+Deploys pull from origin. `/opt/nidp/repo` is a real git checkout — there
+is no rsync path (the old `quick_deploy.sh` has been removed).
 
 ```bash
-# From the dev pod — rsyncs code directly, reloads cron
-bash /app/backend/nidp/deploy/vm/quick_deploy.sh <GCP_OWNER_TOKEN>
-
-# Or with env var
-GOOGLE_OAUTH_ACCESS_TOKEN=<token> \
-  bash /app/backend/nidp/deploy/vm/quick_deploy.sh
-```
-
-### Option B: Git pull on the VM
-
-```bash
-# SSH into VM first, then:
+# SSH into VM, then:
 sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh
 
 # Deploy a specific branch
-sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=main
+sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=nivesh-v2-backend-wip
+
+# Or remote-invoke from your laptop:
+gcloud compute ssh nidp-stack-vm --zone=asia-south1-a --command='\
+  sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=nivesh-v2-backend-wip'
 ```
+
+### One-time: convert an rsync'd /opt/nidp/repo into a git checkout
+
+Needed only on VMs provisioned before the rsync removal — turns the
+existing tree into a real git working copy without re-cloning.
+
+```bash
+sudo -u nidp bash -c '
+  cd /opt/nidp/repo &&
+  git init -q -b main &&
+  git remote add origin https://github.com/amitporwal107/nivesh.ai.git &&
+  git fetch --quiet origin main &&
+  git reset --hard origin/main
+'
+```
+
+After this, `deploy.sh --branch=<name>` works normally.
 
 ---
 

@@ -3,7 +3,7 @@
 # service on nidp-stack-vm.
 #
 # Idempotent: re-run any time to update the unit/env or the code
-# (after `quick_deploy.sh` rsyncs new code).
+# (after `deploy.sh` pulls latest from origin).
 #
 # Usage (run on the VM, NOT in the pod):
 #   sudo bash /opt/nidp/repo/backend/nidp/deploy/vm/install_query_api.sh

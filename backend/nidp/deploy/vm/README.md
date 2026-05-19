@@ -38,7 +38,7 @@ a small VM. Deploys are `git pull`. Rollbacks are `git checkout`.
 | `bootstrap.sh`        | One-shot VM provisioning (run on the VM as root, first boot)     |
 | `nidp.cron`           | Crontab with all 28 service schedules (drop into `/etc/cron.d/`) |
 | `run_service.sh`      | Wrapper invoked by cron — sets env, logs, records exit status    |
-| `deploy.sh`           | Pull latest code, install deps, restart cron (idempotent)        |
+| `deploy.sh`           | Pull latest code (git), install deps, restart cron (idempotent)  |
 | `rollback.sh`         | `git checkout <sha>` + restart                                   |
 | `health_check.sh`     | Scans `nidp.job_log` for stale services; alerts via Telegram     |
 | `nidp.env.example`    | Template env file (copy to `/opt/nidp/nidp.env`, fill secrets)   |
