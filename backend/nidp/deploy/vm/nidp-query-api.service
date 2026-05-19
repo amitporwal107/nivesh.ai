@@ -22,12 +22,16 @@ Environment=PYTHONUNBUFFERED=1
 # which reverse-proxies /query/* to 127.0.0.1:${NIDP_QUERY_API_PORT}.
 # Bearer-token auth in backend/nidp/services/query_api/auth.py still gates
 # every non-/health endpoint as defence-in-depth.
+# --root-path /query tells FastAPI it's mounted behind that prefix so the
+# OpenAPI spec's servers[] block + Swagger "Try it out" buttons hit the
+# correct external URL instead of the bare /catalog etc.
 ExecStart=/opt/nidp/venv/bin/python -m uvicorn \
     nidp.services.query_api.app:app \
     --host 127.0.0.1 \
     --port ${NIDP_QUERY_API_PORT} \
     --proxy-headers \
-    --forwarded-allow-ips=*
+    --forwarded-allow-ips=* \
+    --root-path /query
 
 Restart=on-failure
 RestartSec=5s
