@@ -187,16 +187,26 @@ export default function NiveshV2() {
   const fetchData = useCallback(async () => {
     setDataLoading(true);
     try {
-      const [h, a, i, p] = await Promise.all([
+      const [h, a, i, p, intel] = await Promise.all([
         axios.get(`${API}/portfolio/holdings`,  { withCredentials: true }),
         axios.get(`${API}/portfolio/analytics`, { withCredentials: true }),
         axios.get(`${API}/insights`,            { withCredentials: true }),
         axios.get(`${API}/portfolios`,          { withCredentials: true }),
+        // Pull the unified dashboard recommendations from the intelligence
+        // endpoint (orchestrator composes copilot tools — overlap, rebalance,
+        // tax harvest, risk suitability, weak MFs/stocks). Best-effort: if it
+        // fails (e.g. empty portfolio) we fall back to the legacy /insights
+        // array so the dashboard never goes blank.
+        axios.get(`${API}/intelligence/portfolio?narrate=true`, { withCredentials: true })
+          .catch(() => ({ data: { top_recommendations: [] } })),
       ]);
       setHoldings(h.data);
       setAnalytics(a.data);
-      setInsights(i.data);
       setPortfolios(p.data);
+      // Prefer top_recommendations (richer, real-time, multi-tool) when
+      // present; otherwise use the DB-cached /insights array.
+      const topRecs = intel?.data?.top_recommendations || [];
+      setInsights(topRecs.length > 0 ? topRecs : (i.data || []));
     } catch (err) {
       console.error("[V2] data fetch error:", err);
     } finally {
