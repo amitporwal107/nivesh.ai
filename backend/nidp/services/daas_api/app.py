@@ -150,6 +150,10 @@ app = FastAPI(
     license_info={"name": "Commercial — see Nivesh DaaS terms"},
     openapi_tags=_TAGS,
     lifespan=lifespan,
+    # Behind nginx at https://data.niveshcopilot.com/daas — also passed
+    # as --root-path /daas to uvicorn for ASGI scope. Setting it here
+    # makes app.root_path available to the custom openapi builder.
+    root_path=os.environ.get("ROOT_PATH", ""),
 )
 
 

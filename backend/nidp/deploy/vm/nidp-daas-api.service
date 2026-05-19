@@ -13,6 +13,7 @@ EnvironmentFile=/opt/nidp/nidp.env
 Environment=PORT=8083
 Environment=LOG_LEVEL=info
 Environment=PYTHONPATH=/opt/nidp/repo/backend
+Environment=ROOT_PATH=/daas
 ExecStart=/opt/nidp/venv/bin/uvicorn nidp.services.daas_api.app:app --host 127.0.0.1 --port 8083 --proxy-headers --forwarded-allow-ips '*' --root-path /daas
 Restart=on-failure
 RestartSec=5s
