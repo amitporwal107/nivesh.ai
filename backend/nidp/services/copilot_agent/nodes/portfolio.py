@@ -11,6 +11,7 @@ import os
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -28,7 +29,8 @@ Style:
 - If rebalance: show a table with Action | Fund | Amount
 - If stress test: show portfolio value before/after and % drop
 - If tax harvest: show Loss | Gain-offset | Est. tax saving
-- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
+""" + ANTI_HALLUCINATION_RULES
 
 
 async def _fetch_portfolio_data(state: CopilotState) -> list:
@@ -141,7 +143,7 @@ async def portfolio_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.1,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )

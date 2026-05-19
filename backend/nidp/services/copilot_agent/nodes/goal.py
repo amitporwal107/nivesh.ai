@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -30,7 +31,8 @@ Style:
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If no goal data is available, perform the calculation from the user's stated inputs.
-When SIP_PROJECTION data is present, quote its numbers verbatim — do not recompute."""
+When SIP_PROJECTION data is present, quote its numbers verbatim — do not recompute.
+""" + ANTI_HALLUCINATION_RULES
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -188,7 +190,7 @@ async def goal_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.15,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )

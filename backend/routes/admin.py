@@ -669,3 +669,93 @@ async def trigger_portfolio_gcs_export(request: Request):
     except Exception as exc:
         logger.error("portfolio GCS export failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/admin/nidp/full-portfolio-sync")
+async def trigger_full_portfolio_sync(request: Request):
+    """Run the full Nivesh → GCS → NIDP portfolio sync chain.
+
+    Stage 1 — Nivesh → GCS exporters (Mongo + PG → JSONL):
+      * portfolio_gcs_export.export_portfolio_to_gcs       (holdings)
+      * portfolio_gcs_export.export_cas_transactions_to_gcs (CAS txns)
+      * portfolio_gcs_export.export_user_goals_to_gcs       (goals)
+
+    Stage 2 — NIDP-side ingesters (GCS → TimescaleDB), via NIDP Query API:
+      * portfolio_holdings_sync
+      * portfolio_transactions_sync
+      * portfolio_goals_sync
+      * portfolio_intelligence_sync (joins all three + computes analytics)
+
+    Stage 2 is skipped (with a warning) if NIDP_QUERY_API_URL/TOKEN aren't
+    configured — useful when smoke-testing just the export side.
+
+    Optional body: {"date": "YYYY-MM-DD"} for the snapshot date label.
+    Admin only.
+    """
+    await require_admin(request)
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    target_date = None
+    if body.get("date"):
+        from datetime import date as _date
+        try:
+            target_date = _date.fromisoformat(body["date"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format, use YYYY-MM-DD")
+
+    from services.portfolio_gcs_export import (
+        export_portfolio_to_gcs,
+        export_cas_transactions_to_gcs,
+        export_user_goals_to_gcs,
+    )
+    from services import nidp_query_client as _nq
+
+    result: dict = {"status": "ok", "date": target_date.isoformat() if target_date else None,
+                    "gcs_exports": {}, "nidp_feeds": {}, "errors": []}
+
+    # ── Stage 1: Nivesh → GCS ─────────────────────────────────────────
+    for name, fn in (
+        ("holdings",     export_portfolio_to_gcs),
+        ("transactions", export_cas_transactions_to_gcs),
+        ("goals",        export_user_goals_to_gcs),
+    ):
+        try:
+            res = await fn(db, target_date=target_date)
+            result["gcs_exports"][name] = res
+            logger.info("full-portfolio-sync: %s export → %s", name, res)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("full-portfolio-sync: %s export failed: %s", name, exc, exc_info=True)
+            result["gcs_exports"][name] = {"error": str(exc)}
+            result["errors"].append(f"export:{name}: {exc}")
+
+    # ── Stage 2: GCS → NIDP TimescaleDB (only if Query API wired) ────
+    if not _nq.is_configured():
+        result["nidp_feeds"]["skipped_reason"] = (
+            "NIDP_QUERY_API_URL/TOKEN not configured — Stage 2 skipped"
+        )
+        logger.warning("full-portfolio-sync: NIDP Query API not configured, skipping NIDP-side triggers")
+    else:
+        date_param = target_date.isoformat() if target_date else None
+        # Order is load-bearing — intelligence sync joins the other three.
+        for ingester in (
+            "portfolio_holdings_sync",
+            "portfolio_transactions_sync",
+            "portfolio_goals_sync",
+            "portfolio_intelligence_sync",
+        ):
+            try:
+                resp = await _nq.execute_feed(ingester, target_date=date_param)
+                result["nidp_feeds"][ingester] = {"ok": True, **resp}
+                logger.info("full-portfolio-sync: spawned %s on VM (date=%s)", ingester, date_param or "default")
+            except _nq.NidpQueryClientError as exc:
+                logger.error("full-portfolio-sync: %s execute failed: %s", ingester, exc.detail)
+                result["nidp_feeds"][ingester] = {"ok": False, "error": exc.detail, "status": exc.status}
+                result["errors"].append(f"feed:{ingester}: {exc.detail}")
+
+    if result["errors"]:
+        result["status"] = "partial"
+    return result

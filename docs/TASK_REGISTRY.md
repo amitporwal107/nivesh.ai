@@ -470,6 +470,30 @@ The persona catalog references five tools that don't exist yet — the catalog r
 ### TASK-086 — FE persona-key map (P1.5 polish) 🔨 BUILD
 `detectPersona()` in `V2CopilotWelcome.jsx` returns keys like `mf_investor` / `trader` / `new_investor` that don't 1:1 match `PersonaType.value`. Add a small FE→backend map so heuristic personas (post-CAS-upload, pre persona_engine write) can drive the catalog immediately. Backend currently reads `user_profiles.persona` authoritatively, so this only matters for the moment between CAS-upload and persona-engine completion.
 
+### TASK-087 — Market Dashboard polish + positional engine scheduling + health diagnostics ✅ DONE
+**Branch**: `docs/persona-task-registry` (to be merged into `main`)
+
+Three issues reported on `/dashboard#market`: (a) translucent card backgrounds clashed with the rest of the app's opaque slate-800 cards, (b) Positional Picks stayed empty even after admin clicked **Run engine**, (c) no automated daily refresh after NIDP feeds completed.
+
+Fixes shipped:
+- **Color scheme** — `MarketDashboard.jsx` section bg `bg-white/60 dark:bg-slate-800/60` → `bg-white dark:bg-slate-800`; sticky nav `bg-white/85 dark:bg-slate-950/85` → `bg-[#F8FAFC] dark:bg-slate-950`. `MarketTodaysTake.jsx` sticky strip same fix. Removes the see-through "MACRO V1" look.
+- **Positional engine cron** — engine had **no scheduled runs**; the only trigger was the admin **Run engine** button. New `scripts/run_positional_engine.py` (standalone runner, no FastAPI/auth) + `deploy/nivesh-app/positional-engine.cron` (06:00 IST Mon–Sat re-score, 20:00 IST Mon–Fri full run with fresh NSE bhavcopy) + idempotent `install-positional-engine.sh` (mirrors `install-error-triage.sh`).
+- **"Run engine returned nothing" debugging** — root cause: when the run fires before NSE publishes bhavcopy (18:00–19:30 IST), today's OHLCV row count is 0, `universe_for(today)` returns `[]`, pipeline reports `empty_universe`, UI shows a generic warning. Fixed by:
+  - `POST /api/positional/run-full` walks back up to 3 weekdays when today's bhavcopy is missing (unless caller pinned a date); returns `fallback_used` + per-attempt details.
+  - New `GET /api/positional/health` returns freshness/row-count for `stock_ohlcv` / `chartink_scan_hits` / `stock_technical_features` / `positional_signals` + scan-config status.
+  - `PositionalPicks.jsx` empty state now embeds `EngineHealthPanel` showing the 4 tables' freshness — admins can see at a glance which table is stale.
+- **NIDP feed health audit** — new `scripts/check_nidp_feed_health.py` calls the existing NIDP Query API `/feeds` proxy and flags `never-succeeded` / `last_run_failed` / `stale (Nd > Td)` / `consec_fail≥3`. Exit code 2 if anything's flagged (cron-friendly).
+
+**Deferred (per user direction)**: auto-refresh of dashboard widgets after NIDP feed completion — current polling cadence (60s during market hours, 5 min after) is sufficient until SSE / WebSocket layer is added.
+
+**Files touched**:
+- Frontend: `frontend/src/components/MarketDashboard.jsx`, `MarketTodaysTake.jsx`, `PositionalPicks.jsx`
+- Backend: `backend/routes/positional.py` (new `/health` endpoint, `run-full` weekday fallback)
+- New scripts: `backend/scripts/run_positional_engine.py`, `backend/scripts/check_nidp_feed_health.py`
+- New cron + installer: `deploy/nivesh-app/positional-engine.cron`, `install-positional-engine.sh`
+
+**Deployment**: `sudo bash /opt/nivesh/repo/deploy/nivesh-app/install-positional-engine.sh` on `nivesh-app-vm`, then redeploy frontend container.
+
 ---
 
 ## Execution Order (next up)
@@ -487,6 +511,7 @@ DONE:  TASK-069         — FY 2025-26 capital gains engine wired into portfolio
 DONE:  TASK-058         — end-to-end agent tests, 21/21 passing across all 7 agent types
 DONE:  TASK-070–076     — Copilot chat UX + dashboard recommendations orchestrator (May 2026)
 DONE:  TASK-083         — Persona-aware Copilot pipeline + 5-category prompt taxonomy (P1, May 2026)
+DONE:  TASK-087         — Market Dashboard polish + positional engine cron + NIDP/positional health diagnostics (May 2026)
 
 NOW:   TASK-077         — remove transitional LEADING_ROUTE_JSON guard (post-deploy cleanup)
 NOW:   TASK-078         — stock-investor sector-peer comparison widget

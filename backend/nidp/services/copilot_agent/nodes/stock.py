@@ -12,6 +12,7 @@ import sys
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -32,9 +33,9 @@ Style:
 - Section: **Verdict** — BULLISH / BEARISH / NEUTRAL with one key reason
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
-Never fabricate figures. If a metric is missing, say "data unavailable".
 If asked about price targets, analyst estimates or future guidance, say plainly
-that we do not have analyst feeds — only historical exchange filings."""
+that we do not have analyst feeds — only historical exchange filings.
+""" + ANTI_HALLUCINATION_RULES
 
 
 async def _fetch_stock_data(symbol: str) -> list:
@@ -131,7 +132,7 @@ async def stock_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.1,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )

@@ -588,17 +588,49 @@ async def admin_run_full(request: Request,
     Each step is best-effort and reported separately so a partial failure
     (e.g. NSE archive blocked but Chartink works) doesn't kill the run.
     Used by the 'Run engine' button on the Portfolio page.
+
+    Fallback: if today's bhavcopy isn't published yet (NSE drops it
+    18:00–19:30 IST) AND the caller didn't pin a date, we step back one
+    weekday at a time (up to 3 days) so the universe isn't empty when an
+    admin clicks "Run engine" pre-19:30 IST.
     """
     await require_admin(request)
+    explicit_date = date is not None
     run_date = _parse_date(date) or datetime.utcnow().date()
-    out = {"date": str(run_date), "steps": {}}
+    out: dict = {"date": str(run_date), "steps": {}, "fallback_used": False}
 
     if fetch_bhavcopy:
-        try:
-            n = await bhavcopy_ingester.ingest_for_date(run_date)
-            out["steps"]["bhavcopy"] = {"ok": n > 0, "rows_written": n}
-        except Exception as e:  # noqa: BLE001
-            out["steps"]["bhavcopy"] = {"ok": False, "error": str(e)[:200]}
+        attempts: list = []
+        candidate = run_date
+        n = 0
+        last_err: Optional[str] = None
+        # Try requested date first; if 0 rows AND we weren't pinned to a
+        # specific date, walk back to find the most recent published file.
+        for _ in range(4):
+            try:
+                n = await bhavcopy_ingester.ingest_for_date(candidate)
+                attempts.append({"date": str(candidate), "rows": n})
+                if n > 0 or explicit_date:
+                    break
+            except Exception as e:  # noqa: BLE001
+                last_err = str(e)[:200]
+                attempts.append({"date": str(candidate), "error": last_err})
+                if explicit_date:
+                    break
+            # Step back a weekday
+            candidate -= timedelta(days=1)
+            while candidate.weekday() >= 5:  # Sat=5, Sun=6
+                candidate -= timedelta(days=1)
+        if n > 0 and candidate != run_date:
+            out["fallback_used"] = True
+            out["date"] = str(candidate)
+            run_date = candidate
+        out["steps"]["bhavcopy"] = {
+            "ok": n > 0,
+            "rows_written": n,
+            "attempts": attempts,
+            **({"error": last_err} if last_err and n == 0 else {}),
+        }
 
     if fetch_scans:
         try:
@@ -628,6 +660,51 @@ async def admin_run_full(request: Request,
         out["steps"]["pipeline"] = {"ok": False, "error": str(e)[:200]}
 
     out["ok"] = out["steps"].get("pipeline", {}).get("ok", False)
+    return out
+
+
+@router.get("/health")
+async def positional_health(request: Request):
+    """Diagnostic snapshot for the positional engine. Auth-only (so the
+    UI's empty state can render actionable hints) but no admin gate —
+    every signed-in user can see whether the engine has been fed today.
+
+    Returns the freshness + row counts for each of the three tables the
+    engine depends on, plus the scan config status. Drives the diagnostic
+    panel that replaces the bare "No picks yet" empty state."""
+    await get_current_user(request)
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool"}
+    out: dict = {"ok": True, "as_of": datetime.utcnow().isoformat()}
+    queries = {
+        "ohlcv":    "SELECT MAX(bar_date) AS d, COUNT(*) AS n FROM stock_ohlcv",
+        "chartink": "SELECT MAX(scan_date) AS d, COUNT(*) AS n FROM chartink_scan_hits",
+        "features": "SELECT MAX(as_of_date) AS d, COUNT(*) AS n FROM stock_technical_features",
+        "signals":  "SELECT MAX(signal_date) AS d, COUNT(*) AS n FROM positional_signals",
+    }
+    today = datetime.utcnow().date()
+    async with pool.acquire() as conn:
+        for key, sql in queries.items():
+            try:
+                row = await conn.fetchrow(sql)
+                d = row["d"] if row else None
+                stale_days = (today - d).days if d else None
+                out[key] = {
+                    "latest_date": str(d) if d else None,
+                    "row_count":   int(row["n"]) if row else 0,
+                    "stale_days":  stale_days,
+                }
+            except Exception as e:  # noqa: BLE001
+                out[key] = {"error": str(e)[:200]}
+    try:
+        scans = await scan_config.load(db)
+        out["scan_config"] = {
+            "count":   len(scans),
+            "enabled": sum(1 for s in scans if s.get("enabled")),
+        }
+    except Exception as e:  # noqa: BLE001
+        out["scan_config"] = {"error": str(e)[:200]}
     return out
 
 

@@ -12,6 +12,7 @@ import os
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -44,8 +45,7 @@ Style:
 - Overlap % between funds if user asked about overlap
 - Top-3 recommendation table if user asked for best funds
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
-
-Never fabricate NAV, return, rank, or holding figures."""
+""" + ANTI_HALLUCINATION_RULES
 
 
 async def _fetch_mf_intelligence(scheme_code: str) -> list[ToolResult]:
@@ -184,7 +184,7 @@ async def mf_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.1,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
