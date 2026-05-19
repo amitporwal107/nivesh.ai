@@ -49,7 +49,9 @@ if [[ -d "$REPO_DIR/.git" ]]; then
 else
     git clone --depth=50 --branch="$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
 fi
-chown -R nivesh:nivesh "$REPO_DIR"
+if id -u nivesh &>/dev/null; then
+    chown -R nivesh:nivesh "$REPO_DIR"
+fi
 
 NEW_REQ_HASH=$(git -C "$REPO_DIR" rev-parse HEAD:backend/requirements.txt 2>/dev/null || echo "")
 NEW_FRONTEND_HASH=$(git -C "$REPO_DIR" rev-parse HEAD:frontend/src 2>/dev/null || echo "")
