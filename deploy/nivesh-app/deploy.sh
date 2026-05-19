@@ -70,11 +70,17 @@ else
 fi
 
 # ── 4. Build frontend image only if frontend source changed ──────────────────
+# The frontend bundle bakes REACT_APP_BACKEND_URL at build time. We pin
+# the canonical production hostname here so the SDK widget's token mint
+# and other XHRs work from https://niveshcopilot.com without mixed-content
+# (HTTP nip.io URL from HTTPS page) or CORS errors. Override with
+# `PUBLIC_BACKEND_URL=...` in the env if a different domain is needed.
+PUBLIC_BACKEND_URL="${PUBLIC_BACKEND_URL:-https://niveshcopilot.com}"
 if [[ "$PREV_FRONTEND_HASH" != "$NEW_FRONTEND_HASH" ]] || ! docker image inspect nivesh/frontend:prod &>/dev/null; then
-    log "Frontend source changed (or image missing) — rebuilding frontend image..."
+    log "Frontend source changed (or image missing) — rebuilding frontend image with backend URL: $PUBLIC_BACKEND_URL"
     docker build \
         -f "$REPO_DIR/deploy/nivesh-app/Dockerfile.frontend.prod" \
-        --build-arg REACT_APP_BACKEND_URL="http://$EXTERNAL_IP.nip.io" \
+        --build-arg REACT_APP_BACKEND_URL="$PUBLIC_BACKEND_URL" \
         -t nivesh/frontend:prod \
         "$REPO_DIR"
     ok "Frontend image rebuilt."
