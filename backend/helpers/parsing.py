@@ -198,7 +198,8 @@ def _normalize_casparser_folios(cas_data: dict) -> dict:
 # the Connect SDK widget (`CasUploadButton.jsx` → `@cas-parser/connect`):
 #
 #   1. Browser asks /api/casparser/access-token for a short-lived `at_*`
-#      token (backend mints it from CASPARSER_API_KEY).
+#      token (backend mints it using the current head of the GSM-sourced
+#      key pool — see services/cas_api_client.py).
 #   2. The SDK widget opens, the client uploads the PDF (or pulls from
 #      Gmail / does CDSL OTP) — all in their browser.
 #   3. The widget parses the PDF directly against casparser.in (no

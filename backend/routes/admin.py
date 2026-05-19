@@ -266,17 +266,30 @@ async def get_cas_config(request: Request):
 
 @router.put("/admin/cas-config")
 async def update_cas_config(request: Request):
-    """Persist CAS Parser key + sandbox toggle (routes through unified secrets)."""
+    """Persist the sandbox toggle.
+
+    NOTE: CAS Parser API keys are no longer editable here — they live in
+    Google Secret Manager only (secret: `casparser-api-keys-{env}`).
+    Passing `prod_key` returns a 410 so callers know to retire that path.
+    """
     user = await require_admin(request)
     body = await request.json()
-    prod_key = body.get("prod_key")
     use_sandbox = body.get("use_sandbox")
 
-    from services import cas_api_client
-    from helpers import secrets as _secrets
+    if body.get("prod_key") is not None:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "CAS Parser API keys have moved to Google Secret Manager. "
+                "Publish a new version with: "
+                "`gcloud secrets versions add casparser-api-keys-<env> "
+                "--data-file=- --project=niveshdataintelligence`, then "
+                "POST /api/admin/cas-config/reload to pick it up."
+            ),
+        )
 
-    if prod_key is not None:
-        await _secrets.persist_to_db(db, "CASPARSER_API_KEY", prod_key.strip() or None, updated_by=user.get("email", ""))
+    from services import cas_api_client
+
     if use_sandbox is not None:
         cas_api_client.set_override(use_sandbox=bool(use_sandbox))
         # also track sandbox toggle in system_config.cas so it survives restart
@@ -288,6 +301,16 @@ async def update_cas_config(request: Request):
             upsert=True,
         )
     return {"status": "ok", "config": cas_api_client.get_effective_config()}
+
+
+@router.post("/admin/cas-config/reload")
+async def reload_cas_key_pool(request: Request):
+    """Re-read the CAS key pool from Google Secret Manager. Use after
+    `gcloud secrets versions add casparser-api-keys-<env> ...`."""
+    await require_admin(request)
+    from services import cas_api_client
+    new_size = cas_api_client.reload_pool()
+    return {"ok": True, "pool_size": new_size, "config": cas_api_client.get_effective_config()}
 
 
 @router.post("/admin/cas-config/test")
@@ -377,10 +400,6 @@ async def upsert_secret(key: str, request: Request, env: str = ""):
         updated_by=user.get("email", ""),
         env=target_env,
     )
-    # Refresh side-caches that depend on this secret in the CURRENT env.
-    if target_env == _secrets.current_env() and key == "CASPARSER_API_KEYS":
-        from services import cas_api_client
-        cas_api_client.reload_pool()
     return {
         "status": "ok", "key": key,
         "masked_value": _secrets.mask(value.strip()),
@@ -399,9 +418,6 @@ async def delete_secret(key: str, request: Request, env: str = ""):
         updated_by=user.get("email", ""),
         env=target_env,
     )
-    if target_env == _secrets.current_env() and key == "CASPARSER_API_KEYS":
-        from services import cas_api_client
-        cas_api_client.reload_pool()
     return {
         "status": "ok", "key": key, "deleted": True,
         "env": "production" if target_env == "production" else "preview",
