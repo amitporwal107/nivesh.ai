@@ -255,7 +255,7 @@ async def get_v3_mf_primitives_bulk(
         return {}
     try:
         payload = await _post(
-            "/mf/v3-primitives/bulk",
+            "/mf/performance/v3-primitives/bulk",
             {"instrument_ids": instrument_ids},
             timeout=timeout,
         )
