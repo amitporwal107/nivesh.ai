@@ -255,10 +255,15 @@ def derive_portfolio_alerts(
     risk_profile_portfolio: str,
     unscored_equity_count: int = 0,
     total_equity_count: int = 0,
+    unscored_equity_holdings: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Build a 0-N list of actionable top-of-page alerts."""
     alerts: List[Dict[str, Any]] = []
     # Allocation drift
+    # `bucket` and `direction` are surfaced to the frontend so CTAs can route
+    # to the right action (suggest funds for the missing bucket, or filter the
+    # table to the overexposed bucket) instead of the prior generic "Show
+    # biggest positions" which sorted the whole table by value.
     for bucket, ideal_pct in ideal.items():
         actual = alloc.get(bucket, 0.0)
         drift = actual - ideal_pct
@@ -268,6 +273,10 @@ def derive_portfolio_alerts(
                 "title": f"Overexposed to {bucket.capitalize()}",
                 "detail": f"{actual:.0f}% in {bucket} vs recommended {ideal_pct:.0f}%.",
                 "component": "allocation",
+                "bucket": bucket,
+                "direction": "overweight",
+                "actual_pct": round(actual, 1),
+                "recommended_pct": round(ideal_pct, 1),
             })
         elif drift <= -15:
             alerts.append({
@@ -275,6 +284,10 @@ def derive_portfolio_alerts(
                 "title": f"Underweight {bucket.capitalize()}",
                 "detail": f"{actual:.0f}% vs recommended {ideal_pct:.0f}% — consider rebalancing.",
                 "component": "allocation",
+                "bucket": bucket,
+                "direction": "underweight",
+                "actual_pct": round(actual, 1),
+                "recommended_pct": round(ideal_pct, 1),
             })
     # Risk misalignment
     order = {"conservative": 1, "moderate": 2, "aggressive": 3}
@@ -287,16 +300,21 @@ def derive_portfolio_alerts(
             "component": "risk_alignment",
         })
     # Top risk drivers from Portfolio Health
+    # Forward action_hint so per-driver CTAs (e.g. allocation drift → Plan Board)
+    # don't get collapsed to the generic component-based CTA on the frontend.
     for rd in (health_payload or {}).get("risk_drivers", [])[:3]:
-        alerts.append({
+        alert = {
             "severity": "info",
             "title": rd.get("label") or "Risk driver",
             "detail": rd.get("detail") or "",
             "component": rd.get("component") or "health",
-        })
+        }
+        if rd.get("action_hint"):
+            alert["action_hint"] = rd["action_hint"]
+        alerts.append(alert)
     # Unscored fundamentals
     if unscored_equity_count > 0 and total_equity_count > 0:
-        alerts.append({
+        alert = {
             "severity": "info",
             "title": f"{unscored_equity_count} stocks not yet scored",
             "detail": (
@@ -305,7 +323,13 @@ def derive_portfolio_alerts(
             ),
             "component": "data_coverage",
             "action_hint": "refresh_stock_fundamentals",
-        })
+        }
+        # Surface the actual symbols so the UI can render them inline (capped
+        # at 20 to keep payloads bounded; user with hundreds of unscored stocks
+        # would hit pathological renders otherwise).
+        if unscored_equity_holdings:
+            alert["unscored_symbols"] = unscored_equity_holdings[:20]
+        alerts.append(alert)
     return alerts
 
 
@@ -608,6 +632,9 @@ async def build_enriched_portfolio(
     total_equities = 0
     scored_mfs = 0
     total_mfs = 0
+    # Collected so the data_coverage alert can show *which* stocks are unscored,
+    # not just the count. Each entry: {symbol, name, value_rs}.
+    unscored_equity_holdings: List[Dict[str, Any]] = []
     for h in holdings:
         at = (h.get("asset_type") or "").lower()
         qty = float(h.get("quantity") or 0)
@@ -657,6 +684,14 @@ async def build_enriched_portfolio(
                 rec = s["recommendation"]
                 rec_reason = s["recommendation_reason"]
                 ret_1y_ext = s.get("return_1y_pct")
+            else:
+                # Surface to the data_coverage alert so the user can see *which*
+                # stocks lack fundamentals instead of just a count.
+                unscored_equity_holdings.append({
+                    "symbol": sym or (h.get("ticker") or ""),
+                    "name": h.get("name", ""),
+                    "value_rs": round(val, 2),
+                })
             morningstar_rating = s.get("morningstar_rating") if s else None
             category_rank = None
             category_rank_total = None
@@ -1070,12 +1105,16 @@ async def build_enriched_portfolio(
             weighted_den += v
     port_xirr_pct = round(weighted_num / weighted_den, 2) if weighted_den > 0 else None
 
+    # Sort unscored by largest value first so the UI surfaces the highest-impact
+    # holdings at the top of the expandable list.
+    unscored_equity_holdings.sort(key=lambda x: x.get("value_rs") or 0, reverse=True)
     alerts = derive_portfolio_alerts(
         health_payload=health_payload,
         alloc=alloc, ideal=ideal_alloc,
         risk_profile_user=risk_user, risk_profile_portfolio=risk_port,
         unscored_equity_count=(total_equities - scored_equities),
         total_equity_count=total_equities,
+        unscored_equity_holdings=unscored_equity_holdings,
     )
 
     # Coverage: scored (equities + MFs) / (equities + MFs). ETFs count towards MFs.

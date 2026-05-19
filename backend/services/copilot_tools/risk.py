@@ -118,40 +118,72 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
     - Weighted portfolio beta (using volatility_20d as beta proxy for MFs)
     Returns a risk rating (LOW/MEDIUM/HIGH/VERY HIGH) and misalignment list.
     """
-    try:
-        holdings = await _load_holdings(user_id)
-    except Exception as exc:
-        return RiskResult(ok=False, summary="Could not load holdings", error=str(exc))
-
-    if not holdings:
-        return RiskResult(ok=False, summary="No holdings found for risk assessment", error="no_holdings")
-
     profile = await _load_user_risk_profile(user_id)
     category = profile.get("category", "moderate")
     bounds = _PROFILE_BOUNDS.get(category, _PROFILE_BOUNDS["moderate"])
+
+    try:
+        holdings = await _load_holdings(user_id)
+    except Exception as exc:
+        logger.warning("risk_suitability: holdings load failed for %s: %s", user_id, exc)
+        return RiskResult(
+            ok=False,
+            summary="Could not load holdings",
+            user_profile_category=category,
+            data={
+                "equity_pct": 0.0, "small_mid_pct": 0.0, "portfolio_beta": None,
+                "total_portfolio_value": 0.0, "holdings_count": 0,
+                "data_state": "load_error",
+            },
+            error=str(exc),
+        )
+
+    if not holdings:
+        return RiskResult(
+            ok=False,
+            summary="No holdings found for risk assessment",
+            user_profile_category=category,
+            data={
+                "equity_pct": 0.0, "small_mid_pct": 0.0, "portfolio_beta": None,
+                "total_portfolio_value": 0.0, "holdings_count": 0,
+                "data_state": "no_holdings",
+            },
+            error="no_holdings",
+        )
 
     # ── Compute portfolio-level metrics from holdings ─────────────────────────
     total_value = 0.0
     equity_value = 0.0
     small_mid_value = 0.0
     sector_buckets: Dict[str, float] = {}
+    holdings_with_price = 0
+    holdings_skipped = 0
 
     rows: List[Dict[str, Any]] = []
 
     for h in holdings:
-        price = float(h.get("current_price") or h.get("buy_price") or 0)
-        qty = float(h.get("quantity") or 0)
-        value = price * qty
+        try:
+            price = float(h.get("current_price") or h.get("buy_price") or 0)
+            qty = float(h.get("quantity") or 0)
+            value = price * qty
+        except (TypeError, ValueError):
+            holdings_skipped += 1
+            continue
         total_value += value
+        if value > 0:
+            holdings_with_price += 1
 
         asset_type = str(h.get("asset_type", "")).upper()
         sector = h.get("sector") or "Other"
         eq_pct = h.get("equity_allocation_pct")  # for MFs
 
         # Classify as equity
-        is_equity = asset_type in ("STOCK", "ETF") or (
-            asset_type == "MF" and eq_pct is not None and float(eq_pct) >= 65.0
-        )
+        try:
+            is_equity = asset_type in ("STOCK", "ETF", "EQUITY") or (
+                asset_type in ("MF", "MUTUAL_FUND") and eq_pct is not None and float(eq_pct) >= 65.0
+            )
+        except (TypeError, ValueError):
+            is_equity = asset_type in ("STOCK", "ETF", "EQUITY")
         if is_equity:
             equity_value += value
 
@@ -162,7 +194,7 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
             small_mid_value += value
 
         # Sector concentration
-        if asset_type == "STOCK":
+        if asset_type in ("STOCK", "EQUITY"):
             bucket = sector_buckets.setdefault(sector, 0.0)
             sector_buckets[sector] = bucket + value
 
@@ -172,6 +204,25 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
             "value": round(value, 2),
             "equity": is_equity,
         })
+
+    # If all holdings had bad data, surface a meaningful partial response
+    if total_value <= 0:
+        logger.warning(
+            "risk_suitability: %d holdings but total_value=0 (skipped=%d) for %s",
+            len(holdings), holdings_skipped, user_id,
+        )
+        return RiskResult(
+            ok=False,
+            summary=f"Holdings have no price data ({len(holdings)} found, 0 priced)",
+            user_profile_category=category,
+            data={
+                "equity_pct": 0.0, "small_mid_pct": 0.0, "portfolio_beta": None,
+                "total_portfolio_value": 0.0, "holdings_count": len(holdings),
+                "holdings_skipped": holdings_skipped,
+                "data_state": "no_prices",
+            },
+            error="zero_value",
+        )
 
     equity_pct = (equity_value / total_value * 100) if total_value > 0 else 0.0
     small_mid_pct = (small_mid_value / total_value * 100) if total_value > 0 else 0.0
@@ -185,14 +236,16 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
     stock_symbols = [
         h.get("symbol") or h.get("name", "")
         for h in holdings
-        if str(h.get("asset_type", "")).upper() == "STOCK" and h.get("symbol")
+        if str(h.get("asset_type", "")).upper() in ("STOCK", "EQUITY") and h.get("symbol")
     ]
     vol_map: Dict[str, Optional[float]] = {}
+    vol_fetch_ok = True
     if stock_symbols:
         try:
             vol_map = await _fetch_volatilities(stock_symbols)
-        except Exception:
-            pass
+        except Exception as exc:
+            vol_fetch_ok = False
+            logger.warning("risk_suitability: DAAS vol fetch failed for %s: %s", user_id, exc)
 
     # Weighted average beta (daily vol × 252^0.5 / 0.16 as market proxy)
     weighted_beta_num = 0.0
@@ -268,6 +321,18 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
         + (f"{len(misalignment)} misalignment(s) detected." if misalignment else "Portfolio aligned with risk profile.")
     )
 
+    # Surface partial-data state so the frontend can render "computing" rather
+    # than blanks. "ok" stays True because allocation %/rating are still valid;
+    # beta will simply be null when DAAS is down or no stocks held.
+    if not stock_symbols:
+        beta_state = "no_stocks"
+    elif not vol_fetch_ok or all(v is None for v in vol_map.values()):
+        beta_state = "vol_unavailable"
+    elif any(v is None for v in vol_map.values()):
+        beta_state = "partial"
+    else:
+        beta_state = "complete"
+
     return RiskResult(
         ok=True,
         summary=summary,
@@ -282,10 +347,13 @@ async def get_risk_suitability(user_id: str) -> RiskResult:
             "top_sector": top_sector,
             "top_sector_pct": round(top_sector_pct, 1),
             "total_portfolio_value": round(total_value, 2),
+            "holdings_count": len(holdings),
+            "holdings_with_price": holdings_with_price,
             "user_profile_score": profile.get("score", 50),
             "loss_tolerance_pct": profile.get("loss_tolerance_pct", 15.0),
             "horizon_years": profile.get("horizon_years", 5),
             "misalignment_count": len(misalignment),
+            "data_state": "complete" if beta_state == "complete" else beta_state,
         },
         rows=rows,
         error=None,
@@ -310,25 +378,44 @@ async def get_portfolio_var(
     Returns VaR at the requested confidence level plus 10-day VaR at both
     95% and 99% in the data dict.
     """
+    _empty_var_data = {
+        "var_1d_95_rs": 0.0, "var_1d_99_rs": 0.0,
+        "var_10d_95_rs": 0.0, "var_10d_99_rs": 0.0,
+        "portfolio_daily_vol": 0.0, "portfolio_annual_vol_pct": 0.0,
+        "total_portfolio_value_rs": 0.0, "confidence_level": confidence,
+        "positions_with_vol_data": 0,
+    }
+
     try:
         holdings = await _load_holdings(user_id)
     except Exception as exc:
-        return RiskResult(ok=False, summary="Could not load holdings for VaR", error=str(exc))
+        logger.warning("portfolio_var: holdings load failed for %s: %s", user_id, exc)
+        return RiskResult(
+            ok=False, summary="Could not load holdings for VaR",
+            data={**_empty_var_data, "data_state": "load_error"},
+            error=str(exc),
+        )
 
     if not holdings:
-        return RiskResult(ok=False, summary="No holdings found for VaR", error="no_holdings")
+        return RiskResult(
+            ok=False, summary="No holdings found for VaR",
+            data={**_empty_var_data, "data_state": "no_holdings"},
+            error="no_holdings",
+        )
 
     # ── Fetch volatilities for stock/ETF holdings ─────────────────────────────
     stock_holdings = [
         h for h in holdings
-        if str(h.get("asset_type", "")).upper() in ("STOCK", "ETF") and h.get("symbol")
+        if str(h.get("asset_type", "")).upper() in ("STOCK", "ETF", "EQUITY") and h.get("symbol")
     ]
     symbols = [h["symbol"] for h in stock_holdings]
     vol_map: Dict[str, Optional[float]] = {}
+    vol_fetch_ok = True
     if symbols:
         try:
             vol_map = await _fetch_volatilities(symbols)
         except Exception as exc:
+            vol_fetch_ok = False
             logger.warning("VaR: could not fetch volatilities: %s", exc)
 
     # ── Build position-level vol × weight ─────────────────────────────────────
@@ -336,26 +423,35 @@ async def get_portfolio_var(
     position_rows: List[Dict[str, Any]] = []
 
     for h in holdings:
-        price = float(h.get("current_price") or h.get("buy_price") or 0)
-        qty = float(h.get("quantity") or 0)
-        value = price * qty
+        try:
+            price = float(h.get("current_price") or h.get("buy_price") or 0)
+            qty = float(h.get("quantity") or 0)
+            value = price * qty
+        except (TypeError, ValueError):
+            continue
         total_value += value
 
         asset_type = str(h.get("asset_type", "")).upper()
         sym = h.get("symbol")
 
-        if asset_type in ("STOCK", "ETF") and sym and sym in vol_map and vol_map[sym] is not None:
+        if asset_type in ("STOCK", "ETF", "EQUITY") and sym and sym in vol_map and vol_map[sym] is not None:
             daily_vol = float(vol_map[sym])
-        elif asset_type == "MF":
-            eq_pct = float(h.get("equity_allocation_pct") or 0.0) / 100.0
+        elif asset_type in ("MF", "MUTUAL_FUND"):
+            try:
+                eq_pct = float(h.get("equity_allocation_pct") or 0.0) / 100.0
+            except (TypeError, ValueError):
+                eq_pct = 0.65  # generic equity-MF default
             # Blend: equity daily vol ≈ 18%/√252, debt daily vol ≈ 4%/√252
             daily_vol = eq_pct * (0.18 / math.sqrt(252)) + (1 - eq_pct) * (0.04 / math.sqrt(252))
         elif asset_type in ("BOND", "DEBT"):
             daily_vol = 0.04 / math.sqrt(252)
         elif asset_type == "GOLD":
             daily_vol = 0.10 / math.sqrt(252)
+        elif asset_type in ("STOCK", "ETF", "EQUITY"):
+            # Stock with no DAAS volatility data — fall back to broad-market proxy
+            daily_vol = 0.18 / math.sqrt(252)
         else:
-            # Fallback: moderate equity assumption
+            # Unknown asset class — moderate equity assumption (preserves prior behaviour)
             daily_vol = 0.15 / math.sqrt(252)
 
         position_rows.append({
@@ -366,7 +462,17 @@ async def get_portfolio_var(
         })
 
     if total_value == 0:
-        return RiskResult(ok=False, summary="Holdings have zero value", error="zero_value")
+        logger.warning(
+            "portfolio_var: %d holdings but total_value=0 for %s",
+            len(holdings), user_id,
+        )
+        return RiskResult(
+            ok=False,
+            summary=f"Holdings have no price data ({len(holdings)} found, 0 priced)",
+            data={**_empty_var_data, "data_state": "no_prices",
+                  "holdings_count": len(holdings)},
+            error="zero_value",
+        )
 
     # ── Weighted portfolio vol (assume uncorrelated positions as conservative approx) ──
     # σ_p = sqrt( Σ (w_i × σ_i)^2 )  with correlation = 0 → lower bound
@@ -399,6 +505,23 @@ async def get_portfolio_var(
         f"Portfolio vol (annual): {annual_vol*100:.1f}%. Risk rating: {rating}."
     )
 
+    # Track whether DAAS supplied vol for every stock or we leaned on proxies.
+    stocks_total = sum(
+        1 for r in position_rows if r["asset_type"] in ("STOCK", "ETF", "EQUITY")
+    )
+    stocks_with_real_vol = sum(
+        1 for h in stock_holdings
+        if h.get("symbol") and vol_map.get(h["symbol"]) is not None
+    )
+    if stocks_total == 0:
+        var_state = "complete"  # MF-only portfolio uses proxies by design
+    elif not vol_fetch_ok or stocks_with_real_vol == 0:
+        var_state = "vol_unavailable"
+    elif stocks_with_real_vol < stocks_total:
+        var_state = "partial"
+    else:
+        var_state = "complete"
+
     return RiskResult(
         ok=True,
         summary=summary,
@@ -414,6 +537,9 @@ async def get_portfolio_var(
             "total_portfolio_value_rs": round(total_value, 2),
             "confidence_level": confidence,
             "positions_with_vol_data": sum(1 for r in position_rows if r["daily_vol"] > 0),
+            "stocks_with_real_vol": stocks_with_real_vol,
+            "stocks_total": stocks_total,
+            "data_state": var_state,
         },
         rows=position_rows,
         error=None,

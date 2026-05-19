@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import DecisionCard from "./insights/DecisionCard";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import DiscoverInternationalView from "./insights/DiscoverInternationalView";
@@ -103,6 +104,103 @@ const FILTERS = [
   { id: "UNSCORED", label: "⚠️ Unscored" },
 ];
 
+// Info popover explaining how XIRR is calculated. Click the (i) icon to open.
+// Distinguishes portfolio-level (value-weighted) vs per-holding (Newton-Raphson)
+// methodology so users can interpret the number with the right caveats.
+const XirrInfoPopover = ({ scope = "portfolio", className = "" }) => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        onClick={(e) => e.stopPropagation()}
+        className={`inline-flex items-center text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 ${className}`}
+        data-testid={`xirr-info-${scope}`}
+        aria-label="How is XIRR calculated?"
+      >
+        <Info className="w-3.5 h-3.5" />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent className="w-80 text-[12px] leading-relaxed" align="end">
+      <div className="font-semibold text-slate-900 dark:text-white mb-1">How XIRR is computed</div>
+      {scope === "portfolio" ? (
+        <>
+          <p className="text-slate-700 dark:text-slate-300">
+            <strong>Portfolio XIRR</strong> shown here is a <em>value-weighted average</em> of each
+            holding's XIRR:
+          </p>
+          <pre className="bg-slate-50 dark:bg-slate-800 rounded-md p-2 my-2 text-[11px] font-mono whitespace-pre-wrap">Σ(holding_xirr × value) / Σ(value)</pre>
+          <p className="text-slate-700 dark:text-slate-300">
+            It is <em>not</em> a true XIRR over the union of all cash flows — buys/sells from
+            different dates aren't pooled. Use it as a directional return, not as a billing-grade rate.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-slate-700 dark:text-slate-300">
+            <strong>Per-holding XIRR</strong> uses Newton-Raphson on the cash flows:
+          </p>
+          <pre className="bg-slate-50 dark:bg-slate-800 rounded-md p-2 my-2 text-[11px] font-mono whitespace-pre-wrap">[ −buy_price × qty  @ buy_date ]
+[ +current_price × qty @ today ]</pre>
+          <p className="text-slate-700 dark:text-slate-300">
+            CAS reports only the <em>average buy price</em>, so staggered SIPs collapse to a single
+            lump-sum proxy. The result is clamped to ±150% to suppress avg-cost artefacts; very
+            recent buys can therefore over- or under-state annualised return.
+          </p>
+        </>
+      )}
+      <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">
+        Where transaction-level data is available we fall back to MF CAGR (Groww) instead — column
+        label changes to "CAGR 3y/5y" in the row expand.
+      </div>
+    </PopoverContent>
+  </Popover>
+);
+
+// Collapsible chip-list of stocks lacking fundamentals. Click a chip to scope
+// the table to that holding so the user can decide whether to keep/exit before
+// fundamentals catch up. Backend already trims to the top 20 by value.
+const UnscoredSymbolsList = ({ items, onPick }) => {
+  const [open, setOpen] = React.useState(false);
+  if (!items?.length) return null;
+  const preview = items.slice(0, 3);
+  const rest = items.slice(3);
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="text-[11px] underline decoration-dotted hover:text-slate-900 dark:hover:text-white"
+        data-testid="unscored-toggle"
+      >
+        {open ? "Hide list" : `Show which stocks (${items.length})`}
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5" data-testid="unscored-list">
+          {items.map((s, idx) => (
+            <button
+              key={`${s.symbol || s.name}-${idx}`}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onPick?.(s.symbol, s.name); }}
+              title={`${s.name || s.symbol} · ${fmtINR(s.value_rs)}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/60 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] hover:bg-white dark:hover:bg-white/10"
+              data-testid={`unscored-chip-${idx}`}
+            >
+              <span className="font-mono font-semibold">{s.symbol || "?"}</span>
+              <span className="text-slate-500 dark:text-slate-400 text-[10px]">{fmtINR(s.value_rs)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!open && (
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+          Top: {preview.map((s) => s.symbol || s.name).filter(Boolean).join(", ")}
+          {rest.length > 0 && ` + ${rest.length} more`}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ScorePill = ({ value, inverted = false }) => {
   if (value == null) return <span className="text-slate-400 dark:text-slate-600">—</span>;
   const b = scoreBand(value, inverted);
@@ -162,30 +260,99 @@ const DualRating = ({ morningstar, nivesh }) => (
   </span>
 );
 
-// Map each alert.component → a contextual CTA. Returns null when no CTA.
+// Map a bucket name from backend (equity/debt/hybrid/gold) → asset_type tab +
+// optional keyword search that scopes the table to that bucket. Returns
+// { tab, search } the caller applies before scrolling.
+const bucketToTableFilter = (bucket) => {
+  switch ((bucket || "").toLowerCase()) {
+    case "equity":  return { tab: "equity", search: "" };
+    case "hybrid":  return { tab: "mutual_fund", search: "hybrid" };
+    case "debt":    return { tab: "mutual_fund", search: "debt" };
+    case "gold":    return { tab: "gold", search: "" };
+    default:        return { tab: "all", search: "" };
+  }
+};
+
+// Drop a pre-filled prompt into the chat input and focus it.
+const openChatWithPrompt = (prompt) => {
+  window.location.hash = "chat";
+  setTimeout(() => {
+    const inp = document.querySelector('[data-testid="chat-input"]');
+    if (inp) {
+      inp.value = prompt;
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+      inp.focus();
+    }
+  }, 200);
+};
+
+// Map each alert.{component, action_hint, bucket, direction} → a contextual
+// CTA. Returns null when no CTA. Order matters: explicit action_hint always
+// wins, then bucket-aware allocation CTAs, then generic component fallbacks.
 const resolveAlertCta = (alert, ctx) => {
-  const { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, scrollToTable } = ctx;
+  const { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, setSearch, scrollToTable } = ctx;
   const c = (alert.component || "").toLowerCase();
-  if (alert.action_hint === "refresh_stock_fundamentals" || c === "data_coverage") {
+  const hint = (alert.action_hint || "").toLowerCase();
+
+  // Explicit hints from backend
+  if (hint === "refresh_stock_fundamentals" || c === "data_coverage") {
     return {
       label: refreshing ? "Refreshing…" : "Refresh",
       icon: RefreshCw, spinning: refreshing, disabled: refreshing,
       onClick: triggerRefresh, testid: "btn-refresh-fundamentals",
     };
   }
-  if (c === "allocation") {
-    // In-place: focus the biggest-weight holdings so user can rebalance.
+  if (hint === "open_plan_board") {
     return {
-      label: "Show biggest positions",
+      label: "Open Plan Board",
+      icon: Zap,
+      onClick: () => { window.location.hash = "plan_board"; },
+      testid: `cta-alert-plan-board`,
+    };
+  }
+
+  // Allocation drift — bucket+direction aware
+  if (c === "allocation") {
+    const bucket = (alert.bucket || "").toLowerCase();
+    const direction = (alert.direction || "").toLowerCase();
+    const actual = alert.actual_pct;
+    const target = alert.recommended_pct;
+
+    if (direction === "underweight") {
+      // No / few holdings in this bucket — sorting the table by value won't help.
+      // Open Copilot with a pre-filled prompt to recommend funds for this bucket.
+      const label = bucket
+        ? `Suggest ${bucket} funds`
+        : "Suggest funds";
+      const prompt = bucket
+        ? `My portfolio is underweight ${bucket} (${actual ?? "?"}% vs target ${target ?? "?"}%). ` +
+          `Recommend the top ${bucket === "debt" ? "debt mutual funds" : bucket === "hybrid" ? "hybrid funds" : bucket + " options"} ` +
+          `I can add to close the gap, considering my risk profile.`
+        : "Recommend funds to rebalance my portfolio.";
+      return {
+        label,
+        icon: Sparkles,
+        onClick: () => openChatWithPrompt(prompt),
+        testid: `cta-alert-underweight-${bucket || "x"}`,
+      };
+    }
+    // Overweight (or unspecified direction) — filter table to that bucket so
+    // user sees the biggest exposures and can decide what to trim.
+    const { tab, search } = bucketToTableFilter(bucket);
+    const label = bucket ? `Show ${bucket} holdings` : "Show biggest positions";
+    return {
+      label,
       icon: Zap,
       onClick: () => {
-        setAssetTab("all"); setFilter("all");
+        setAssetTab(tab); setFilter("all");
+        if (setSearch) setSearch(search);
         setSortBy({ key: "value_rs", dir: "desc" });
         scrollToTable();
       },
-      testid: `cta-alert-allocation`,
+      testid: `cta-alert-overweight-${bucket || "x"}`,
     };
   }
+
   if (c === "risk_alignment") {
     return {
       label: "Retake profile",
@@ -203,7 +370,9 @@ const resolveAlertCta = (alert, ctx) => {
     };
   }
   if (c === "diversification") {
-    // In-place: filter to weakest scored holdings so user can review what's concentrated.
+    // Default fallback when no action_hint is set (e.g. concentration / overlap).
+    // Asset-allocation drift now carries action_hint=open_plan_board and is
+    // handled above, so this only fires for true "weak holdings" cases.
     return {
       label: "Show weak holdings",
       icon: Zap,
@@ -492,11 +661,153 @@ const exportCSV = (rows) => {
   document.body.removeChild(a);
 };
 
+// Compact panel: technicals (RSI/MACD/SMA/52w) + sector-peer rank for stocks.
+// Rendered inside the Holding Intelligence drawer when asset_type === "equity".
+const StockTechnicalsPanel = ({ data }) => {
+  if (!data) return null;
+  const fmtNum = (n, dp = 1) => (n == null || Number.isNaN(n)) ? "—" : Number(n).toFixed(dp);
+  const rsi = data.rsi14;
+  const rsiTone = rsi == null ? "text-slate-500"
+    : rsi >= 70 ? "text-rose-600"
+    : rsi <= 30 ? "text-emerald-600"
+    : "text-slate-700 dark:text-slate-200";
+  const macd = data.macd;
+  const macdTone = macd == null ? "text-slate-500"
+    : macd > 0 ? "text-emerald-600" : "text-rose-600";
+
+  const peer = data.peer_rank;
+  const percentile = peer?.percentile_top;
+  const peerTone = percentile == null ? "text-slate-500"
+    : percentile <= 10 ? "text-emerald-600"
+    : percentile <= 25 ? "text-lime-600"
+    : percentile <= 50 ? "text-amber-600"
+    : "text-rose-600";
+
+  return (
+    <div className="space-y-3">
+      <h5 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Technical Snapshot</h5>
+      {!data.technical_available ? (
+        <div className="text-xs text-slate-400 italic bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
+          Technical data not available for {data.symbol}.
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">RSI(14)</div>
+              <div className={`font-mono font-semibold ${rsiTone}`}>{fmtNum(rsi, 0)}</div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">MACD</div>
+              <div className={`font-mono font-semibold ${macdTone}`}>{fmtNum(macd, 2)}</div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">20d Return</div>
+              <div className={`font-mono font-semibold ${(data.return_20d_pct || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                {data.return_20d_pct == null ? "—" : `${data.return_20d_pct >= 0 ? "+" : ""}${fmtNum(data.return_20d_pct, 1)}%`}
+              </div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">SMA 20 / 50</div>
+              <div className="font-mono text-slate-700 dark:text-slate-200">
+                {fmtNum(data.sma20, 0)} / {fmtNum(data.sma50, 0)}
+              </div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">52w High Δ</div>
+              <div className="font-mono text-slate-700 dark:text-slate-200">
+                {data.dist_52w_high_pct == null ? "—" : `${fmtNum(data.dist_52w_high_pct, 1)}%`}
+              </div>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5">
+              <div className="text-[9px] uppercase text-slate-400">52w Low Δ</div>
+              <div className="font-mono text-slate-700 dark:text-slate-200">
+                {data.dist_52w_low_pct == null ? "—" : `+${fmtNum(data.dist_52w_low_pct, 1)}%`}
+              </div>
+            </div>
+          </div>
+          {data.signals?.length > 0 && (
+            <ul className="text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-2.5">
+              {data.signals.slice(0, 6).map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5"><span className="text-slate-400">•</span>{s}</li>
+              ))}
+            </ul>
+          )}
+          {data.technical_summary && (
+            <div className="text-[11px] italic text-slate-500 dark:text-slate-400">{data.technical_summary}</div>
+          )}
+        </>
+      )}
+
+      {peer && (
+        <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-3">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Sector Peer Rank</div>
+          <div className="flex items-baseline justify-between">
+            <div>
+              <span className={`text-lg font-bold ${peerTone}`}>#{peer.rank}</span>
+              <span className="text-sm text-slate-500"> / {peer.total}</span>
+              <span className="text-xs text-slate-500 ml-2">in {peer.sector}</span>
+            </div>
+            <div className={`text-xs font-semibold ${peerTone}`}>
+              {percentile == null ? "—" : percentile <= 10 ? "Top 10%" : percentile <= 25 ? "Top 25%" : percentile <= 50 ? "Top 50%" : "Bottom 50%"}
+            </div>
+          </div>
+          {peer.quality_score != null && (
+            <div className="text-[11px] text-slate-500 mt-1">Quality score {fmtNum(peer.quality_score, 0)} (vs sector peers)</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// MF category-rank + CAGR badge for the Holding Intelligence drawer. The data
+// already comes through on the holdings-enriched payload (category_rank,
+// category_rank_total, cagr_3y_pct etc.) — we just surface it as a glanceable
+// summary alongside the fund_card widget.
+const MFCategoryRankPanel = ({ holding }) => {
+  if (!holding) return null;
+  const rank = holding.category_rank;
+  const total = holding.category_rank_total;
+  if (!rank || !total || total <= 3) return null;
+  const pct = (rank / total) * 100;
+  const tone = pct <= 10 ? "text-emerald-600"
+    : pct <= 25 ? "text-lime-600"
+    : pct <= 50 ? "text-amber-600"
+    : "text-rose-600";
+  const label = pct <= 10 ? "Top decile" : pct <= 25 ? "Top quartile" : pct <= 50 ? "Top half" : "Bottom half";
+  return (
+    <div className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800 dark:to-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-3">
+      <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Category Rank</div>
+      <div className="flex items-baseline justify-between">
+        <div>
+          <span className={`text-lg font-bold ${tone}`}>#{rank}</span>
+          <span className="text-sm text-slate-500"> / {total}</span>
+          <span className="text-xs text-slate-500 ml-2 capitalize">{holding.category || "category"}</span>
+        </div>
+        <div className={`text-xs font-semibold ${tone}`}>{label}</div>
+      </div>
+      <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-3">
+        {holding.cagr_3y_pct != null && <span>3y CAGR <strong className="font-mono">{fmtPct(holding.cagr_3y_pct, 1)}</strong></span>}
+        {holding.cagr_5y_pct != null && <span>5y CAGR <strong className="font-mono">{fmtPct(holding.cagr_5y_pct, 1)}</strong></span>}
+        {holding.morningstar_rating != null && <span>Morningstar <strong>{holding.morningstar_rating}★</strong></span>}
+      </div>
+    </div>
+  );
+};
+
 // ── Holding Intelligence Drawer ──────────────────────────────────────────────
+// Renders different deep-dive panels depending on asset type:
+//   - mutual_fund / etf → /copilot/widgets/fund_card (rich verdict + peer rank)
+//   - equity            → /copilot/widgets/holding_technicals
+//                         (RSI/MACD/SMA/52w + sector-peer rank from stock_scores)
 const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
   const [envelope, setEnvelope] = useState(null);
+  const [technicals, setTechnicals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const isEquity = holding?.asset_type === "equity";
 
   useEffect(() => {
     if (!holding) return;
@@ -504,16 +815,26 @@ const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
     setLoading(true);
     setError(null);
     setEnvelope(null);
-    axios.post(
-      `${API}/copilot/widgets/fund_card`,
-      { query: holding.ticker || holding.name },
-      { withCredentials: true },
-    )
-      .then((r) => { if (!cancelled) setEnvelope(r.data); })
-      .catch((e) => { if (!cancelled) setError(e.response?.data?.detail || null); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    setTechnicals(null);
+
+    const tasks = [];
+    if (isEquity) {
+      const sym = holding.nse_symbol || holding.ticker || holding.symbol || holding.name;
+      tasks.push(
+        axios.post(`${API}/copilot/widgets/holding_technicals`, { symbol: sym }, { withCredentials: true })
+          .then((r) => { if (!cancelled) setTechnicals(r.data?.data || r.data); })
+          .catch((e) => { if (!cancelled) setError(e.response?.data?.detail || null); })
+      );
+    } else {
+      tasks.push(
+        axios.post(`${API}/copilot/widgets/fund_card`, { query: holding.ticker || holding.name }, { withCredentials: true })
+          .then((r) => { if (!cancelled) setEnvelope(r.data); })
+          .catch((e) => { if (!cancelled) setError(e.response?.data?.detail || null); })
+      );
+    }
+    Promise.allSettled(tasks).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [holding?.holding_id]);
+  }, [holding?.holding_id, isEquity]);
 
   return (
     <AnimatePresence>
@@ -568,7 +889,11 @@ const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
                 ))}
               </div>
 
-              {/* Fund card widget (MF only) */}
+              {/* MF: surface category-rank + CAGR percentile up-front so user
+                  sees the peer comparison without scrolling the fund card. */}
+              {!isEquity && <MFCategoryRankPanel holding={holding} />}
+
+              {/* Asset-type-specific deep dive */}
               {loading && (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
@@ -576,12 +901,15 @@ const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
                   ))}
                 </div>
               )}
-              {!loading && error && (
+              {!loading && error && !technicals && !envelope && (
                 <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 dark:bg-slate-800 rounded-xl">
                   {error}
                 </div>
               )}
-              {!loading && !error && envelope && (
+              {!loading && isEquity && technicals && (
+                <StockTechnicalsPanel data={technicals} />
+              )}
+              {!loading && !isEquity && envelope && (
                 <WidgetRenderer envelope={envelope} embedded="drawer" />
               )}
             </div>
@@ -643,9 +971,30 @@ function PortfolioRiskPanel() {
   if (loading) return <div className="h-16 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />;
   if (!suitability && !varData) return null;
 
-  const rating  = suitability?.risk_rating || varData?.risk_rating || "MEDIUM";
-  const chipCls = _RATING_CHIP[rating] || _RATING_CHIP.MEDIUM;
+  const rawRating = suitability?.risk_rating || varData?.risk_rating;
+  const ratingIsKnown = rawRating && rawRating !== "UNKNOWN";
+  const rating  = ratingIsKnown ? rawRating : "Computing…";
+  const chipCls = _RATING_CHIP[rating] || "text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700";
   const misalignments = suitability?.misalignment || [];
+
+  // Backend now sets data_state on partial-data paths so we render a clear
+  // "computing"/"unavailable" hint instead of silently dropping fields.
+  const sState = suitability?.data_state;
+  const vState = varData?.data_state;
+
+  // Show a number when present, "0" when explicitly zero (not undefined), and
+  // a dash otherwise. Prior render used optional chaining which collapsed
+  // missing values to a bare "%" string.
+  const fmt = (n, dp = 0, suffix = "") =>
+    n == null || Number.isNaN(n) ? "—" : `${Number(n).toFixed(dp)}${suffix}`;
+
+  const noPriceMsg = sState === "no_prices"
+    ? "no prices on holdings — check market-data sync"
+    : sState === "no_holdings"
+    ? "no holdings loaded"
+    : sState === "load_error"
+    ? "holdings load failed"
+    : null;
 
   return (
     <div
@@ -656,18 +1005,22 @@ function PortfolioRiskPanel() {
       <div className="flex items-center gap-2 flex-shrink-0">
         <Shield className="w-4 h-4 text-slate-400" />
         <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Risk</span>
-        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${chipCls}`}>{rating}</span>
+        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${chipCls}`} data-testid="risk-rating-chip">{rating}</span>
       </div>
 
       {/* Suitability metrics */}
       {suitability && (
         <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-zinc-400 flex-wrap">
-          <span>Equity <strong className="text-slate-800 dark:text-white">{suitability.equity_pct?.toFixed(0)}%</strong></span>
-          <span>Small/Mid <strong className="text-slate-800 dark:text-white">{suitability.small_mid_pct?.toFixed(0)}%</strong></span>
-          {suitability.portfolio_beta != null && (
-            <span>β <strong className="text-slate-800 dark:text-white">{suitability.portfolio_beta?.toFixed(2)}</strong></span>
-          )}
-          <span>Profile <strong className="text-slate-800 dark:text-white capitalize">{suitability.user_profile_category}</strong></span>
+          <span>Equity <strong className="text-slate-800 dark:text-white">{fmt(suitability.equity_pct, 0, "%")}</strong></span>
+          <span>Small/Mid <strong className="text-slate-800 dark:text-white">{fmt(suitability.small_mid_pct, 0, "%")}</strong></span>
+          {suitability.portfolio_beta != null ? (
+            <span>β <strong className="text-slate-800 dark:text-white">{fmt(suitability.portfolio_beta, 2)}</strong></span>
+          ) : sState === "vol_unavailable" ? (
+            <span title="DAAS market-vol feed unavailable; beta not computed.">
+              β <strong className="text-slate-400 italic">unavailable</strong>
+            </span>
+          ) : null}
+          <span>Profile <strong className="text-slate-800 dark:text-white capitalize">{suitability.user_profile_category || "—"}</strong></span>
         </div>
       )}
 
@@ -677,10 +1030,29 @@ function PortfolioRiskPanel() {
           <span className="flex items-center gap-1">
             <TrendingDown className="w-3 h-3 text-rose-400" />
             1d VaR <strong className="text-rose-600 dark:text-rose-400">
-              ₹{Math.round(varData.var_1d_95_rs || 0).toLocaleString("en-IN")}
+              {varData.var_1d_95_rs != null
+                ? `₹${Math.round(varData.var_1d_95_rs).toLocaleString("en-IN")}`
+                : "—"}
             </strong>
           </span>
-          <span>Annual vol <strong className="text-slate-800 dark:text-white">{varData.portfolio_annual_vol_pct?.toFixed(1)}%</strong></span>
+          <span>Annual vol <strong className="text-slate-800 dark:text-white">{fmt(varData.portfolio_annual_vol_pct, 1, "%")}</strong></span>
+          {vState && vState !== "complete" && (
+            <span className="text-amber-600 dark:text-amber-400 italic"
+                  title={vState === "vol_unavailable"
+                    ? "Stock volatility feed unavailable; values shown use MF/asset-class proxies only."
+                    : vState === "partial"
+                    ? "Volatility missing for some stocks; values use proxies for the rest."
+                    : vState}>
+              ({vState === "vol_unavailable" ? "proxy" : vState === "partial" ? "partial" : vState})
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Partial-data / no-data hint */}
+      {noPriceMsg && (
+        <div className="text-[11px] text-amber-600 dark:text-amber-400 italic">
+          {noPriceMsg}
         </div>
       )}
 
@@ -896,10 +1268,17 @@ export default function ActionablePortfolioView() {
     setExpanded(next);
   };
 
-  const th = (label, key) => (
-    <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap cursor-pointer select-none"
-        onClick={() => setSortBy({ key, dir: sortBy.key === key && sortBy.dir === "desc" ? "asc" : "desc" })}>
-      {label}{sortBy.key === key && <span className="ml-1">{sortBy.dir === "desc" ? "↓" : "↑"}</span>}
+  const th = (label, key, info = null) => (
+    <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap select-none">
+      <span className="inline-flex items-center gap-1">
+        <span
+          className="cursor-pointer"
+          onClick={() => setSortBy({ key, dir: sortBy.key === key && sortBy.dir === "desc" ? "asc" : "desc" })}
+        >
+          {label}{sortBy.key === key && <span className="ml-1">{sortBy.dir === "desc" ? "↓" : "↑"}</span>}
+        </span>
+        {info}
+      </span>
     </th>
   );
 
@@ -995,9 +1374,7 @@ export default function ActionablePortfolioView() {
         <Card className="dark:bg-slate-900 dark:border-white/10"><CardContent className="p-4">
           <div className="text-[10px] uppercase text-slate-400 dark:text-zinc-500 font-bold flex items-center gap-1">
             XIRR
-            <span title="Value-weighted average of per-holding returns.">
-              <Info className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-            </span>
+            <XirrInfoPopover scope="portfolio" />
           </div>
           <div className={`text-xl font-bold mt-1 ${(t.xirr_pct || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{fmtPct(t.xirr_pct, 2)}</div>
           <div className="text-[10px] text-slate-400 dark:text-zinc-600 mt-0.5">{fmtPct(data.coverage_pct)} scored</div>
@@ -1047,7 +1424,7 @@ export default function ActionablePortfolioView() {
       {data.alerts?.length > 0 && (
         <div className="space-y-2" data-testid="portfolio-alerts">
           {data.alerts.map((a, i) => {
-            const cta = resolveAlertCta(a, { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, scrollToTable });
+            const cta = resolveAlertCta(a, { triggerRefresh, refreshing, setAssetTab, setFilter, setSortBy, setSearch, scrollToTable });
             return (
               <motion.div key={i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                           className={`flex items-start gap-3 p-3 rounded-xl border ${ALERT_TONE[a.severity] || ALERT_TONE.info}`}
@@ -1056,6 +1433,19 @@ export default function ActionablePortfolioView() {
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm">{a.title}</div>
                   <div className="text-[12px] opacity-80">{a.detail}</div>
+                  {/* Unscored stocks — inline expandable list so user can see
+                      *which* holdings lack fundamentals before triggering a
+                      refresh. Backend caps the list at 20. */}
+                  {a.unscored_symbols?.length > 0 && (
+                    <UnscoredSymbolsList
+                      items={a.unscored_symbols}
+                      onPick={(sym, name) => {
+                        setSearch(name || sym || "");
+                        setAssetTab("equity");
+                        scrollToTable();
+                      }}
+                    />
+                  )}
                 </div>
                 {cta && (
                   <Button
@@ -1194,7 +1584,7 @@ export default function ActionablePortfolioView() {
                 {th("CMP", "current_price")}
                 {th("Value", "value_rs")}
                 {th("P&L%", "pnl_pct")}
-                {th("XIRR", "xirr_pct")}
+                {th("XIRR", "xirr_pct", <XirrInfoPopover scope="holding" />)}
                 {th("Score", "composite_score")}
                 <th className="p-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</th>
               </tr>

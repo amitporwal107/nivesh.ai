@@ -1197,6 +1197,128 @@ async def portfolio_var_widget(request: Request):
     return env.model_dump()
 
 
+# ── Holding Technicals & Peer Rank ───────────────────────────────────
+# Surfaced in the Holding Intelligence drawer for stocks. Combines:
+#   1. Technical signals (RSI/MACD/SMA20/SMA50/52w/vol) from DAAS
+#   2. Peer-percentile rank within the stock's sector (computed live from
+#      stock_scores joined to stock_master at request time — no batch job
+#      needed because the table is small enough that a window query is fast).
+
+class HoldingTechnicalsRequest(BaseModel):
+    symbol: str = Field(..., description="NSE symbol (e.g. RELIANCE)")
+
+
+@router.post("/holding_technicals")
+async def holding_technicals_widget(request: Request, payload: HoldingTechnicalsRequest):
+    """Technical analysis + sector-peer rank for one stock holding.
+
+    Wired into the Holding Intelligence drawer so stocks get the same depth
+    of view that mutual funds already get from /fund_card.
+    """
+    await get_current_user(request)
+    sym = (payload.symbol or "").upper().strip()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    # ── 1. Technicals from DAAS ──────────────────────────────────────
+    technical_data: dict = {}
+    technical_signals: list[str] = []
+    technical_summary: Optional[str] = None
+    technical_ok = False
+    try:
+        from services.copilot_tools.technical import get_technical_analysis
+        tech = await get_technical_analysis(sym)
+        technical_ok = tech.ok
+        technical_summary = tech.summary
+        technical_signals = list(tech.signals or [])
+        if tech.ok:
+            d = tech.data or {}
+            technical_data = {
+                "close":               d.get("close"),
+                "rsi14":               d.get("rsi14"),
+                "macd":                d.get("macd"),
+                "macd_hist":           d.get("macd_hist"),
+                "sma20":               d.get("sma20"),
+                "sma50":               d.get("sma50"),
+                "return_20d_pct":      d.get("return_20d_pct"),
+                "dist_52w_high_pct":   d.get("dist_52w_high_pct"),
+                "dist_52w_low_pct":    d.get("dist_52w_low_pct"),
+                "vol_z20":             d.get("vol_z20"),
+                "atr_pct":             d.get("atr_pct"),
+            }
+    except Exception as exc:
+        logger.warning("holding_technicals: tech fetch failed for %s: %s", sym, exc)
+
+    # ── 2. Sector-peer rank from stock_scores ────────────────────────
+    # Window rank within sector by quality_score (best = rank 1). Returned
+    # alongside the holding's own quality so the UI can show "Quality 72 ·
+    # Rank 4/23 in Energy (top 17%)".
+    peer_rank: Optional[dict] = None
+    try:
+        from services import pg_client
+        pool = await pg_client.get_pool()
+        if pool is not None:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    WITH ranked AS (
+                        SELECT ss.nse_symbol,
+                               sm.sector,
+                               sm.cap_bucket,
+                               ss.quality_score,
+                               RANK()  OVER (PARTITION BY sm.sector
+                                              ORDER BY ss.quality_score DESC NULLS LAST) AS rnk,
+                               COUNT(*) OVER (PARTITION BY sm.sector)                  AS total
+                          FROM stock_scores ss
+                          JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                         WHERE sm.sector IS NOT NULL
+                           AND ss.quality_score IS NOT NULL
+                    )
+                    SELECT sector, cap_bucket, quality_score, rnk, total
+                      FROM ranked
+                     WHERE nse_symbol = $1
+                    """,
+                    sym,
+                )
+                if row and row["total"]:
+                    total = int(row["total"])
+                    rnk = int(row["rnk"])
+                    peer_rank = {
+                        "sector":         row["sector"],
+                        "cap_bucket":     row["cap_bucket"],
+                        "rank":           rnk,
+                        "total":          total,
+                        # Percentile where lower = better (top 10% etc.)
+                        "percentile_top": round((rnk / total) * 100, 1),
+                        "quality_score":  float(row["quality_score"]) if row["quality_score"] is not None else None,
+                    }
+    except Exception as exc:
+        logger.warning("holding_technicals: peer rank query failed for %s: %s", sym, exc)
+
+    data = {
+        "symbol":              sym,
+        "technical_available": technical_ok,
+        "technical_summary":   technical_summary,
+        "signals":             technical_signals,
+        **technical_data,
+        "peer_rank":           peer_rank,
+    }
+
+    env = WidgetEnvelope(
+        kind="holding_technicals",
+        title=f"Technicals · {sym}",
+        freshness=FreshnessChip(
+            state="live" if technical_ok else "stale",
+            last_updated=_iso_now(),
+            source=["DAAS", "stock_scores", "stock_master"],
+        ),
+        agent=AgentInfo(id="technical_analyst", label="Technical Analyst",
+                        version="v1", confidence=80 if technical_ok else 0),
+        data=data,
+    )
+    return env.model_dump()
+
+
 # ── 10. FD Comparison ───────────────────────────────────────────────
 
 @router.post("/fd_comparison")
