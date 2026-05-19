@@ -9,12 +9,28 @@ parsing. The output is the same `(holdings, normalized, raw_payload,
 parser_source)` tuple that the background task writes into the
 `upload_tasks` Mongo doc the frontend polls.
 
-Run from /app/backend:
-    export OPENAI_API_KEY='sk-proj-...'    # one-time, in your shell
+Usage:
+    export OPENAI_API_KEY='sk-proj-...'          # one-time, in your shell
+
+    # default test PDFs (priyanka_nsdl, varun_cdsl):
     /root/.venv/bin/python3 scripts/run_cas_api_demo.py
+
+    # arbitrary archived CAS PDFs:
+    /root/.venv/bin/python3 scripts/run_cas_api_demo.py \
+        /app/data/cas_uploads/<dir>/<file>.pdf \
+        /app/data/gmail_cas/user_<hex>/<file>.pdf
+
+    # with PAN password (for password-protected CAS PDFs):
+    /root/.venv/bin/python3 scripts/run_cas_api_demo.py \
+        --password ABCDE1234F /path/to/file.pdf
+
+    # with a previously-parsed JSON for expected-vs-actual diff:
+    /root/.venv/bin/python3 scripts/run_cas_api_demo.py \
+        --expected /path/to/expected.json /path/to/file.pdf
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
@@ -36,10 +52,63 @@ from helpers import secrets
 from helpers.parsing import parse_cas_pdf_with_data
 
 TEST_DATA = BACKEND / "tests" / "test_data"
-CASES = [
+DEFAULT_CASES = [
     ("NSDL", TEST_DATA / "nsdl" / "priyanka_nsdl.pdf"),
     ("CDSL", TEST_DATA / "cdsl" / "varun_cdsl.pdf"),
 ]
+
+
+def _isins_from_holdings(holdings):
+    """Pull every ISIN-like 12-char ticker out of a holdings list,
+    regardless of whether it lives in `ticker` or `metadata.isin`."""
+    s = set()
+    for h in holdings or []:
+        tk = (h.get("ticker") or "").strip()
+        if len(tk) == 12 and tk.startswith("IN"):
+            s.add(tk)
+        meta = h.get("metadata") or {}
+        isin = (meta.get("isin") or "").strip()
+        if len(isin) == 12 and isin.startswith("IN"):
+            s.add(isin)
+    return s
+
+
+def _isins_from_anywhere(node):
+    """Recursive walk over an arbitrary JSON to collect every ISIN —
+    works on raw parser output (`holdings.equities[].isin`), on the
+    parser's normalized holdings list, and on hand-written expected
+    JSON snippets."""
+    out = set()
+    def walk(n):
+        if isinstance(n, dict):
+            for k, v in n.items():
+                if isinstance(v, str) and len(v) == 12 and v.startswith("IN") and k.lower() in ("isin", "ticker"):
+                    out.add(v)
+                walk(v)
+        elif isinstance(n, list):
+            for it in n:
+                walk(it)
+    walk(node)
+    return out
+
+
+def _diff_against_expected(holdings, expected_path):
+    """Compare actual holdings ISINs vs expected JSON. Returns a
+    summary dict with recall/precision/missing/extra."""
+    expected = json.loads(Path(expected_path).read_text())
+    got_isins = _isins_from_holdings(holdings)
+    exp_isins = _isins_from_anywhere(expected)
+    if not exp_isins:
+        return {"warning": "expected JSON contained no ISIN-like fields"}
+    tp = got_isins & exp_isins
+    return {
+        "expected_count": len(exp_isins),
+        "actual_count": len(got_isins),
+        "recall_pct": round(100 * len(tp) / len(exp_isins), 1),
+        "precision_pct": round(100 * len(tp) / max(len(got_isins), 1), 1),
+        "missing_isins": sorted(exp_isins - got_isins)[:20],
+        "extra_isins": sorted(got_isins - exp_isins)[:20],
+    }
 
 
 def _api_response_for_task(holdings, parser_source, latency_s):
@@ -58,6 +127,21 @@ def _api_response_for_task(holdings, parser_source, latency_s):
 
 
 async def main():
+    parser = argparse.ArgumentParser(
+        description="Run the production CAS parser chain on one or more PDFs "
+                    "and optionally diff against expected output.",
+    )
+    parser.add_argument("pdfs", nargs="*", help="PDF file path(s) to test. "
+                        "If omitted, uses tests/test_data/{nsdl,cdsl} defaults.")
+    parser.add_argument("--password", default="",
+                        help="CAS PDF password (PAN uppercase, e.g. ABCDE1234F)")
+    parser.add_argument("--expected", default=None,
+                        help="Path to expected JSON for ISIN recall/precision diff. "
+                             "When multiple --pdfs are passed, the same expected file "
+                             "is used for each (override per file by using a single "
+                             "--pdf invocation).")
+    args = parser.parse_args()
+
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if key and key.startswith("sk-"):
         secrets.set_override("OPENAI_API_KEY", key)
@@ -67,16 +151,22 @@ async def main():
               "fall through to casparser-lib + Docling")
     print()
 
-    for label, pdf_path in CASES:
+    # Resolve cases
+    if args.pdfs:
+        cases = [(Path(p).stem, Path(p)) for p in args.pdfs]
+    else:
+        cases = DEFAULT_CASES
+
+    for label, pdf_path in cases:
         if not pdf_path.exists():
             print(f"[{label}] SKIP — missing {pdf_path}")
             continue
         pdf_bytes = pdf_path.read_bytes()
-        print(f"════════ [{label}] {pdf_path.name}  ({len(pdf_bytes):,} bytes) ════════")
+        print(f"════════ [{label}] {pdf_path}  ({len(pdf_bytes):,} bytes) ════════")
         t0 = time.monotonic()
         try:
             holdings, normalized, raw_payload, parser_source = await parse_cas_pdf_with_data(
-                pdf_bytes, password=""
+                pdf_bytes, password=args.password
             )
         except Exception as exc:
             elapsed = time.monotonic() - t0
@@ -87,8 +177,7 @@ async def main():
 
         api_resp = _api_response_for_task(holdings, parser_source, elapsed)
 
-        # First, the API-equivalent response the frontend would see after polling
-        # — truncated holdings for screen-friendliness; full list dumped below.
+        # Compact preview — first 10 holdings, key fields only
         compact = {
             **api_resp,
             "holdings": [
@@ -106,7 +195,18 @@ async def main():
         print("── API response (first 10 holdings shown) ──")
         print(json.dumps(compact, indent=2, default=str))
 
-        # Save full output for inspection
+        # Diff against expected, if provided
+        if args.expected:
+            try:
+                diff = _diff_against_expected(holdings, args.expected)
+                print("\n── Expected-vs-actual diff (ISIN-level) ──")
+                print(json.dumps(diff, indent=2, default=str))
+            except FileNotFoundError:
+                print(f"\n  WARN: expected file not found at {args.expected}")
+            except json.JSONDecodeError as e:
+                print(f"\n  WARN: expected file isn't valid JSON: {e}")
+
+        # Persist full response for inspection
         dump_path = Path("/tmp") / f"cas_api_{label.lower()}.json"
         dump_path.write_text(json.dumps(api_resp, indent=2, default=str))
         print(f"\n  Full response written to {dump_path} "
