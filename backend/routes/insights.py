@@ -1,7 +1,8 @@
 """AI Insights routes — Enhanced with full portfolio context."""
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+import hashlib
 import uuid
 import json
 import logging
@@ -12,6 +13,240 @@ from helpers.portfolio_utils import extract_fund_house
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+
+
+# ── Recommendations Center (Phase 2): theme/severity/benefit enrichment ─────
+# These helpers run after `_deterministic_insights` builds raw insights so the
+# UI can render the new "Recommendations Center" without changing the rule
+# engine. Themes drive grouping; severity drives the priority tabs; benefit
+# fields power the hero-summary expected impact numbers.
+
+_THEME_DUPLICATION = "duplication"
+_THEME_OVERLAP = "overlap"
+_THEME_AMC = "amc_concentration"
+_THEME_CATEGORY = "category_concentration"
+_THEME_SECTOR = "sector_risk"
+_THEME_COST = "cost"
+_THEME_DRIFT = "drift"
+_THEME_ALLOCATION = "allocation_gap"
+_THEME_OTHER = "other"
+
+_THEME_META = {
+    _THEME_DUPLICATION:  {"label": "Duplicate Funds",       "order": 1},
+    _THEME_OVERLAP:      {"label": "Fund Overlap",          "order": 2},
+    _THEME_AMC:          {"label": "AMC Concentration",     "order": 3},
+    _THEME_CATEGORY:     {"label": "Category Concentration","order": 4},
+    _THEME_SECTOR:       {"label": "Sector Risk",           "order": 5},
+    _THEME_DRIFT:        {"label": "Allocation Drift",      "order": 6},
+    _THEME_ALLOCATION:   {"label": "Allocation Gaps",       "order": 7},
+    _THEME_COST:         {"label": "Cost Leakage",          "order": 8},
+    _THEME_OTHER:        {"label": "Other",                 "order": 99},
+}
+
+
+def _classify_theme(insight: Dict[str, Any]) -> str:
+    """Map an insight to one of the Recommendations Center themes.
+
+    Order matters: more specific phrases beat generic category fallbacks.
+    """
+    title = (insight.get("title") or "").lower()
+    cat = (insight.get("category") or "").lower()
+    action = (insight.get("action") or "").lower()
+    text = f"{title} {action}"
+
+    if "consolidate" in text or "overlap" in cat or "overlap" in text and "%" in text:
+        return _THEME_DUPLICATION if "consolidate" in text else _THEME_OVERLAP
+    if "amc" in text:
+        return _THEME_AMC
+    if "category concentration" in text or "category exposure" in text:
+        return _THEME_CATEGORY
+    if "sector" in text and "cap" not in text:
+        return _THEME_SECTOR
+    if "drift" in text or "rebalance" in text:
+        return _THEME_DRIFT
+    if "direct" in text and ("switch" in text or "regular" in text):
+        return _THEME_COST
+    if "debt" in text or "allocation" in cat:
+        return _THEME_ALLOCATION
+    return _THEME_OTHER
+
+
+def _classify_severity(insight: Dict[str, Any]) -> str:
+    """Map (type, impact) to the four severity buckets the UI tabs use."""
+    itype = (insight.get("type") or "").lower()
+    impact = (insight.get("impact") or "").lower()
+    if itype == "success":
+        return "positive"
+    if itype == "warning" and impact == "high":
+        return "critical"
+    if itype in ("warning", "alert") and impact == "medium":
+        return "important"
+    if itype == "opportunity" and impact == "high":
+        return "important"
+    if impact == "low" or itype in ("info", "opportunity"):
+        return "optimization"
+    return "important"
+
+
+def _stable_insight_id(theme: str, insight: Dict[str, Any]) -> str:
+    """Content-hashed insight_id so completions persist across regenerations.
+
+    Until now insight_id was `uuid4()` per run, which meant "Mark as done"
+    state could never survive a re-analyze. Hashing on (theme, title) makes
+    the id deterministic for the same logical recommendation.
+    """
+    sig = f"{theme}|{(insight.get('title') or '').strip().lower()}"
+    h = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:12]
+    return f"ins_{h}"
+
+
+def _parse_rs(value: Any) -> float:
+    """Pull a numeric ₹ value out of a string like '₹1,23,456' or '₹10.5K/yr'."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value)
+    if not s:
+        return 0.0
+    s = s.replace("₹", "").replace(",", "").strip()
+    mult = 1.0
+    for suffix, m in (("L/yr", 1_00_000), ("L", 1_00_000), ("K/yr", 1_000), ("K", 1_000), ("/yr", 1)):
+        if s.lower().endswith(suffix.lower()):
+            s = s[: -len(suffix)]
+            mult = m
+            break
+    try:
+        return float(s) * mult
+    except ValueError:
+        return 0.0
+
+
+def _compute_benefit(
+    insight: Dict[str, Any],
+    theme: str,
+    severity: str,
+    holdings: List[Dict[str, Any]],
+    total_cur: float,
+) -> Dict[str, Any]:
+    """Per-insight estimated benefit. Conservative + deterministic.
+
+    Returns:
+        fee_savings_annual_rs: ₹ saved/year by acting
+        tax_savings_rs: ₹ tax saved (placeholder until Tax engine wires up)
+        health_score_delta: +points to portfolio health on resolution
+        simplicity_delta_pct: % reduction in holding count
+        summary: one-line user-facing benefit pitch
+    """
+    fee_savings = 0.0
+    tax_savings = 0.0
+    affected = [a.lower() for a in (insight.get("affected_funds") or [])]
+
+    if theme == _THEME_COST:
+        # Cost insight already carries the ₹/yr in current_value or action text
+        fee_savings = _parse_rs(insight.get("action", "").split("save ")[-1] if "save" in insight.get("action", "") else 0)
+        if fee_savings == 0:
+            fee_savings = _parse_rs(insight.get("current_value", ""))
+            # 1% of regular-plan AUM is the standard ER delta
+            fee_savings = fee_savings * 0.01 if fee_savings > 1000 else 0
+    elif theme in (_THEME_DUPLICATION, _THEME_OVERLAP):
+        # Estimate 50 bps saved on the smaller of the two overlapping funds
+        smallest = 0.0
+        for h in holdings:
+            if h.get("asset_type") not in ("mutual_fund", "etf"):
+                continue
+            name = (h.get("name") or "").lower()
+            if any(af and af[:20] in name for af in affected):
+                val = float(h.get("quantity", 0)) * float(h.get("current_price", 0))
+                if smallest == 0 or val < smallest:
+                    smallest = val
+        fee_savings = round(smallest * 0.005)
+
+    health_delta_map = {"critical": 8, "important": 4, "optimization": 2, "positive": 0}
+    health_delta = health_delta_map.get(severity, 2)
+
+    # Simplicity: only duplicate/overlap actions actually drop fund count
+    mf_count = sum(1 for h in holdings if h.get("asset_type") in ("mutual_fund", "etf")) or 1
+    simplicity = round(100.0 / mf_count, 1) if theme in (_THEME_DUPLICATION, _THEME_OVERLAP) else 0.0
+
+    parts: List[str] = []
+    if fee_savings >= 100:
+        parts.append(f"Save ₹{int(round(fee_savings)):,}/yr in fees")
+    if health_delta:
+        parts.append(f"+{health_delta} health score")
+    if simplicity:
+        parts.append(f"−{simplicity}% holdings")
+    summary = " · ".join(parts) if parts else "Improves diversification"
+
+    return {
+        "fee_savings_annual_rs": round(fee_savings, 2),
+        "tax_savings_rs": round(tax_savings, 2),
+        "health_score_delta": health_delta,
+        "simplicity_delta_pct": simplicity,
+        "summary": summary,
+    }
+
+
+def _enrich_insights(
+    raw_insights: List[Dict[str, Any]],
+    holdings: List[Dict[str, Any]],
+    total_cur: float,
+) -> List[Dict[str, Any]]:
+    """Attach theme/severity/insight_id/benefit to every insight."""
+    out: List[Dict[str, Any]] = []
+    for ri in raw_insights:
+        theme = _classify_theme(ri)
+        severity = _classify_severity(ri)
+        meta = _THEME_META.get(theme, _THEME_META[_THEME_OTHER])
+        benefit = _compute_benefit(ri, theme, severity, holdings, total_cur)
+        enriched = dict(ri)
+        enriched["theme"] = theme
+        enriched["theme_label"] = meta["label"]
+        enriched["theme_order"] = meta["order"]
+        enriched["severity"] = severity
+        enriched["benefit"] = benefit
+        enriched["insight_id"] = _stable_insight_id(theme, ri)
+        out.append(enriched)
+    return out
+
+
+def _build_summary(insights: List[Dict[str, Any]], completed_ids: set) -> Dict[str, Any]:
+    """Hero-summary aggregate for the Recommendations Center."""
+    by_sev = {"critical": 0, "important": 0, "optimization": 0, "positive": 0}
+    theme_counts: Dict[str, int] = {}
+    total_fee = 0.0
+    total_tax = 0.0
+    duplicate_funds = 0
+    for ins in insights:
+        sev = ins.get("severity") or "optimization"
+        by_sev[sev] = by_sev.get(sev, 0) + 1
+        theme = ins.get("theme") or _THEME_OTHER
+        theme_counts[theme] = theme_counts.get(theme, 0) + 1
+        b = ins.get("benefit") or {}
+        total_fee += float(b.get("fee_savings_annual_rs") or 0)
+        total_tax += float(b.get("tax_savings_rs") or 0)
+        if theme in (_THEME_DUPLICATION, _THEME_OVERLAP):
+            duplicate_funds += len(ins.get("affected_funds") or []) // 2 or 1
+    completed = sum(1 for ins in insights if ins.get("insight_id") in completed_ids)
+    return {
+        "total": len(insights),
+        "critical_count": by_sev["critical"],
+        "important_count": by_sev["important"],
+        "opportunity_count": by_sev["optimization"] + by_sev["positive"],
+        "completed_count": completed,
+        "potential_fee_savings_annual_rs": round(total_fee, 2),
+        "potential_tax_savings_rs": round(total_tax, 2),
+        "duplicate_fund_count": duplicate_funds,
+        "themes": theme_counts,
+    }
+
+
+async def _load_completed_ids(user_id: str) -> set:
+    """Set of insight_ids the user has marked as done."""
+    cur = db.insight_completions.find(
+        {"user_id": user_id}, {"_id": 0, "insight_id": 1}
+    )
+    return {doc["insight_id"] async for doc in cur}
 
 
 @router.get("/insights")
@@ -485,12 +720,19 @@ async def generate_insights(request: Request):
 
     analysis = _deterministic_insights(holdings, deep_analytics, allocation_data, rule_cfg, intelligence)
 
-    # Save insights
+    # Enrich for the Recommendations Center: theme + severity + benefit + stable id
+    total_cur = sum((h.get("quantity") or 0) * (h.get("current_price") or 0) for h in holdings) or 1.0
+    enriched = _enrich_insights(analysis.get("insights", []), holdings, total_cur)
+
+    # Re-save into ai_insights using stable ids so a user's completed state is
+    # preserved across re-analyses. We replace rows but keep insight_completions
+    # untouched — they reference insight_id, which is now deterministic.
     await db.ai_insights.delete_many({"user_id": user_id})
     saved_insights = []
-    for insight in analysis.get("insights", []):
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for insight in enriched:
         doc = {
-            "insight_id": f"ins_{uuid.uuid4().hex[:12]}",
+            "insight_id": insight["insight_id"],
             "user_id": user_id,
             "title": insight.get("title", ""),
             "description": insight.get("description", ""),
@@ -499,17 +741,27 @@ async def generate_insights(request: Request):
             "impact": insight.get("impact", "medium"),
             "effort": insight.get("effort", "medium"),
             "category": insight.get("category", "info"),
+            "severity": insight.get("severity", "important"),
+            "theme": insight.get("theme", _THEME_OTHER),
+            "theme_label": insight.get("theme_label", "Other"),
+            "theme_order": insight.get("theme_order", 99),
             "current_value": insight.get("current_value", ""),
             "target_value": insight.get("target_value", ""),
             "affected_funds": insight.get("affected_funds", []),
             "action": insight.get("action", ""),
+            "benefit": insight.get("benefit", {}),
             "progress": insight.get("progress", 0),
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": now_iso,
         }
         await db.ai_insights.insert_one(doc)
         saved_insights.append({k: v for k, v in doc.items() if k != "_id"})
 
+    # Attach completion state and a top-level summary for the hero card
+    completed_ids = await _load_completed_ids(user_id)
+    for ins in saved_insights:
+        ins["completed"] = ins["insight_id"] in completed_ids
     analysis["insights"] = saved_insights
+    analysis["summary"] = _build_summary(saved_insights, completed_ids)
 
     # Add reason text to problem_distribution
     for pd_item in analysis.get("problem_distribution", []):
@@ -531,8 +783,29 @@ async def get_analysis(request: Request):
     """Get the full portfolio analysis — now augmented with the unified
     Portfolio Health payload (single source of truth)."""
     user = await get_current_user(request)
-    doc = await db.portfolio_analysis.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    uid = user["user_id"]
+    doc = await db.portfolio_analysis.find_one({"user_id": uid}, {"_id": 0})
     analysis = (doc.get("analysis") if doc else None) or None
+
+    # Overlay Recommendations-Center completion state every read. Older cached
+    # analyses (pre-Phase-2) won't have `theme`/`severity`/`benefit` so we
+    # re-enrich lazily so the new UI works even before the user re-analyzes.
+    if analysis and analysis.get("insights"):
+        completed_ids = await _load_completed_ids(uid)
+        needs_enrich = any(
+            "theme" not in ins or "severity" not in ins or "benefit" not in ins
+            for ins in analysis["insights"]
+        )
+        if needs_enrich:
+            holdings = await db.holdings.find({"user_id": uid}, {"_id": 0}).to_list(500)
+            holdings = enrich_holdings_with_sectors(holdings) if holdings else []
+            total_cur = sum((h.get("quantity") or 0) * (h.get("current_price") or 0) for h in holdings) or 1.0
+            enriched = _enrich_insights(analysis["insights"], holdings, total_cur)
+            # preserve previously-saved insight_id if it was already stable
+            analysis["insights"] = enriched
+        for ins in analysis["insights"]:
+            ins["completed"] = ins.get("insight_id") in completed_ids
+        analysis["summary"] = _build_summary(analysis["insights"], completed_ids)
 
     # Always attach the unified Portfolio Health block so the Insights tab
     # renders the same score as the Dashboard.
@@ -560,6 +833,42 @@ async def get_analysis(request: Request):
     except Exception as e:  # noqa: BLE001
         logger.warning("attach portfolio_health to /insights/analysis failed: %s", e)
     return analysis
+
+
+@router.post("/insights/{insight_id}/complete")
+async def mark_insight_complete(insight_id: str, request: Request):
+    """Mark a recommendation as done. Idempotent."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    if not insight_id or len(insight_id) > 64:
+        raise HTTPException(status_code=400, detail="invalid insight_id")
+    ins_doc = await db.ai_insights.find_one(
+        {"user_id": uid, "insight_id": insight_id}, {"_id": 0, "theme": 1}
+    )
+    theme = (ins_doc or {}).get("theme") or _THEME_OTHER
+    await db.insight_completions.update_one(
+        {"user_id": uid, "insight_id": insight_id},
+        {"$set": {
+            "user_id": uid,
+            "insight_id": insight_id,
+            "theme": theme,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True, "insight_id": insight_id, "completed": True}
+
+
+@router.delete("/insights/{insight_id}/complete")
+async def unmark_insight_complete(insight_id: str, request: Request):
+    """Unmark a recommendation. Idempotent."""
+    user = await get_current_user(request)
+    if not insight_id or len(insight_id) > 64:
+        raise HTTPException(status_code=400, detail="invalid insight_id")
+    await db.insight_completions.delete_one(
+        {"user_id": user["user_id"], "insight_id": insight_id}
+    )
+    return {"ok": True, "insight_id": insight_id, "completed": False}
 
 
 # ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────

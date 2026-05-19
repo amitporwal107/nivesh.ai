@@ -22,6 +22,7 @@ import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import V3PortfolioInsights from "@/components/insights/V3PortfolioInsights";
 import { PerformanceAnalyticsCockpit, DiversificationHero } from "@/components/insights/PortfolioAnalyticsCharts";
 import ConcentrationAnalyticsTab from "@/components/insights/ConcentrationAnalyticsTab";
+import RecommendationsCenter from "@/components/insights/RecommendationsCenter";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -223,6 +224,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
   };
 
   const ins = analysis?.insights || basicInsights || [];
+  const summary = analysis?.summary || null;
   const pd = analysis?.problem_distribution || [];
   const ba = analysis?.before_after;
   const funnel = analysis?.action_funnel || [];
@@ -348,11 +350,13 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 ba={ba}
                 cost={cost}
                 ins={ins}
+                summary={summary}
                 funnel={funnel}
                 doNothing={doNothing}
                 fmt={fmt}
                 analytics={deepAnalytics}
                 portfolioHealth={portfolioHealth}
+                onAfterChange={fetchAnalysis}
               />
             </div>
           )}
@@ -824,16 +828,11 @@ const RiskInsightsTab = ({ onOpenChat }) => {
 
 // ════════════════════════════════════════
 // OVERVIEW TAB (existing AI analysis)
+// Note: the Actionable Insights list itself is now rendered by
+// <RecommendationsCenter /> below; this tab still wraps the cost/health/risk
+// cards and the Action Plan funnel.
 // ════════════════════════════════════════
-const SEVERITY_CONFIG = {
-  critical: { color: "#EF4444", bg: "bg-red-500/10", border: "border-red-500/20", label: "Critical", icon: AlertTriangle },
-  important: { color: "#F59E0B", bg: "bg-amber-500/10", border: "border-amber-500/20", label: "Important", icon: AlertTriangle },
-  optimization: { color: "#3B82F6", bg: "bg-blue-500/10", border: "border-blue-500/20", label: "Optimize", icon: TrendingUp },
-  positive: { color: "#10B981", bg: "bg-emerald-500/10", border: "border-emerald-500/20", label: "Good", icon: Target },
-};
-
-const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analytics, portfolioHealth }) => {
-  const [expandedInsight, setExpandedInsight] = useState(null);
+const OverviewTab = ({ pd, gauge, ba, cost, ins, summary, funnel, doNothing, fmt, analytics, portfolioHealth, onAfterChange }) => {
   const [completedActions, setCompletedActions] = useState({});
   const [simulation, setSimulation] = useState(null);
   const [simulating, setSimulating] = useState(false);
@@ -843,35 +842,6 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
 
   const toggleAction = (step) => setCompletedActions(prev => ({ ...prev, [step]: !prev[step] }));
   const completedCount = Object.values(completedActions).filter(Boolean).length;
-
-  // Helper: find holdings affected by an insight
-  const getAffectedHoldings = (insight, perfCards) => {
-    if (!perfCards || perfCards.length === 0) return [];
-    const title = (insight.title || "").toLowerCase();
-    const summary = (insight.summary || insight.description || "").toLowerCase();
-    const action = (insight.action || "").toLowerCase();
-    const allText = `${title} ${summary} ${action}`;
-
-    return perfCards.filter(h => {
-      const name = h.name.toLowerCase();
-      const sector = (h.sector || "").toLowerCase();
-      const type = (h.asset_type || "").toLowerCase();
-
-      // Direct name mention
-      if (allText.includes(name.slice(0, 15))) return true;
-
-      // Category-based matching
-      if (allText.includes("gold") && (sector.includes("gold") || type === "gold")) return true;
-      if (allText.includes("debt") && (type.includes("debt") || sector.includes("debt"))) return true;
-      if (allText.includes("small cap") && sector.includes("small cap")) return true;
-      if (allText.includes("expense") && type === "mutual_fund") return true;
-      if (allText.includes("equity") && type === "equity") return true;
-      if (allText.includes("mutual fund") && type === "mutual_fund") return true;
-      if (allText.includes("concentration") && type === "mutual_fund") return true;
-      if (allText.includes("regular") && name.includes("regular")) return true;
-      return false;
-    }).slice(0, 15);
-  };
 
   // Helper: find holdings for an issue category from the donut chart
   const getHoldingsForIssue = (category, perfCards, insights) => {
@@ -1096,77 +1066,16 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, funnel, doNothing, fmt, analyti
         </Card>
       </div>
 
-      {/* Section 3: Actionable Insights */}
+      {/* Section 3: Recommendations Center (Phase 1+2 redesign) */}
       {ins.length > 0 && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <div className="space-y-3" data-testid="actionable-insights">
-            <h3 className="text-sm font-medium text-slate-900 dark:text-white">Actionable Insights ({ins.length})</h3>
-            {ins.map((insight, i) => {
-              const sev = SEVERITY_CONFIG[insight.severity] || SEVERITY_CONFIG[insight.type === "warning" ? "critical" : "important"] || SEVERITY_CONFIG.important;
-              const SevIcon = sev.icon;
-              const isExpanded = expandedInsight === i;
-              return (
-                <motion.div key={`insight-${insight.insight_id || i}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }} className={`rounded-xl border ${sev.border} overflow-hidden`} data-testid={`insight-card-${i}`}>
-                  <div className={`p-4 cursor-pointer ${sev.bg} hover:opacity-90 transition-opacity`} onClick={() => setExpandedInsight(isExpanded ? null : i)}>
-                    <div className="flex items-start gap-3">
-                      <SevIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: sev.color }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2"><p className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</p><span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: `${sev.color}15`, color: sev.color }}>{sev.label}</span></div>
-                        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{insight.description?.slice(0, 100)}{insight.description?.length > 100 ? "..." : ""}</p>
-                      </div>
-                      <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div className="p-4 bg-white dark:bg-[#121212] border-t border-slate-100 dark:border-white/5 space-y-3">
-                      {insight.description && (<div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Details</p><p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.description}</p></div>)}
-                      {insight.action && (
-                        <div className="p-3 bg-emerald-50 dark:bg-emerald-900/15 rounded-lg border border-emerald-200 dark:border-emerald-500/20">
-                          <p className="text-[10px] font-bold tracking-wider uppercase text-emerald-600 mb-1">Recommended Action</p>
-                          <p className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{insight.action}</p>
-                        </div>
-                      )}
-                      {insight.current_value && insight.target_value && (
-                        <div className="flex gap-4">
-                          <div className="flex-1 p-2 rounded-lg bg-red-50 dark:bg-red-500/5 border border-red-200 dark:border-red-500/20">
-                            <p className="text-[9px] font-bold uppercase text-red-500">Current</p>
-                            <p className="text-xs font-medium text-slate-700 dark:text-zinc-300 mt-0.5">{insight.current_value}</p>
-                          </div>
-                          <div className="flex-1 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/5 border border-emerald-200 dark:border-emerald-500/20">
-                            <p className="text-[9px] font-bold uppercase text-emerald-600">Target</p>
-                            <p className="text-xs font-medium text-slate-700 dark:text-zinc-300 mt-0.5">{insight.target_value}</p>
-                          </div>
-                        </div>
-                      )}
-                      {insight.affected_funds?.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Affected Funds</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {insight.affected_funds.map((f, fi) => (
-                              <span key={`af-${fi}`} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800/50 text-slate-600 dark:text-zinc-400">{f}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {analytics?.performance_cards?.length > 0 && getAffectedHoldings(insight, analytics.performance_cards).length > 0 && (
-                        <div><p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-2">Holdings Impact</p>
-                          <div className="space-y-1 max-h-48 overflow-y-auto">
-                            {getAffectedHoldings(insight, analytics.performance_cards).map((h, hi) => (
-                              <div key={`aff-${hi}`} className="flex items-center justify-between py-1.5 px-2 bg-slate-50 dark:bg-[#1A1A1A] rounded-lg text-xs">
-                                <span className="text-slate-700 dark:text-zinc-300 truncate flex-1">{h.name}</span>
-                                <span className={`font-medium ml-2 ${h.pct_return >= 0 ? "text-emerald-600" : "text-red-500"}`}>{h.pct_return >= 0 ? "+" : ""}{h.pct_return}%</span>
-                                <span className="text-slate-500 ml-2">{fmt(h.current_value)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
-          </div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} data-testid="actionable-insights">
+          <RecommendationsCenter
+            insights={ins}
+            summary={summary}
+            perfCards={analytics?.performance_cards || []}
+            fmt={fmt}
+            onAfterChange={onAfterChange}
+          />
         </motion.div>
       )}
 
