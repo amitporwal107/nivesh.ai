@@ -65,8 +65,8 @@ function Section({ id, n, title, subtitle, collapsed, onToggle, onDragStart, onD
       id={`section-${id}`}
       className={`scroll-mt-32 rounded-2xl border transition-colors ${
         isDragOver
-          ? "border-indigo-300 bg-indigo-50/30 dark:border-indigo-700/50 dark:bg-indigo-900/20"
-          : "border-slate-200/70 bg-white/60 dark:border-slate-700/70 dark:bg-slate-800/60"
+          ? "border-indigo-300 bg-indigo-50 dark:border-indigo-700/50 dark:bg-indigo-900/20"
+          : "border-slate-100 bg-white dark:border-slate-700 dark:bg-slate-800"
       }`}
       draggable
       onDragStart={onDragStart}
@@ -212,7 +212,7 @@ export default function MarketDashboard() {
       <MarketTodaysTake />
 
       {/* Sticky section nav */}
-      <div className="sticky top-[72px] z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-1 bg-white/85 dark:bg-slate-950/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/50">
+      <div className="sticky top-[72px] z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-1 bg-[#F8FAFC] dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <SectionNav order={order} collapsed={collapsed} onToggle={toggleCollapse} />
           <button

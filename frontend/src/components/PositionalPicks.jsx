@@ -572,6 +572,77 @@ const WebhookSetupCard = () => {
 };
 
 
+// Engine diagnostic panel — shows freshness of each dependency table so
+// admins (and curious users) can see why "Run engine" returned nothing.
+// Polls /api/positional/health once on mount. Compact 4-column grid.
+const EngineHealthPanel = ({ isAdmin }) => {
+  const [data, setData] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get(`${API}/positional/health`, { withCredentials: true })
+      .then((r) => { if (!cancelled) { setData(r.data); setLoaded(true); } })
+      .catch(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!loaded) return null;
+  if (!data?.ok) return null;
+
+  const tile = (label, key) => {
+    const t = data[key];
+    if (!t) return null;
+    const empty = !t.latest_date;
+    const stale = t.stale_days != null && t.stale_days > 1;
+    const tone = empty ? "text-rose-600 dark:text-rose-400"
+                 : stale ? "text-amber-600 dark:text-amber-400"
+                 : "text-emerald-600 dark:text-emerald-400";
+    return (
+      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2">
+        <div className="text-[9px] uppercase tracking-wider text-slate-400">{label}</div>
+        <div className={`text-[11px] font-semibold tabular-nums ${tone}`}>
+          {t.latest_date || "—"}
+        </div>
+        <div className="text-[10px] text-slate-500 tabular-nums">
+          {t.row_count?.toLocaleString?.() ?? t.row_count} rows
+          {t.stale_days != null && t.stale_days > 0 && (
+            <span className="ml-1 text-slate-400">· {t.stale_days}d old</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const scanCfg = data.scan_config || {};
+  return (
+    <div className="border-t border-slate-200 dark:border-slate-700 pt-3" data-testid="engine-health-panel">
+      <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">
+        Engine data freshness
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {tile("OHLCV", "ohlcv")}
+        {tile("Chartink", "chartink")}
+        {tile("Features", "features")}
+        {tile("Signals", "signals")}
+      </div>
+      <div className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+        Scan config: <strong>{scanCfg.enabled ?? 0}</strong> enabled
+        {scanCfg.count != null && scanCfg.count !== scanCfg.enabled && (
+          <> / {scanCfg.count} total</>
+        )}
+        {scanCfg.enabled === 0 && isAdmin && (
+          <span className="ml-1 text-rose-600 dark:text-rose-400">
+            — no enabled scans, engine will run but find nothing
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
 // Compact tabular view of all picks. Same data the card grid renders,
 // but denser — useful when scanning 30+ picks where cards become tedious.
 // Sticky header so it stays usable when the row count is large.
@@ -1143,25 +1214,28 @@ const PositionalPicks = ({ hideWhenWatchlistMode = false } = {}) => {
                                        chip clearly showed Friday). */}
       {!state.loading && !state.error && picks.length === 0 && (
         <Card className="bg-slate-50 dark:bg-slate-900/50 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl shadow-none">
-          <CardContent className="p-4 text-xs text-slate-500 dark:text-slate-400">
-            {isAdmin && !signalDate ? (
-              <>No positional signals yet. Click <strong>Run engine</strong> above to fetch today&apos;s OHLCV + Chartink scans and score the universe.</>
-            ) : !signalDate ? (
-              <>Positional picks are still loading. The engine runs daily after market close — check back soon.</>
-            ) : _isToday(signalDate) ? (
-              <>
-                No actionable picks for {signalDate} yet. Signals are
-                computed off the prior session&apos;s close + Chartink scans;
-                during market hours, readiness chips on each pick update
-                live (LTP refresh every 60s).
-              </>
-            ) : (
-              <>
-                No actionable picks on the most recent trading day (<strong>{signalDate}</strong>).
-                Markets may be closed today, or no setups crossed the actionable threshold.
-                {isAdmin && <> Click <strong>Run engine</strong> to re-score.</>}
-              </>
-            )}
+          <CardContent className="p-4 text-xs text-slate-500 dark:text-slate-400 space-y-3">
+            <div>
+              {isAdmin && !signalDate ? (
+                <>No positional signals yet. Click <strong>Run engine</strong> above to fetch today&apos;s OHLCV + Chartink scans and score the universe.</>
+              ) : !signalDate ? (
+                <>Positional picks are still loading. The engine runs daily after market close — check back soon.</>
+              ) : _isToday(signalDate) ? (
+                <>
+                  No actionable picks for {signalDate} yet. Signals are
+                  computed off the prior session&apos;s close + Chartink scans;
+                  during market hours, readiness chips on each pick update
+                  live (LTP refresh every 60s).
+                </>
+              ) : (
+                <>
+                  No actionable picks on the most recent trading day (<strong>{signalDate}</strong>).
+                  Markets may be closed today, or no setups crossed the actionable threshold.
+                  {isAdmin && <> Click <strong>Run engine</strong> to re-score.</>}
+                </>
+              )}
+            </div>
+            <EngineHealthPanel isAdmin={isAdmin} />
           </CardContent>
         </Card>
       )}

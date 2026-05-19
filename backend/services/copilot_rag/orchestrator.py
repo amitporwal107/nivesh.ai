@@ -16,6 +16,7 @@ holdings dumps, no kitchen-sink intel block.
 from __future__ import annotations
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from . import retrievers as R
@@ -613,7 +614,7 @@ async def _llm_prose(
     messages.append({"role": "user", "content": user_prompt})
     try:
         resp = await ai_engine.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.environ.get("COPILOT_LLM_MODEL", "gpt-5"),
             messages=messages,
             max_tokens=400,        # tight — answers are short
             temperature=0.2,       # deterministic-ish

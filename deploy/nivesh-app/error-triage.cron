@@ -1,0 +1,13 @@
+# /etc/cron.d/error-triage — hourly Cloud Logging error triage.
+# Owner: nivesh (uses the repo at /opt/nivesh/repo for script path).
+# Auth files (must be readable by nivesh user, 0600 perms):
+#   /opt/nivesh/.gh_pat       — GitHub PAT for push/PR
+#   /opt/nivesh/.openai_key   — OpenAI key for root-cause analysis
+# GCP auth comes from the VM's attached service account via metadata server,
+# which already has logging.viewer (verified in this project).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Top of every hour. Output appended to a rolling log; logrotate handles it.
+0 * * * *  nivesh  /usr/bin/python3 /opt/nivesh/repo/backend/scripts/error_triage.py >> /opt/nivesh/logs/error-triage.log 2>&1

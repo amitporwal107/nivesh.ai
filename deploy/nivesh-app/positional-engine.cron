@@ -1,0 +1,27 @@
+# /etc/cron.d/positional-engine — twice-daily positional engine runs.
+#
+# Owner: nivesh (executes via `docker exec nivesh-backend`, so the cron
+# user only needs to be in the `docker` group).
+#
+# Schedule (Asia/Kolkata):
+#   06:00 IST Mon-Sat  — morning prep: re-score off prior session's close +
+#                        any overnight Chartink alerts. Picks are ready
+#                        before users open the dashboard at market open.
+#   20:00 IST Mon-Fri  — post-close: NSE bhavcopy is published 18:00-19:30
+#                        IST, so by 20:00 fresh OHLCV is available. Run
+#                        before the 22:00 NIDP snapshot_builder.
+#
+# Output appended to a rolling log; logrotate handles retention (see
+# install-positional-engine.sh which drops a /etc/logrotate.d entry).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+# Morning re-score — uses yesterday's close that's already in OHLCV.
+# --skip-bhavcopy because the prior-day file was ingested at 20:00.
+0 6  * * 1-6  nivesh  /usr/bin/docker exec nivesh-backend python -m scripts.run_positional_engine --skip-bhavcopy >> /opt/nivesh/logs/positional-engine.log 2>&1
+
+# Evening full run — fresh bhavcopy + Chartink scans + score.
+0 20 * * 1-5  nivesh  /usr/bin/docker exec nivesh-backend python -m scripts.run_positional_engine >> /opt/nivesh/logs/positional-engine.log 2>&1

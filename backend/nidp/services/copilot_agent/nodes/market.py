@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 from ..tools.daas_bridge import call_daas
@@ -28,10 +29,10 @@ Style:
 - Always include a one-line market sentiment call (bullish/bearish/neutral)
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
-If TOOL_DATA is unavailable or empty, say so and answer from general knowledge only.
 If asked about index targets, analyst consensus or future market forecasts,
 say plainly that we do not have analyst feeds — only historical exchange data
-and macro indicators."""
+and macro indicators.
+""" + ANTI_HALLUCINATION_RULES
 
 
 async def _fetch_market_data(state: CopilotState) -> List[ToolResult]:
@@ -89,7 +90,7 @@ async def market_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.2,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )

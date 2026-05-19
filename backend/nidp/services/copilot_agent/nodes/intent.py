@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import COPILOT_LLM_MODEL
 from ..schemas import AgentName, CopilotState, IntentClassification
 
 logger = logging.getLogger(__name__)
@@ -197,7 +198,7 @@ async def _llm_classify(text: str) -> IntentClassification:
     """Call the LLM for ambiguous queries. Falls back to market_analyst on any error."""
     try:
         llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model=COPILOT_LLM_MODEL,
             temperature=0,
             api_key=os.environ.get("OPENAI_API_KEY", ""),
         )

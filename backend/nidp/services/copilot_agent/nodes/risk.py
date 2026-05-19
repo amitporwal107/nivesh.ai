@@ -12,6 +12,7 @@ from typing import List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -27,7 +28,8 @@ Style:
 - Key risk drivers (top 2-3 bullet points)
 - VaR figures: "1-day 95% VaR: ₹X means on a bad day you could lose ₹X"
 - Misalignment alerts (if any) with specific suggested action
-- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
+""" + ANTI_HALLUCINATION_RULES
 
 
 async def _fetch_risk_data(state: CopilotState) -> List[ToolResult]:
@@ -90,7 +92,7 @@ async def risk_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.1,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )

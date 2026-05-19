@@ -12,6 +12,7 @@ from typing import List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from .._llm import ANTI_HALLUCINATION_RULES, COPILOT_LLM_MODEL
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -28,7 +29,8 @@ Style:
 - Funds:  table — Fund | Category | 3Y CAGR | Sharpe | TER | Reason
 - Max 5 picks; bold the top pick
 - Note the user's risk profile if mentioned
-- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
+""" + ANTI_HALLUCINATION_RULES
 
 
 def _infer_risk_band(user_msg: str) -> str:
@@ -224,7 +226,7 @@ async def recommendation_node(state: CopilotState) -> dict:
     )
 
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
+        model=COPILOT_LLM_MODEL,
         temperature=0.2,
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
