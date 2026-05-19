@@ -156,6 +156,10 @@ app = FastAPI(
 def _custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
+    # Honour --root-path so the `servers` block in the spec points at the
+    # external URL (e.g. /daas) when behind nginx. Otherwise Swagger UI's
+    # "Try it out" buttons hit /v1/catalog instead of /daas/v1/catalog.
+    servers = [{"url": app.root_path}] if app.root_path else None
     schema = get_openapi(
         title=app.title,
         version=app.version,
@@ -164,6 +168,7 @@ def _custom_openapi():
         license_info=app.license_info,
         tags=_TAGS,
         routes=app.routes,
+        servers=servers,
     )
     # Inject both security schemes so Swagger UI shows the Authorize button
     schema.setdefault("components", {}).setdefault("securitySchemes", {}).update({
