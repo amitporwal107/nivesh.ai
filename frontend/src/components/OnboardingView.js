@@ -660,8 +660,13 @@ const OnboardingView = ({ onComplete, userProfile }) => {
               // Real holdings are already saved — skip the generic Playbook
               // step and drop the user straight on the portfolio screen.
               // Mark onboarding complete here so the parent stops rendering
-              // OnboardingView when it re-fetches the profile.
+              // OnboardingView when it re-fetches the profile. We also
+              // stash the desired landing screen in sessionStorage so that
+              // even if NiveshV2 remounts (e.g. profile fetch triggers a
+              // suspense boundary), it picks up "portfolio" on init —
+              // relying on a synchronous setActiveScreen alone is fragile.
               try {
+                sessionStorage.setItem("v2_initial_screen", "portfolio");
                 await axios.post(`${API}/user/complete-onboarding`, {}, { withCredentials: true });
               } catch (err) {
                 console.error("Failed to mark onboarding complete:", err);

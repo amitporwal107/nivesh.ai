@@ -126,7 +126,23 @@ export default function NiveshV2() {
   const navigate = useNavigate();
 
   // ── active screen — maps to V1 tab concept
-  const [activeScreen, setActiveScreen] = useState("home");
+  // Honour a one-shot landing screen stashed in sessionStorage by the
+  // CAS Connect import flow (or any other navigation that completes
+  // before this component finishes mounting). The key is cleared on
+  // read so it only fires once.
+  const [activeScreen, setActiveScreen] = useState(() => {
+    try {
+      const pending = sessionStorage.getItem("v2_initial_screen");
+      if (pending) {
+        sessionStorage.removeItem("v2_initial_screen");
+        return pending;
+      }
+    } catch (e) {  // sessionStorage may be unavailable in private mode
+      // eslint-disable-next-line no-console
+      console.warn("sessionStorage read failed:", e);
+    }
+    return "home";
+  });
 
   // ── same data state as Dashboard.js
   const [holdings, setHoldings]       = useState([]);
