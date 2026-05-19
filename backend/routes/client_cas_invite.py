@@ -48,7 +48,19 @@ from services.gmail_service import (
     get_gmail_credentials, build_gmail_service,
     scan_for_cas_emails, download_attachment,
 )
-from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
+from helpers.parsing import save_holdings
+
+# All server-side CAS parsing was removed when we consolidated parsing
+# into the Connect SDK widget. The endpoints below that used to accept
+# raw PDFs or download from Gmail now return 410 — clients must switch
+# to the SDK widget which parses in-browser and POSTs the parsed JSON.
+_CAS_PDF_DEPRECATED = (
+    "Server-side CAS PDF parsing is no longer supported on this "
+    "endpoint. Use the Connect SDK widget — it parses the PDF (or "
+    "Gmail-fetched statement) in the client's browser via casparser.in "
+    "directly, then POST the widget's parsed JSON to "
+    "/api/portfolio/import-connect."
+)
 from services.cas_period_detector import detect_statement_period, detect_period_from_filename
 from services.cas_snapshot_engine import create_cas_snapshot
 from services import cas_transactions as _cas_txns
@@ -553,278 +565,20 @@ class ImportRequest(BaseModel):
 
 @public_router.post("/{token}/import")
 async def client_import_selected(
-    token: str, payload: ImportRequest, request: Request, background_tasks: BackgroundTasks,
+    token: str, payload: ImportRequest, request: Request, background_tasks: BackgroundTasks,  # noqa: ARG001
 ):
-    """Client picks which CAS emails to import. We download + parse
-    (background) + attach holdings to the profile's shadow_user_id.
-    Password defaults to the PAN captured in the client-details step,
-    so the client doesn't have to retype it."""
-    inv = await _get_invite_or_404(token)
-    if not payload.selections:
-        raise HTTPException(400, "No emails selected")
-    tokens = inv.get("oauth_tokens")
-    if not tokens:
-        raise HTTPException(400, "Gmail not connected")
-
-    # Use stored PAN as default password; caller can override if CAS
-    # uses a non-standard password scheme (rare in MVP).
-    password = (payload.password or inv.get("client_pan") or "").strip()
-    if not password:
-        raise HTTPException(400, "CAS password required — submit client details first or provide an override")
-
-    # Resolve the profile → shadow_user_id (that's where holdings land)
-    prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
-    if not prof:
-        raise HTTPException(410, "Client profile no longer exists")
-    shadow_uid = prof.get("shadow_user_id")
-    if not shadow_uid:
-        raise HTTPException(500, "Profile has no shadow user — contact your advisor")
-
-    creds = get_gmail_credentials(tokens)
-    service = build_gmail_service(creds)
-
-    # Kick off each selection as a background task so the client page
-    # can poll for progress without waiting on a slow multi-CAS parse.
-    queued = []
-    for sel in payload.selections:
-        mid = sel.get("message_id")
-        aid = sel.get("attachment_id")
-        fname = sel.get("filename") or "cas.pdf"
-        if not mid or not aid:
-            continue
-        try:
-            content = download_attachment(service, mid, aid)
-        except Exception as e:  # noqa: BLE001
-            logger.error("client-invite download failed: %s", e)
-            continue
-
-        # Persist the raw PDF before kicking off the parse so the MFD
-        # can recover from parse failures (e.g. NSDL password mismatch)
-        # by re-parsing with a custom password from the dashboard.
-        meta = _save_cas_bytes(token, content)
-        file_id = meta["file_id"]
-
-        # Record as pending — keyed by file_id (unique per upload)
-        await db.client_cas_invites.update_one(
-            {"invite_token": token},
-            {"$push": {"processed_files": {
-                "file_id":     file_id,
-                "file_path":   meta["file_path"],
-                "file_size":   meta["file_size"],
-                "file_sha256": meta["file_sha256"],
-                "source":      "gmail",
-                "message_id":  mid,
-                "filename":    fname,
-                "status":      "processing",
-                "started_at":  _now_iso(),
-                "stored_at":   meta["stored_at"],
-            }}},
-        )
-        background_tasks.add_task(
-            _process_client_cas, token, shadow_uid, content, fname, password, file_id,
-        )
-        queued.append({"message_id": mid, "filename": fname, "file_id": file_id})
-
-    return {"queued": queued, "count": len(queued)}
+    """DEPRECATED — server-side Gmail CAS download + parse was removed.
+    The Connect SDK widget fetches and parses Gmail CAS statements in
+    the client's browser; the parsed JSON should be POSTed back to the
+    workspace via the SDK-driven import endpoint."""
+    raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
 
-async def _cascade_reparse_failed_files(
-    token: str, shadow_uid: str, password: str, exclude_file_id: str,
-):
-    """Auto-retry all error-status CAS PDFs in the same invite using the
-    password that just worked. Runs sequentially (one PDF at a time) to
-    avoid a CPU/memory spike from concurrent OCR jobs. Files that still
-    fail are simply left with status='error' — no infinite loop.
-
-    Guard: only retries files with reparse_count < 3 to prevent thrashing.
-    """
-    inv = await db.client_cas_invites.find_one({"invite_token": token}, {"_id": 0})
-    if not inv:
-        return
-    for f in inv.get("processed_files") or []:
-        fid = f.get("file_id")
-        if fid == exclude_file_id:
-            continue
-        if f.get("status") not in ("error", "failed"):
-            continue
-        if (f.get("reparse_count") or 0) >= 3:
-            continue
-        fp = f.get("file_path")
-        if not fp or not Path(fp).exists():
-            continue
-
-        fname = f.get("filename") or "cas.pdf"
-        logger.info("Cascade re-parse: queuing %s (%s) with same password", fname, fid[:8])
-        await db.client_cas_invites.update_one(
-            {"invite_token": token, "processed_files.file_id": fid},
-            {"$set": {
-                "processed_files.$.status":       "processing",
-                "processed_files.$.started_at":   _now_iso(),
-                "processed_files.$.error":        None,
-                "processed_files.$.reparse_count": (f.get("reparse_count") or 0) + 1,
-            }},
-        )
-        content = Path(fp).read_bytes()
-        await _process_client_cas(token, shadow_uid, content, fname, password, fid)
-
-
-async def _process_client_cas(
-    token: str, shadow_uid: str, content: bytes, filename: str, password: str, file_id: str,
-):
-    """Background: parse CAS PDF → create a date-stamped portfolio snapshot
-    (instead of overwriting live holdings) → mark invite row as completed.
-
-    The snapshot engine automatically mirrors the holdings into the live
-    `holdings` table if this is the most recent snapshot, so Client 360
-    shows the freshest data by default. All historical snapshots are
-    preserved so the MFD can "time-travel" to any past month.
-    """
-    count = 0
-    status = "completed"
-    err = None
-    snap_date = None
-    try:
-        # Parse PDF + capture raw casparser/API dict for transaction extraction
-        # AND the raw payload for persistence (so we never re-parse).
-        holdings, raw_cas_data, raw_payload, parser_source = await parse_cas_pdf_with_data(
-            content, password=password
-        )
-        if holdings:
-            for h in holdings:
-                h["source"] = "email"
-                h["confidence"] = 0.95
-
-            # Detect the CAS statement period (e.g. 2026-01-01 → 2026-01-31)
-            # 1st: try reading from PDF text headers
-            period_start, period_end = detect_statement_period(content)
-            # 2nd: fall back to filename (e.g. NSDLe-CAS_106904998_DEC_2025.PDF)
-            if not period_end:
-                period_start, period_end = detect_period_from_filename(filename)
-            logger.info(
-                f"CAS period detected: {period_start} → {period_end} "
-                f"for file {filename} (token {token[:8]})"
-            )
-
-            # Extract transactions + SIPs if structured data is available
-            transactions: list = []
-            sips_detected: list = []
-            if raw_cas_data:
-                try:
-                    transactions = _cas_txns.extract_transactions(raw_cas_data)
-                    sips_detected = _cas_txns.detect_sip_patterns(transactions)
-                    logger.info(
-                        f"Extracted {len(transactions)} transactions, "
-                        f"{len(sips_detected)} SIP patterns from {filename}"
-                    )
-                except Exception as txn_err:  # noqa: BLE001
-                    logger.warning("Transaction extraction failed: %s", txn_err)
-
-            # Persist raw parsed payload so the MFD can view it later
-            # without re-parsing the PDF, AND so we have an audit trail.
-            if raw_payload is not None:
-                try:
-                    await db.cas_parsed_responses.update_one(
-                        {"file_id": file_id},
-                        {"$set": {
-                            "file_id":         file_id,
-                            "user_id":         shadow_uid,
-                            "invite_token":    token,
-                            "filename":        filename,
-                            "parser_source":   parser_source,
-                            "holdings_count":  len(holdings),
-                            "transactions_count": len(transactions),
-                            "sips_count":      len(sips_detected),
-                            "period_start":    period_start,
-                            "period_end":      period_end,
-                            "raw_payload":     raw_payload,
-                            "normalized_for_txns": raw_cas_data,
-                            "stored_at":       _now_iso(),
-                        }},
-                        upsert=True,
-                    )
-                    logger.info(
-                        f"Persisted parsed CAS response for file {file_id[:8]} "
-                        f"({parser_source}, {len(transactions)} txns)"
-                    )
-                except Exception as p_err:  # noqa: BLE001
-                    logger.warning("Failed to persist parsed CAS response: %s", p_err)
-
-            # Persist as a date-stamped snapshot (not a flat holdings overwrite)
-            snap = await create_cas_snapshot(
-                user_id=shadow_uid,
-                holdings=holdings,
-                transactions=transactions,
-                sips_detected=sips_detected,
-                period_start=period_start,
-                period_end=period_end,
-                cas_file_id=file_id,
-                cas_filename=filename,
-            )
-            count = snap.get("holdings_count", len(holdings))
-            snap_date = snap.get("snapshot_date")
-
-            # Also persist transactions + SIPs to their own collections so
-            # /api/portfolio/transactions and /api/portfolio/sips keep working.
-            if raw_cas_data and transactions:
-                try:
-                    txn_result = await _cas_txns.persist_transactions_and_sips(
-                        db, shadow_uid, raw_cas_data, source="CAS_PDF"
-                    )
-                    logger.info("Persisted transactions: %s", txn_result)
-                except Exception as txn_err:  # noqa: BLE001
-                    logger.warning("Transaction persistence failed: %s", txn_err)
-        else:
-            status = "error"
-            err = "Parser returned no holdings"
-    except Exception as e:  # noqa: BLE001
-        logger.error("client-invite parse failed: %s", e)
-        status = "error"
-        # Friendlier error for the common "budget exhausted" case.
-        emsg = str(e)
-        if "budget" in emsg.lower() or "Budget has been exceeded" in emsg:
-            err = "AI budget exhausted — admin needs to top up the Emergent LLM key (Profile → Universal Key → Add Balance) to keep using Claude Vision."
-        else:
-            err = emsg[:200]
-
-    # Update this file's row in processed_files (keyed by file_id)
-    await db.client_cas_invites.update_one(
-        {"invite_token": token, "processed_files.file_id": file_id},
-        {"$set": {
-            "processed_files.$.status":          status,
-            "processed_files.$.holdings_count":  count,
-            "processed_files.$.completed_at":    _now_iso(),
-            "processed_files.$.error":           err,
-            "processed_files.$.snapshot_date":   snap_date,
-            "processed_files.$.last_password_hint": (password[:2] + "***" + password[-1:]) if password else None,
-        }},
-    )
-    # If all processed_files are done + at least one succeeded → COMPLETED
-    inv = await db.client_cas_invites.find_one({"invite_token": token}, {"_id": 0})
-    if inv:
-        files = inv.get("processed_files") or []
-        done = all(f.get("status") in ("completed", "error") for f in files)
-        any_ok = any(f.get("status") == "completed" and (f.get("holdings_count") or 0) > 0 for f in files)
-        if done and any_ok:
-            await db.client_cas_invites.update_one(
-                {"invite_token": token},
-                {"$set": {
-                    "status": "COMPLETED",
-                    "completed_at": _now_iso(),
-                    # Discard the tokens now that we're done — privacy.
-                    "oauth_tokens": None,
-                }},
-            )
-
-    # ── Cascade re-parse ────────────────────────────────────────────────
-    # If this file parsed OK, auto-retry all other error-status files in
-    # the same invite using the same password. This means that once the MFD
-    # provides the correct password for one file, all other uploaded CAS
-    # PDFs (e.g., JAN, FEB, MAR) are automatically processed in the background.
-    if status == "completed" and password:
-        try:
-            await _cascade_reparse_failed_files(token, shadow_uid, password, exclude_file_id=file_id)
-        except Exception as ce:  # noqa: BLE001
-            logger.warning("Cascade re-parse error: %s", ce)
+# `_cascade_reparse_failed_files` and `_process_client_cas` were removed
+# alongside the casparser.in REST API chain. Both helpers existed only
+# to feed PDF bytes into the legacy `parse_cas_pdf_with_data` dispatcher.
+# All CAS parsing is now done client-side by the Connect SDK widget and
+# the parsed JSON arrives via `/api/portfolio/import-connect`.
 
 
 @public_router.get("/{token}/status")
@@ -843,68 +597,19 @@ async def client_invite_status(token: str):
     }
 
 
-# ── Public: direct PDF upload (Gmail-less fallback) ────────────────────
+# ── Public: direct PDF upload — DEPRECATED ─────────────────────────────
 @public_router.post("/{token}/upload-pdf")
 async def client_upload_pdf(
-    token: str,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    password: Optional[str] = Form(default=None),
+    token: str,                                       # noqa: ARG001
+    request: Request,                                 # noqa: ARG001
+    background_tasks: BackgroundTasks,                # noqa: ARG001
+    file: UploadFile = File(...),                     # noqa: ARG001
+    password: Optional[str] = Form(default=None),     # noqa: ARG001
 ):
-    """Client uploads a CAS PDF directly (used when they decline Gmail
-    consent or their broker emailed the CAS to a different address).
-    The raw bytes are persisted, and a parse is queued in the background.
-    Password defaults to the PAN captured in client-details so the client
-    doesn't have to retype it.
-    """
-    inv = await _get_invite_or_404(token)
-    if not inv.get("client_pan") and not password:
-        raise HTTPException(400, "Submit your details (PAN) first — required to unlock the CAS PDF")
-
-    # Read & validate the upload (single-shot for MVP — CAS PDFs <25MB)
-    content = await file.read()
-    if not content:
-        raise HTTPException(400, "Empty file")
-    if len(content) > MAX_CAS_PDF_BYTES:
-        raise HTTPException(413, f"File too large — limit is {MAX_CAS_PDF_BYTES // (1024*1024)} MB")
-    if not content[:4].startswith(b"%PDF"):
-        raise HTTPException(400, "Only PDF files are supported")
-
-    # Resolve profile → shadow_user_id
-    prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
-    if not prof:
-        raise HTTPException(410, "Client profile no longer exists")
-    shadow_uid = prof.get("shadow_user_id")
-    if not shadow_uid:
-        raise HTTPException(500, "Profile has no shadow user — contact your advisor")
-
-    pwd = (password or inv.get("client_pan") or "").strip()
-    fname = file.filename or "cas.pdf"
-    meta = _save_cas_bytes(token, content)
-    file_id = meta["file_id"]
-
-    await db.client_cas_invites.update_one(
-        {"invite_token": token},
-        {"$push": {"processed_files": {
-            "file_id":     file_id,
-            "file_path":   meta["file_path"],
-            "file_size":   meta["file_size"],
-            "file_sha256": meta["file_sha256"],
-            "source":      "upload",
-            "filename":    fname,
-            "status":      "processing",
-            "started_at":  _now_iso(),
-            "stored_at":   meta["stored_at"],
-        }},
-         "$set": {
-            "status": "DETAILS_CAPTURED" if inv.get("status") == "PENDING" else inv.get("status", "PENDING"),
-        }},
-    )
-    background_tasks.add_task(
-        _process_client_cas, token, shadow_uid, content, fname, pwd, file_id,
-    )
-    return {"queued": True, "file_id": file_id, "filename": fname}
+    """DEPRECATED — direct PDF uploads were removed. The client should
+    use the Connect SDK widget which parses the PDF in-browser and
+    posts the parsed JSON to the workspace."""
+    raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
 
 # ── MFD-side: stored CAS files visibility & selective re-parse ─────────
@@ -1092,47 +797,13 @@ class ReparseRequest(BaseModel):
 
 
 @mfd_router.post("/cas-uploads/{file_id}/reparse")
-async def reparse_cas_upload(file_id: str, payload: ReparseRequest, request: Request,
-                             background_tasks: BackgroundTasks):
-    """Selectively re-parse a stored CAS PDF with an optional custom
-    password (e.g., when the auto-parse failed because the client's CAS
-    used a non-PAN password). Re-uses the original `_process_client_cas`
-    worker so the same status updates flow through."""
-    user = await get_current_user(request)
-    uid = user.get("_session_user_id") or user["user_id"]
-    inv, f = await _find_file_by_id(uid, file_id)
-    fp = f.get("file_path")
-    if not fp or not Path(fp).exists():
-        raise HTTPException(410, "File no longer on disk — please ask the client to re-upload")
-
-    prof = await db.profiles.find_one({"profile_id": inv["profile_id"]}, {"_id": 0})
-    if not prof:
-        raise HTTPException(410, "Client profile no longer exists")
-    shadow_uid = prof.get("shadow_user_id")
-    if not shadow_uid:
-        raise HTTPException(500, "Profile has no shadow user")
-
-    pwd = (payload.password or inv.get("client_pan") or "").strip()
-    if not pwd:
-        raise HTTPException(400, "Provide a password — auto-fallback (PAN) is unavailable")
-
-    content = Path(fp).read_bytes()
-    # Mark this row as re-processing so the UI flips back to "processing"
-    await db.client_cas_invites.update_one(
-        {"invite_token": inv["invite_token"], "processed_files.file_id": file_id},
-        {"$set": {
-            "processed_files.$.status":     "processing",
-            "processed_files.$.started_at": _now_iso(),
-            "processed_files.$.error":      None,
-            "processed_files.$.reparse_count": (f.get("reparse_count") or 0) + 1,
-            "processed_files.$.reparsed_by_mfd": True,
-        }},
-    )
-    background_tasks.add_task(
-        _process_client_cas, inv["invite_token"], shadow_uid, content,
-        f.get("filename") or "cas.pdf", pwd, file_id,
-    )
-    return {"status": "queued", "file_id": file_id}
+async def reparse_cas_upload(file_id: str, payload: ReparseRequest, request: Request,   # noqa: ARG001
+                             background_tasks: BackgroundTasks):                         # noqa: ARG001
+    """DEPRECATED — server-side reparse was removed alongside the
+    casparser.in REST API chain. New uploads parse client-side via the
+    Connect SDK widget; if a stored CAS needs re-parsing, ask the client
+    to re-import via the widget."""
+    raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
 
 @mfd_router.delete("/cas-uploads/{file_id}")
