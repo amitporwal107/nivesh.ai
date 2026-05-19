@@ -89,5 +89,9 @@ cat > /etc/logrotate.d/nidp <<'EOF'
 }
 EOF
 
+# ── 7. Cloud Logging — install Ops Agent so NIDP cron logs reach Cloud Logging
+log "installing Google Cloud Ops Agent"
+bash "$NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh"
+
 log "✅ bootstrap done. Next: edit /opt/nidp/nidp.env, then install"
 log "   /etc/cron.d/nidp + nidp-health.timer (see README.md)"

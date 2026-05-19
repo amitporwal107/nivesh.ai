@@ -102,6 +102,13 @@ docker compose -f "$COMPOSE_FILE" \
     --env-file "$ENV_FILE" \
     up -d --remove-orphans
 
+# ── 6b. Refresh Cloud Logging Ops Agent config (idempotent) ───────────────────
+if [[ -x "$REPO_DIR/deploy/nivesh-app/install-ops-agent.sh" ]]; then
+    log "Refreshing Cloud Logging Ops Agent config..."
+    bash "$REPO_DIR/deploy/nivesh-app/install-ops-agent.sh" || \
+        log "⚠  ops-agent refresh failed (non-fatal, continuing)"
+fi
+
 # ── 7. Wait for backend health ────────────────────────────────────────────────
 log "Waiting for backend to become healthy..."
 for i in $(seq 1 30); do
