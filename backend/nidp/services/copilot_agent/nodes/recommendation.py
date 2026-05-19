@@ -12,6 +12,7 @@ from typing import List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ Style:
 - Funds:  table — Fund | Category | 3Y CAGR | Sharpe | TER | Reason
 - Max 5 picks; bold the top pick
 - Note the user's risk profile if mentioned
-- End with: DISCLAIMER: AI-generated screening output. Not SEBI-registered investment advice. Do your own research."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
 
 
 def _infer_risk_band(user_msg: str) -> str:
@@ -228,7 +229,7 @@ async def recommendation_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

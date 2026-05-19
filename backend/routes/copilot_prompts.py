@@ -17,9 +17,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from deps import db, get_current_user
+import feature_flags as _ff
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -127,10 +128,16 @@ def _score_long_term(ctx: Dict[str, Any]) -> tuple:
     return (0, None)
 
 
-# Template catalog
+# Universal template catalog — shown to all personas. Each entry now carries:
+#   personas:        None  → matches all personas (universal)
+#                    list  → only included when the user's persona is in the list
+#   intent_category: one of the 5 product taxonomy buckets:
+#                    portfolio_health | performance | risk_diversification | tax | goal_planning
 _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "id": "fix_portfolio",
+        "personas": None,
+        "intent_category": "portfolio_health",
         "bucket": "fix",
         "tier": "primary",
         "label": "Let's clean up my portfolio",
@@ -142,6 +149,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "overlap",
+        "personas": None,
+        "intent_category": "risk_diversification",
         "bucket": "fix",
         "tier": "secondary",
         "label": "Fix overlap in my funds",
@@ -153,6 +162,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "risk_allocation",
+        "personas": None,
+        "intent_category": "risk_diversification",
         "bucket": "risk",
         "tier": "secondary",
         "label": "Rebalance my risk",
@@ -164,6 +175,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "exit_lowest_tax",
+        "personas": None,
+        "intent_category": "tax",
         "bucket": "exit",
         "tier": "secondary",
         "label": "Which fund should I exit first",
@@ -175,6 +188,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "where_to_invest",
+        "personas": None,
+        "intent_category": "portfolio_health",
         "bucket": "add",
         "tier": "secondary",
         "label": "Where should I invest ₹1L",
@@ -186,6 +201,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "performance",
+        "personas": None,
+        "intent_category": "performance",
         "bucket": "deep",
         "tier": "advanced",
         "label": "Find my weak performers",
@@ -197,6 +214,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "concentration",
+        "personas": None,
+        "intent_category": "risk_diversification",
         "bucket": "risk",
         "tier": "advanced",
         "label": "Check my concentration risk",
@@ -208,6 +227,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "what_if",
+        "personas": None,
+        "intent_category": "portfolio_health",
         "bucket": "deep",
         "tier": "advanced",
         "label": "Simulate my plan",
@@ -219,6 +240,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "tax_optimize",
+        "personas": None,
+        "intent_category": "tax",
         "bucket": "deep",
         "tier": "advanced",
         "label": "Optimise my taxes",
@@ -230,6 +253,8 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "id": "long_term",
+        "personas": None,
+        "intent_category": "goal_planning",
         "bucket": "deep",
         "tier": "advanced",
         "label": "Am I on track for long-term wealth",
@@ -240,6 +265,18 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
         "scorer": _score_long_term,
     },
 ]
+
+
+# Merge persona-specific templates from the catalog module so the routing logic
+# below sees one unified list. The persona catalog adds 99 entries covering the
+# 10 product personas × 5 holdings + 5 general questions each (active_trader
+# Q5 is hidden until P3 ships the win-rate / risk-reward primitive).
+try:
+    from .copilot_prompt_catalog import PERSONA_TEMPLATES as _PERSONA_TEMPLATES
+    _PROMPT_TEMPLATES.extend(_PERSONA_TEMPLATES)
+except Exception as _persona_import_err:  # noqa: BLE001
+    logger.warning("persona prompt catalog unavailable: %s", _persona_import_err)
+    _PERSONA_TEMPLATES = []
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -654,8 +691,59 @@ async def _is_advisor_mode(session_user_id: str, calling_user_id: str) -> bool:
     return bool(ws and (ws.get("type") or "").upper() == "ADVISORY")
 
 
+_PERSONA_PROMPTS_FLAG = "copilot_persona_prompts_enabled"
+_DEFAULT_PERSONA = "retail_investor"
+_VALID_CATEGORIES = {
+    "portfolio_health", "performance", "risk_diversification", "tax", "goal_planning",
+}
+
+
+async def _resolve_persona(user_id: str, override: Optional[str]) -> str:
+    """Pick the persona to use for prompt filtering.
+
+    Priority:
+      1. Explicit `persona` query param (override — used by the welcome screen
+         when it has already inferred a persona from the upload signal).
+      2. The persona persisted on `user_profiles.persona.persona` by the
+         persona_engine.
+      3. Fallback to `retail_investor`.
+    """
+    if override:
+        return override
+    try:
+        prof = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0, "persona": 1})
+        if prof:
+            block = prof.get("persona") or {}
+            if isinstance(block, dict) and block.get("persona"):
+                return block["persona"]
+            if isinstance(block, str) and block:
+                return block
+    except Exception as e:  # noqa: BLE001
+        logger.debug("persona lookup failed for %s: %s", user_id, e)
+    return _DEFAULT_PERSONA
+
+
+def _matches_persona(tpl: Dict[str, Any], persona: str) -> bool:
+    """A template is shown to a persona when its `personas` field is None
+    (universal) or contains the user's persona code."""
+    personas = tpl.get("personas")
+    if not personas:
+        return True
+    return persona in personas
+
+
+def _matches_category(tpl: Dict[str, Any], category: Optional[str]) -> bool:
+    if not category:
+        return True
+    return tpl.get("intent_category") == category
+
+
 @router.get("/copilot/suggested-prompts")
-async def suggested_prompts(request: Request) -> Dict[str, Any]:
+async def suggested_prompts(
+    request: Request,
+    persona: Optional[str] = Query(default=None, description="Persona override (PersonaType.value). Defaults to user's stored persona."),
+    category: Optional[str] = Query(default=None, description="Filter to one of: portfolio_health|performance|risk_diversification|tax|goal_planning"),
+) -> Dict[str, Any]:
     """Return the top 5 most relevant prompts for this user right now,
     grouped into 3 tiers: primary (1) · secondary (2-3) · advanced (collapsed).
 
@@ -663,12 +751,22 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
       • Advisor (ADVISORY workspace, not impersonating) → cross-client
         prompts (top AUM, who needs a call, underperformers, …).
       • Individual investor (or advisor while impersonating a client) →
-        portfolio-context-driven prompts based on the actual holdings.
+        portfolio-context-driven prompts based on the actual holdings,
+        filtered by persona and (optional) intent category.
     """
     user = await get_current_user(request)
     session_uid = user.get("_session_user_id") or user["user_id"]
     if await _is_advisor_mode(session_uid, user["user_id"]):
         return _advisor_prompts()
+
+    # Validate category param early — silently ignore unknowns so the UI can
+    # send anything without breaking the response.
+    if category and category not in _VALID_CATEGORIES:
+        category = None
+
+    persona_prompts_on = _ff.is_enabled(_PERSONA_PROMPTS_FLAG, user.get("email"))
+    resolved_persona = await _resolve_persona(user["user_id"], persona) if persona_prompts_on else None
+
     ctx = await _build_context(user["user_id"])
 
     # User-journey awareness — affects which prompt becomes "primary"
@@ -689,6 +787,20 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
 
     scored = []
     for tpl in _PROMPT_TEMPLATES:
+        # Persona filter — only applied when the persona feature flag is on.
+        # When off, the original universal behaviour is preserved (persona-tagged
+        # templates are skipped so we don't accidentally surface them).
+        if persona_prompts_on:
+            if not _matches_persona(tpl, resolved_persona):
+                continue
+        else:
+            if tpl.get("personas"):
+                continue
+
+        # Category filter (optional)
+        if not _matches_category(tpl, category):
+            continue
+
         score, badge = tpl["scorer"](ctx)
         if score <= 0:
             continue
@@ -700,6 +812,8 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
             "id": tpl["id"],
             "bucket": tpl["bucket"],
             "tier": tpl.get("tier", "secondary"),
+            "intent_category": tpl.get("intent_category"),
+            "personas": tpl.get("personas"),
             "label": tpl["label"],
             "outcome": tpl.get("outcome", ""),
             "query": tpl["query"],
@@ -728,6 +842,9 @@ async def suggested_prompts(request: Request) -> Dict[str, Any]:
         "mode": "investor",
         "prompts": top,
         "journey": journey,
+        "persona": resolved_persona,
+        "persona_prompts_enabled": persona_prompts_on,
+        "category_filter": category,
         "primary": primary,
         "secondary": secondary,
         "advanced": advanced,

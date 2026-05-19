@@ -246,11 +246,20 @@ export default function V2HomeScreen({
             {actions.map((a) => {
               const Icon = a.icon;
               const colorClass = ACTION_COLOR[a.color] || "text-indigo-400";
+              const handleClick = () => {
+                // Deep-link to a specific Insights tab when the action wants
+                // one — InsightsView reads this on mount and clears it.
+                if (a.tab) {
+                  try { sessionStorage.setItem("v2_insights_target_tab", a.tab); }
+                  catch { /* ignore */ }
+                }
+                setScreen(a.screen);
+              };
               return (
                 <button
                   key={a.label}
                   data-testid={`quick-action-${a.label.toLowerCase().replace(/\s+/g, "-")}`}
-                  onClick={() => setScreen(a.screen)}
+                  onClick={handleClick}
                   className="w-full flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all group text-left"
                 >
                   <Icon className={cn("w-5 h-5 shrink-0", colorClass)} />

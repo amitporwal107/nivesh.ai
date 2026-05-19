@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from deps import get_current_user, require_admin, db
-from services import portfolio_intelligence, ai_insights, pg_writer, pg_client
+from services import portfolio_intelligence, ai_insights, pg_writer, pg_client, dashboard_recommendations
 
 router = APIRouter(prefix="/api")
 
@@ -15,12 +15,27 @@ class SimulateBody(BaseModel):
 
 @router.get("/intelligence/portfolio")
 async def get_portfolio_intelligence(request: Request, narrate: bool = Query(True)):
-    """Full portfolio intelligence bundle with real stock-level overlap."""
+    """Full portfolio intelligence bundle with real stock-level overlap.
+
+    Returns the legacy `ai_insights` array AND a richer `top_recommendations`
+    array built by the dashboard orchestrator — the latter merges
+    portfolio_intelligence, copilot tools (rebalance, tax harvest,
+    risk suitability, MF intelligence, stock composite scores) into one
+    ranked list the frontend can render in Top3Actions + Intelligence Feed.
+    """
     user = await get_current_user(request)
-    metrics = await portfolio_intelligence.compute_portfolio_intelligence(user["user_id"])
+    user_id = user["user_id"]
+    metrics = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
     if narrate and not metrics.get("empty"):
-        metrics["ai_insights"] = await ai_insights.generate_insights(metrics)
-        metrics["category_ratings"] = await ai_insights.rate_portfolio_categories(metrics)
+        # Run legacy ai_insights and the dashboard orchestrator in parallel.
+        import asyncio as _asyncio
+        ai_t = _asyncio.create_task(ai_insights.generate_insights(metrics))
+        rec_t = _asyncio.create_task(dashboard_recommendations.build_dashboard_recommendations(user_id))
+        rating_t = _asyncio.create_task(ai_insights.rate_portfolio_categories(metrics))
+        ai_out, rec_out, rating_out = await _asyncio.gather(ai_t, rec_t, rating_t, return_exceptions=True)
+        metrics["ai_insights"] = [] if isinstance(ai_out, Exception) else ai_out
+        metrics["top_recommendations"] = [] if isinstance(rec_out, Exception) else rec_out
+        metrics["category_ratings"] = [] if isinstance(rating_out, Exception) else rating_out
     return metrics
 
 
@@ -256,3 +271,48 @@ async def refresh_nav_analytics(request: Request, instrument_id: str):
     """Recompute max_drawdown/consistency/downside_capture/aum_trend from NAV+AUM history."""
     await require_admin(request)
     return await nav_analytics.refresh_all_analytics(instrument_id)
+
+
+@router.get("/intelligence/sector-peers/{symbol}")
+async def sector_peer_comparison(request: Request, symbol: str, limit: int = Query(10)):
+    """Rank same-sector peers of a stock the user holds, scored by V3.
+
+    Powers the Quick Action "Compare My Funds" / "Sector Exposure" deep-link
+    for stock investors. Returns the user's symbol + top peers sorted by
+    composite quality + momentum, so the dashboard can render a side-by-side
+    fundamental + technical comparison without going through the chat.
+    """
+    await get_current_user(request)
+    from services.copilot_tools import stock_intelligence as si
+
+    # 1. Resolve the user's symbol → its sector via the stock intelligence tool
+    me = await si.get_stock_intelligence(symbol)
+    sector = None
+    if getattr(me, "ok", False):
+        sector = (me.data or {}).get("sector") or (me.fundamentals or {}).get("sector") if hasattr(me, "fundamentals") else None
+    if not sector:
+        # fall back: look in DAAS reference
+        from services.copilot_tools import daas_client as _dc
+        try:
+            ref = await _dc.daas_get(f"/v1/reference/security/{symbol}")
+            sector = (ref or {}).get("data", {}).get("sector")
+        except Exception:  # noqa: BLE001
+            sector = None
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"No sector mapping found for {symbol}")
+
+    # 2. Fetch top-N peers in the same sector, V3-scored
+    peers = await si.get_nidp_screener(
+        metric="momentum_score", sector=sector, limit=max(1, min(50, limit)),
+    )
+    return {
+        "symbol": symbol,
+        "sector": sector,
+        "user_holding": {
+            "symbol": symbol,
+            "ok": getattr(me, "ok", False),
+            "data": getattr(me, "data", None),
+        } if getattr(me, "ok", False) else None,
+        "peers": peers,
+        "engine_version": v3_scoring.ENGINE_VERSION,
+    }

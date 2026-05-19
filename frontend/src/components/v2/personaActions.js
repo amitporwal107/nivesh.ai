@@ -23,6 +23,15 @@ const SCR = {
   strategy:  "strategy",
 };
 
+// Insights tab IDs — keep in sync with InsightsView.js `tabs` registry
+export const INSIGHTS_TAB = {
+  overview:    "overview",
+  performance: "performance_benchmark",
+  overlap:     "fund_overlap_insights",
+  tax:         "tax",
+  risk:        "risk",
+};
+
 const ACTIONS = {
   retail_investor: [
     { label: "AI Copilot Chat",      icon: TrendingUp,  screen: SCR.copilot,   color: "indigo",  desc: "Ask anything about your portfolio" },
@@ -32,17 +41,17 @@ const ACTIONS = {
   ],
 
   mutual_fund_investor: [
-    { label: "Compare My Funds",     icon: BarChart3,   screen: SCR.portfolio, color: "blue",    desc: "Rolling returns · expense · alpha" },
-    { label: "Detect Fund Overlap",  icon: Search,      screen: SCR.insights,  color: "violet",  desc: "Are you paying twice for the same stocks?" },
-    { label: "SIP Top-up Plan",      icon: Zap,         screen: SCR.goals,     color: "emerald", desc: "Project growth with higher SIP" },
-    { label: "Switch to Direct",     icon: RefreshCw,   screen: SCR.plans,     color: "amber",   desc: "Save 0.6%+ p.a. on expense ratio" },
+    { label: "Compare My Funds",     icon: BarChart3,   screen: SCR.insights, tab: INSIGHTS_TAB.performance, color: "blue",    desc: "Rolling returns · expense · alpha" },
+    { label: "Detect Fund Overlap",  icon: Search,      screen: SCR.insights, tab: INSIGHTS_TAB.overlap,     color: "violet",  desc: "Are you paying twice for the same stocks?" },
+    { label: "SIP Top-up Plan",      icon: Zap,         screen: SCR.goals,                                    color: "emerald", desc: "Project growth with higher SIP" },
+    { label: "Switch to Direct",     icon: RefreshCw,   screen: SCR.insights, tab: INSIGHTS_TAB.performance, color: "amber",   desc: "Save 0.6%+ p.a. on expense ratio" },
   ],
 
   stock_investor: [
-    { label: "Stock Quality Scan",   icon: Activity,    screen: SCR.portfolio, color: "violet",  desc: "Quality · health · exit scores" },
-    { label: "Sector Exposure",      icon: PieChart,    screen: SCR.insights,  color: "indigo",  desc: "Concentration · over/underweight" },
-    { label: "Valuation Check",      icon: LineChart,   screen: SCR.copilot,   color: "amber",   desc: "Which stocks are overvalued?" },
-    { label: "Drawdown Analysis",    icon: TrendingUp,  screen: SCR.insights,  color: "rose",    desc: "Max drawdown · recovery time" },
+    { label: "Stock Quality Scan",   icon: Activity,    screen: SCR.insights, tab: INSIGHTS_TAB.performance, color: "violet",  desc: "Quality · health · exit scores" },
+    { label: "Sector Exposure",      icon: PieChart,    screen: SCR.insights, tab: INSIGHTS_TAB.overlap,     color: "indigo",  desc: "Concentration · over/underweight" },
+    { label: "Valuation Check",      icon: LineChart,   screen: SCR.copilot,                                  color: "amber",   desc: "Which stocks are overvalued?" },
+    { label: "Drawdown Analysis",    icon: TrendingUp,  screen: SCR.insights, tab: INSIGHTS_TAB.risk,        color: "rose",    desc: "Max drawdown · recovery time" },
   ],
 
   swing_trader: [
@@ -88,10 +97,10 @@ const ACTIONS = {
   ],
 
   tax_saver: [
-    { label: "Tax Harvest",          icon: Receipt,     screen: SCR.insights,  color: "emerald", desc: "Realize losses to offset gains" },
-    { label: "80C Utilization",      icon: Shield,      screen: SCR.copilot,   color: "blue",    desc: "How much room left this FY?" },
-    { label: "LTCG / STCG Summary",  icon: BarChart3,   screen: SCR.insights,  color: "amber",   desc: "Realized gains this year" },
-    { label: "ELSS Recommendations", icon: Zap,         screen: SCR.copilot,   color: "violet",  desc: "Best ELSS funds right now" },
+    { label: "Tax Harvest",          icon: Receipt,     screen: SCR.insights, tab: INSIGHTS_TAB.tax,     color: "emerald", desc: "Realize losses to offset gains" },
+    { label: "80C Utilization",      icon: Shield,      screen: SCR.copilot,                              color: "blue",    desc: "How much room left this FY?" },
+    { label: "LTCG / STCG Summary",  icon: BarChart3,   screen: SCR.insights, tab: INSIGHTS_TAB.tax,     color: "amber",   desc: "Realized gains this year" },
+    { label: "ELSS Recommendations", icon: Zap,         screen: SCR.copilot,                              color: "violet",  desc: "Best ELSS funds right now" },
   ],
 
   beginner_investor: [

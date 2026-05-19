@@ -11,6 +11,7 @@ import os
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ Style:
 - If rebalance: show a table with Action | Fund | Amount
 - If stress test: show portfolio value before/after and % drop
 - If tax harvest: show Loss | Gain-offset | Est. tax saving
-- End with: DISCLAIMER: AI-generated. Consult a SEBI-registered advisor for personalised advice."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
 
 
 async def _fetch_portfolio_data(state: CopilotState) -> list:
@@ -61,7 +62,7 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
             "",
         ).lower()
 
-        if any(kw in user_msg for kw in ("rebalanc", "drift", "allocation")):
+        if any(kw in user_msg for kw in ("rebalanc", "drift", "allocation", "trim", "overweight", "underweight", "which sector", "which fund", "which stock", "which holding")):
             rb = await port_mod.get_rebalance_plan(user_id)
             results.append(ToolResult(
                 ok=rb.ok, tool_name="get_rebalance_plan",
@@ -145,7 +146,7 @@ async def portfolio_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

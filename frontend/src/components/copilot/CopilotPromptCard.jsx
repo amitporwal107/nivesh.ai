@@ -2,6 +2,28 @@ import React from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, RadialBarChart, RadialBar } from "recharts";
 import { ArrowRight } from "lucide-react";
 
+// Short labels for the 5 product taxonomy buckets — rendered as a tiny chip
+// next to each prompt label so users see why a card was suggested.
+const CATEGORY_LABEL = {
+  portfolio_health:     "Health",
+  performance:          "Performance",
+  risk_diversification: "Risk",
+  tax:                  "Tax",
+  goal_planning:        "Goal",
+};
+
+function CategoryChip({ category }) {
+  if (!category || !CATEGORY_LABEL[category]) return null;
+  return (
+    <span
+      data-testid={`copilot-prompt-category-${category}`}
+      className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+    >
+      {CATEGORY_LABEL[category]}
+    </span>
+  );
+}
+
 /**
  * Compact, context-aware prompt card used inside the Nivesh Copilot.
  *
@@ -179,6 +201,7 @@ const CopilotPromptCard = ({ prompt, variant = "compact", onClick, disabled, col
               <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${c.bg} ${c.text} border ${c.border}`}>
                 Start here
               </span>
+              <CategoryChip category={prompt.intent_category} />
               {prompt.badge && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text}`}>
                   {prompt.badge}
@@ -237,8 +260,9 @@ const CopilotPromptCard = ({ prompt, variant = "compact", onClick, disabled, col
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-sm font-semibold ${c.text}`}>{prompt.label}</span>
+          <CategoryChip category={prompt.intent_category} />
           {prompt.badge && (
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/80 dark:bg-white/10 ${c.text}`}>
               {prompt.badge}

@@ -12,6 +12,7 @@ from typing import List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ Style:
 - Key risk drivers (top 2-3 bullet points)
 - VaR figures: "1-day 95% VaR: ₹X means on a bad day you could lose ₹X"
 - Misalignment alerts (if any) with specific suggested action
-- End with: DISCLAIMER: AI-generated risk assessment. Not a substitute for professional advice."""
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input."""
 
 
 async def _fetch_risk_data(state: CopilotState) -> List[ToolResult]:
@@ -94,7 +95,7 @@ async def risk_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

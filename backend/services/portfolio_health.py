@@ -238,10 +238,14 @@ def compute_diversification(
             "impact_points": round((1 - d_conc["score"] / 100) * 50, 1),
         })
     if d_alloc["deviation_pp"] > 20:
+        # action_hint lets the UI surface "Open Plan Board" instead of the
+        # default "Show weak holdings" CTA, which is the wrong destination —
+        # allocation drift is a rebalance prompt, not a per-holding review.
         drivers.append({
             "label": "Asset allocation drifted from target",
             "detail": f"{d_alloc['deviation_pp']:.0f}pp off target profile",
             "impact_points": round((1 - d_alloc["score"] / 100) * 30, 1),
+            "action_hint": "open_plan_board",
         })
     if d_over["overlap_pct"] > 30:
         drivers.append({

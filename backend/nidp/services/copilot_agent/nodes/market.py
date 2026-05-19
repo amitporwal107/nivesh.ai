@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 from ..tools.daas_bridge import call_daas
 
@@ -25,7 +26,7 @@ provided in the TOOL_DATA block below. Ground every statement in those numbers.
 Style:
 - ≤ 200 words, markdown bullet points
 - Always include a one-line market sentiment call (bullish/bearish/neutral)
-- End with DISCLAIMER: "AI-generated. Past performance ≠ future results. Consult a SEBI-registered advisor."
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If TOOL_DATA is unavailable or empty, say so and answer from general knowledge only.
 If asked about index targets, analyst consensus or future market forecasts,
@@ -93,7 +94,7 @@ async def market_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

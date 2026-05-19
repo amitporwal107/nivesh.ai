@@ -149,7 +149,19 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
   const [generating, setGenerating] = useState(false);
   const [loadingBenchmark, setLoadingBenchmark] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(() => {
+    // Honour deep-link target from Quick Actions (V2HomeScreen sets this in
+    // sessionStorage before navigating). We consume + clear it so a refresh
+    // doesn't keep snapping back to the same tab.
+    try {
+      const target = sessionStorage.getItem("v2_insights_target_tab");
+      if (target) {
+        sessionStorage.removeItem("v2_insights_target_tab");
+        return target;
+      }
+    } catch { /* ignore */ }
+    return "overview";
+  });
   const [focusedSection, setFocusedSection] = useState(null);   // ID of section in full-view mode
 
   // Reset layout preferences for the given section IDs (clears collapse/resize state)

@@ -161,18 +161,21 @@ class Recommendation(BaseModel):
 
 
 class PersonaType(str, Enum):
-    RETAIL_INVESTOR      = "retail_investor"
-    MUTUAL_FUND_INVESTOR = "mutual_fund_investor"
-    STOCK_INVESTOR       = "stock_investor"
-    SWING_TRADER         = "swing_trader"
-    INTRADAY_TRADER      = "intraday_trader"
-    OPTIONS_TRADER       = "options_trader"
-    MFD_ADVISOR          = "mfd_advisor"
-    HNI_INVESTOR         = "hni_investor"
-    RETIREMENT_PLANNER   = "retirement_planner"
-    TAX_SAVER            = "tax_saver"
-    BEGINNER_INVESTOR    = "beginner_investor"
-    NRI_INVESTOR         = "nri_investor"
+    RETAIL_INVESTOR       = "retail_investor"
+    MUTUAL_FUND_INVESTOR  = "mutual_fund_investor"
+    STOCK_INVESTOR        = "stock_investor"
+    ACTIVE_TRADER         = "active_trader"
+    SWING_TRADER          = "swing_trader"
+    INTRADAY_TRADER       = "intraday_trader"
+    OPTIONS_TRADER        = "options_trader"
+    MFD_ADVISOR           = "mfd_advisor"
+    HNI_INVESTOR          = "hni_investor"
+    RETIREMENT_PLANNER    = "retirement_planner"
+    PARENTS_PLANNING      = "parents_planning"
+    TAX_SAVER             = "tax_saver"
+    CONSERVATIVE_INVESTOR = "conservative_investor"
+    BEGINNER_INVESTOR     = "beginner_investor"
+    NRI_INVESTOR          = "nri_investor"
 
 
 class PersonaOverrideInput(BaseModel):

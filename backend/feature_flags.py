@@ -45,6 +45,17 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "copilot_persona_prompts_enabled": {
+        "display_name": "Copilot Persona-Tagged Suggested Prompts",
+        "description": (
+            "Surfaces the 99-entry persona-tagged prompt catalog (10 personas × "
+            "10 questions, minus the 1 trader Q5 hidden until P3) in /api/copilot/"
+            "suggested-prompts and enables the 5-category chip filter in the chat "
+            "shell. Off = pre-persona behaviour (10 universal templates only)."
+        ),
+        "default_mode": "everyone",
+        "default_allowlist": [],
+    },
 }
 
 # In-memory state — {flag: {mode, allowlist}}

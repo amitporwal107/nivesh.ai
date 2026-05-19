@@ -7,6 +7,7 @@ import {
   Clock, TrendingUp, Shield, BarChart3, Lightbulb,
   Zap, RefreshCw, Wrench, Layers, ArrowRightCircle, AlertTriangle, Target,
   Maximize2, Minimize2, Pin, PinOff, Pencil, Check, X as XIcon,
+  Copy, RotateCcw, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,7 @@ import { parseCopilotChartBlocks } from "@/lib/parseCopilotChartBlocks";
 import { AgentPicker, ModelPicker, useAgentRoute } from "@/components/copilot/AgentModelPickers";
 import { cn } from "@/lib/utils";
 import AgentRibbon from "@/components/copilot/shared/AgentRibbon";
+import { resolveAgent } from "@/components/copilot/shared/agentRegistry";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import V2CopilotWelcome from "@/components/v2app/screens/V2CopilotWelcome";
 
@@ -77,6 +79,81 @@ const MarkdownMessage = ({ content }) => {
         )
       )}
     </>
+  );
+};
+
+/* ── Universal toolbar shown under every AI message ── */
+const MessageToolbar = ({ message, prevUserText, onRegenerate, onFeedback }) => {
+  const [copied, setCopied] = React.useState(false);
+  const [rated, setRated] = React.useState(null); // "up" | "down" | null
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleRate = (rating) => {
+    if (rated) return;
+    setRated(rating);
+    onFeedback?.(message, rating);
+  };
+
+  const baseBtn =
+    "inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors";
+
+  return (
+    <div
+      data-testid={`msg-toolbar-${message.message_id}`}
+      className="flex items-center gap-0.5 mt-2 opacity-60 hover:opacity-100 transition-opacity"
+    >
+      <button
+        type="button"
+        title={copied ? "Copied" : "Copy"}
+        aria-label="Copy message"
+        onClick={handleCopy}
+        className={baseBtn}
+        data-testid="msg-action-copy"
+      >
+        {copied ? <Check className="w-3.5 h-3.5" strokeWidth={2} /> : <Copy className="w-3.5 h-3.5" strokeWidth={1.75} />}
+      </button>
+      {prevUserText && onRegenerate && (
+        <button
+          type="button"
+          title="Regenerate"
+          aria-label="Regenerate response"
+          onClick={() => onRegenerate(prevUserText)}
+          className={baseBtn}
+          data-testid="msg-action-regenerate"
+        >
+          <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+      <button
+        type="button"
+        title="Helpful"
+        aria-label="Mark helpful"
+        onClick={() => handleRate("up")}
+        className={`${baseBtn} ${rated === "up" ? "text-emerald-500 dark:text-emerald-400" : ""}`}
+        data-testid="msg-action-thumbs-up"
+      >
+        <ThumbsUp className="w-3.5 h-3.5" strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        title="Not helpful"
+        aria-label="Mark not helpful"
+        onClick={() => handleRate("down")}
+        className={`${baseBtn} ${rated === "down" ? "text-rose-500 dark:text-rose-400" : ""}`}
+        data-testid="msg-action-thumbs-down"
+      >
+        <ThumbsDown className="w-3.5 h-3.5" strokeWidth={1.75} />
+      </button>
+    </div>
   );
 };
 
@@ -291,8 +368,9 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [suggestedPrompts, setSuggestedPrompts] = useState([]);
-  const [tieredPrompts, setTieredPrompts] = useState({ primary: [], secondary: [], advanced: [], journey: "returning" });
+  const [tieredPrompts, setTieredPrompts] = useState({ primary: [], secondary: [], advanced: [], journey: "returning", persona: null, category_filter: null, persona_prompts_enabled: false });
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -323,20 +401,30 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
     }
   }, []);
 
-  const fetchSuggestedPrompts = useCallback(async () => {
+  const fetchSuggestedPrompts = useCallback(async (categoryFilter = null, personaOverride = null) => {
     setSuggestionsLoading(true);
     try {
-      const res = await axios.get(`${API}/copilot/suggested-prompts`, { withCredentials: true });
+      const params = {};
+      if (categoryFilter) params.category = categoryFilter;
+      // Optional persona override: callers can pass an exact PersonaType.value
+      // when they have one (e.g. immediately after CAS upload before the
+      // backend persona_engine has written user_profiles). Defaults are left
+      // to the backend so it can read user_profiles.persona authoritatively.
+      if (personaOverride) params.persona = personaOverride;
+      const res = await axios.get(`${API}/copilot/suggested-prompts`, { params, withCredentials: true });
       setSuggestedPrompts(res.data?.prompts || []);
       setTieredPrompts({
         primary: res.data?.primary || [],
         secondary: res.data?.secondary || [],
         advanced: res.data?.advanced || [],
         journey: res.data?.journey || "returning",
+        persona: res.data?.persona || null,
+        category_filter: res.data?.category_filter || null,
+        persona_prompts_enabled: !!res.data?.persona_prompts_enabled,
       });
     } catch (err) {
       setSuggestedPrompts([]);
-      setTieredPrompts({ primary: [], secondary: [], advanced: [], journey: "returning" });
+      setTieredPrompts({ primary: [], secondary: [], advanced: [], journey: "returning", persona: null, category_filter: null, persona_prompts_enabled: false });
     } finally {
       setSuggestionsLoading(false);
     }
@@ -529,11 +617,10 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
     let turnAgent = null;
     if (selectedAgentId === "auto") {
       const r = await routeIntent(text);
-      turnAgent = r?.agent || null;
+      turnAgent = resolveAgent(r?.agent) || null;
     } else {
-      // Look up the manually selected agent (we can derive from the picker list later;
-      // for now show a minimal placeholder until the next render hydrates it).
-      turnAgent = { id: selectedAgentId, label: selectedAgentId.replace(/_/g, " "), icon: "compass" };
+      // Resolve via the shared registry so the label matches the picker.
+      turnAgent = resolveAgent(selectedAgentId);
     }
     setCurrentTurnAgent(turnAgent);
 
@@ -577,6 +664,13 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
       let tokenQueue = [];
       let rendering = false;
       let pendingWidget = null; // set when server emits a widget SSE event
+      let routedAgent = null;   // populated from the 'route' SSE event
+      let firstTokenSeen = false;
+      // Transitional guard: if the backend ever prepends a routing JSON
+      // envelope to the first token (older builds did this), strip it so it
+      // never leaks into the rendered bubble. Safe to remove once all
+      // backends emit a dedicated 'route' event.
+      const LEADING_ROUTE_JSON = /^\s*\{[^}]*"agent"\s*:\s*"[^"]+"[^}]*\}\s*/;
 
       const renderTokens = () => {
         if (rendering || tokenQueue.length === 0) return;
@@ -614,9 +708,26 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
               );
             } else if (data.type === "thinking") {
               setThinkingTool(data.status === "start" ? (data.tool || null) : null);
+            } else if (data.type === "route") {
+              // Backend has classified the user's intent and chosen an agent.
+              // Stamp the bubble's agent ribbon with the routed agent rather
+              // than the picker default.
+              routedAgent = resolveAgent({
+                id: data.agent,
+                confidence: typeof data.confidence === "number"
+                  ? Math.round(data.confidence * 100)
+                  : undefined,
+              });
+              setCurrentTurnAgent(routedAgent);
             } else if (data.type === "token") {
               setThinkingTool(null); // tool done once tokens start
-              tokenQueue.push(data.content);
+              let content = data.content;
+              if (!firstTokenSeen) {
+                firstTokenSeen = true;
+                content = content.replace(LEADING_ROUTE_JSON, "");
+                if (!content) continue;
+              }
+              tokenQueue.push(content);
               renderTokens();
             } else if (data.type === "widget") {
               // Agent produced a structured widget — store it and attach to
@@ -626,7 +737,10 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
               // Flush remaining tokens
               const remaining = tokenQueue.join("");
               tokenQueue = [];
-              const finalContent = data.content || (accumulated + remaining);
+              let finalContent = data.content || (accumulated + remaining);
+              // Defensive: strip any surviving routing JSON envelope.
+              finalContent = finalContent.replace(LEADING_ROUTE_JSON, "");
+              const finalFollowUps = Array.isArray(data.follow_ups) ? data.follow_ups.slice(0, 3) : [];
               // Small delay to let last tokens render
               await new Promise(r => setTimeout(r, 200));
               setMessages((prev) => [
@@ -635,8 +749,9 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                   message_id: aiMsgId || `msg_stream_${Date.now()}`,
                   role: "assistant",
                   content: finalContent,
-                  agent: turnAgent,   // Phase B: stamp the routed agent onto the message
+                  agent: routedAgent || turnAgent,
                   ...(pendingWidget ? { widget: pendingWidget } : {}),
+                  ...(finalFollowUps.length > 0 ? { follow_ups: finalFollowUps } : {}),
                   created_at: new Date().toISOString(),
                 },
               ]);
@@ -698,6 +813,33 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
       }, 50);
     }, 0);
   };
+
+  const handleRegenerate = useCallback(
+    (prevUserText) => {
+      if (!prevUserText || sending || streaming) return;
+      sendMessageWithText(prevUserText);
+    },
+    [sending, streaming, sendMessageWithText],
+  );
+
+  const handleMessageFeedback = useCallback((message, rating) => {
+    // Fire-and-forget feedback POST. Failures are non-blocking — the UI
+    // still records the local "rated" state so the user gets feedback.
+    axios
+      .post(
+        `${API}/copilot/feedback`,
+        {
+          message_id: message.message_id,
+          session_id: activeSessionId,
+          rating,
+          agent_id: message.agent?.id || null,
+        },
+        { withCredentials: true },
+      )
+      .catch(() => {
+        /* ignore */
+      });
+  }, [activeSessionId]);
 
   const handleClear = async () => {
     try {
@@ -1101,6 +1243,38 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                   </div>
                 ) : (
                   <div className="w-full max-w-xl space-y-4">
+                    {/* ── 5-category filter chips (when persona prompts are enabled) ── */}
+                    {tieredPrompts.persona_prompts_enabled && (
+                      <div className="flex flex-wrap gap-2 justify-center pb-2">
+                        {[
+                          { key: null, label: "All" },
+                          { key: "portfolio_health", label: "Portfolio Health" },
+                          { key: "performance", label: "Performance" },
+                          { key: "risk_diversification", label: "Risk & Diversification" },
+                          { key: "tax", label: "Tax" },
+                          { key: "goal_planning", label: "Goal Planning" },
+                        ].map((chip) => {
+                          const isActive = activeCategoryFilter === chip.key;
+                          return (
+                            <button
+                              key={chip.key || "all"}
+                              data-testid={`copilot-category-chip-${chip.key || "all"}`}
+                              onClick={() => {
+                                setActiveCategoryFilter(chip.key);
+                                fetchSuggestedPrompts(chip.key);
+                              }}
+                              className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+                                isActive
+                                  ? "bg-emerald-600 text-white border-emerald-600"
+                                  : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700"
+                              }`}
+                            >
+                              {chip.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     {/* ── PRIMARY (hero) ───────────────────────────── */}
                     {tieredPrompts.primary.map((p) => {
                       const Icon = PROMPT_ICONS[p.icon] || Lightbulb;
@@ -1252,7 +1426,32 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                         {!isUser && msg.message_id !== "temp_ai" && shouldShowSavePlan(msg.content, prevUser) && (
                           <SaveAsPlanCard onNavigateToPlanBoard={onNavigateToPlanBoard} />
                         )}
-                        {/* Action buttons for AI messages */}
+                        {/* Universal toolbar — copy, regenerate, feedback */}
+                        {!isUser && msg.message_id !== "temp_ai" && (
+                          <MessageToolbar
+                            message={msg}
+                            prevUserText={prevUser}
+                            onRegenerate={handleRegenerate}
+                            onFeedback={handleMessageFeedback}
+                          />
+                        )}
+                        {/* Inline follow-up suggestions emitted by the backend */}
+                        {!isUser && msg.message_id !== "temp_ai" && Array.isArray(msg.follow_ups) && msg.follow_ups.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2" data-testid={`msg-followups-${msg.message_id}`}>
+                            {msg.follow_ups.slice(0, 3).map((fu, i) => (
+                              <button
+                                key={`${msg.message_id}-fu-${i}`}
+                                type="button"
+                                onClick={() => sendMessageWithText(fu)}
+                                disabled={streaming}
+                                className="text-[11px] font-medium px-2.5 py-1 rounded-full border border-emerald-200/60 dark:border-emerald-700/40 bg-emerald-50/60 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:opacity-60"
+                              >
+                                {fu}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {/* Context-aware next-step prompts (keyword-derived) */}
                         {!isUser && msg.message_id !== "temp_ai" && (
                           <QuickActions content={msg.content} onAction={handleQuickAction} />
                         )}

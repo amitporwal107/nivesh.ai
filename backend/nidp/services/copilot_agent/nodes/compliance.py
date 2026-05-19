@@ -24,6 +24,47 @@ _DISCLAIMER = (
     "Consult a SEBI-registered investment advisor before making investment decisions.*"
 )
 
+# Short, contextually-relevant follow-ups offered as chips under each AI
+# bubble. Keyed by AgentName.value. Kept generic — agents that want to
+# overwrite these should populate `response.follow_ups` directly.
+_DEFAULT_FOLLOW_UPS = {
+    "market_analyst": [
+        "Show sector rotation today",
+        "Which indices are leading?",
+        "FII vs DII flows this week",
+    ],
+    "stock_analyst": [
+        "Compare with sector peers",
+        "Show the 5-year fundamentals",
+        "Latest news and brokerage views",
+    ],
+    "mf_analyst": [
+        "Check overlap with my funds",
+        "Show better alternatives",
+        "How does this fit my risk profile?",
+    ],
+    "portfolio_analyst": [
+        "Run a rebalance simulation",
+        "Run a stress test",
+        "Show tax-loss harvest candidates",
+    ],
+    "risk_analyst": [
+        "How can I lower this risk?",
+        "Run a stress test",
+        "Suggest a hedge",
+    ],
+    "goal_planner": [
+        "Increase my SIP by 10%",
+        "Add a new goal",
+        "Show me a goal trade-off",
+    ],
+    "recommendation": [
+        "Show one-click SIP for the top pick",
+        "Compare the top 3 picks",
+        "Why this and not the second pick?",
+    ],
+}
+
 # Patterns that look like INR figures in the LLM response
 _INR_RE = re.compile(r"₹\s*[\d,]+(?:\.\d+)?(?:\s*(?:lakh|crore|cr|L|K))?", re.IGNORECASE)
 _PCT_RE = re.compile(r"\b\d+(?:\.\d+)?\s*%")
@@ -82,6 +123,21 @@ def _trim_to_word_limit(text: str, limit: int = 400) -> str:
     return trimmed + "…\n\n*(Response truncated for brevity.)*"
 
 
+# Matches a trailing SEBI / "AI-generated" disclaimer paragraph the LLM may
+# have appended in response to the system-prompt instruction. Conservative —
+# only strips if the line contains both "DISCLAIMER" and a SEBI keyword so
+# legitimate prose isn't truncated.
+_INLINE_DISCLAIMER_RE = re.compile(
+    r"(?:\n+-{2,}\s*)?\n*\*?\s*⚠?\s*DISCLAIMER[\s\S]*?(?:SEBI|advisor|investment advice|market risks|professional advice|investment decisions)[\s\S]*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_inline_disclaimer(text: str) -> str:
+    stripped = _INLINE_DISCLAIMER_RE.sub("", text)
+    return stripped.rstrip()
+
+
 async def compliance_node(state: CopilotState) -> dict:
     response: AgentResponse | None = state.response
     if response is None:
@@ -96,10 +152,11 @@ async def compliance_node(state: CopilotState) -> dict:
     # 1. Trim excessive length
     text = _trim_to_word_limit(text, limit=400)
 
-    # 2. Inject disclaimer if missing
-    disclaimer_present = any(kw in text.lower() for kw in ("disclaimer", "sebi", "investment advice", "consult"))
-    if not disclaimer_present:
-        text = text + _DISCLAIMER
+    # 2. Strip any in-body SEBI disclaimer the LLM volunteered. The frontend
+    # already shows a single canonical disclaimer below the input box; a
+    # duplicate inside every bubble adds visual noise without helping the
+    # user. The audit-trail copy lives on `response.disclaimer`.
+    text = _strip_inline_disclaimer(text)
 
     # 3. Grounding check
     grounding = _grounding_ok(text, state.tool_results or [])
@@ -111,11 +168,18 @@ async def compliance_node(state: CopilotState) -> dict:
             "Please treat them as illustrative only.*\n\n"
         ) + text
 
+    # 5. Provide follow-ups if the agent didn't supply its own
+    follow_ups = list(response.follow_ups or [])
+    if not follow_ups:
+        agent_key = response.agent if isinstance(response.agent, str) else getattr(response.agent, "value", str(response.agent))
+        follow_ups = list(_DEFAULT_FOLLOW_UPS.get(agent_key, []))[:3]
+
     # Build updated response
     updated_response = response.model_copy(update={
         "text": text,
         "disclaimer": _DISCLAIMER.strip(),
         "grounding_ok": grounding,
+        "follow_ups": follow_ups,
     })
 
     return {
