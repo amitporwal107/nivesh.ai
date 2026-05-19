@@ -656,9 +656,21 @@ const OnboardingView = ({ onComplete, userProfile }) => {
             className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-6"
             label="Import Portfolio"
             testId="onboarding-cas-connect-btn"
-            onSuccess={(data) => {
-              if (onComplete) onComplete({ imported: data?.count || 0, source: "cas_connect_sdk" });
-              goTo("playbook");
+            onSuccess={async (data) => {
+              // Real holdings are already saved — skip the generic Playbook
+              // step and drop the user straight on the portfolio screen.
+              // Mark onboarding complete here so the parent stops rendering
+              // OnboardingView when it re-fetches the profile.
+              try {
+                await axios.post(`${API}/user/complete-onboarding`, {}, { withCredentials: true });
+              } catch (err) {
+                console.error("Failed to mark onboarding complete:", err);
+              }
+              if (onComplete) onComplete({
+                imported: data?.count || 0,
+                source: "cas_connect_sdk",
+                destination: "portfolio",
+              });
             }}
           />
         </div>
