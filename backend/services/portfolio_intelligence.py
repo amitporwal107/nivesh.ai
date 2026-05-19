@@ -180,10 +180,13 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
                     f"%{name.split(',')[0].strip()}%",
                 )
             if row is None:
-                # No PG match — still record with just name + amount
+                # No PG match — keep the ISIN so the NIDP DAAS fallback
+                # below can enrich scheme_name + expense_ratio + rolling
+                # returns from analytics.fund_category_rank.
                 mf_investments.append({
                     "instrument_id": None,
                     "scheme_name": name,
+                    "isin": isin,
                     "amount_rs": amt,
                     "category": None,
                     "resolved": False,
@@ -241,6 +244,14 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
     # sum their amounts (user may have both direct + regular or ISIN variants).
     mf_investments = _dedupe_investments(mf_investments)
 
+    # ── NIDP DAAS fallback ────────────────────────────────────────────
+    # For any holding the local PG instrument_master could not resolve,
+    # ask the NIDP DAAS portfolio/holdings endpoint — it joins
+    # `ref.security_master` (scheme name + sector) AND the latest
+    # `analytics.fund_category_rank` row (TER + rolling returns), so the
+    # Copilot sees real metadata for funds Nivesh PG hasn't ingested yet.
+    await _enrich_unresolved_via_daas(user_id, mf_investments)
+
     total_rs = sum(m["amount_rs"] for m in mf_investments)
     resolved_ids = [m["instrument_id"] for m in mf_investments if m["resolved"] and m["instrument_id"] in weights_by_id]
 
@@ -285,6 +296,85 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
         "total_value": holistic.get("total_value", 0),
         "asset_allocation": holistic.get("asset_allocation"),
     }
+
+
+# ── NIDP DAAS fallback ───────────────────────────────────────────────────
+async def _enrich_unresolved_via_daas(
+    user_id: str, mf_investments: List[Dict[str, Any]],
+) -> None:
+    """Mutate `mf_investments` in place: for each unresolved entry whose
+    ISIN matches a row from the NIDP DAAS holdings endpoint, fill in
+    `scheme_name`, `expense_ratio`, and `rolling_returns` (1y/3y/5y).
+
+    Silent no-op when DAAS is unconfigured or unreachable — the rest of
+    the analytics pipeline already tolerates unresolved holdings.
+    """
+    unresolved_with_isin = [
+        m for m in mf_investments if not m.get("resolved") and m.get("isin")
+    ]
+    if not unresolved_with_isin:
+        return
+
+    try:
+        from services.copilot_tools import daas_client
+    except Exception:  # noqa: BLE001
+        return
+    if not daas_client.is_configured():
+        return
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+    email = (user or {}).get("email")
+    if not email:
+        return
+
+    try:
+        rows = await daas_client.get_user_holdings(email)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("DAAS fallback fetch failed for %s: %s", email, exc)
+        return
+
+    if not rows:
+        return
+
+    by_isin: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        isin = (r.get("isin") or "").strip().upper()
+        if isin:
+            by_isin[isin] = r
+
+    enriched = 0
+    for m in unresolved_with_isin:
+        match = by_isin.get((m.get("isin") or "").strip().upper())
+        if not match:
+            continue
+        scheme_name = (
+            match.get("security_name")
+            or match.get("instrument_name")
+            or m.get("scheme_name")
+        )
+        m["scheme_name"] = scheme_name
+        if match.get("expense_ratio") is not None:
+            m["expense_ratio"] = float(match["expense_ratio"])
+        ret_1y = match.get("ret_1y")
+        ret_3y = match.get("ret_3y")
+        ret_5y = match.get("ret_5y")
+        if any(v is not None for v in (ret_1y, ret_3y, ret_5y)):
+            m["rolling_returns"] = {
+                "1y": float(ret_1y) if ret_1y is not None else None,
+                "3y": float(ret_3y) if ret_3y is not None else None,
+                "5y": float(ret_5y) if ret_5y is not None else None,
+                "as_of": str(match.get("perf_as_of")) if match.get("perf_as_of") else None,
+            }
+        if match.get("sector"):
+            m["sector"] = match["sector"]
+        m["resolved_via_nidp"] = True
+        enriched += 1
+
+    if enriched:
+        logger.info(
+            "portfolio_intelligence DAAS fallback: enriched %d/%d unresolved MF holdings for %s",
+            enriched, len(unresolved_with_isin), email,
+        )
 
 
 # ── Sub-computations ─────────────────────────────────────────────────────

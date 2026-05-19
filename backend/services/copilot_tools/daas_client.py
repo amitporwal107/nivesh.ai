@@ -270,6 +270,40 @@ async def get_v3_mf_primitives_bulk(
     return data if isinstance(data, dict) else {}
 
 
+async def get_user_holdings(
+    external_user_id: str,
+    on: Optional[str] = None,
+    limit: int = 500,
+) -> list[Dict[str, Any]]:
+    """Fetch a user's holdings from NIDP — joined with `ref.security_master`
+    (for scheme_name + sector) and `analytics.fund_category_rank` (for TER
+    + rolling returns).
+
+    Returns the rows list (newest snapshot, ordered by market value DESC) or
+    an empty list on DaaS unavailability so the caller can fall back without
+    raising.
+
+    `external_user_id` is the email NIDP uses as the canonical user key.
+    """
+    if not external_user_id:
+        return []
+    params: Dict[str, Any] = {"limit": limit}
+    if on:
+        params["on"] = on
+    try:
+        payload = await _get(
+            f"/intelligence/portfolio/{external_user_id}/holdings",
+            params=params,
+        )
+    except DaasError as exc:
+        logger.warning("get_user_holdings(%s): %s", external_user_id, exc)
+        return []
+    if not payload:
+        return []
+    rows = payload.get("data") or payload.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
 async def get_v3_stock_primitives_bulk(
     symbols: list[str],
     timeout: float = 15.0,
