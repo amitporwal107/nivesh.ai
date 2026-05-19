@@ -399,6 +399,52 @@ P95 latency < 5s under 50 concurrent users.
 
 ---
 
+## EPIC 11: Copilot Chat UX + Dashboard Recommendations (May 2026)
+
+### TASK-070 — Strip routing JSON leak from chat bubbles ✅ DONE
+Intent classifier LLM now tagged `intent_internal`; SSE consumer in `routes/chat.py` filters those tokens. Frontend keeps a transitional `LEADING_ROUTE_JSON` regex guard (see TASK-077).
+**Branch**: `feat/copilot-persona-prompts` (commits `beaa236`, `d369c4e`).
+
+### TASK-071 — Split routing metadata into dedicated SSE `route` event ✅ DONE
+Backend emits `event: route` with `{agent, confidence, symbol, scheme_code}` from `on_chain_end` of intent_node. Frontend ChatView consumes it to stamp the bubble's agent ribbon.
+
+### TASK-072 — Drop duplicate SEBI disclaimer + add per-agent `follow_ups` ✅ DONE
+`compliance_node` strips any in-body disclaimer the LLM volunteered and projects 3 default follow-up chips per agent. Footer below input box stays as the single canonical disclaimer.
+
+### TASK-073 — Per-message toolbar (copy, regen, 👍/👎) + feedback API ✅ DONE
+`MessageToolbar` component in ChatView; `POST /api/copilot/feedback` persists to `db.copilot_feedback`.
+
+### TASK-074 — Shared persona/agent registry (single source of truth) ✅ DONE
+New `frontend/src/components/copilot/shared/agentRegistry.js` exports `AGENT_REGISTRY` + `resolveAgent()`. Resolves the "Market Strategist" vs "Market Analyst" label-drift bug.
+
+### TASK-075 — Dashboard `top_recommendations` orchestrator ✅ DONE
+New `backend/services/dashboard_recommendations.py` composes `copilot_tools.portfolio` + `risk` + `mf_intelligence` + `recommendation` into a unified ranked list. Surfaces: OVERLAP, STOCK/SECTOR/AMC_CONCENTRATION, REBALANCE, COST_REDUCTION, TAX_HARVEST, RISK_MISALIGNMENT, WEAK_MF, WEAK_STOCK. Exposed at `/api/intelligence/portfolio` alongside legacy `ai_insights`.
+**Note**: No new calculators built — composes existing copilot tools (the deterministic, DAAS-grounded functions used by LangGraph agents). See [feedback_reuse_copilot_tools.md](memory:feedback_reuse_copilot_tools).
+
+### TASK-076 — Quick Actions deep-link to InsightsView tabs ✅ DONE
+`personaActions.js` exports `INSIGHTS_TAB` constants; each action carries a `tab` field. V2HomeScreen writes `sessionStorage.v2_insights_target_tab` before screen-switching; InsightsView's `useState` initializer consumes + clears it on mount.
+
+### TASK-077 — Remove transitional `LEADING_ROUTE_JSON` regex guard 🔨 BUILD
+Frontend keeps a regex stripping any leading routing JSON envelope from the first token chunk as a belt-and-braces guard. Safe to delete from `ChatView.js` once the backend `route` SSE event has been live in all environments for at least one release.
+
+### TASK-078 — Stock-investor sector-peer comparison widget 🔨 BUILD
+Backend endpoint `/api/intelligence/sector-peers/{symbol}` already exists (returns V3-scored same-sector peers via `stock_intelligence.get_nidp_screener`). Frontend widget for the dashboard's stock-investor Quick Action is NOT yet built.
+**Acceptance**: a `SectorPeerComparisonWidget.jsx` that takes a held symbol and renders a side-by-side fundamental + technical comparison table.
+
+### TASK-079 — Admin UI to read `copilot_feedback` 🔨 BUILD
+The `POST /api/copilot/feedback` endpoint persists thumbs up/down to `db.copilot_feedback`, but there is no admin view to browse, filter, or aggregate the feedback yet. Wire into the admin console alongside the other moderation views.
+
+### TASK-080 — Backend persona-label consolidation 🔨 BUILD
+`AgentName` enum in `backend/nidp/services/copilot_agent/schemas.py` is canonical, but several Python files still hardcode display strings like "Market Analyst" per-agent. Consolidate into one labels module so any future rename touches one place.
+
+### TASK-081 — NIDP snapshot endpoint wiring 🔨 BUILD
+Per [project_nidp_copilot_ownership.md](memory:project_nidp_copilot_ownership) — `/v1/intelligence/portfolio/{user_id}/snapshot` exists but isn't called from Copilot. Dashboard + chat should consume the snapshot rather than recomputing `equity_pct` / `beta` / `top_sector` locally.
+
+### TASK-082 — Fix volatility_20d gap 🔨 BUILD
+Per [project_volatility_20d_gap.md](memory:project_volatility_20d_gap) — blank Risk ribbon root-caused to missing column in `nidp.stock_features_daily`. `technical_indicator_engine` never computes vol; no scheduler config. Add column + job. Block Copilot from synthesising the value (see deterministic-no-duplication feedback).
+
+---
+
 ## Execution Order (next up)
 
 ```
@@ -412,9 +458,15 @@ DONE:  TASK-046–057     — full LangGraph framework (graph, 7 agent nodes, co
 DONE:  TASK-056         — wired into stream_chat (USE_LANGGRAPH_AGENT=true flag)
 DONE:  TASK-069         — FY 2025-26 capital gains engine wired into portfolio tools (15 tests)
 DONE:  TASK-058         — end-to-end agent tests, 21/21 passing across all 7 agent types
+DONE:  TASK-070–076     — Copilot chat UX + dashboard recommendations orchestrator (May 2026)
 
-NOW:   TASK-031         — SIP calculator tool
-THEN:  TASK-039–041     — risk suitability + VaR tools
+NOW:   TASK-077         — remove transitional LEADING_ROUTE_JSON guard (post-deploy cleanup)
+NOW:   TASK-078         — stock-investor sector-peer comparison widget
+NOW:   TASK-081         — wire /v1/intelligence/portfolio/{user_id}/snapshot from Copilot
+NOW:   TASK-082         — fix volatility_20d gap in nidp.stock_features_daily
+THEN:  TASK-079         — admin UI for copilot_feedback
+THEN:  TASK-080         — backend persona-label consolidation
+THEN:  TASK-031         — SIP calculator tool
 THEN:  TASK-039–041     — risk suitability + VaR tools
 DONE:  TASK-042–045     — recommendation engine (composite scorer, screener, MF recommender, 60 tests)
 THEN:  TASK-062–063     — frontend wire-up
