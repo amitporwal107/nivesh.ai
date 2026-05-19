@@ -39,7 +39,11 @@ router = APIRouter(prefix="/api/copilot/widgets", tags=["copilot-widgets"])
 
 # ── DaaS proxy (re-use existing NIDP DaaS auth) ──────────────────
 
-_DAAS_URL = os.environ.get("NIDP_DAAS_API_URL") or "http://34.93.60.254:8083"
+_DAAS_URL = (
+    os.environ.get("NIDP_DAAS_BASE_URL")
+    or os.environ.get("NIDP_DAAS_API_URL")
+    or "https://data.niveshcopilot.com/daas"
+).rstrip("/")
 _DAAS_KEY = os.environ.get("NIDP_DAAS_API_KEY") or ""
 
 
