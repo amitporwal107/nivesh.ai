@@ -20,7 +20,7 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     },
     "CASPARSER_API_KEYS": {
         "display_name": "CAS Parser API Keys (rotating pool)",
-        "description": "Newline- or comma-separated CAS Parser keys. Used as a rotating pool — when the active key returns 401/402/403 (expired or out of quota), it is retired and the next key takes over. Edit, then click 'Reload pool' or restart the backend to apply.",
+        "description": "CAS Parser keys separated by whitespace (space / tab / newline) or comma. Used as a rotating pool — when the active key returns 401/402/403 (expired or out of quota), it is retired and the next key takes over. Saves are hot-reloaded; no restart needed.",
         "test_fn": None,
         "category": "parsing",
     },
