@@ -249,6 +249,107 @@ _RESET_COLLECTIONS: List[str] = [
     "gmail_imports",
 ]
 
+# Extra collections wiped only by /reset-full (mirrors scripts/reset_user_full.py).
+_FULL_RESET_EXTRA_COLLECTIONS: List[str] = [
+    "portfolio_holdings",
+    "capital_gains_summary",
+    "international_funds_cache",
+    "fund_holdings_cache",
+]
+
+_REDIS_PATTERNS = [
+    "snap:*:{uid}",
+    "score:user:{uid}*",
+    "v3:user:{uid}*",
+    "actionplan:{uid}*",
+    "copilot:{uid}*",
+]
+
+
+async def _wipe_user_mongo_and_redis(user_id: str, collections: List[str]):
+    """Shared core for reset endpoints. Returns
+    (deleted_per_collection, profile_modified, redis_cleared, now_iso).
+    Does NOT touch NIDP Postgres — caller adds that if needed."""
+    deleted: Dict[str, int] = {}
+    for col in collections:
+        try:
+            res = await db[col].delete_many({"user_id": user_id})
+            deleted[col] = res.deleted_count
+        except Exception as e:  # noqa: BLE001
+            logger.warning("reset: skip %s for %s: %s", col, user_id, e)
+            deleted[col] = 0
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    profile_res = await db.user_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {**_RESET_PROFILE_FIELDS, "updated_at": now_iso}},
+    )
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$unset": {"cas_view_state": ""}},
+    )
+
+    redis_cleared = 0
+    try:
+        from services.redis_client import get_client as _get_redis
+        rc = await _get_redis()
+        if rc is not None:
+            for pat_tmpl in _REDIS_PATTERNS:
+                pat = pat_tmpl.format(uid=user_id)
+                try:
+                    cursor = 0
+                    while True:
+                        cursor, keys = await rc.scan(cursor=cursor, match=pat, count=200)
+                        if keys:
+                            await rc.delete(*keys)
+                            redis_cleared += len(keys)
+                        if cursor == 0:
+                            break
+                except Exception as e:  # noqa: BLE001
+                    logger.info("redis scan/delete skipped for pattern %s: %s", pat, e)
+    except Exception as e:  # noqa: BLE001
+        logger.info("Redis client unavailable, skipping cache flush: %s", e)
+
+    return deleted, bool(profile_res.modified_count), redis_cleared, now_iso
+
+
+async def _wipe_user_nidp_pg(email: str) -> Dict[str, int]:
+    """Per-user wipe on NIDP Postgres. Keyed by external_user_id which
+    equals the user's email in this stack. Returns counts per table.
+    Tables not present (per env) are silently skipped with count 0."""
+    out: Dict[str, int] = {
+        "portfolio.user_intelligence_snapshot": 0,
+        "portfolio.user_holdings_snapshot": 0,
+        "nidp.validation_findings": 0,
+    }
+    try:
+        from nidp.shared.storage.pg import get_pool
+    except Exception as e:  # noqa: BLE001
+        logger.warning("NIDP pg unavailable; skipping pg wipe: %s", e)
+        return out
+
+    try:
+        pool = await get_pool()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("NIDP pg pool init failed; skipping pg wipe: %s", e)
+        return out
+
+    async with pool.acquire() as conn:
+        for table in list(out.keys()):
+            try:
+                tag = await conn.execute(
+                    f"DELETE FROM {table} WHERE external_user_id = $1",
+                    email,
+                )
+                # asyncpg returns "DELETE <n>"
+                try:
+                    out[table] = int(tag.split()[-1])
+                except (ValueError, IndexError):
+                    out[table] = 0
+            except Exception as e:  # noqa: BLE001
+                logger.info("nidp wipe: skip %s (%s)", table, e)
+    return out
+
 # Onboarding-flag fields cleared on `user_profiles` (mirrors the global
 # `scripts/reset_portfolio_data.py` so the user re-runs onboarding on
 # next login). `cas_view_state` is also cleared from the `users` doc so
@@ -271,6 +372,7 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
 
     Preserves: the `users` row itself, sessions, whitelist, gmail_tokens,
     workspaces, profiles (family members), consent_records, audit_log.
+    Also preserves NIDP Postgres rows (see /reset-full for that).
     """
     admin = await require_admin(request)
 
@@ -278,59 +380,11 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    deleted: Dict[str, int] = {}
-    for col in _RESET_COLLECTIONS:
-        try:
-            res = await db[col].delete_many({"user_id": user_id})
-            deleted[col] = res.deleted_count
-        except Exception as e:  # noqa: BLE001
-            logger.warning("reset_portfolio: skip %s for %s: %s", col, user_id, e)
-            deleted[col] = 0
-
-    # Reset onboarding flags on user_profiles
-    now_iso = datetime.now(timezone.utc).isoformat()
-    profile_update = {"$set": {**_RESET_PROFILE_FIELDS, "updated_at": now_iso}}
-    profile_res = await db.user_profiles.update_one(
-        {"user_id": user_id}, profile_update
+    deleted, profile_modified, redis_cleared, now_iso = await _wipe_user_mongo_and_redis(
+        user_id, _RESET_COLLECTIONS
     )
-
-    # Clear the cas_view_state pin on the users doc so the dashboard
-    # doesn't keep referencing a deleted snapshot.
-    await db.users.update_one(
-        {"user_id": user_id},
-        {"$unset": {"cas_view_state": ""}},
-    )
-
-    # Best-effort Redis cache invalidation (snapshot scoring, V3 caches).
-    redis_cleared = 0
-    try:
-        from services.redis_client import get_client as _get_redis
-        rc = await _get_redis()
-        if rc is not None:
-            patterns = [
-                f"snap:*:{user_id}",
-                f"score:user:{user_id}*",
-                f"v3:user:{user_id}*",
-                f"actionplan:{user_id}*",
-                f"copilot:{user_id}*",
-            ]
-            for pat in patterns:
-                try:
-                    cursor = 0
-                    while True:
-                        cursor, keys = await rc.scan(cursor=cursor, match=pat, count=200)
-                        if keys:
-                            await rc.delete(*keys)
-                            redis_cleared += len(keys)
-                        if cursor == 0:
-                            break
-                except Exception as e:  # noqa: BLE001
-                    logger.info("redis scan/delete skipped for pattern %s: %s", pat, e)
-    except Exception as e:  # noqa: BLE001
-        logger.info("Redis client unavailable, skipping cache flush: %s", e)
-
-    # Audit
     total_deleted = sum(deleted.values())
+
     audit_doc = {
         "kind": "admin.reset_portfolio",
         "actor_user_id": admin.get("user_id"),
@@ -339,7 +393,7 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
         "target_email": user.get("email"),
         "deleted_per_collection": deleted,
         "total_deleted": total_deleted,
-        "profile_modified": profile_res.modified_count,
+        "profile_modified": int(profile_modified),
         "redis_keys_cleared": redis_cleared,
         "timestamp": now_iso,
     }
@@ -349,8 +403,8 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
         logger.warning("audit log insert failed: %s", e)
 
     logger.info(
-        f"admin[{admin.get('email')}] reset portfolio for user {user_id} "
-        f"({user.get('email')}): {total_deleted} docs, {redis_cleared} redis keys"
+        "admin[%s] reset portfolio for user %s (%s): %d docs, %d redis keys",
+        admin.get("email"), user_id, user.get("email"), total_deleted, redis_cleared,
     )
 
     return {
@@ -359,7 +413,79 @@ async def reset_user_portfolio(user_id: str, request: Request) -> Dict[str, Any]
         "user_email": user.get("email"),
         "deleted_per_collection": deleted,
         "total_deleted": total_deleted,
-        "profile_reset": bool(profile_res.modified_count),
+        "profile_reset": profile_modified,
+        "redis_keys_cleared": redis_cleared,
+    }
+
+
+@router.post("/users/{user_id}/reset-full")
+async def reset_user_full(user_id: str, request: Request) -> Dict[str, Any]:
+    """Hard reset — everything /reset-portfolio does, PLUS:
+      * extra Mongo caches (portfolio_holdings, capital_gains_summary,
+        international_funds_cache, fund_holdings_cache)
+      * NIDP TimescaleDB rows keyed by external_user_id = email:
+        portfolio.user_intelligence_snapshot,
+        portfolio.user_holdings_snapshot (cascades to holding_security_map),
+        nidp.validation_findings.
+
+    Equivalent to running scripts/reset_user_full.py from an admin shell.
+    Preserves: the `users` row, sessions, whitelist, gmail_tokens,
+    workspaces, family profiles, consent_records, audit_log.
+
+    Use with care — NIDP wipe is unrecoverable without re-running the
+    portfolio_intelligence_sync job.
+    """
+    admin = await require_admin(request)
+
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = user.get("email") or ""
+
+    collections = _RESET_COLLECTIONS + _FULL_RESET_EXTRA_COLLECTIONS
+    deleted, profile_modified, redis_cleared, now_iso = await _wipe_user_mongo_and_redis(
+        user_id, collections
+    )
+    total_deleted = sum(deleted.values())
+
+    pg_deleted = await _wipe_user_nidp_pg(email) if email else {}
+    pg_total = sum(pg_deleted.values())
+
+    audit_doc = {
+        "kind": "admin.reset_full",
+        "actor_user_id": admin.get("user_id"),
+        "actor_email": admin.get("email"),
+        "target_user_id": user_id,
+        "target_email": email,
+        "deleted_per_collection": deleted,
+        "total_deleted": total_deleted,
+        "pg_deleted_per_table": pg_deleted,
+        "pg_total_deleted": pg_total,
+        "profile_modified": int(profile_modified),
+        "redis_keys_cleared": redis_cleared,
+        "timestamp": now_iso,
+    }
+    try:
+        await db.audit_log.insert_one(audit_doc)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("audit log insert failed: %s", e)
+
+    logger.info(
+        "admin[%s] FULL reset for user %s (%s): %d mongo docs, %d pg rows, %d redis keys",
+        admin.get("email"), user_id, email, total_deleted, pg_total, redis_cleared,
+    )
+
+    return {
+        "ok": True,
+        "scope": "full",
+        "user_id": user_id,
+        "user_email": email,
+        "deleted_per_collection": deleted,
+        "total_deleted": total_deleted,
+        "pg_deleted_per_table": pg_deleted,
+        "pg_total_deleted": pg_total,
+        "profile_reset": profile_modified,
         "redis_keys_cleared": redis_cleared,
     }
 

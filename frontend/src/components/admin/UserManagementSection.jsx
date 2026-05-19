@@ -27,6 +27,7 @@ export default function UserManagementSection() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState("");
   const [resetTarget, setResetTarget] = useState(null);    // user being reset
+  const [resetMode, setResetMode] = useState("portfolio"); // "portfolio" | "full"
   const [confirmText, setConfirmText] = useState("");
   const [resetting, setResetting] = useState(false);
   const [resetResult, setResetResult] = useState(null);
@@ -117,8 +118,9 @@ export default function UserManagementSection() {
     }
   };
 
-  const openReset = (u) => {
+  const openReset = (u, mode = "portfolio") => {
     setResetTarget(u);
+    setResetMode(mode);
     setConfirmText("");
     setResetResult(null);
   };
@@ -137,15 +139,19 @@ export default function UserManagementSection() {
       return;
     }
     setResetting(true);
+    const endpoint = resetMode === "full" ? "reset-full" : "reset-portfolio";
     try {
       const res = await axios.post(
-        `${API}/admin/users/${resetTarget.user_id}/reset-portfolio`,
+        `${API}/admin/users/${resetTarget.user_id}/${endpoint}`,
         {},
         { withCredentials: true }
       );
       setResetResult(res.data);
+      const pgPart = resetMode === "full"
+        ? ` · ${res.data?.pg_total_deleted ?? 0} NIDP rows`
+        : "";
       toast.success(
-        `Reset complete · ${res.data?.total_deleted ?? 0} docs · ${res.data?.redis_keys_cleared ?? 0} cache keys`
+        `${resetMode === "full" ? "Full reset" : "Reset"} complete · ${res.data?.total_deleted ?? 0} docs${pgPart} · ${res.data?.redis_keys_cleared ?? 0} cache keys`
       );
       load(search.trim());
     } catch (e) {
@@ -266,12 +272,23 @@ export default function UserManagementSection() {
                   data-testid={`reset-portfolio-btn-${u.user_id}`}
                   size="sm"
                   variant="outline"
-                  onClick={() => openReset(u)}
+                  onClick={() => openReset(u, "portfolio")}
                   className="rounded-lg border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 h-8 px-2"
-                  title="Wipe all portfolio + insights data and reset onboarding flags"
+                  title="Wipe portfolio + insights (Mongo + Redis). Keeps NIDP analytics."
                 >
                   <Eraser className="w-3.5 h-3.5 sm:mr-1.5" />
                   <span className="hidden sm:inline">Reset</span>
+                </Button>
+                <Button
+                  data-testid={`reset-full-btn-${u.user_id}`}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openReset(u, "full")}
+                  className="rounded-lg border-rose-300 dark:border-rose-700 bg-rose-50/40 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/40 h-8 px-2"
+                  title="Full reset — Mongo + Redis + NIDP Postgres (intelligence + holdings snapshots + validation findings). Unrecoverable without re-sync."
+                >
+                  <Trash2 className="w-3.5 h-3.5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Full Reset</span>
                 </Button>
                 <Button
                   data-testid={`toggle-admin-btn-${u.user_id}`}
@@ -316,12 +333,12 @@ export default function UserManagementSection() {
             {!resetResult ? (
               <>
                 <div className="flex items-start gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0">
-                    <AlertTriangle className="w-5 h-5 text-rose-600" />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${resetMode === "full" ? "bg-rose-200 dark:bg-rose-900/60" : "bg-rose-100 dark:bg-rose-900/40"}`}>
+                    <AlertTriangle className={`w-5 h-5 ${resetMode === "full" ? "text-rose-700" : "text-rose-600"}`} />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                      Reset portfolio for this user?
+                      {resetMode === "full" ? "Full reset this user?" : "Reset portfolio for this user?"}
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                       Wipes holdings, action plans, AI insights, snapshots, transactions,
@@ -329,6 +346,13 @@ export default function UserManagementSection() {
                       and all V3 / Redis caches. Then flips <code>onboarding_completed=false</code>{" "}
                       so they re-run the welcome flow on next login.
                     </p>
+                    {resetMode === "full" && (
+                      <p className="text-xs text-rose-700 dark:text-rose-400 mt-2 font-medium">
+                        <strong>Also wipes NIDP Postgres:</strong> portfolio.user_intelligence_snapshot,
+                        portfolio.user_holdings_snapshot (cascades to holding_security_map),
+                        nidp.validation_findings. Unrecoverable without re-running portfolio_intelligence_sync.
+                      </p>
+                    )}
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                       <strong>Preserved:</strong> the user account itself, sessions,
                       whitelist entry, Gmail tokens, family member profiles.
@@ -385,6 +409,8 @@ export default function UserManagementSection() {
                   >
                     {resetting ? (
                       <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Resetting…</>
+                    ) : resetMode === "full" ? (
+                      <><Trash2 className="w-3.5 h-3.5 mr-1.5" /> Full Reset</>
                     ) : (
                       <><Trash2 className="w-3.5 h-3.5 mr-1.5" /> Reset Portfolio</>
                     )}
@@ -409,8 +435,11 @@ export default function UserManagementSection() {
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 mb-4 text-[11px] max-h-64 overflow-y-auto">
                   <div className="font-bold text-slate-700 dark:text-slate-200 mb-2">
-                    Wiped {resetResult.total_deleted} doc(s) ·{" "}
-                    {resetResult.redis_keys_cleared} Redis key(s)
+                    Wiped {resetResult.total_deleted} mongo doc(s)
+                    {resetResult.pg_total_deleted != null && (
+                      <> · {resetResult.pg_total_deleted} NIDP row(s)</>
+                    )}
+                    {" "}· {resetResult.redis_keys_cleared} Redis key(s)
                   </div>
                   <ul className="space-y-0.5">
                     {Object.entries(resetResult.deleted_per_collection || {})
@@ -423,6 +452,24 @@ export default function UserManagementSection() {
                         </li>
                       ))}
                   </ul>
+                  {resetResult.pg_deleted_per_table && Object.values(resetResult.pg_deleted_per_table).some(n => n > 0) && (
+                    <>
+                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 font-medium text-slate-700 dark:text-slate-200 mb-1">
+                        NIDP Postgres
+                      </div>
+                      <ul className="space-y-0.5">
+                        {Object.entries(resetResult.pg_deleted_per_table)
+                          .filter(([, n]) => n > 0)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([tbl, n]) => (
+                            <li key={tbl} className="flex justify-between">
+                              <code className="text-slate-600 dark:text-slate-400">{tbl}</code>
+                              <span className="font-medium text-slate-700 dark:text-slate-300">{n}</span>
+                            </li>
+                          ))}
+                      </ul>
+                    </>
+                  )}
                   {resetResult.profile_reset && (
                     <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 text-emerald-600 dark:text-emerald-400">
                       ✓ Onboarding flags reset
