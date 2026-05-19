@@ -81,6 +81,11 @@ if [[ ! -f "$APP_HOME/.env.prod" ]]; then
 fi
 
 log ""
+# ── 8. Cloud Logging — install Ops Agent so Docker stdout reaches Cloud Logging
+log "Installing Google Cloud Ops Agent..."
+bash "$APP_HOME/deploy/install-ops-agent.sh"
+
+log ""
 log "✅ Bootstrap complete."
 log ""
 log "Next: run the deploy script:"

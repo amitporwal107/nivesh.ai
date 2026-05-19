@@ -65,5 +65,14 @@ if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
     echo "   sudo install -m 644 /opt/nidp/repo/backend/nidp/deploy/vm/nidp.cron /etc/cron.d/nidp" >&2
 fi
 
+# Refresh Cloud Logging Ops Agent config if it changed. Needs root, so this
+# is a no-op unless the operator re-runs deploy.sh with sudo (or wires it as
+# a post-deploy root hook). Failure here is non-fatal.
+if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
+        grep -q 'backend/nidp/deploy/vm/ops-agent-config.yaml'; then
+    echo "⚠  ops-agent-config.yaml changed in this commit — root must run:" >&2
+    echo "   sudo bash $NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
+fi
+
 ok "deploy complete: $NEW_SHA"
 echo "$(date -Iseconds)  $OLD_SHA → $NEW_SHA" >> "$NIDP_HOME/logs/deploy.log"

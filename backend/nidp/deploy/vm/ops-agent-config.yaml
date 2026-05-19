@@ -1,0 +1,22 @@
+logging:
+  receivers:
+    nidp_job_logs:
+      type: files
+      include_paths:
+        - /opt/nidp/logs/*/*.log
+      exclude_paths:
+        - /opt/nidp/logs/deploy.log
+  processors:
+    parse_nidp_json:
+      type: parse_json
+      field: message
+    promote_severity:
+      type: modify_fields
+      fields:
+        severity:
+          copy_from: jsonPayload.severity
+  service:
+    pipelines:
+      nidp_pipeline:
+        receivers: [nidp_job_logs]
+        processors: [parse_nidp_json, promote_severity]
