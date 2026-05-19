@@ -5,7 +5,7 @@ import {
   Landmark, Home, GraduationCap, Plane, Shield, Target,
   Mail, Link2, FileText, CheckCircle2,
   Calendar, Crosshair, Clock, IndianRupee, BarChart3, Wallet, BookOpen, Sparkles,
-  Users,
+  Users, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
