@@ -8,7 +8,20 @@ import logging
 
 from deps import db, get_current_user
 from helpers.parsing import (
-    parse_csv_holdings, parse_excel_holdings, parse_cas_pdf, save_holdings
+    parse_csv_holdings, parse_excel_holdings, save_holdings
+)
+
+# Deprecation message returned to clients that still POST CAS PDFs to
+# the legacy direct-upload endpoints. CAS parsing now lives exclusively
+# in the Connect SDK widget — see `CasUploadButton.jsx` for the client
+# flow and `/api/casparser/access-token` + `/api/portfolio/import-connect`
+# for the backend pair that backs it.
+_CAS_PDF_DEPRECATED = (
+    "Direct CAS PDF upload to this endpoint is no longer supported. "
+    "Use the CAS Connect SDK widget instead — call "
+    "POST /api/casparser/access-token, open the @cas-parser/connect "
+    "widget with the returned access token, then POST the widget's "
+    "parsed JSON to /api/portfolio/import-connect."
 )
 from helpers.upload_validation import validate_upload
 
@@ -93,36 +106,7 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
     validate_upload(content, filename)
 
     if filename.endswith(".pdf"):
-        task_id = f"task_{uuid.uuid4().hex[:12]}"
-        await db.upload_tasks.insert_one({
-            "task_id": task_id,
-            "user_id": user_id,
-            "status": "processing",
-            "message": "CAS PDF received, AI parsing started...",
-            "count": 0,
-            "holdings": [],
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-
-        logger.info("CAS PDF received: %s bytes, task %s", len(content), task_id)
-        try:
-            from services import audit as _audit
-            await _audit.record(
-                user_id=user_id, action="cas_upload", resource=task_id,
-                ip=request.client.host if request.client else "",
-                ua=request.headers.get("user-agent", ""),
-                details={"size_bytes": len(content), "filename": filename[:100]},
-            )
-        except Exception:  # noqa: BLE001
-            pass
-        asyncio.create_task(_process_cas_background(content, user_id, task_id))
-        return {
-            "task_id": task_id,
-            "status": "processing",
-            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes.",
-            "count": 0,
-            "holdings": []
-        }
+        raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
         parsed = await parse_excel_holdings(content)
@@ -213,24 +197,7 @@ async def upload_portfolio_raw(request: Request):
     logger.info("Raw upload received: %s bytes, filename: %s", len(content), filename)
 
     if filename.endswith(".pdf"):
-        task_id = f"task_{uuid.uuid4().hex[:12]}"
-        await db.upload_tasks.insert_one({
-            "task_id": task_id,
-            "user_id": user_id,
-            "status": "processing",
-            "message": "CAS PDF received, AI parsing started...",
-            "count": 0,
-            "holdings": [],
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-        asyncio.create_task(_process_cas_background(content, user_id, task_id, portfolio_id, pdf_password))
-        return {
-            "task_id": task_id,
-            "status": "processing",
-            "message": "CAS PDF is being processed by AI. This may take 1-2 minutes.",
-            "count": 0,
-            "holdings": []
-        }
+        raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
         parsed = await parse_excel_holdings(content)
@@ -366,6 +333,7 @@ async def portfolio_import_from_connect(request: Request):
     user = await get_current_user(request)
     body = await request.json()
     parsed_data = body.get("data") if isinstance(body, dict) and "data" in body else body
+    portfolio_id = (body.get("portfolio_id") or "").strip() if isinstance(body, dict) else ""
     if not isinstance(parsed_data, dict):
         raise HTTPException(status_code=400, detail="Invalid payload: expected parsed CAS JSON")
 
@@ -380,7 +348,10 @@ async def portfolio_import_from_connect(request: Request):
     except Exception as e:
         logger.info("Masterdata enrichment skipped: %s", e)
 
-    saved = await save_holdings(user["user_id"], holdings, "CAS Connect")
+    saved = await save_holdings(
+        user["user_id"], holdings, "CAS Connect",
+        portfolio_id=portfolio_id,
+    )
 
     # Extract transactions + detect SIP patterns
     sip_summary: Dict[str, int] = {}
@@ -410,43 +381,6 @@ async def portfolio_import_from_connect(request: Request):
     }
 
 
-async def _process_cas_background(content: bytes, user_id: str, task_id: str, portfolio_id: str = "", password: str = ""):
-    """Background task for CAS PDF processing."""
-    try:
-        logger.info("Background CAS task %s: password=%s, size=%s", task_id, 'provided' if password else 'none', len(content))
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "processing", "message": "Parsing CAS PDF with AI..."}}
-        )
-        parsed = await parse_cas_pdf(content, password=password)
-        if not parsed:
-            await db.upload_tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"status": "completed", "message": "No holdings found in CAS PDF", "count": 0, "holdings": []}}
-            )
-            return
-        await save_holdings(user_id, parsed, "CAS PDF", task_id, portfolio_id)
-        # Re-infer persona now that holdings have changed
-        try:
-            from services.persona_engine import refresh_persona
-            await refresh_persona(user_id, db)
-        except Exception as pe:
-            logger.warning("Persona refresh failed (non-fatal): %s", pe)
-    except HTTPException as he:
-        error_msg = he.detail if hasattr(he, 'detail') else str(he)
-        logger.error("Background CAS processing HTTPException: %s", error_msg)
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "error", "message": error_msg, "count": 0, "holdings": []}}
-        )
-    except Exception as e:
-        logger.error("Background CAS processing error: %s", e)
-        error_msg = str(e)
-        if "password" in error_msg.lower() or "decrypt" in error_msg.lower() or "encrypted" in error_msg.lower():
-            error_msg = "PDF is password-protected. Please provide the correct password."
-        elif "could not read" in error_msg.lower():
-            error_msg = "Could not read PDF. The file may be corrupted or in an unsupported format."
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "error", "message": error_msg, "count": 0, "holdings": []}}
-        )
+# CAS PDF background processor removed — all PDF parsing now happens
+# inside the Connect SDK widget (browser → casparser.in direct). The
+# widget returns parsed JSON which is POSTed to /api/portfolio/import-connect.

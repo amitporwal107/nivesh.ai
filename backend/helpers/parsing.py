@@ -1,5 +1,6 @@
 """File parsing helpers: CSV, Excel, CAS PDF, JSON response parsing."""
 import io
+import os
 import csv
 import json
 import uuid
@@ -190,130 +191,26 @@ def _normalize_casparser_folios(cas_data: dict) -> dict:
     return {"mutual_funds": mutual_funds}
 
 
-async def parse_cas_pdf_with_data(content: bytes, password: str = "") -> tuple:
-    """Parse CAS PDF — tiered fallback chain.
-
-    Chain (in order, first non-empty result wins):
-      1. GPT-5 Vision         — PRIMARY. Handles every CAS PDF shape
-                                (text + image) via OpenAI's native file
-                                ingestion (same path ChatGPT UI uses).
-                                Requires OPENAI_API_KEY. Latency ~35-70
-                                s; cost ~$0.30 per parse.
-      2. casparser library    — fast (< 1 s) fallback for text-based
-                                CAMS / KFin / NSDL MF folios. Used when
-                                OPENAI_API_KEY is absent or GPT-5 fails.
-      3. Docling              — local OCR last-resort fallback
-
-    Returns: (holdings: list,
-              normalized_for_txns: dict | None,
-              raw_payload: dict | None,
-              parser_source: str | None)
-    """
-    _PASSWORD_HINT = (
-        "Wrong CAS PDF password. Enter your PAN in UPPERCASE "
-        "(e.g. ABCDE1234F). All RTAs — CDSL, NSDL, CAMS, KFintech — "
-        "use PAN as the password."
-    )
-
-    # ── 1. GPT-5 Vision (PRIMARY — handles every CAS shape) ───────────
-    try:
-        from services.openai_cas_parser import (
-            parse_with_openai_vision,
-            is_configured as _openai_ok,
-        )
-        if not _openai_ok():
-            logger.info(
-                "parse_cas_pdf_with_data: OPENAI_API_KEY not set — "
-                "skipping GPT-5 Vision, falling through to casparser"
-            )
-        else:
-            raw = await parse_with_openai_vision(content, password=password or "")
-            if raw:
-                from services.claude_cas_mapper import map_to_internal
-                holdings, normalized = map_to_internal(raw)
-                if holdings:
-                    logger.info(
-                        "parse_cas_pdf_with_data: GPT-5 Vision → %d holdings",
-                        len(holdings),
-                    )
-                    try:
-                        from services.masterdata import validate_and_enrich_holdings
-                        holdings = validate_and_enrich_holdings(holdings)
-                    except Exception:
-                        pass
-                    return holdings, normalized, raw, "openai_gpt5"
-                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no holdings, trying casparser")
-            else:
-                logger.info("parse_cas_pdf_with_data: GPT-5 Vision returned no payload, trying casparser")
-    except ValueError as _e:
-        if "password" in str(_e).lower():
-            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
-    except Exception as _e:
-        logger.warning("parse_cas_pdf_with_data: GPT-5 Vision failed: %s", _e)
-
-    # ── 2. casparser fallback (text-based PDFs, < 1 s) ────────────────
-    try:
-        import casparser as _casparser
-        import time as _time
-        _t0 = _time.monotonic()
-        _cas_data = await asyncio.to_thread(
-            _casparser.read_cas_pdf, io.BytesIO(content), password or "", "dict"
-        )
-        _fast_holdings = convert_casparser_to_holdings(_cas_data)
-        if _fast_holdings:
-            logger.info(
-                "parse_cas_pdf_with_data: casparser → %d holdings in %.2fs",
-                len(_fast_holdings), _time.monotonic() - _t0,
-            )
-            try:
-                from services.masterdata import validate_and_enrich_holdings
-                _fast_holdings = validate_and_enrich_holdings(_fast_holdings)
-            except Exception:
-                pass
-            return _fast_holdings, _normalize_casparser_folios(_cas_data), _cas_data, "casparser_lib"
-        logger.info("parse_cas_pdf_with_data: casparser: no holdings, trying Docling")
-    except Exception as _e:
-        err_lower = str(_e).lower()
-        if any(t in err_lower for t in ["password", "incorrect", "decrypt", "protected"]):
-            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.info("parse_cas_pdf_with_data: casparser failed (%s), trying Docling", _e)
-
-    # ── 3. Docling (local OCR fallback) ───────────────────────────────
-    try:
-        from services.docling_cas_parser import parse_with_docling, is_available as _docling_ok
-        if not _docling_ok():
-            logger.warning("parse_cas_pdf_with_data: Docling not installed — run: pip install docling")
-        else:
-            holdings, normalized = await asyncio.to_thread(
-                parse_with_docling, content, password or ""
-            )
-            if holdings:
-                logger.info("parse_cas_pdf_with_data: Docling → %d holdings", len(holdings))
-                try:
-                    from services.masterdata import validate_and_enrich_holdings
-                    holdings = validate_and_enrich_holdings(holdings)
-                except Exception:
-                    pass
-                return holdings, normalized, None, "docling"
-            logger.info("parse_cas_pdf_with_data: Docling returned no holdings")
-    except ValueError as _e:
-        if "password" in str(_e).lower():
-            raise HTTPException(status_code=400, detail=_PASSWORD_HINT)
-        logger.warning("parse_cas_pdf_with_data: Docling failed: %s", _e)
-    except Exception as _e:
-        logger.warning("parse_cas_pdf_with_data: Docling failed: %s", _e)
-
-    return [], None, None, None
-
-
-async def parse_cas_pdf(content: bytes, password: str = "") -> list:
-    """Parse CAS PDF — holdings-only path, fully local, no external API calls.
-
-    Delegates to parse_cas_pdf_with_data and returns only the holdings list.
-    """
-    holdings, _, _, _ = await parse_cas_pdf_with_data(content, password)
-    return holdings
+# ── parse_cas_pdf_with_data / parse_cas_pdf — REMOVED ──────────────────
+#
+# Server-side CAS PDF parsing was decommissioned alongside the
+# casparser.in REST API integration. All CAS uploads now flow through
+# the Connect SDK widget (`CasUploadButton.jsx` → `@cas-parser/connect`):
+#
+#   1. Browser asks /api/casparser/access-token for a short-lived `at_*`
+#      token (backend mints it from CASPARSER_API_KEY).
+#   2. The SDK widget opens, the client uploads the PDF (or pulls from
+#      Gmail / does CDSL OTP) — all in their browser.
+#   3. The widget parses the PDF directly against casparser.in (no
+#      size cap, no nginx relay, no Vision fallback to operate).
+#   4. The widget returns parsed JSON which the browser POSTs to
+#      /api/portfolio/import-connect for mapping + masterdata enrichment
+#      + persistence.
+#
+# `services.cas_api_client.map_api_response_to_holdings()` is the single
+# remaining entry point for turning a casparser.in payload into internal
+# holdings, used by both /api/portfolio/import-connect and the admin
+# debug routes.
 
 
 def parse_json_response(response: str) -> list:

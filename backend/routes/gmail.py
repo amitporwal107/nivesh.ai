@@ -1,33 +1,23 @@
-"""Gmail auto-fetch routes."""
+"""Gmail auto-fetch routes.
+
+Server-side CAS parsing was removed alongside the casparser.in REST API
+chain. /api/gmail/import now returns 410 — clients should use the
+Connect SDK widget (CasUploadButton) which has Gmail inbox access built
+in (`enableInbox: true`) and parses entirely in-browser. The remaining
+gmail/* endpoints still mediate Google OAuth so the SDK widget can pick
+up the connected token.
+"""
 from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from fastapi.responses import RedirectResponse
 from datetime import datetime, timezone, timedelta
-import hashlib
-import os
-import uuid
 import logging
 import urllib.parse
 
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
-from helpers.parsing import parse_cas_pdf, parse_cas_pdf_with_data, save_holdings
 from services.gmail_service import (
     get_authorization_url, exchange_code_for_tokens,
     get_gmail_credentials, build_gmail_service,
-    scan_for_cas_emails, download_attachment,
-)
-from services import cas_transactions as _cas_txns
-from services.cas_snapshot_engine import create_cas_snapshot
-from services.cas_period_detector import detect_statement_period, detect_period_from_filename
-
-# Where Gmail-fetched CAS PDFs are persisted on disk so users can
-# re-parse with a different password without re-downloading from Gmail.
-GMAIL_CAS_PDF_DIR = "/app/data/gmail_cas"
-
-# Test user — imported PDFs are automatically saved as named fixtures under
-# tests/test_data/nsdl/ahaanporwal/ so they can be used as benchmark inputs.
-TEST_USER_ID = "user_e56d1d46b024"
-TEST_FIXTURE_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "tests", "test_data", "nsdl", "ahaanporwal"
+    scan_for_cas_emails,
 )
 
 logger = logging.getLogger(__name__)
@@ -287,312 +277,28 @@ async def gmail_scan(request: Request):
 
 
 @router.post("/gmail/import")
-async def gmail_import(request: Request, background_tasks: BackgroundTasks):
-    """Import a specific CAS email attachment."""
-    user = await get_current_user(request)
-    body = await request.json()
-    message_id = body.get("message_id")
-    attachment_id = body.get("attachment_id")
-    filename = body.get("filename", "cas.pdf")
-    password = body.get("password", "")
-    portfolio_id = body.get("portfolio_id", "")
+async def gmail_import(request: Request, background_tasks: BackgroundTasks):  # noqa: ARG001
+    """DEPRECATED — server-side Gmail CAS parsing was removed when we
+    consolidated CAS parsing into the Connect SDK widget.
 
-    if not message_id or not attachment_id:
-        raise HTTPException(status_code=400, detail="message_id and attachment_id required")
-
-    existing = await db.gmail_imports.find_one({
-        "user_id": user["user_id"],
-        "message_id": message_id,
-        "attachment_id": attachment_id,
-    })
-    if existing and existing.get("status") == "completed":
-        holdings_exist = await db.holdings.count_documents({"user_id": user["user_id"]})
-        if holdings_exist > 0:
-            raise HTTPException(status_code=409, detail="This attachment has already been imported")
-        await db.gmail_imports.delete_one({"_id": existing["_id"]})
-
-    token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    if not token_doc:
-        raise HTTPException(status_code=400, detail="Gmail not connected")
-
-    try:
-        creds = get_gmail_credentials(token_doc)
-        service = build_gmail_service(creds)
-        content = download_attachment(service, message_id, attachment_id)
-    except Exception as e:
-        logger.error("Gmail attachment download failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to download attachment from Gmail")
-
-    task_id = f"gmail_{uuid.uuid4().hex[:12]}"
-    await db.upload_tasks.insert_one({
-        "task_id": task_id,
-        "user_id": user["user_id"],
-        "status": "processing",
-        "message": f"Importing {filename} from Gmail...",
-        "count": 0,
-        "holdings": [],
-        "source": "email",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-    await db.gmail_imports.update_one(
-        {"user_id": user["user_id"], "message_id": message_id, "attachment_id": attachment_id},
-        {"$set": {
-            "user_id": user["user_id"],
-            "message_id": message_id,
-            "attachment_id": attachment_id,
-            "filename": filename,
-            "task_id": task_id,
-            "status": "processing",
-            "imported_at": datetime.now(timezone.utc).isoformat(),
-        }},
-        upsert=True,
-    )
-
-    # Persist the raw PDF bytes before kicking off the background parse.
-    # Doing it inline keeps the operation atomic with the import request —
-    # if the disk write fails the user gets an immediate 500 rather than
-    # a silent loss inside the background task.
-    file_id, file_path, file_sha256 = _persist_gmail_pdf(
-        user["user_id"], content, filename
-    )
-    await db.gmail_imports.update_one(
-        {"user_id": user["user_id"], "message_id": message_id, "attachment_id": attachment_id},
-        {"$set": {
-            "file_id": file_id,
-            "file_path": file_path,
-            "file_sha256": file_sha256,
-        }},
-    )
-
-    background_tasks.add_task(
-        _process_gmail_cas_background,
-        content, user["user_id"], task_id, portfolio_id, password,
-        message_id, attachment_id, file_id, filename,
-    )
-
-    return {"task_id": task_id, "status": "processing", "message": f"Importing {filename} from Gmail..."}
-
-
-def _persist_gmail_pdf(user_id: str, content: bytes, filename: str) -> tuple[str, str, str]:
-    """Write the raw PDF to /app/data/gmail_cas/<user>/<file_id>.pdf and
-    return (file_id, file_path, sha256). Re-parsing with a new password
-    can read the same file off disk later.
+    The Connect SDK has built-in Gmail inbox access (`enableInbox: true`)
+    that runs entirely in the user's browser: it authorises with Gmail,
+    fetches CAS emails, parses them via casparser.in, and returns the
+    parsed JSON which is POSTed to /api/portfolio/import-connect. Use
+    that flow instead of this endpoint.
     """
-    file_id = uuid.uuid4().hex[:16]
-    user_dir = os.path.join(GMAIL_CAS_PDF_DIR, user_id)
-    os.makedirs(user_dir, exist_ok=True)
-    file_path = os.path.join(user_dir, f"{file_id}.pdf")
-    with open(file_path, "wb") as f:
-        f.write(content)
-    sha = hashlib.sha256(content).hexdigest()
-    logger.info(
-        "Gmail CAS persisted: user=%s file_id=%s size=%d filename=%s",
-        user_id, file_id, len(content), filename[:80],
-    )
-    # Archive as a named test fixture for the test user
-    if user_id == TEST_USER_ID:
-        try:
-            os.makedirs(TEST_FIXTURE_DIR, exist_ok=True)
-            safe_name = filename.replace(" ", "_").replace("/", "_")
-            fixture_path = os.path.join(TEST_FIXTURE_DIR, safe_name)
-            with open(fixture_path, "wb") as fx:
-                fx.write(content)
-            logger.info("Test fixture archived: %s", fixture_path)
-        except Exception as _fx_err:
-            logger.warning("Fixture archive failed (non-fatal): %s", _fx_err)
-    return file_id, file_path, sha
+    raise HTTPException(status_code=410, detail=(
+        "Server-side Gmail CAS import is no longer supported. "
+        "Use the Connect SDK widget (CasUploadButton) — it has Gmail "
+        "inbox access built in and parses everything client-side."
+    ))
 
 
-async def _process_gmail_cas_background(
-    content: bytes, user_id: str, task_id: str, portfolio_id: str, password: str,
-    message_id: str, attachment_id: str, file_id: str = "", filename: str = "cas.pdf"
-):
-    """Background task for Gmail CAS import.
-
-    Persists each CAS PDF as its own date-stamped portfolio snapshot via
-    `create_cas_snapshot` (the same engine Client 360 uses). The snapshot
-    engine auto-mirrors the latest snapshot's holdings into the live
-    `holdings` table, so importing 12 monthly statements yields 12
-    snapshots + the most-recent month showing as live holdings — instead
-    of the previous flat-overwrite behaviour where every import wiped
-    out the prior one.
-    """
-    try:
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "processing", "message": "Parsing CAS PDF from Gmail with AI..."}}
-        )
-        holdings, raw_cas_data, raw_payload, parser_source = await parse_cas_pdf_with_data(
-            content, password=password,
-        )
-        if not holdings:
-            await db.upload_tasks.update_one(
-                {"task_id": task_id},
-                {"$set": {"status": "completed", "message": "No holdings found in CAS email", "count": 0}}
-            )
-            await db.gmail_imports.update_one(
-                {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-                {"$set": {"status": "completed", "count": 0, "parser_source": parser_source}}
-            )
-            return
-
-        for h in holdings:
-            h["source"] = "email"
-            h["confidence"] = 0.95
-
-        # Period detection — read PDF text headers first, fall back to filename
-        # (e.g. NSDLe-CAS_106904998_DEC_2025.PDF → 2025-12-01..2025-12-31).
-        period_start, period_end = detect_statement_period(content)
-        if not period_end:
-            period_start, period_end = detect_period_from_filename(filename)
-        logger.info(
-            "Gmail CAS period detected: %s → %s for file %s (user %s)",
-            period_start, period_end, filename, user_id,
-        )
-
-        # Transactions + SIPs (best-effort; a failure here must not break the snapshot)
-        transactions: list = []
-        sips_detected: list = []
-        if raw_cas_data:
-            try:
-                transactions = _cas_txns.extract_transactions(raw_cas_data)
-                sips_detected = _cas_txns.detect_sip_patterns(transactions)
-                logger.info(
-                    "Gmail CAS: %d txns / %d SIP patterns from %s",
-                    len(transactions), len(sips_detected), filename,
-                )
-            except Exception as txn_err:  # noqa: BLE001
-                logger.warning("Gmail CAS: transaction extraction failed: %s", txn_err)
-
-        # Mirror the raw parsed payload so a re-parse never has to call
-        # the parser again (saves Document AI / Claude budget).
-        if raw_payload is not None and file_id:
-            try:
-                await db.cas_parsed_responses.update_one(
-                    {"file_id": file_id},
-                    {"$set": {
-                        "file_id": file_id,
-                        "user_id": user_id,
-                        "source": "gmail",
-                        "filename": filename,
-                        "parser_source": parser_source,
-                        "holdings_count": len(holdings),
-                        "transactions_count": len(transactions),
-                        "sips_count": len(sips_detected),
-                        "period_start": period_start,
-                        "period_end": period_end,
-                        "raw_payload": raw_payload,
-                        "normalized_for_txns": raw_cas_data,
-                        "stored_at": datetime.now(timezone.utc).isoformat(),
-                    }},
-                    upsert=True,
-                )
-            except Exception as p_err:  # noqa: BLE001
-                logger.warning("Gmail CAS: persist parsed response failed: %s", p_err)
-
-        # Persist as a date-stamped snapshot. The engine itself mirrors
-        # the holdings into the live `holdings` table when this is the
-        # latest snapshot.
-        snap = await create_cas_snapshot(
-            user_id=user_id,
-            holdings=holdings,
-            transactions=transactions,
-            sips_detected=sips_detected,
-            period_start=period_start,
-            period_end=period_end,
-            cas_file_id=file_id,
-            cas_filename=filename,
-        )
-        count = snap.get("holdings_count", len(holdings))
-        snap_date = snap.get("snapshot_date")
-
-        # Persist transactions + SIPs to their canonical collections so
-        # /api/portfolio/transactions and /api/portfolio/sips keep working.
-        if raw_cas_data and transactions:
-            try:
-                txn_result = await _cas_txns.persist_transactions_and_sips(
-                    db, user_id, raw_cas_data, source="CAS_PDF",
-                )
-                logger.info("Gmail CAS: persisted txns/SIPs: %s", txn_result)
-            except Exception as txn_err:  # noqa: BLE001
-                logger.warning("Gmail CAS: txn persistence failed: %s", txn_err)
-
-        # Bust the fund-performance cache so the dashboard recomputes
-        await db.fund_performance_cache.delete_many({"user_id": user_id})
-
-        # Save the password that worked so the daily auto-import job can
-        # decrypt future monthly statements without re-prompting the user.
-        # TODO: encrypt at rest (Fernet + SECRETS_ENCRYPTION_KEY).
-        if password:
-            await db.gmail_tokens.update_one(
-                {"user_id": user_id},
-                {"$set": {
-                    "cas_password": password,
-                    "cas_password_saved_at": datetime.now(timezone.utc).isoformat(),
-                    "auto_import_enabled": True,
-                }},
-            )
-
-        msg = f"{count} holdings imported from {filename} (snapshot {snap_date})"
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {
-                "status": "completed",
-                "message": msg,
-                "count": count,
-                "snapshot_date": snap_date,
-            }},
-        )
-        await db.gmail_imports.update_one(
-            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-            {"$set": {
-                "status": "completed",
-                "count": count,
-                "transactions_count": len(transactions),
-                "parser_source": parser_source,
-                "snapshot_date": snap_date,
-            }},
-        )
-    except HTTPException as he:
-        error_msg = he.detail if hasattr(he, 'detail') else str(he)
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "error", "message": error_msg}}
-        )
-        await db.gmail_imports.update_one(
-            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-            {"$set": {"status": "error", "error": error_msg}}
-        )
-    except Exception as e:
-        error_msg = str(e)
-        # Surface budget exhaustion as its own clear message — by class
-        # name so we don't have to import BudgetExceededError just to
-        # check it (and so this works even if it's defined in a different
-        # provider module across versions).
-        if e.__class__.__name__ == "BudgetExceededError" or "budget" in error_msg.lower():
-            error_msg = "AI parsing budget exhausted — please retry tomorrow or contact support."
-        elif "password" in error_msg.lower() or "decrypt" in error_msg.lower():
-            error_msg = "PDF is password-protected. Please provide the password."
-        logger.warning("Gmail CAS background task failed: %s", e)
-        await db.upload_tasks.update_one(
-            {"task_id": task_id},
-            {"$set": {"status": "error", "message": error_msg}}
-        )
-        await db.gmail_imports.update_one(
-            {"user_id": user_id, "message_id": message_id, "attachment_id": attachment_id},
-            {"$set": {"status": "error", "error": error_msg}}
-        )
-
-
-async def _save_holdings_with_dedup(user_id: str, parsed: list, source_label: str, task_id: str, portfolio_id: str):
-    """Save holdings from Gmail CAS — replaces all existing holdings."""
-    delete_query = {"user_id": user_id}
-    if portfolio_id:
-        delete_query["portfolio_id"] = portfolio_id
-    old_count = await db.holdings.count_documents(delete_query)
-    await db.holdings.delete_many(delete_query)
-    logger.info("Gmail CAS import: cleared %s old holdings for user %s", old_count, user_id)
+# Server-side Gmail CAS background processor removed alongside the
+# /api/gmail/import endpoint. CAS parsing now happens exclusively inside
+# the Connect SDK widget (enableInbox: true gives the widget direct Gmail
+# access), and the widget returns parsed JSON which is POSTed to
+# /api/portfolio/import-connect.
 
     new_count = 0
     saved_holdings = []

@@ -559,3 +559,5 @@ def parse_cas_via_api_with_data(content: bytes, password: str = "") -> tuple:
     holdings = map_api_response_to_holdings(data)
     normalized = normalize_api_response_for_transactions(data)
     return holdings, data, normalized
+
+
