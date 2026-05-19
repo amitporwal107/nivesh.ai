@@ -18,11 +18,13 @@ EnvironmentFile=/opt/nidp/query_api.env
 Environment=PYTHONPATH=/opt/nidp/repo/backend
 Environment=PYTHONUNBUFFERED=1
 
-# Bind to all interfaces (0.0.0.0). Bearer-token auth gates every
-# non-/health endpoint — see backend/nidp/services/query_api/auth.py.
+# Bind to loopback only — the public TLS edge is nginx on the same VM,
+# which reverse-proxies /query/* to 127.0.0.1:${NIDP_QUERY_API_PORT}.
+# Bearer-token auth in backend/nidp/services/query_api/auth.py still gates
+# every non-/health endpoint as defence-in-depth.
 ExecStart=/opt/nidp/venv/bin/python -m uvicorn \
     nidp.services.query_api.app:app \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
     --port ${NIDP_QUERY_API_PORT} \
     --proxy-headers \
     --forwarded-allow-ips=*

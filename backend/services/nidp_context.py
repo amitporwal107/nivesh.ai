@@ -30,7 +30,7 @@ _ENABLED = os.environ.get("NIDP_COPILOT_ENABLED", "").lower() in ("1", "true", "
 _DAAS_BASE = (
     os.environ.get("NIDP_DAAS_BASE_URL")
     or os.environ.get("NIDP_DAAS_API_URL")
-    or "http://34.93.60.254:8083"
+    or "https://data.niveshcopilot.com/daas"
 ).rstrip("/")
 # Prefer the explicit external key; fall back to the internal service token
 _DAAS_KEY  = (

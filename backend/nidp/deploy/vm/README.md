@@ -44,6 +44,11 @@ a small VM. Deploys are `git pull`. Rollbacks are `git checkout`.
 | `nidp.env.example`    | Template env file (copy to `/opt/nidp/nidp.env`, fill secrets)   |
 | `nidp-health.service` | systemd unit for the health checker                              |
 | `nidp-health.timer`   | systemd timer (runs health_check every 30 min)                   |
+| `nidp-daas-api.service` | systemd unit — DaaS API (binds to 127.0.0.1:8083; behind nginx) |
+| `nidp-query-api.service`| systemd unit — Query API (binds to 127.0.0.1:8090; behind nginx)|
+| `nginx.conf`          | Reverse-proxy config: TLS termination + path routing             |
+| `install_nginx.sh`    | Installs nginx + pulls TLS cert/key from Secret Manager          |
+| `restore_firewall.sh` | Emergency: re-create the pre-cutover public 8083/8090/3000 rules |
 
 ## One-time setup (5 steps, ~30 min)
 

@@ -140,11 +140,16 @@ services:
     depends_on:
       - prometheus
     environment:
-      GF_SECURITY_ADMIN_USER:     admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_SECURITY_ADMIN_USER:        admin
+      GF_SECURITY_ADMIN_PASSWORD:    admin
+      GF_USERS_ALLOW_SIGN_UP:        "false"
+      # Sub-path serving so the nginx reverse proxy on nidp-stack-vm can
+      # mount Grafana at https://data.niveshcopilot.com/grafana/.
+      GF_SERVER_ROOT_URL:            "https://data.niveshcopilot.com/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     ports:
-      - "3000:3000"
+      # Loopback-bind: only the host's nginx can reach Grafana directly.
+      - "127.0.0.1:3000:3000"
     volumes:
       - nidp-grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

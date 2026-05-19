@@ -62,7 +62,7 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     },
     "NIDP_DAAS_BASE_URL": {
         "display_name": "NIDP DaaS · Base URL",
-        "description": "Base URL of the NIDP DaaS API (e.g. http://34.93.60.254:8083 or https://daas.nivesh.ai). Used by Copilot context fetcher and proxy routes.",
+        "description": "Base URL of the NIDP DaaS API (e.g. https://data.niveshcopilot.com/daas). Used by Copilot context fetcher and proxy routes.",
         "test_fn": None,
         "category": "nidp",
     },
@@ -74,7 +74,7 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     },
     "NIDP_QUERY_API_URL": {
         "display_name": "NIDP Query API · Base URL",
-        "description": "Base URL of the nidp-query-api Cloud Run service. Printed by build_on_gcp.sh as 'Cloud Run service URLs:'. Format: https://nidp-query-api-<hash>.<region>.run.app",
+        "description": "Base URL of the NIDP Query API (e.g. https://data.niveshcopilot.com/query). Bearer-token auth via NIDP_QUERY_API_TOKEN.",
         "test_fn": None,
         "category": "nidp",
     },

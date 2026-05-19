@@ -4,10 +4,10 @@
 
 Two GCP VMs, one GCP project:
 
-| VM | IP | Role |
-|---|---|---|
-| `nivesh-app-vm` | `34.100.186.141` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
-| `nidp-stack-vm` | `34.93.60.254` | NIDP data plane (DaaS API + Query API + cron jobs + Grafana) |
+| VM | IP | Public URL | Role |
+|---|---|---|---|
+| `nivesh-app-vm` | `34.100.186.141` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
+| `nidp-stack-vm` | `34.93.60.254` | `https://data.niveshcopilot.com` | NIDP data plane (DaaS API + Query API + cron jobs + Grafana) |
 
 **Project:** `niveshdataintelligence` · **Zone:** `asia-south1-a`
 
@@ -214,11 +214,17 @@ sudo journalctl -u nidp-daas-api -f
 # ── Logs (last 100 lines) ─────────────────────────────────────────────────────
 sudo journalctl -u nidp-daas-api -n 100 --no-pager
 
-# ── Smoke test ────────────────────────────────────────────────────────────────
-curl http://34.93.60.254:8083/health
-curl http://34.93.60.254:8083/docs
-curl -H "X-API-Key: $NIDP_DAAS_API_KEY" \
-  http://34.93.60.254:8083/v1/intelligence/snapshots/market
+# ── Smoke test (public HTTPS via Cloudflare) ─────────────────────────────────
+curl -sf https://data.niveshcopilot.com/daas/health
+curl -sf https://data.niveshcopilot.com/daas/docs
+curl -sf -H "X-API-Key: $NIDP_DAAS_API_KEY" \
+  https://data.niveshcopilot.com/daas/v1/intelligence/snapshots/market
+
+# ── Direct loopback (on the VM only — service binds to 127.0.0.1:8083) ───────
+# From your laptop:
+gcloud compute ssh nidp-stack-vm --zone=asia-south1-a -- -L 8083:127.0.0.1:8083
+# Then in another shell:
+curl http://127.0.0.1:8083/health
 ```
 
 ---
@@ -231,6 +237,11 @@ sudo systemctl stop    nidp-query-api
 sudo systemctl restart nidp-query-api
 sudo systemctl status  nidp-query-api --no-pager
 sudo journalctl -u nidp-query-api -f
+
+# ── Smoke test (public HTTPS via Cloudflare) ─────────────────────────────────
+curl -sf https://data.niveshcopilot.com/query/health
+curl -sf -H "Authorization: Bearer $NIDP_QUERY_API_TOKEN" \
+  https://data.niveshcopilot.com/query/v1/feeds/status
 ```
 
 ---
@@ -318,6 +329,33 @@ sudo bash /opt/nidp/repo/backend/nidp/deploy/vm/health_check.sh
 # Check systemd health timer
 sudo systemctl status nidp-health.timer --no-pager
 sudo journalctl -u nidp-health -n 50 --no-pager
+```
+
+---
+
+## 10b. nidp-stack-vm — Nginx + TLS
+
+The DaaS / Query / Grafana services are exposed publicly via
+`https://data.niveshcopilot.com` behind Cloudflare. The VM runs an Nginx
+reverse-proxy that terminates TLS using a Cloudflare Origin Certificate
+pulled from GCP Secret Manager (`nidp-tls-cert`, `nidp-tls-key`).
+
+```bash
+# ── Install / refresh nginx + TLS material (idempotent) ──────────────────────
+gcloud compute ssh nidp-stack-vm --zone=asia-south1-a --command="\
+  sudo bash /opt/nidp/repo/backend/nidp/deploy/vm/install_nginx.sh"
+
+# ── Verify nginx is healthy ──────────────────────────────────────────────────
+curl -sf https://data.niveshcopilot.com/health           # nginx liveness
+curl -sf https://data.niveshcopilot.com/daas/health      # DaaS via proxy
+curl -sf https://data.niveshcopilot.com/query/health     # Query via proxy
+
+# ── Rotate TLS cert (when CF Origin Cert is reissued) ────────────────────────
+# 1. Generate a new Origin Cert in Cloudflare (SSL/TLS → Origin Server)
+# 2. Add new versions to Secret Manager:
+gcloud secrets versions add nidp-tls-cert --data-file=cert.pem
+gcloud secrets versions add nidp-tls-key  --data-file=key.pem
+# 3. Re-run install_nginx.sh on the VM — it pulls 'latest' versions.
 ```
 
 ---
