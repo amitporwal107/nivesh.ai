@@ -443,6 +443,33 @@ Per [project_nidp_copilot_ownership.md](memory:project_nidp_copilot_ownership) �
 ### TASK-082 — Fix volatility_20d gap 🔨 BUILD
 Per [project_volatility_20d_gap.md](memory:project_volatility_20d_gap) — blank Risk ribbon root-caused to missing column in `nidp.stock_features_daily`. `technical_indicator_engine` never computes vol; no scheduler config. Add column + job. Block Copilot from synthesising the value (see deterministic-no-duplication feedback).
 
+### TASK-083 — Persona-aware Copilot pipeline + 5-category prompt taxonomy (P1) ✅ DONE
+**Branch**: `feat/copilot-persona-prompts` (commit `beaa236`, 19 files, +1715/−60)
+- `models.PersonaType` extended with `active_trader`, `parents_planning`, `conservative_investor` so the 10 product personas map 1:1 to enum values.
+- `CopilotState` gained `persona`, `risk_profile`, `age_band`, `journey_type` fields hydrated at chat-route entry by new `persona_loader.load_persona_context()` against `user_profiles`.
+- New `persona_framing.py` — 15 framing blocks prepended to every specialist's system prompt (portfolio, mf, risk, goal, stock, market, recommendation).
+- New `routes/copilot_prompt_catalog.py` — **99 persona-tagged templates** (10 personas × ~10 questions; active_trader Q5 hidden until P3). Existing 10 universal templates in `copilot_prompts.py` tagged with `intent_category` ∈ {portfolio_health, performance, risk_diversification, tax, goal_planning}.
+- `/api/copilot/suggested-prompts` accepts `persona` + `category` query params and filters before scoring. Response exposes `persona`, `category_filter`, `persona_prompts_enabled`.
+- `nodes/intent.py` regex coverage extended for FD, overlap(ping), IDCW, tax-loss harvesting, P&L, market-falls-X%, manage risk, child education, withdrawal rate, annuity, PMS/AIF, DTAA, international ETFs, swing trading. **91% routing accuracy** on a 23-question persona sample.
+- Frontend: 5-category chip filter row in `ChatView.js`, `CategoryChip` on `CopilotPromptCard.jsx` hero + compact variants.
+- Feature flag `copilot_persona_prompts_enabled` (default everyone) gates the new behaviour.
+- Catalog spec: `docs/COPILOT_PROMPT_CATALOG.md` (109 entries: 100 persona + 10 universal, minus 1 trader Q5 hidden until P3).
+
+### TASK-084 — Copilot persona P2: capability gap tools 🔨 BUILD
+The persona catalog references five tools that don't exist yet — the catalog routes correctly but those answers fall back to generic phrasing until each ships.
+- `compare_to_fd(period)` — XIRR vs prevailing FD rate constant.
+- `run_market_drop_scenario(drop_pct)` — parameterised market-down stress test (reuse `goal_engine.scenario_matrix`).
+- `compare_idcw_vs_growth(scheme_code)` — small wrapper over `capital_gains_engine`.
+- `get_currency_exposure()` — NRI INR vs foreign-denominated share from holdings.
+- `trading_metrics.realized_pnl` block in `get_portfolio_summary` (derived from `capital_gains_engine` FIFO output).
+
+### TASK-085 — Copilot persona P3: educator knowledge base + test matrix 🔨 BUILD
+- Curated `backend/nidp/services/copilot_agent/knowledge_base.md` (~30 short entries) for the 32 educator-routed prompts (PMS/AIF, estate planning, tax treaties, "what is P/E", etc.). `recommendation` agent grounds answers in this markdown via lightweight RAG.
+- `backend/tests/copilot/test_persona_qa_matrix.py` — seeds 10 synthetic persona profiles, fires each persona's 10 questions through `/api/copilot/ask`, asserts intent routes to the expected agent and the response is grounded in at least one expected tool output. Un-hide active_trader Q5 (win-rate / risk-reward) once the underlying primitive ships.
+
+### TASK-086 — FE persona-key map (P1.5 polish) 🔨 BUILD
+`detectPersona()` in `V2CopilotWelcome.jsx` returns keys like `mf_investor` / `trader` / `new_investor` that don't 1:1 match `PersonaType.value`. Add a small FE→backend map so heuristic personas (post-CAS-upload, pre persona_engine write) can drive the catalog immediately. Backend currently reads `user_profiles.persona` authoritatively, so this only matters for the moment between CAS-upload and persona-engine completion.
+
 ---
 
 ## Execution Order (next up)
@@ -459,11 +486,15 @@ DONE:  TASK-056         — wired into stream_chat (USE_LANGGRAPH_AGENT=true fla
 DONE:  TASK-069         — FY 2025-26 capital gains engine wired into portfolio tools (15 tests)
 DONE:  TASK-058         — end-to-end agent tests, 21/21 passing across all 7 agent types
 DONE:  TASK-070–076     — Copilot chat UX + dashboard recommendations orchestrator (May 2026)
+DONE:  TASK-083         — Persona-aware Copilot pipeline + 5-category prompt taxonomy (P1, May 2026)
 
 NOW:   TASK-077         — remove transitional LEADING_ROUTE_JSON guard (post-deploy cleanup)
 NOW:   TASK-078         — stock-investor sector-peer comparison widget
 NOW:   TASK-081         — wire /v1/intelligence/portfolio/{user_id}/snapshot from Copilot
 NOW:   TASK-082         — fix volatility_20d gap in nidp.stock_features_daily
+NOW:   TASK-084         — Copilot persona P2 capability tools (FD compare, market drop, IDCW, currency, realized P&L)
+THEN:  TASK-085         — Copilot persona P3 educator KB + test matrix
+THEN:  TASK-086         — FE persona-key map (P1.5 polish)
 THEN:  TASK-079         — admin UI for copilot_feedback
 THEN:  TASK-080         — backend persona-label consolidation
 THEN:  TASK-031         — SIP calculator tool
