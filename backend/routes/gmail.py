@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse
 from datetime import datetime, timezone, timedelta
 import logging
 import urllib.parse
+import uuid
 
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
 from services.gmail_service import (
@@ -299,55 +300,3 @@ async def gmail_import(request: Request, background_tasks: BackgroundTasks):  # 
 # the Connect SDK widget (enableInbox: true gives the widget direct Gmail
 # access), and the widget returns parsed JSON which is POSTed to
 # /api/portfolio/import-connect.
-
-    new_count = 0
-    saved_holdings = []
-
-    for h in parsed:
-        name = h.get("name", "").strip()
-        isin = h.get("isin", h.get("ticker", "")).upper().strip()
-
-        holding_id = f"hold_{uuid.uuid4().hex[:12]}"
-        asset_type = h.get("asset_type", "mutual_fund")
-        if asset_type not in ["equity", "mutual_fund", "etf", "bond", "gold", "fd", "other"]:
-            asset_type = "mutual_fund" if "fund" in name.lower() else "equity"
-
-        doc = {
-            "holding_id": holding_id,
-            "portfolio_id": portfolio_id or "",
-            "user_id": user_id,
-            "name": name,
-            "ticker": isin,
-            "asset_type": asset_type,
-            "quantity": h.get("quantity", 0),
-            "buy_price": h.get("buy_price", h.get("avg_price", 0)),
-            "current_price": h.get("current_price", h.get("buy_price", 0)),
-            "sector": h.get("sector", "Other"),
-            "buy_date": h.get("buy_date", ""),
-            "source": "email",
-            "confidence": h.get("confidence", 0.95),
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.holdings.insert_one(doc)
-        doc.pop("_id", None)
-        saved_holdings.append(doc)
-        new_count += 1
-
-    msg = f"{new_count} holdings imported from {source_label}"
-    if old_count > 0:
-        msg += f" (replaced {old_count} previous)"
-
-    await db.upload_tasks.update_one(
-        {"task_id": task_id},
-        {"$set": {"status": "completed", "message": msg, "count": new_count, "holdings": saved_holdings[:50]}}
-    )
-
-    await db.fund_performance_cache.delete_many({"user_id": user_id})
-
-    # Background enrichment: Groww stock scraper + MF queue seed
-    import asyncio as _asyncio
-    from helpers.parsing import _enrich_after_upload as _enrich
-    _asyncio.create_task(_enrich(user_id, [
-        {"asset_type": h.get("asset_type")} for h in saved_holdings
-    ]))
