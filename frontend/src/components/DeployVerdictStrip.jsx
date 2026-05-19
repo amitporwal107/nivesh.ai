@@ -68,10 +68,19 @@ export default function DeployVerdictStrip() {
     setLoading(true);
     try {
       const r = await axios.get(`${API}/positional/market-dashboard`, { withCredentials: true });
-      setData(r.data);
-      setErr(null);
+      // Backend returns 200 with {ok: false, error: "..."} on soft failures
+      // (no pg pool, no ohlcv, build exception). Surface the reason rather
+      // than leaving the user with a bare "Couldn't load market dashboard."
+      if (r.data?.ok === false) {
+        setData(null);
+        setErr(r.data.error || "backend reported failure");
+      } else {
+        setData(r.data);
+        setErr(null);
+      }
     } catch (e) {
-      setErr(e?.response?.data?.detail || "Failed to load market dashboard");
+      setData(null);
+      setErr(e?.response?.data?.detail || e?.message || "Failed to load market dashboard");
     } finally {
       setLoading(false);
     }
