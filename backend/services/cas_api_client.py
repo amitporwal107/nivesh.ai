@@ -17,6 +17,7 @@ Auth: `x-api-key` header. Sandbox key returns deterministic sample data
 import io
 import logging
 import os
+import re
 import threading
 from typing import Dict, List, Optional
 
@@ -71,13 +72,17 @@ def _load_pool_from_secret() -> List[str]:
     raw = _secrets.get("CASPARSER_API_KEYS") or ""
     if not raw.strip():
         return []
-    # Accept newline OR comma separation
-    parts = raw.replace(",", "\n").splitlines()
+    # Strip comment lines first (so '# tmp key' isn't broken into tokens),
+    # then split each remaining line on any whitespace or comma so admins
+    # can paste keys in whatever shape is convenient.
     out: List[str] = []
-    for p in parts:
-        k = p.strip()
-        if k and not k.startswith("#"):
-            out.append(k)
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        for k in re.split(r"[\s,]+", stripped):
+            if k:
+                out.append(k)
     return out
 
 
