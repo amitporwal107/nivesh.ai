@@ -17,6 +17,7 @@ Auth: `x-api-key` header. Sandbox key returns deterministic sample data
 import io
 import logging
 import os
+import threading
 from typing import Dict, List, Optional
 
 import httpx
@@ -36,6 +37,65 @@ API_SIZE_LIMIT = 1_800_000
 # Admin overrides for sandbox toggle (legacy — key override now goes via helpers.secrets)
 _override_sandbox: Optional[bool] = None
 
+# ── Rotating key pool ──────────────────────────────────────────
+# A pool of CAS Parser API keys (one per line) lives at
+# CASPARSER_KEYS_FILE. The head of the pool is the active key; if the
+# upstream rejects it with 401/402/403 (or a body indicating quota/
+# expiry), we retire it from the pool and persist the file. The legacy
+# single-key path (helpers.secrets CASPARSER_API_KEY) remains as a
+# fallback when the pool file is missing or empty.
+CASPARSER_KEYS_FILE = os.environ.get("CASPARSER_KEYS_FILE", "/app/.gcp/.casparser_key")
+_pool_lock = threading.Lock()
+_pool_cache: Optional[List[str]] = None  # None = not yet loaded
+
+
+def _load_pool_from_disk() -> List[str]:
+    try:
+        with open(CASPARSER_KEYS_FILE) as f:
+            return [
+                line.strip() for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        logger.warning("CAS Parser key pool unreadable (%s): %s", CASPARSER_KEYS_FILE, e)
+        return []
+
+
+def _persist_pool_to_disk(keys: List[str]) -> None:
+    tmp = CASPARSER_KEYS_FILE + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            if keys:
+                f.write("\n".join(keys) + "\n")
+        os.replace(tmp, CASPARSER_KEYS_FILE)
+    except OSError as e:
+        logger.warning("Failed to persist CAS Parser key pool: %s", e)
+
+
+def _get_pool() -> List[str]:
+    global _pool_cache
+    with _pool_lock:
+        if _pool_cache is None:
+            _pool_cache = _load_pool_from_disk()
+        return list(_pool_cache)
+
+
+def _retire_pool_key(bad_key: str) -> None:
+    """Remove a dead key from the pool and persist."""
+    global _pool_cache
+    with _pool_lock:
+        if _pool_cache is None:
+            _pool_cache = _load_pool_from_disk()
+        if bad_key in _pool_cache:
+            _pool_cache.remove(bad_key)
+            _persist_pool_to_disk(_pool_cache)
+            logger.warning(
+                "CAS Parser key retired (expired/exhausted): %s — %d remaining",
+                _secrets.mask(bad_key), len(_pool_cache),
+            )
+
 
 def _base_url() -> str:
     return _secrets.get("CASPARSER_BASE_URL") or "https://api.casparser.in"
@@ -53,7 +113,8 @@ def set_override(prod_key: Optional[str] = None, use_sandbox: Optional[bool] = N
 def get_effective_config() -> Dict:
     prod = _secrets.get("CASPARSER_API_KEY")
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
-    active_key = SANDBOX_KEY if use_sb or not prod else prod
+    pool = _get_pool()
+    active_key = _active_key()
     return {
         "prod_key_masked": _secrets.mask(prod),
         "prod_key_configured": bool(prod),
@@ -61,6 +122,8 @@ def get_effective_config() -> Dict:
         "active_key_masked": _secrets.mask(active_key),
         "source_override": "CASPARSER_API_KEY" in _secrets._cache or _override_sandbox is not None,
         "base_url": _base_url(),
+        "pool_size": len(pool),
+        "pool_file": CASPARSER_KEYS_FILE,
     }
 
 
@@ -69,11 +132,35 @@ def _mask(s: Optional[str]) -> str:
 
 
 def _active_key() -> str:
-    prod = _secrets.get("CASPARSER_API_KEY")
+    """Resolve the key to use for the next upstream call.
+
+    Order: sandbox toggle → pool head (rotating file) → single secret
+    (CASPARSER_API_KEY from DB/env) → sandbox key as last-resort.
+    """
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
-    if use_sb or not prod:
+    if use_sb:
         return SANDBOX_KEY
-    return prod
+    pool = _get_pool()
+    if pool:
+        return pool[0]
+    prod = _secrets.get("CASPARSER_API_KEY")
+    if prod:
+        return prod
+    return SANDBOX_KEY
+
+
+# Body fragments that signal the key itself is dead (vs. a transient/PDF error).
+_KEY_DEAD_FRAGMENTS = (
+    "expired", "invalid api key", "invalid key", "unauthorized",
+    "quota", "credits", "exhausted", "limit reached", "forbidden",
+)
+
+
+def _looks_like_dead_key(status_code: int, body: str) -> bool:
+    if status_code in (401, 402, 403):
+        return True
+    lowered = (body or "").lower()
+    return any(frag in lowered for frag in _KEY_DEAD_FRAGMENTS)
 
 
 def is_configured() -> bool:
@@ -98,44 +185,55 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
 
     Returns {"access_token": "at_...", "expires_in": seconds} or None on failure.
     Sandbox mode: returns the sandbox key as a pseudo-token (widget accepts it).
+    Rotates through the key pool on auth/quota failures.
     """
-    api_key = _active_key()
-    if not api_key:
-        return None
-
-    # Sandbox key doubles as a fake access token — the widget accepts sandbox
-    # tokens directly without a /v1/token call.
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
-    if use_sb or api_key.startswith("sandbox-"):
-        return {"access_token": api_key, "expires_in": expiry_minutes * 60}
 
-    try:
-        with httpx.Client(timeout=30) as client:
-            resp = client.post(
-                f"{_base_url()}/v1/token",
-                headers={"x-api-key": api_key},
-                json={"expiry_minutes": max(5, min(expiry_minutes, 60))},
-            )
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning("CAS Parser token mint failed: %s", e)
-        return None
+    # Loop over the pool (or run once for sandbox/single-secret path).
+    attempts = 0
+    while True:
+        api_key = _active_key()
+        if not api_key:
+            return None
 
-    if resp.status_code >= 400:
-        logger.warning("CAS Parser token mint HTTP %s: %s", resp.status_code, resp.text[:200])
-        return None
+        # Sandbox key doubles as a fake access token — the widget accepts
+        # sandbox tokens directly without a /v1/token call.
+        if use_sb or api_key.startswith("sandbox-"):
+            return {"access_token": api_key, "expires_in": expiry_minutes * 60}
 
-    try:
-        data = resp.json()
-    except Exception:
-        return None
+        attempts += 1
+        try:
+            with httpx.Client(timeout=30) as client:
+                resp = client.post(
+                    f"{_base_url()}/v1/token",
+                    headers={"x-api-key": api_key},
+                    json={"expiry_minutes": max(5, min(expiry_minutes, 60))},
+                )
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            logger.warning("CAS Parser token mint failed: %s", e)
+            return None
 
-    token = data.get("access_token")
-    if not token:
-        return None
-    return {
-        "access_token": token,
-        "expires_in": expiry_minutes * 60,
-    }
+        body_preview = resp.text[:200] if resp.text else ""
+        if resp.status_code >= 400:
+            if _looks_like_dead_key(resp.status_code, body_preview) and api_key in _get_pool():
+                _retire_pool_key(api_key)
+                if attempts < 8:  # safety cap
+                    continue
+            logger.warning("CAS Parser token mint HTTP %s: %s", resp.status_code, body_preview)
+            return None
+
+        try:
+            data = resp.json()
+        except Exception:
+            return None
+
+        token = data.get("access_token")
+        if not token:
+            return None
+        return {
+            "access_token": token,
+            "expires_in": expiry_minutes * 60,
+        }
 
 
 # ══════════════════════════════════════════════════════════════
@@ -150,8 +248,7 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
     upload at ~1.9 MiB and the parser rejects image-only PDFs). Scanned/large
     PDFs must fall through to the local OCR path in the caller.
     """
-    api_key = _active_key()
-    if not api_key:
+    if not _active_key():
         logger.warning("CAS Parser API key not configured")
         return None
 
@@ -165,34 +262,59 @@ def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart
         )
         return None
 
-    try:
-        with httpx.Client(timeout=TIMEOUT_S) as client:
-            resp = client.post(
-                f"{_base_url()}{endpoint}",
-                headers={"x-api-key": api_key},
-                files={"file": ("cas.pdf", io.BytesIO(content), "application/pdf")},
-                data={"password": password or ""},
-            )
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning("CAS Parser API network error: %s", e)
-        return None
+    attempts = 0
+    while True:
+        api_key = _active_key()
+        if not api_key:
+            return None
 
-    if resp.status_code >= 400:
-        logger.warning("CAS Parser API HTTP %s: %s", resp.status_code, resp.text[:300])
-        return None
+        attempts += 1
+        try:
+            with httpx.Client(timeout=TIMEOUT_S) as client:
+                resp = client.post(
+                    f"{_base_url()}{endpoint}",
+                    headers={"x-api-key": api_key},
+                    files={"file": ("cas.pdf", io.BytesIO(content), "application/pdf")},
+                    data={"password": password or ""},
+                )
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            logger.warning("CAS Parser API network error: %s", e)
+            return None
 
-    try:
-        data = resp.json()
-    except Exception as e:
-        logger.warning("CAS Parser API non-JSON response: %s", e)
-        return None
+        body_preview = resp.text[:300] if resp.text else ""
+        if resp.status_code >= 400:
+            if (
+                not _use_sb
+                and _looks_like_dead_key(resp.status_code, body_preview)
+                and api_key in _get_pool()
+                and attempts < 8
+            ):
+                _retire_pool_key(api_key)
+                continue
+            logger.warning("CAS Parser API HTTP %s: %s", resp.status_code, body_preview)
+            return None
 
-    # The API uses {"status": "failed", "msg": "..."} for logical errors
-    if isinstance(data, dict) and data.get("status") == "failed":
-        logger.warning("CAS Parser API failed: %s", data.get('msg'))
-        return None
+        try:
+            data = resp.json()
+        except Exception as e:
+            logger.warning("CAS Parser API non-JSON response: %s", e)
+            return None
 
-    return data
+        # The API uses {"status": "failed", "msg": "..."} for logical errors
+        if isinstance(data, dict) and data.get("status") == "failed":
+            msg = data.get("msg") or ""
+            if (
+                not _use_sb
+                and _looks_like_dead_key(200, msg)
+                and api_key in _get_pool()
+                and attempts < 8
+            ):
+                _retire_pool_key(api_key)
+                continue
+            logger.warning("CAS Parser API failed: %s", msg)
+            return None
+
+        return data
 
 
 # ══════════════════════════════════════════════════════════════
