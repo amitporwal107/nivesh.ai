@@ -14,8 +14,14 @@ from typing import Dict, Optional, List
 KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     "CASPARSER_API_KEY": {
         "display_name": "CAS Parser API Key",
-        "description": "Used for CAS PDF parsing + Connect widget",
+        "description": "Single CAS Parser API key — fallback when CASPARSER_API_KEYS (pool) is empty. Used for CAS PDF parsing + Connect widget.",
         "test_fn": "cas_parser",
+        "category": "parsing",
+    },
+    "CASPARSER_API_KEYS": {
+        "display_name": "CAS Parser API Keys (rotating pool)",
+        "description": "Newline- or comma-separated CAS Parser keys. Used as a rotating pool — when the active key returns 401/402/403 (expired or out of quota), it is retired and the next key takes over. Edit, then click 'Reload pool' or restart the backend to apply.",
+        "test_fn": None,
         "category": "parsing",
     },
     "EMERGENT_LLM_KEY": {

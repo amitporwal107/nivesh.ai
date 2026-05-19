@@ -38,15 +38,19 @@ API_SIZE_LIMIT = 1_800_000
 _override_sandbox: Optional[bool] = None
 
 # ── Rotating key pool ──────────────────────────────────────────
-# A pool of CAS Parser API keys (one per line) lives at
-# CASPARSER_KEYS_FILE. The head of the pool is the active key; if the
-# upstream rejects it with 401/402/403 (or a body indicating quota/
-# expiry), we retire it from the pool and persist the file. The legacy
-# single-key path (helpers.secrets CASPARSER_API_KEY) remains as a
-# fallback when the pool file is missing or empty.
+# Pool sources (merged, deduped, file ordering preserved first):
+#   1. File at CASPARSER_KEYS_FILE — one key per line, '#' comments ok
+#   2. DB-backed admin secret CASPARSER_API_KEYS — newline or
+#      comma-separated (admin console can paste it)
+# Head of the pool is the active key. On 401/402/403 (or a body
+# indicating expiry / quota), the key is retired in-memory and, if it
+# came from disk, the file is atomically rewritten. DB-sourced keys
+# are only retired in-process (the admin must clean the DB string when
+# convenient — we log a warning so it's visible).
 CASPARSER_KEYS_FILE = os.environ.get("CASPARSER_KEYS_FILE", "/app/.gcp/.casparser_key")
 _pool_lock = threading.Lock()
 _pool_cache: Optional[List[str]] = None  # None = not yet loaded
+_pool_file_keys: set = set()  # subset of _pool_cache that came from disk
 
 
 def _load_pool_from_disk() -> List[str]:
@@ -63,6 +67,20 @@ def _load_pool_from_disk() -> List[str]:
         return []
 
 
+def _load_pool_from_secret() -> List[str]:
+    raw = _secrets.get("CASPARSER_API_KEYS") or ""
+    if not raw.strip():
+        return []
+    # Accept newline OR comma separation
+    parts = raw.replace(",", "\n").splitlines()
+    out: List[str] = []
+    for p in parts:
+        k = p.strip()
+        if k and not k.startswith("#"):
+            out.append(k)
+    return out
+
+
 def _persist_pool_to_disk(keys: List[str]) -> None:
     tmp = CASPARSER_KEYS_FILE + ".tmp"
     try:
@@ -74,27 +92,61 @@ def _persist_pool_to_disk(keys: List[str]) -> None:
         logger.warning("Failed to persist CAS Parser key pool: %s", e)
 
 
+def _build_pool() -> List[str]:
+    """Merge disk + DB sources, preserving order, deduping."""
+    global _pool_file_keys
+    disk = _load_pool_from_disk()
+    db   = _load_pool_from_secret()
+    _pool_file_keys = set(disk)
+    seen: set = set()
+    merged: List[str] = []
+    for k in disk + db:
+        if k not in seen:
+            seen.add(k)
+            merged.append(k)
+    return merged
+
+
 def _get_pool() -> List[str]:
     global _pool_cache
     with _pool_lock:
         if _pool_cache is None:
-            _pool_cache = _load_pool_from_disk()
+            _pool_cache = _build_pool()
         return list(_pool_cache)
 
 
+def reload_pool() -> int:
+    """Drop the in-process pool cache so the next call rebuilds it from
+    file + DB. Returns the new pool size. Useful after the admin updates
+    CASPARSER_API_KEYS via the secrets UI."""
+    global _pool_cache
+    with _pool_lock:
+        _pool_cache = _build_pool()
+        return len(_pool_cache)
+
+
 def _retire_pool_key(bad_key: str) -> None:
-    """Remove a dead key from the pool and persist."""
+    """Remove a dead key from the in-process pool. Persist to disk if
+    the key came from the file; otherwise just log so the admin can
+    clean it from the DB secret when convenient."""
     global _pool_cache
     with _pool_lock:
         if _pool_cache is None:
-            _pool_cache = _load_pool_from_disk()
-        if bad_key in _pool_cache:
-            _pool_cache.remove(bad_key)
-            _persist_pool_to_disk(_pool_cache)
-            logger.warning(
-                "CAS Parser key retired (expired/exhausted): %s — %d remaining",
-                _secrets.mask(bad_key), len(_pool_cache),
-            )
+            _pool_cache = _build_pool()
+        if bad_key not in _pool_cache:
+            return
+        _pool_cache.remove(bad_key)
+        from_disk = bad_key in _pool_file_keys
+        if from_disk:
+            _pool_file_keys.discard(bad_key)
+            # Rewrite file with only file-sourced survivors
+            survivors = [k for k in _pool_cache if k in _pool_file_keys]
+            _persist_pool_to_disk(survivors)
+        logger.warning(
+            "CAS Parser key retired (expired/exhausted, source=%s): %s — %d remaining",
+            "file" if from_disk else "db_secret",
+            _secrets.mask(bad_key), len(_pool_cache),
+        )
 
 
 def _base_url() -> str:
@@ -115,6 +167,8 @@ def get_effective_config() -> Dict:
     use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
     pool = _get_pool()
     active_key = _active_key()
+    disk_count = len(_load_pool_from_disk())
+    db_count   = len(_load_pool_from_secret())
     return {
         "prod_key_masked": _secrets.mask(prod),
         "prod_key_configured": bool(prod),
@@ -124,6 +178,8 @@ def get_effective_config() -> Dict:
         "base_url": _base_url(),
         "pool_size": len(pool),
         "pool_file": CASPARSER_KEYS_FILE,
+        "pool_from_file": disk_count,
+        "pool_from_db_secret": db_count,
     }
 
 

@@ -377,6 +377,10 @@ async def upsert_secret(key: str, request: Request, env: str = ""):
         updated_by=user.get("email", ""),
         env=target_env,
     )
+    # Refresh side-caches that depend on this secret in the CURRENT env.
+    if target_env == _secrets.current_env() and key == "CASPARSER_API_KEYS":
+        from services import cas_api_client
+        cas_api_client.reload_pool()
     return {
         "status": "ok", "key": key,
         "masked_value": _secrets.mask(value.strip()),
@@ -395,6 +399,9 @@ async def delete_secret(key: str, request: Request, env: str = ""):
         updated_by=user.get("email", ""),
         env=target_env,
     )
+    if target_env == _secrets.current_env() and key == "CASPARSER_API_KEYS":
+        from services import cas_api_client
+        cas_api_client.reload_pool()
     return {
         "status": "ok", "key": key, "deleted": True,
         "env": "production" if target_env == "production" else "preview",
