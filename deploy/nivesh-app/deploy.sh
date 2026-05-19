@@ -18,7 +18,7 @@ DEPLOY_DIR="$APP_HOME/deploy"
 ENV_FILE="$APP_HOME/.env.prod"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
 REPO_URL="https://github.com/amitporwal107/nivesh.ai.git"
-REPO_BRANCH="nivesh-v2-copilot"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 
 log()  { printf '\033[1;36m[deploy]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m[deploy]\033[0m %s\n' "$*"; }

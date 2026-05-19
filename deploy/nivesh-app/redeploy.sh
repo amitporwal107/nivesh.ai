@@ -29,7 +29,7 @@
 # OPTIONS:
 #   --frontend-only    Skip backend rebuild (JS/CSS change only — much faster)
 #   --backend-only     Skip frontend rebuild
-#   --branch <name>    Override git branch (default: nivesh-v2-copilot)
+#   --branch <name>    Override git branch (default: main)
 #   --skip-sync        Skip the deploy-dir sync (emergency use only)
 
 set -euo pipefail
@@ -44,7 +44,7 @@ REPO_DIR="/opt/nivesh/repo"
 DEPLOY_DIR="/opt/nivesh/deploy"
 ENV_FILE="/opt/nivesh/.env.prod"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
-BRANCH="${BRANCH:-nivesh-v2-copilot}"
+BRANCH="${BRANCH:-main}"
 
 BUILD_FRONTEND=true
 BUILD_BACKEND=true

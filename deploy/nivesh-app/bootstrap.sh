@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/amitporwal107/nivesh.ai.git"
-REPO_BRANCH="nivesh-v2-copilot"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 APP_HOME="/opt/nivesh"
 APP_USER="nivesh"
 

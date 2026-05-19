@@ -87,8 +87,9 @@ STEP 3 — (If using Jenkins) Add credentials in Jenkins
 
 STEP 4 — Set deployment branch
 ───────────────────────────────────────────────────────
-  The workflows currently trigger on pushes to 'main'.
-  If you want to deploy from 'nivesh-v2-copilot' instead, edit:
+  All deploys trigger off pushes to 'main' — feature branches are
+  merged into main before they ship. If you ever need to deploy
+  from a different branch, edit:
     .github/workflows/deploy-app.yml   → on.push.branches
     .github/workflows/deploy-nidp.yml  → on.push.branches
 
