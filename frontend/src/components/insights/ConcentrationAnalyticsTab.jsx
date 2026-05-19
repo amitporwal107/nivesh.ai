@@ -17,8 +17,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertTriangle, Building2, Layers, Briefcase,
   MessageSquare, TrendingUp, ChevronDown, ChevronUp,
-  CheckCircle,
+  CheckCircle, Info, Users, Network,
 } from "lucide-react";
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  Treemap,
+} from "recharts";
 import { Card, CardContent } from "../ui/card";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -131,6 +135,138 @@ const DrilldownPanel = ({ item, kind }) => {
   );
 };
 
+// ── Hero Insight banner ───────────────────────────────────────────
+
+const HeroInsight = ({ insight, testId }) => {
+  if (!insight) return null;
+  const cls = {
+    ok:   "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300",
+    warn: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300",
+    bad:  "bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300",
+  }[insight.tone] || "";
+  const Icon = insight.tone === "ok" ? CheckCircle : AlertTriangle;
+  return (
+    <div data-testid={testId} className={`flex items-start gap-2.5 mb-4 px-3 py-2.5 rounded-xl border ${cls}`}>
+      <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold leading-tight">{insight.headline}</p>
+        <p className="text-xs leading-relaxed mt-0.5 opacity-90">{insight.detail}</p>
+      </div>
+    </div>
+  );
+};
+
+// ── Donut chart (for AMC + Sector) ─────────────────────────────────
+
+const ExposureDonut = ({ items, testId }) => {
+  if (!items || items.length === 0) return null;
+  const top = items.slice(0, 8);
+  const restPct = items.slice(8).reduce((s, x) => s + (x.pct || 0), 0);
+  const data = restPct > 0.01
+    ? [...top, { name: "Others", pct: restPct }]
+    : top;
+  return (
+    <div data-testid={testId} className="h-44 w-full mb-3">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="pct"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius={42}
+            outerRadius={72}
+            paddingAngle={1}
+            stroke="none"
+          >
+            {data.map((_, i) => (
+              <Cell key={i} fill={VIZ[i % VIZ.length]} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{
+              background: "rgba(17,17,17,0.95)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: 8,
+              fontSize: 11,
+              color: "#fff",
+            }}
+            formatter={(v, n) => [`${Number(v).toFixed(2)}%`, n]}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+// ── Treemap (for Company exposure) ─────────────────────────────────
+
+const TreemapTile = (props) => {
+  const { x, y, width, height, name, pct, index } = props;
+  if (width < 22 || height < 22) {
+    return <rect x={x} y={y} width={width} height={height} fill={VIZ[index % VIZ.length]} stroke="#000" strokeWidth={1} />;
+  }
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} fill={VIZ[index % VIZ.length]} stroke="#000" strokeWidth={1} />
+      <text x={x + 6} y={y + 14} fill="#fff" fontSize={10} fontWeight={600} style={{ pointerEvents: "none" }}>
+        {(name || "").slice(0, Math.max(4, Math.floor(width / 7)))}
+      </text>
+      {height > 30 && (
+        <text x={x + 6} y={y + 28} fill="#fff" fontSize={10} opacity={0.85} style={{ pointerEvents: "none" }}>
+          {Number(pct || 0).toFixed(1)}%
+        </text>
+      )}
+    </g>
+  );
+};
+
+const ExposureTreemap = ({ items, testId }) => {
+  if (!items || items.length === 0) return null;
+  const data = items.slice(0, 20).map((it, i) => ({
+    name: it.name, pct: it.pct, size: it.value_inr, index: i,
+  }));
+  return (
+    <div data-testid={testId} className="h-56 w-full mb-3 rounded-xl overflow-hidden">
+      <ResponsiveContainer width="100%" height="100%">
+        <Treemap
+          data={data}
+          dataKey="size"
+          stroke="#000"
+          fill="#3D5AFE"
+          content={<TreemapTile />}
+        />
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+// ── Cyclical vs Defensive split pills ─────────────────────────────
+
+const CycleSplit = ({ split, testId }) => {
+  if (!split) return null;
+  const { cyclical_pct = 0, defensive_pct = 0, other_pct = 0 } = split;
+  if (cyclical_pct + defensive_pct + other_pct < 1) return null;
+  const Pill = ({ label, value, tone }) => (
+    <div className={`flex-1 rounded-xl border px-3 py-2 text-center ${tone}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-base font-bold tabular-nums" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+        {value.toFixed(1)}%
+      </div>
+    </div>
+  );
+  return (
+    <div data-testid={testId} className="flex gap-2 mb-4">
+      <Pill label="Cyclical"  value={cyclical_pct}  tone="bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300" />
+      <Pill label="Defensive" value={defensive_pct} tone="bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300" />
+      {other_pct > 0.5 && (
+        <Pill label="Other" value={other_pct} tone="bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-600 dark:text-zinc-400" />
+      )}
+    </div>
+  );
+};
+
 // ── Single exposure section ───────────────────────────────────────
 
 const ExposureSection = ({
@@ -138,6 +274,7 @@ const ExposureSection = ({
   items, hhi, effectiveN, largestPct,
   warning, top10Pct, secondary,
   onAskNivesh, testId, kind,
+  heroInsight, viz, cycleSplit,
 }) => {
   const [expanded, setExpanded] = useState(null);
 
@@ -179,6 +316,9 @@ const ExposureSection = ({
             )}
           </div>
 
+          {/* Hero insight */}
+          <HeroInsight insight={heroInsight} testId={`${testId}-hero`} />
+
           {/* Metric chips */}
           <div className="grid grid-cols-3 gap-2 mb-4">
             <Metric label="Largest" value={`${largestPct?.toFixed(1) ?? "—"}%`} tone={largestPct > 30 ? "warn" : "ok"} testId={`${testId}-metric-largest`} />
@@ -186,8 +326,15 @@ const ExposureSection = ({
             <Metric label="HHI" value={hhi?.toFixed(3) ?? "—"} tone={hhi > 0.2 ? "warn" : "ok"} testId={`${testId}-metric-hhi`} hint="0 = perfectly diversified · 1 = single position" />
           </div>
 
-          {/* Warning */}
-          {warning && (
+          {/* Cyclical / Defensive pills (sector only) */}
+          {cycleSplit && <CycleSplit split={cycleSplit} testId={`${testId}-cycle-split`} />}
+
+          {/* Visualization (donut for AMC+Sector, treemap for Company) */}
+          {viz === "donut"   && <ExposureDonut   items={items} testId={`${testId}-donut`} />}
+          {viz === "treemap" && <ExposureTreemap items={items} testId={`${testId}-treemap`} />}
+
+          {/* Hard warning (only when present and adds info beyond hero) */}
+          {warning && !heroInsight && (
             <div data-testid={`${testId}-warning`} className="flex items-start gap-2 mb-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <p className="text-xs leading-relaxed">{warning}</p>
@@ -266,6 +413,168 @@ const ExposureSection = ({
               {secondary && <span className="text-[11px]">{secondary}</span>}
             </div>
           )}
+        </CardContent>
+      </Card>
+    </motion.section>
+  );
+};
+
+// ── Group Exposure section (HDFC group, Tata group, ...) ──────────
+
+const GroupExposureSection = ({ data, onAskNivesh }) => {
+  const items = data?.items || [];
+  if (items.length === 0) return null;
+  const maxPct = items[0]?.pct || 1;
+  return (
+    <motion.section
+      data-testid="exposure-group"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      <Card className="bg-white dark:bg-[#111] border-slate-100 dark:border-white/5 rounded-2xl overflow-hidden">
+        <CardContent className="p-5 md:p-6">
+          <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-violet-500 to-fuchsia-600">
+                <Users className="w-5 h-5 text-white" strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  Group Exposure
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">
+                  Combined exposure to business groups across direct equity + mutual fund look-through
+                </p>
+              </div>
+            </div>
+            {onAskNivesh && (
+              <button
+                data-testid="exposure-group-ask-nivesh"
+                onClick={onAskNivesh}
+                className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 hover:border-teal-300 dark:hover:border-teal-700 transition-colors flex items-center gap-1 flex-shrink-0"
+              >
+                <MessageSquare className="w-3 h-3" /> Ask Nivesh
+              </button>
+            )}
+          </div>
+
+          <HeroInsight insight={data?.hero_insight} testId="exposure-group-hero" />
+
+          <div className="space-y-1" data-testid="exposure-group-items">
+            {items.map((it, i) => {
+              const wPct = Math.min(100, (it.pct / maxPct) * 100);
+              return (
+                <div key={`grp-${it.name}-${i}`}>
+                  <div className="flex items-center justify-between gap-3 mb-1 py-1 px-1">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: VIZ[i % VIZ.length] }} />
+                      <span className="text-sm font-medium text-slate-800 dark:text-zinc-200 truncate">{it.name}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-600 flex-shrink-0">· {it.company_count} {it.company_count === 1 ? "company" : "companies"}</span>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white tabular-nums" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                        {it.pct.toFixed(2)}%
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-600 ml-1.5 tabular-nums hidden sm:inline">
+                        {fmtINR(it.value_inr)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-slate-100 dark:bg-white/5 overflow-hidden mx-1">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${wPct}%` }}
+                      transition={{ duration: 0.55, delay: i * 0.03, ease: "easeOut" }}
+                      className="h-full rounded-full"
+                      style={{ background: VIZ[i % VIZ.length] }}
+                    />
+                  </div>
+                  {it.companies?.length > 0 && (
+                    <p className="text-[11px] text-slate-500 dark:text-zinc-500 px-1 mt-1 mb-2 truncate">
+                      {it.companies.slice(0, 4).join(" · ")}
+                      {it.companies.length > 4 ? ` · +${it.companies.length - 4} more` : ""}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </motion.section>
+  );
+};
+
+// ── Hidden Overlap section ────────────────────────────────────────
+
+const HiddenOverlapSection = ({ data, onAskNivesh }) => {
+  const items = data?.items || [];
+  if (items.length === 0) return null;
+  return (
+    <motion.section
+      data-testid="exposure-hidden-overlap"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+    >
+      <Card className="bg-white dark:bg-[#111] border-slate-100 dark:border-white/5 rounded-2xl overflow-hidden">
+        <CardContent className="p-5 md:p-6">
+          <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-cyan-500 to-blue-600">
+                <Network className="w-5 h-5 text-white" strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                  Hidden Overlap
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">
+                  Companies you hold through multiple routes (direct equity + funds, or across multiple funds)
+                </p>
+              </div>
+            </div>
+            {onAskNivesh && (
+              <button
+                data-testid="exposure-hidden-overlap-ask-nivesh"
+                onClick={onAskNivesh}
+                className="text-xs px-2.5 py-1 rounded-full border border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 hover:border-teal-300 dark:hover:border-teal-700 transition-colors flex items-center gap-1 flex-shrink-0"
+              >
+                <MessageSquare className="w-3 h-3" /> Ask Nivesh
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-start gap-2 mb-4 px-3 py-2 rounded-xl bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300">
+            <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <p className="text-xs leading-relaxed">
+              <strong>{items.length}</strong> {items.length === 1 ? "company is" : "companies are"} held through 2+ routes — your effective exposure can be larger than it looks on any single fund line.
+            </p>
+          </div>
+
+          <div className="space-y-1.5" data-testid="exposure-hidden-overlap-items">
+            {items.map((it, i) => (
+              <div key={`ov-${it.name}-${i}`} className="flex items-center justify-between gap-3 py-1.5 px-2 rounded-lg hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: VIZ[i % VIZ.length] }} />
+                  <span className="text-sm font-medium text-slate-800 dark:text-zinc-200 truncate">{it.name}</span>
+                  {it.sector && (
+                    <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-600 flex-shrink-0 hidden sm:inline">· {it.sector}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-500 tabular-nums">
+                    {it.via_direct_inr > 0 && "direct"}
+                    {it.via_direct_inr > 0 && it.via_funds_count > 0 && " + "}
+                    {it.via_funds_count > 0 && `${it.via_funds_count} fund${it.via_funds_count !== 1 ? "s" : ""}`}
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white tabular-nums" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                    {Number(it.pct || 0).toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </motion.section>
@@ -435,6 +744,8 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
       amc:     "Which AMC am I most concentrated in, and what should I do about it?",
       sector:  "Which sector has the highest concentration in my portfolio and how should I rebalance?",
       company: "Which underlying companies dominate my portfolio across direct stocks and mutual funds?",
+      group:   "What is my exposure to business groups like HDFC, Reliance, or Tata, and is it too concentrated?",
+      overlap: "Which companies do I hold through multiple routes, and how does that affect my effective exposure?",
     };
     if (onOpenChat) onOpenChat(prompts[topic]);
   };
@@ -462,6 +773,8 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
         effectiveN={data.amc?.effective_n}
         largestPct={data.amc?.largest_pct}
         warning={data.amc?.warning}
+        heroInsight={data.amc?.hero_insight}
+        viz="donut"
         secondary={`${data.amc?.all_items_count || 0} AMCs in portfolio`}
         onAskNivesh={() => ask("amc")}
       />
@@ -479,6 +792,9 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
         effectiveN={data.sector?.effective_n}
         largestPct={data.sector?.largest_pct}
         warning={data.sector?.warning}
+        heroInsight={data.sector?.hero_insight}
+        cycleSplit={data.sector?.cycle_split}
+        viz="donut"
         secondary={`Look-through coverage: ${data.lookthrough_coverage ?? 0}%`}
         onAskNivesh={() => ask("sector")}
       />
@@ -496,10 +812,18 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
         effectiveN={data.company?.effective_n}
         largestPct={data.company?.largest_pct}
         warning={data.company?.warning}
+        heroInsight={data.company?.hero_insight}
+        viz="treemap"
         top10Pct={data.company?.top10_pct}
         secondary={`${data.company?.all_items_count || 0} unique companies`}
         onAskNivesh={() => ask("company")}
       />
+
+      {/* Group Exposure — HDFC, Tata, Reliance, etc. */}
+      <GroupExposureSection data={data.group} onAskNivesh={() => ask("group")} />
+
+      {/* Hidden Overlap — companies held across multiple routes */}
+      <HiddenOverlapSection data={data.company?.hidden_overlap} onAskNivesh={() => ask("overlap")} />
 
       {/* MF Category Overlap — uses deep-analytics duplication data */}
       <CategoryOverlapSection deepAnalytics={deepAnalytics} />

@@ -64,11 +64,15 @@ async def get_concentration(request: Request) -> dict[str, Any]:
         holdings.append(h)
 
     if not holdings:
+        empty_sec = {"items": [], "all_items_count": 0, "hhi": 0,
+                     "effective_n": 0, "largest_pct": 0, "warning": None,
+                     "hero_insight": None}
         return {
             "total_value": 0,
-            "amc":     {"items": [], "all_items_count": 0, "hhi": 0, "effective_n": 0, "largest_pct": 0, "warning": None},
-            "sector":  {"items": [], "all_items_count": 0, "hhi": 0, "effective_n": 0, "largest_pct": 0, "warning": None},
-            "company": {"items": [], "all_items_count": 0, "hhi": 0, "effective_n": 0, "largest_pct": 0, "warning": None, "top10_pct": 0},
+            "amc":     dict(empty_sec),
+            "sector":  dict(empty_sec, cycle_split={"cyclical_pct": 0, "defensive_pct": 0, "other_pct": 0}),
+            "company": dict(empty_sec, top10_pct=0, hidden_overlap={"items": [], "count": 0}),
+            "group":   dict(empty_sec),
             "holdings_count": 0,
             "empty": True,
         }
