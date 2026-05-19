@@ -808,6 +808,17 @@ async def suggested_prompts(
         # get an explicit "Start here" nudge on fix_portfolio
         if journey == "first_time" and tpl["id"] == "fix_portfolio":
             score += 20  # lock it to the very top
+        # Persona-match boost — without this, universal templates with rich
+        # portfolio-signal scorers (overlap %, AMC concentration, etc.) sweep
+        # every tier slot and no persona-tagged prompts ever surface. The
+        # boost lets persona templates compete on equal footing while still
+        # allowing a strong universal signal (e.g. 100% fund overlap) to win.
+        if (
+            persona_prompts_on
+            and tpl.get("personas")
+            and resolved_persona in tpl["personas"]
+        ):
+            score += 35
         scored.append({
             "id": tpl["id"],
             "bucket": tpl["bucket"],
@@ -829,6 +840,23 @@ async def suggested_prompts(
     primary = [p for p in scored if p["tier"] == "primary"][:1]
     secondary = [p for p in scored if p["tier"] == "secondary"][:3]
     advanced = [p for p in scored if p["tier"] == "advanced"][:3]
+
+    # Persona-floor — guarantee at least one persona-tagged prompt is visible
+    # in the secondary tier whenever the user has a recognised persona and
+    # persona templates exist for them. Without this floor, an extreme universal
+    # signal (e.g. 100% fund overlap or a flagged sector concentration) can
+    # still sweep all three secondary slots even after the +35 score boost.
+    if persona_prompts_on and resolved_persona and resolved_persona != _DEFAULT_PERSONA:
+        has_persona_in_secondary = any(p.get("personas") for p in secondary)
+        if not has_persona_in_secondary:
+            top_persona_secondary = next(
+                (p for p in scored if p["tier"] == "secondary" and p.get("personas")),
+                None,
+            )
+            if top_persona_secondary:
+                # drop the lowest-scoring universal secondary, insert persona at end
+                secondary = [p for p in secondary if not p.get("personas")][:2]
+                secondary.append(top_persona_secondary)
 
     # If no primary slot filled, elevate the top secondary
     if not primary and secondary:
