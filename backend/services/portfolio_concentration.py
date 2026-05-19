@@ -151,6 +151,31 @@ _AMC_DISPLAY = {
 }
 
 
+# MF category labels that leak into MF `sector` metadata but are NOT
+# real economic sectors (Balanced, Mid Cap, etc. are fund categories).
+# When we encounter these as a sector, bucket them as "Unclassified"
+# so totals still reconcile to portfolio value without showing
+# category names in the Sector Exposure widget.
+_NON_SECTOR_LABELS = {
+    "balanced", "hybrid", "arbitrage",
+    "large cap", "mid cap", "small cap", "micro cap", "multi cap",
+    "flexi cap", "focused", "elss", "tax saver",
+    "debt", "liquid", "overnight", "short term", "ultra short",
+    "fund of funds", "fof", "index", "etf",
+}
+
+
+def _normalize_sector(label: str | None) -> str:
+    """Coerce category-style labels into 'Unclassified'. Real sector
+    labels pass through unchanged."""
+    raw = (label or "").strip()
+    if not raw:
+        return "Other"
+    if raw.lower() in _NON_SECTOR_LABELS:
+        return "Unclassified"
+    return raw
+
+
 def _amc_from_scheme_name(name: str | None) -> str:
     """Extract the AMC name from an MF holding `name` string.
 
@@ -177,6 +202,64 @@ def _amc_from_scheme_name(name: str | None) -> str:
     return "Unknown AMC"
 
 
+# ── Sector classification (cyclical vs defensive) ─────────────────
+
+# Coarse Indian-market mapping. "Cyclical" = sensitive to economic cycle;
+# "Defensive" = relatively stable through downturns. Unknowns → "other".
+_CYCLICAL_SECTORS = {
+    "financial", "financial services", "banking", "banking & financial",
+    "energy", "metals", "mining", "auto", "automobile", "automotive",
+    "real estate", "realty", "construction", "infrastructure", "cement",
+    "capital goods", "chemicals", "industrials", "industrial",
+    "media", "entertainment", "textiles", "consumer discretionary",
+}
+_DEFENSIVE_SECTORS = {
+    "consumer staples", "fmcg", "consumer goods", "pharmaceuticals",
+    "pharma", "healthcare", "utilities", "power", "telecom",
+    "telecommunication", "it", "information technology", "technology",
+    "services",
+}
+
+
+def _cycle_class(label: str) -> str:
+    s = (label or "").strip().lower()
+    if s in _CYCLICAL_SECTORS:
+        return "cyclical"
+    if s in _DEFENSIVE_SECTORS:
+        return "defensive"
+    return "other"
+
+
+# ── Issuer-group mapping (HDFC group = bank + AMC + life, etc.) ──
+
+_GROUP_RULES: list[tuple[str, str]] = [
+    # (substring matched case-insensitively in company name, group label)
+    ("hdfc",        "HDFC Group"),
+    ("reliance",    "Reliance Group"),
+    ("jio",         "Reliance Group"),
+    ("tata",        "Tata Group"),
+    ("adani",       "Adani Group"),
+    ("bajaj",       "Bajaj Group"),
+    ("aditya birla","Aditya Birla Group"),
+    ("birla",       "Aditya Birla Group"),
+    ("mahindra",    "Mahindra Group"),
+    ("l&t",         "L&T Group"),
+    ("larsen",      "L&T Group"),
+    ("godrej",      "Godrej Group"),
+    ("vedanta",     "Vedanta Group"),
+    ("jindal",      "Jindal Group"),
+    ("jsw",         "JSW Group"),
+]
+
+
+def _group_for(company_name: str) -> str | None:
+    s = (company_name or "").lower()
+    for needle, group in _GROUP_RULES:
+        if needle in s:
+            return group
+    return None
+
+
 # ── Concentration metrics ─────────────────────────────────────────
 
 def _hhi(weights: Iterable[float]) -> float:
@@ -201,10 +284,17 @@ def _build_section(
     warn_top_label: str,
     top_n: int = 10,
     extra_top10: bool = False,
+    diversified_threshold: float | None = None,
 ) -> dict:
     """Common section builder. Sorts by value_inr desc, computes
     HHI / effective_n / largest_pct, attaches a warning string when
-    concentration exceeds thresholds."""
+    concentration exceeds thresholds.
+
+    `diversified_threshold` (optional) — when set, sections where
+    `largest_pct` is below this number get a positive "diversified"
+    hero insight. Used to differentiate Sector and Company widgets
+    (which usually show healthy diversification) from AMC (which
+    often shows concentration)."""
     items_sorted = sorted(items, key=lambda d: -d["value_inr"])
     total = sum(it["value_inr"] for it in items_sorted) or 0.0
     for it in items_sorted:
@@ -214,19 +304,62 @@ def _build_section(
     hhi = _hhi(weights)
     eff_n = _effective_n(weights)
     largest_pct = items_sorted[0]["pct"] if items_sorted else 0.0
+    top_name = items_sorted[0]["name"] if items_sorted else "—"
     top10_pct = round(sum(it["pct"] for it in items_sorted[:10]), 2)
+
+    # Acronyms (AMC) stay uppercased mid-sentence; other labels lowercase.
+    label_inline = warn_top_label if warn_top_label.isupper() else warn_top_label.lower()
 
     warning = None
     if largest_pct >= warn_largest_pct:
         warning = (
-            f"{items_sorted[0]['name']} accounts for {largest_pct:.1f}% of your "
+            f"{top_name} accounts for {largest_pct:.1f}% of your "
             f"{warn_top_label} exposure — above {int(warn_largest_pct)}% raises "
             "concentration risk. Consider trimming or diversifying."
         )
     elif extra_top10 and top10_pct >= 60:
         warning = (
-            f"Top 10 holdings = {top10_pct:.0f}% of {warn_top_label.lower()} exposure — "
+            f"Top 10 holdings = {top10_pct:.0f}% of {label_inline} exposure — "
             "diversification looks thin."
+        )
+
+    # Hero insight — structured tone + headline + detail.
+    # Tone tiers: ok / warn / bad — drives banner colour on the frontend.
+    if largest_pct >= warn_largest_pct + 10:
+        tone = "bad"
+    elif largest_pct >= warn_largest_pct:
+        tone = "warn"
+    elif diversified_threshold is not None and largest_pct < diversified_threshold:
+        tone = "ok"
+    elif extra_top10 and top10_pct >= 60:
+        tone = "warn"
+    else:
+        tone = "ok"
+
+    if tone == "bad":
+        headline = f"High {warn_top_label} Concentration"
+        detail = (
+            f"{top_name} is {largest_pct:.1f}% of your {label_inline} "
+            f"exposure — well above the {int(warn_largest_pct)}% risk threshold."
+        )
+    elif tone == "warn":
+        headline = f"{warn_top_label} Concentration to Watch"
+        detail = (
+            f"{top_name} is {largest_pct:.1f}% of your {label_inline} "
+            f"exposure — at or above the {int(warn_largest_pct)}% threshold."
+        )
+    else:
+        if warn_top_label == "Sector":
+            headline = "Excellent Sector Diversification"
+        elif warn_top_label == "Single-company":
+            headline = "No Significant Single-Stock Risk"
+        elif warn_top_label == "AMC":
+            headline = "Healthy AMC Diversification"
+        else:
+            headline = f"Well-Diversified {warn_top_label}"
+        detail = (
+            f"Largest is {top_name} at {largest_pct:.1f}% — comfortably "
+            f"below the {int(warn_largest_pct)}% risk threshold."
         )
 
     result = {
@@ -236,6 +369,7 @@ def _build_section(
         "effective_n": round(eff_n, 1),
         "largest_pct": largest_pct,
         "warning": warning,
+        "hero_insight": {"tone": tone, "headline": headline, "detail": detail},
     }
     if extra_top10:
         result["top10_pct"] = top10_pct
@@ -290,7 +424,8 @@ def compute_concentration(
         if fname and fname not in amc_buckets[amc]["funds"]:
             amc_buckets[amc]["funds"].append(fname)
     amc_items = [{"name": k, "value_inr": v["value_inr"], "count": v["count"], "funds": v.get("funds", [])} for k, v in amc_buckets.items()]
-    amc_section = _build_section(amc_items, warn_largest_pct=30, warn_top_label="AMC")
+    amc_section = _build_section(amc_items, warn_largest_pct=30, warn_top_label="AMC",
+                                 diversified_threshold=20)
 
     # 3. Sector buckets — equity uses its `sector`, MF dissolves via lookthrough
     sector_buckets: dict[str, dict[str, Any]] = defaultdict(
@@ -303,7 +438,7 @@ def compute_concentration(
         atype = (h.get("asset_type") or "").lower()
         hname = (h.get("name") or "")[:50]
         if atype == "equity":
-            sec = (h.get("sector") or "Other").strip() or "Other"
+            sec = _normalize_sector(h.get("sector"))
             sector_buckets[sec]["value_inr"] += v
             sector_buckets[sec]["via"]["direct"] += v
             if hname and hname not in sector_buckets[sec]["holdings"]:
@@ -312,7 +447,7 @@ def compute_concentration(
             lookup = fund_lookthrough.get(h.get("ticker") or "")
             if lookup and (lookup.get("sectors") or []):
                 for s in (lookup.get("sectors") or []):
-                    name = s.get("name") or "Other"
+                    name = _normalize_sector(s.get("name"))
                     pct = float(s.get("pct") or 0)
                     if pct <= 0:
                         continue
@@ -321,7 +456,7 @@ def compute_concentration(
                     if hname and hname not in sector_buckets[name]["holdings"]:
                         sector_buckets[name]["holdings"].append(hname)
             else:
-                sec = (h.get("sector") or "Other").strip() or "Other"
+                sec = _normalize_sector(h.get("sector"))
                 sector_buckets[sec]["value_inr"] += v
                 sector_buckets[sec]["via"]["mf"] += v
                 if hname and hname not in sector_buckets[sec]["holdings"]:
@@ -338,8 +473,21 @@ def compute_concentration(
             "value_inr": vobj["value_inr"],
             "via": dict(vobj["via"]),
             "holdings": list(vobj.get("holdings", []))[:10],
+            "cycle": _cycle_class(k),
         })
-    sector_section = _build_section(sector_items, warn_largest_pct=35, warn_top_label="Sector")
+    sector_section = _build_section(sector_items, warn_largest_pct=35, warn_top_label="Sector",
+                                    diversified_threshold=20)
+
+    # Cyclical vs Defensive vs Other split (summary pills)
+    cycle_totals: dict[str, float] = defaultdict(float)
+    for it in sector_items:
+        cycle_totals[it["cycle"]] += it["value_inr"]
+    cycle_grand = sum(cycle_totals.values()) or 1.0
+    sector_section["cycle_split"] = {
+        "cyclical_pct":  round(cycle_totals["cyclical"]  / cycle_grand * 100, 1),
+        "defensive_pct": round(cycle_totals["defensive"] / cycle_grand * 100, 1),
+        "other_pct":     round(cycle_totals["other"]     / cycle_grand * 100, 1),
+    }
 
     # 4. Company buckets — direct equity 1:1, MFs dissolved via lookthrough
     company_buckets: dict[str, dict[str, Any]] = defaultdict(
@@ -373,22 +521,71 @@ def compute_concentration(
                 company_buckets[disp]["sector"] = sh.get("sector") or company_buckets[disp]["sector"]
     company_items = []
     for name, vobj in company_buckets.items():
+        via_direct = vobj["via_direct"]
+        via_funds  = vobj["via_funds"]
+        # Cross-held = held in BOTH direct equity AND ≥1 mutual fund,
+        # OR held across ≥2 mutual funds. Either way, this single name
+        # is exposed through multiple routes — what the PRD calls
+        # "hidden overlap".
+        cross_routes = (1 if via_direct > 0 else 0) + via_funds
         company_items.append({
             "name": name,
             "value_inr": vobj["value_inr"],
-            "via_direct_inr": vobj["via_direct"],
-            "via_funds_count": vobj["via_funds"],
+            "via_direct_inr": via_direct,
+            "via_funds_count": via_funds,
             "sector": vobj["sector"],
+            "group": _group_for(name),
+            "cross_held": cross_routes >= 2,
+            "routes_count": cross_routes,
         })
     company_section = _build_section(company_items, warn_largest_pct=10,
                                      warn_top_label="Single-company",
-                                     top_n=15, extra_top10=True)
+                                     top_n=15, extra_top10=True,
+                                     diversified_threshold=5)
+
+    # Hidden Overlap — top companies held via multiple routes
+    overlap_items = sorted(
+        [c for c in company_items if c.get("cross_held")],
+        key=lambda c: -c["value_inr"],
+    )[:10]
+    company_section["hidden_overlap"] = {
+        "items": overlap_items,
+        "count": len(overlap_items),
+    }
+
+    # Group Exposure — aggregate company buckets by issuer group
+    group_buckets: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"value_inr": 0.0, "companies": []}
+    )
+    for c in company_items:
+        g = c.get("group")
+        if not g:
+            continue
+        group_buckets[g]["value_inr"] += c["value_inr"]
+        if c["name"] not in group_buckets[g]["companies"]:
+            group_buckets[g]["companies"].append(c["name"])
+    group_items = [
+        {"name": g, "value_inr": vobj["value_inr"],
+         "companies": vobj["companies"][:10],
+         "company_count": len(vobj["companies"])}
+        for g, vobj in group_buckets.items()
+    ]
+    group_section = _build_section(
+        group_items, warn_largest_pct=15, warn_top_label="Group",
+        diversified_threshold=8, top_n=10,
+    ) if group_items else {
+        "items": [], "all_items_count": 0, "hhi": 0,
+        "effective_n": 0, "largest_pct": 0, "warning": None,
+        "hero_insight": {"tone": "ok", "headline": "No Group Concentration",
+                         "detail": "No identifiable business groups in your portfolio."},
+    }
 
     return {
         "total_value": round(total_value, 2),
         "amc": amc_section,
         "sector": sector_section,
         "company": company_section,
+        "group": group_section,
     }
 
 
