@@ -349,12 +349,12 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
     # Plan Board render with complete data on the user's next request.
     # Failure here never blocks the upload response.
     import asyncio as _asyncio
-    _asyncio.create_task(_enrich_after_upload(user_id, holdings_added))
+    _asyncio.create_task(_enrich_after_upload(user_id, holdings_added, is_cas=is_cas))
 
     return holdings_added
 
 
-async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
+async def _enrich_after_upload(user_id: str, holdings_added: list, *, is_cas: bool = False) -> None:
     """Background enrichment fired after CAS/manual upload completes.
 
     - Equity holdings → Groww stock scraper (fundamentals + V3 scoring)
@@ -416,5 +416,24 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("post-upload persona refresh failed: %s", e, extra={"user_id": user_id})
+
+        # NIDP sync — CAS uploads only. Pushes the fresh holdings +
+        # transactions to GCS and pings the NIDP ingesters so the
+        # Copilot's Portfolio Analyzer can see scheme metadata, rolling
+        # returns and expense ratios for the new portfolio within minutes.
+        # Manual single-holding edits skip this to avoid hammering NIDP.
+        if is_cas:
+            try:
+                from services.portfolio_gcs_export import export_and_sync_to_nidp
+                sync_res = await export_and_sync_to_nidp(db)
+                logger.info(
+                    "post-upload NIDP sync: holdings=%s txns=%s nidp=%s",
+                    (sync_res.get("holdings") or {}).get("exported"),
+                    (sync_res.get("transactions") or {}).get("exported"),
+                    sync_res.get("nidp"),
+                    extra={"user_id": user_id},
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("post-upload NIDP sync failed: %s", e, extra={"user_id": user_id})
     except Exception as e:  # noqa: BLE001
         logger.warning("_enrich_after_upload crashed: %s", e, extra={"user_id": user_id})

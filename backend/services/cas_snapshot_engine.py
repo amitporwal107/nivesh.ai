@@ -504,32 +504,17 @@ async def create_cas_snapshot(
     )
 
     # Export fresh holdings to GCS then trigger NIDP sync — fire-and-forget.
-    # NIDP reads from GCS (no cross-VM PG bridge needed).
+    # NIDP reads from GCS (no cross-VM PG bridge needed). Same helper as
+    # the CAS Connect upload path (helpers/parsing._enrich_after_upload).
     import asyncio as _asyncio
 
     async def _export_then_sync() -> None:
         try:
-            from services.portfolio_gcs_export import (
-                export_portfolio_to_gcs,
-                export_cas_transactions_to_gcs,
-            )
-            holdings_result = await export_portfolio_to_gcs(db, target_date=snapshot_date)
-            logger.info("portfolio GCS export after CAS import: %s", holdings_result)
-            # Transactions are the source of truth for the lot-level FIFO
-            # tax engine — re-export them on every CAS import so NIDP's
-            # tax/exit-score calculations stay current.
-            txn_result = await export_cas_transactions_to_gcs(db, target_date=snapshot_date)
-            logger.info("transactions GCS export after CAS import: %s", txn_result)
+            from services.portfolio_gcs_export import export_and_sync_to_nidp
+            res = await export_and_sync_to_nidp(db, target_date=snapshot_date)
+            logger.info("CAS snapshot → NIDP sync: %s", res)
         except Exception as _exc:  # noqa: BLE001
-            logger.warning("portfolio/transactions GCS export failed (non-blocking): %s", _exc)
-            return  # don't attempt NIDP sync if export failed
-        try:
-            from services import nidp_query_client as _nqc
-            if _nqc.is_configured():
-                await _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
-                await _nqc.execute_feed("portfolio_transactions_sync", target_date=snapshot_date)
-        except Exception as _exc:  # noqa: BLE001
-            logger.debug("NIDP portfolio sync trigger skipped: %s", _exc)
+            logger.warning("CAS snapshot → NIDP sync failed (non-blocking): %s", _exc)
 
     _asyncio.ensure_future(_export_then_sync())
 

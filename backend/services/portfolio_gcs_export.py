@@ -86,6 +86,17 @@ def _upload_to_gcs(blob_path: str, data: bytes, content_type: str = "application
     logger.info("uploaded gs://%s/%s (%d bytes)", GCS_BUCKET, blob_path, len(data))
 
 
+def _coerce_target_date(target_date) -> date:
+    """Accept None, a `date`, or an ISO-8601 string; return a `date`."""
+    if target_date is None:
+        return date.today()
+    if isinstance(target_date, date):
+        return target_date
+    if isinstance(target_date, str):
+        return date.fromisoformat(target_date[:10])
+    raise TypeError(f"target_date must be None, date, or ISO str (got {type(target_date).__name__})")
+
+
 async def export_portfolio_to_gcs(
     db,
     target_date: Optional[date] = None,
@@ -99,7 +110,7 @@ async def export_portfolio_to_gcs(
 
     Returns summary dict.
     """
-    export_date = target_date or date.today()
+    export_date = _coerce_target_date(target_date)
     date_str = export_date.isoformat()
 
     # Load all users with email for the user_id → email mapping
@@ -203,7 +214,7 @@ async def export_cas_transactions_to_gcs(
     them all into memory; it streams the cursor straight to the upload
     payload buffer.
     """
-    export_date = target_date or date.today()
+    export_date = _coerce_target_date(target_date)
     date_str = export_date.isoformat()
 
     user_cursor = db.users.find({}, {"user_id": 1, "email": 1, "name": 1, "_id": 0})
@@ -313,7 +324,7 @@ async def export_user_goals_to_gcs(
     configured the function returns a no-op result rather than raising,
     so it can be wired into pipelines safely.
     """
-    export_date = target_date or date.today()
+    export_date = _coerce_target_date(target_date)
     date_str = export_date.isoformat()
 
     try:
@@ -412,3 +423,46 @@ async def export_user_goals_to_gcs(
         "skipped_no_email": skipped_no_email,
         "date": date_str, "gcs_path": blob_path,
     }
+
+
+# ── End-to-end CAS → GCS → NIDP sync ─────────────────────────────────
+
+async def export_and_sync_to_nidp(
+    db,
+    target_date: Optional[date] = None,
+) -> dict[str, Any]:
+    """Export holdings + CAS transactions to GCS and trigger the NIDP
+    portfolio sync ingesters.
+
+    Shared by the CAS Connect upload path (`helpers/parsing._enrich_after_upload`)
+    and the MFD-side snapshot engine (`services/cas_snapshot_engine.persist_snapshot`)
+    so every CAS import lands in NIDP within minutes — no daily-cron lag.
+
+    GCS export errors short-circuit (NIDP can't sync what hasn't been
+    uploaded). NIDP-trigger errors are logged but never raised.
+    """
+    export_date = _coerce_target_date(target_date)
+    date_str = export_date.isoformat()
+    result: dict[str, Any] = {"date": date_str}
+
+    try:
+        result["holdings"] = await export_portfolio_to_gcs(db, target_date=export_date)
+        result["transactions"] = await export_cas_transactions_to_gcs(db, target_date=export_date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("export_and_sync_to_nidp: GCS export failed (non-blocking): %s", exc)
+        result["gcs_error"] = str(exc)
+        return result
+
+    try:
+        from services import nidp_query_client as _nqc
+        if not _nqc.is_configured():
+            result["nidp"] = "skipped: NIDP query client not configured"
+            return result
+        await _nqc.execute_feed("portfolio_holdings_sync", target_date=date_str)
+        await _nqc.execute_feed("portfolio_transactions_sync", target_date=date_str)
+        result["nidp"] = "triggered"
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("export_and_sync_to_nidp: NIDP trigger failed: %s", exc)
+        result["nidp"] = f"failed: {exc}"
+
+    return result
