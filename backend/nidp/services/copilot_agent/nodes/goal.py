@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ Style:
 - ≤ 250 words, markdown
 - Show: Goal | Target ₹ | Current corpus | Gap | Monthly SIP needed
 - Use Indian numbering (lakhs, crores)
-- End with: DISCLAIMER: AI-generated projection. Actual returns may vary. Consult a financial planner.
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If no goal data is available, perform the calculation from the user's stated inputs.
 When SIP_PROJECTION data is present, quote its numbers verbatim — do not recompute."""
@@ -192,7 +193,7 @@ async def goal_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

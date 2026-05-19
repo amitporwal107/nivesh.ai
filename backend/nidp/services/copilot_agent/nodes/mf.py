@@ -12,6 +12,7 @@ import os
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ Style:
 - Risk metrics (Sharpe, max drawdown) if available
 - Overlap % between funds if user asked about overlap
 - Top-3 recommendation table if user asked for best funds
-- End with: DISCLAIMER: AI-generated. Mutual Fund investments are subject to market risks.
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 Never fabricate NAV, return, rank, or holding figures."""
 
@@ -188,7 +189,7 @@ async def mf_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

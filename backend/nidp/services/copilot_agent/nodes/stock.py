@@ -12,6 +12,7 @@ import sys
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
+from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ Style:
 - Section: **Quarterly Trend** — revenue/PAT trajectory + margin direction
 - Section: **Smart Money** — FII/DII flows + promoter pledge if non-zero
 - Section: **Verdict** — BULLISH / BEARISH / NEUTRAL with one key reason
-- End with: DISCLAIMER: AI-generated. Not SEBI registered investment advice.
+- Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 Never fabricate figures. If a metric is missing, say "data unavailable".
 If asked about price targets, analyst estimates or future guidance, say plainly
@@ -135,7 +136,7 @@ async def stock_node(state: CopilotState) -> dict:
         api_key=os.environ.get("OPENAI_API_KEY", ""),
     )
     resp = await llm.ainvoke([
-        {"role": "system", "content": _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = resp.content

@@ -52,36 +52,57 @@ _P_MF = re.compile(
     r"top\s+funds?|best\s+funds?|fund\s+comparison|compare\s+funds?|"
     r"overlap\s+(?:between|of|in)\s+(?:my\s+)?funds?|"
     r"(?:large|mid|small)\s*cap\s+(?:mutual\s+)?funds?|flexi\s*cap|"
-    r"index\s+fund|elss|debt\s+fund|liquid\s+fund)\b",
+    r"index\s+fund|elss|debt\s+fund|liquid\s+fund|"
+    r"direct\s+plan|regular\s+plan|switch\s+to\s+direct|"
+    r"expense\s+ratio|ter\b|fund\s+manager|"
+    r"too\s+many\s+(?:mutual\s+)?funds?|sip\s+allocation)\b",
     re.IGNORECASE,
 )
 
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
-    r"rebalance|rebalancing|drift|concentration|overlap|"
-    r"tax\s+harvest|harvest\s+loss|loss\s+harvest|"
-    r"capital\s+gains?|ltcg|stcg|tax\s+liability|"
+    r"rebalance|rebalancing|drift|concentration|overlap(?:ping)?|"
+    r"which\s+(?:sectors?|funds?|stocks?|holdings?|positions?)\s+(?:should|to)\s+(?:i|we)\s+(?:trim|exit|sell|reduce|book|remove|cut|drop|hold|keep)|"
+    r"(?:trim|exit|book\s+profit\s+(?:in|on)|cut|reduce|sell)\s+(?:my\s+)?(?:sectors?|funds?|stocks?|holdings?|positions?)|"
+    r"tax(?:[\s-]+loss)?[\s-]+harvest(?:ing)?|harvest\s+loss|loss[\s-]+harvest(?:ing)?|"
+    r"capital\s+gains?|ltcg|stcg|tax\s+liability|tax(?:.|-)?efficien|"
+    r"idcw|growth\s+plan|growth\s+(?:vs|or)\s+idcw|"
     r"stress\s+test|portfolio\s+under\s+(?:crash|crisis)|"
     r"covid\s*crash|2008\s*crash|rate\s+shock|"
+    r"fd\b|fixed\s+deposit|beat\s+fd|vs\s+fd|better\s+than\s+fd|"
+    r"unrealized\s+(?:capital\s+)?gains?|unrealised\s+(?:capital\s+)?gains?|"
+    r"realized\s+(?:vs|or)\s+unrealized|realised\s+(?:vs|or)\s+unrealised|"
+    r"p\s*&\s*l|pnl|p_and_l|profit\s+and\s+loss|"
+    r"earmark(?:ed)?|currency\s+exposure|india(?:.|-)?focus|"
     r"(?:how\s+much|what)\s+(?:would|will)\s+i\s+(?:lose|gain))\b",
     re.IGNORECASE,
 )
 
 _P_RISK = re.compile(
     r"\b(risk\s+(?:profile|suitability|capacity|tolerance)|"
-    r"portfolio\s+risk|my\s+risk|"
+    r"portfolio\s+risk|my\s+risk|too\s+(?:much|aggressive|risky)|"
     r"var\b|value\s+at\s+risk|volatility|drawdown|beta|"
     r"am\s+i\s+(?:over|under)(?:weight|invested|exposed)|"
     r"risk(?:y|ier)?\s+(?:stocks?|funds?|portfolio)|"
-    r"safe(?:r|ty)?\s+(?:investment|option|fund|choice))\b",
+    r"safe(?:r|ty)?\s+(?:investment|option|fund|choice)|"
+    r"manage\s+risk|risk\s+management|risk\s+reward|"
+    r"market\s+(?:falls?|drops?|crash(?:es)?)\s*\d*\s*%?|"
+    r"what\s+if\s+(?:markets?|nifty|sensex)\s+(?:falls?|drops?|crash(?:es)?)|"
+    r"downside\s+(?:risk|protect|in)|max(?:imum)?\s+drawdown|"
+    r"diversif(?:y|ied|ication))\b",
     re.IGNORECASE,
 )
 
 _P_GOAL = re.compile(
-    r"\b(goal|goals|retirement|education\s+fund|corpus|target\s+amount|"
-    r"on\s+track|sip\s+(?:gap|needed|required|adequacy)|"
+    r"\b(goal|goals|retirement|education(?:\s+(?:fund|corpus|cost|goal))?|corpus|target\s+amount|"
+    r"on\s+track|sip\s+(?:gap|needed|required|adequacy)|sip\s+sufficient|"
     r"will\s+i\s+(?:reach|achieve|meet)|"
+    r"shortfall|monthly\s+income|withdrawal\s+rate|safe\s+withdrawal|"
+    r"annuit(?:y|ies)|preserve\s+capital|preserve\s+wealth|"
+    r"inflation\s+protect|protect.+against\s+inflation|"
+    r"child(?:ren)?\s+education|higher\s+education|"
+    r"running\s+out\s+of\s+money|long(?:.|-)?term\s+wealth|"
     r"how\s+much\s+(?:should|do)\s+i\s+(?:invest|save|need))\b",
     re.IGNORECASE,
 )
@@ -91,7 +112,12 @@ _P_RECOMMENDATION = re.compile(
     r"what\s+stocks?\s+should\s+(?:i|we)\s+(?:buy|invest)|"
     r"where\s+(?:should|can)\s+i\s+invest|screen\s+stocks?|screener|"
     r"top\s+stocks?|best\s+stocks?|fresh\s+investment|new\s+investment|"
-    r"deploy\s+(?:money|capital|funds?)|invest\s+(?:fresh|new|\d))\b",
+    r"deploy\s+(?:money|capital|funds?)|invest\s+(?:fresh|new|\d)|"
+    r"pms\b|aif\b|estate\s+planning|tax\s+treat(?:y|ies)|dtaa|"
+    r"swing\s+trading|position\s+size|trading\s+discipline|"
+    r"international\s+etfs?|us\s+etfs?|global\s+(?:fund|etf|allocation|diversif)|"
+    r"undervalued\s+(?:stocks?|funds?)|valuation\s+metrics?|"
+    r"safe\s+investment\s+option|annuity\s+(?:vs|or))\b",
     re.IGNORECASE,
 )
 
@@ -175,10 +201,16 @@ async def _llm_classify(text: str) -> IntentClassification:
             temperature=0,
             api_key=os.environ.get("OPENAI_API_KEY", ""),
         )
-        resp = await llm.ainvoke([
-            {"role": "system", "content": _LLM_SYSTEM},
-            {"role": "user", "content": text},
-        ])
+        # Tag this LLM call so the SSE consumer can filter its tokens out of
+        # the user-facing stream — otherwise the routing JSON leaks into the
+        # chat bubble before the agent's prose starts.
+        resp = await llm.ainvoke(
+            [
+                {"role": "system", "content": _LLM_SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            config={"tags": ["intent_internal"]},
+        )
         import json
         data = json.loads(resp.content)
         agent_str = data.get("agent", "market_analyst")

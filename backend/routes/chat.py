@@ -29,10 +29,13 @@ _get_copilot_graph = None
 _HumanMessage = None
 _AIMessage = None
 
+_load_persona_context = None
+
 try:
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
+    from nidp.services.copilot_agent.persona_loader import load_persona_context as _load_persona_context
     from langchain_core.messages import HumanMessage as _HumanMessage
     from langchain_core.messages import AIMessage as _AIMessage
     _lg_available = True
@@ -863,8 +866,14 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     elif m["role"] == "assistant":
                         lg_messages.append(_AIMessage(content=m["content"]))
                 lg_messages.append(_HumanMessage(content=msg.message))
+                persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
                 result = await graph.ainvoke(
-                    {"messages": lg_messages, "user_id": user_id, "session_id": session_id},
+                    {
+                        "messages": lg_messages,
+                        "user_id": user_id,
+                        "session_id": session_id,
+                        **persona_ctx,
+                    },
                     config=lg_config,
                 )
                 resp = result.get("response")
@@ -1047,6 +1056,7 @@ async def stream_chat(request: Request):
 
     async def event_generator():
         full_response = ""
+        follow_ups: list = []
         try:
             # Send metadata first
             meta = {"session_id": session_id, "user_msg_id": user_msg_id, "ai_msg_id": ai_msg_id}
@@ -1082,10 +1092,12 @@ async def stream_chat(request: Request):
                             lg_messages.append(_AIMessage(content=m["content"]))
                     lg_messages.append(_HumanMessage(content=message))
 
+                    persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
                     lg_input = {
                         "messages": lg_messages,
                         "user_id": user_id,
                         "session_id": session_id,
+                        **persona_ctx,
                     }
                     prose = ""
                     widget_envelope: Optional[Dict] = None
@@ -1098,12 +1110,36 @@ async def stream_chat(request: Request):
                         elif kind == "on_tool_end":
                             tool_name = event.get("name") or "tool"
                             yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'end'})}\n\n"
-                        # Stream tokens as they come from any LLM node
+                        # Stream tokens as they come from any LLM node. Skip
+                        # internal LLM calls tagged for filtering (e.g. the
+                        # intent classifier returns JSON that must not be
+                        # rendered as part of the assistant's prose).
                         elif kind == "on_chat_model_stream":
+                            tags = event.get("tags") or []
+                            if "intent_internal" in tags:
+                                continue
                             chunk = event.get("data", {}).get("chunk")
                             if chunk and hasattr(chunk, "content") and chunk.content:
                                 prose += chunk.content
                                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+                        # When the intent node finishes, surface the chosen
+                        # agent + confidence as a dedicated SSE event so the
+                        # frontend can attach it to the bubble without the
+                        # raw JSON leaking into rendered prose.
+                        elif kind == "on_chain_end" and event.get("name") == "intent_node":
+                            output = event.get("data", {}).get("output", {})
+                            intent = output.get("intent") if isinstance(output, dict) else None
+                            if intent is not None:
+                                agent_val = getattr(intent, "agent", None)
+                                agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
+                                route_payload = {
+                                    "type": "route",
+                                    "agent": agent_id,
+                                    "confidence": float(getattr(intent, "confidence", 0.0)),
+                                    "symbol": getattr(intent, "symbol", None),
+                                    "scheme_code": getattr(intent, "scheme_code", None),
+                                }
+                                yield f"data: {json.dumps(route_payload)}\n\n"
                         # After graph finishes, grab the final response + widget
                         elif kind == "on_chain_end" and event.get("name") == "LangGraph":
                             output = event.get("data", {}).get("output", {})
@@ -1117,6 +1153,9 @@ async def stream_chat(request: Request):
                                 wd = getattr(final_resp, "widget_data", None)
                                 if wt and wt != "none" and wd:
                                     widget_envelope = {"widget_type": wt, "data": wd}
+                                fu = getattr(final_resp, "follow_ups", None) or []
+                                if fu:
+                                    follow_ups = list(fu)[:3]
 
                     # If nothing was streamed (all models returned at once), chunk now
                     if prose and not full_response:
@@ -1187,7 +1226,14 @@ async def stream_chat(request: Request):
             }
             await db.chat_messages.insert_one(ai_msg_doc)
 
-            yield f"data: {json.dumps({'type': 'done', 'content': full_response, 'chart_count': validated['valid_count']})}\n\n"
+            done_payload = {
+                "type": "done",
+                "content": full_response,
+                "chart_count": validated["valid_count"],
+            }
+            if follow_ups:
+                done_payload["follow_ups"] = follow_ups
+            yield f"data: {json.dumps(done_payload)}\n\n"
 
         except Exception as e:
             logger.error(f"Stream error: {e}")

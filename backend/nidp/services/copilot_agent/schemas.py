@@ -123,6 +123,11 @@ class AgentResponse(BaseModel):
     disclaimer: Optional[str] = None
     grounding_ok: bool = True                       # False → numeric mismatch detected
 
+    # 1–3 short suggested follow-up questions the user is most likely to ask
+    # next, rendered as chips under the AI bubble. Optional — agents may
+    # leave it empty.
+    follow_ups: List[str] = Field(default_factory=list)
+
     model_config = ConfigDict(use_enum_values=True)
 
 
@@ -176,6 +181,12 @@ class CopilotState(BaseModel):
     # flags
     needs_compliance_check: bool = True
     is_advisor_mode: bool = False
+
+    # persona / profile context (hydrated by graph entry from `profiles` collection)
+    persona: Optional[str] = None           # PersonaType.value (e.g. "beginner_investor")
+    risk_profile: Optional[str] = None      # "aggressive" | "moderate" | "conservative" | ...
+    age_band: Optional[str] = None          # "20s" | "30s" | "40s" | "50s" | "60s+"
+    journey_type: Optional[str] = None      # onboarding journey tag from V2 flow
 
     # token budget guard (rough estimate, updated by each node)
     tokens_used: int = 0
