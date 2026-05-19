@@ -30,6 +30,7 @@ WidgetKind = Literal[
     "sip_plan",
     "rebalance_plan",
     "tax_harvest",
+    "tax_timing",
     "capital_gains_snapshot",
     "stress_test",
     "market_brief",
@@ -38,6 +39,10 @@ WidgetKind = Literal[
     "alert_confirmation",
     "report_download",
     "action_card",
+    "risk_suitability",
+    "portfolio_var",
+    "company_financials",
+    "fd_comparison",
 ]
 
 FreshnessState = Literal["live", "cached", "delayed", "eod", "stale"]
