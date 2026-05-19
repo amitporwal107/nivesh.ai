@@ -5,6 +5,91 @@ description: Comprehensive shared project knowledge for all Claude roles working
 
 # Nivesh.ai Shared Project Context
 
+# Golden Source Rule
+This skill is a summary and orientation guide. The ultimate source of truth is the repository documentation under `docs/`, followed by implementation code under `backend/`, `frontend/`, `deploy/`, and `data/`.
+
+Before making strategic, architectural, product, engineering, or operational decisions, always review the relevant canonical documents.
+
+If there is any conflict between this skill and the documentation, the documentation takes precedence.
+
+---
+
+# Canonical Documentation Sources (Source of Truth)
+
+## Strategic and Platform Context
+- `docs/BUILD_CONTEXT.md`
+- `docs/FRD_NIDP_PROJECT.md`
+- `docs/NIDP_STATUS.md`
+- `docs/ONBOARDING_STRATEGY.md`
+- `docs/FRD_VERSION_REGISTRY.json`
+
+## Product Requirements
+- `docs/FRD_ADMIN_CONSOLE.md`
+- `docs/FRD_COPILOT_V1.md`
+- `docs/FRD_COPILOT_V2.md`
+- `docs/FRD_V1_BACKEND.md`
+- `docs/FRD_V1_FRONTEND.md`
+- `docs/FRD_V2_BACKEND.md`
+- `docs/FRD_V2_FRONTEND.md`
+
+## Engineering Standards
+- `docs/IMPLEMENTATION_GUIDELINES.md`
+
+## Infrastructure and Security
+- `docs/GCP_DEPLOYMENT_GUIDE.md`
+- `docs/IAM_GUIDE.md`
+
+## Operations and Runbooks
+- `docs/operations/`
+
+## Historical Context
+- `docs/archive/`
+
+---
+
+# Mandatory Document Review Sequence
+
+## Product Manager
+1. FRD_NIDP_PROJECT
+2. BUILD_CONTEXT
+3. FRD_VERSION_REGISTRY
+4. Relevant FRDs
+
+## Business Analyst
+1. FRD_NIDP_PROJECT
+2. Relevant FRDs
+3. IMPLEMENTATION_GUIDELINES
+
+## Technical Architect
+1. BUILD_CONTEXT
+2. FRD_NIDP_PROJECT
+3. NIDP_STATUS
+4. IMPLEMENTATION_GUIDELINES
+5. Deployment guides
+
+## Full Stack Developer
+1. BUILD_CONTEXT
+2. Relevant backend/frontend FRDs
+3. IMPLEMENTATION_GUIDELINES
+4. Existing source code
+
+## DevOps Engineer
+1. GCP_DEPLOYMENT_GUIDE
+2. IAM_GUIDE
+3. docs/operations
+
+## Quality Analyst
+1. Relevant FRDs
+2. BUILD_CONTEXT
+3. IMPLEMENTATION_GUIDELINES
+
+## Production Support
+1. docs/operations
+2. NIDP_STATUS
+3. BUILD_CONTEXT
+
+---
+
 ## Mission
 Nivesh.ai is an AI-powered investment intelligence platform built on top of the NIDP (Nivesh Intelligence Data Platform).
 
@@ -64,110 +149,31 @@ It acts as the system of record and computational engine for:
 8. Agent Layer
 9. Application Layer
 
-## NIDP Data Domains
-- Instruments master
-- Prices and NAV history
-- Corporate actions
-- Financial statements
-- Shareholding patterns
-- Mutual fund scheme metadata
-- Portfolio holdings and transactions
-- Benchmarks and indices
-- Tax rules
-- Risk model outputs
+## Major Analytics Engines (from BUILD_CONTEXT)
+- Technical Indicator Engine (28 indicators)
+- Fundamental Analytics Engine
+- Mutual Fund Analytics Engine
+- Portfolio Analytics Tools
+- Capital Gains Engine
+- Risk and Stress Testing Engine
 
-## NIDP Core Tables (Conceptual)
-- instruments
-- prices_eod
-- mf_nav_daily
-- mf_scheme_master
-- portfolios
-- holdings
-- transactions
-- benchmarks
-- analytics_results
-- recommendations
-- document_extractions
-
-## NIDP Services
-- FileAgent
-- ParsingAgent
-- EnrichmentAgent
-- AnalyticsAgent
-- RiskAgent
-- TaxAgent
-- RecommendationAgent
-- CopilotAgent
+## AI Architecture
+- RAG Orchestrator
+- LangGraph multi-agent copilot
+- Market Analyst
+- Stock Analyst
+- Mutual Fund Analyst
+- Portfolio Analyst
+- Risk Analyst
+- Goal Planner
+- Recommendation Engine
+- Compliance Agent
 
 ## NIDP Strategic Goals
 - Build the most comprehensive financial data catalog.
 - Serve as a reusable platform for multiple products.
 - Support India first, then global expansion.
 - Provide institutional-grade analytics through APIs.
-
----
-
-# Product Vision
-
-## Core Promise
-"Upload your portfolio and receive institution-grade analysis, personalized insights, and actionable recommendations in minutes."
-
-## Strategic Goals
-1. Become the most trusted AI investment copilot for Indian investors.
-2. Simplify portfolio analysis for retail users.
-3. Empower advisors and MFDs with scalable analytics.
-4. Build a global investment intelligence platform.
-5. Create a comprehensive financial data and analytics catalog through NIDP.
-
-## Business Objectives
-- Increase portfolio uploads.
-- Improve user retention and engagement.
-- Drive subscription conversion.
-- Enable advisor workflows.
-- Build enterprise-ready APIs.
-
----
-
-# Target Personas
-
-## Retail Investor
-Needs easy-to-understand insights and recommendations.
-
-## Mutual Fund Investor
-Focuses on expense ratios, overlap, category diversification, and tax efficiency.
-
-## Direct Equity Investor
-Needs sector concentration, valuation, and risk analysis.
-
-## Trader
-Focuses on exposure, volatility, and tactical insights.
-
-## MFD (Mutual Fund Distributor)
-Requires client dashboards, review reports, and recommendation workflows.
-
-## RIA (Registered Investment Advisor)
-Needs fiduciary-grade analytics and documentation.
-
-## Wealth Manager
-Needs multi-client analytics and scalable reporting.
-
-## Family Office
-Requires advanced analytics and institutional reporting.
-
----
-
-# Product Modules
-
-## 1. Portfolio Upload and Parsing
-## 2. Portfolio Dashboard
-## 3. Insights and Recommendations
-## 4. AI Copilot Chat
-## 5. Performance and Benchmarking
-## 6. Risk Analysis
-## 7. Tax Analysis
-## 8. Diversification and Concentration
-## 9. Advisor Dashboard
-## 10. Market Dashboard
 
 ---
 
@@ -179,10 +185,10 @@ All user-facing applications must be built as thin experience layers on top of r
 # Technology Stack
 - Frontend: React, Next.js, TypeScript
 - Backend: Python, FastAPI
-- Database: PostgreSQL
+- Database: PostgreSQL / TimescaleDB
 - Caching and queues: Redis and background workers
-- AI orchestration: LLM agents and RAG
-- Infrastructure: Docker, CI/CD, cloud deployment
+- AI orchestration: LLM agents, RAG, LangGraph
+- Infrastructure: Docker, CI/CD, GCP Cloud Run and related services
 
 ---
 
@@ -193,6 +199,7 @@ Never expose raw PII in logs, prompts, screenshots, or documentation.
 ---
 
 # Definition of Done
+- Relevant source documents reviewed
 - Requirements documented
 - Business rules validated
 - Architecture approved
@@ -206,6 +213,7 @@ Never expose raw PII in logs, prompts, screenshots, or documentation.
 ---
 
 # Guardrails
+- Repository documentation is the golden source of truth.
 - NIDP is the platform foundation; avoid embedding business logic only in UI applications.
 - Prefer reusable services over one-off implementations.
 - Do not fabricate financial calculations.
@@ -215,4 +223,4 @@ Never expose raw PII in logs, prompts, screenshots, or documentation.
 ---
 
 # Example Prompt
-Use the shared project context to understand both Nivesh.ai and the NIDP platform before executing specialized tasks.
+Use the shared project context and review the canonical documentation sources before executing specialized tasks.
