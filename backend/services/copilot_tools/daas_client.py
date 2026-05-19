@@ -239,24 +239,26 @@ async def get_prices_latest_batch(symbols: list[str]) -> Dict[str, float]:
 # ── V3 primitives (bulk) ─────────────────────────────────────────────
 
 async def get_v3_mf_primitives_bulk(
-    instrument_ids: list[str],
+    isins: list[str],
     timeout: float = 15.0,
 ) -> Dict[str, Dict[str, Any]]:
-    """Fetch the V3 primitive row for each instrument_id.
+    """Fetch the V3 primitive row for each ISIN.
 
-    Drop-in replacement for the PG-direct read in
-    ``services/v3_integration.py::_load_v3_primitives_bulk``. Returns
-    ``{instrument_id: {primitive_row}}`` keyed by the UUID string.
+    Returns ``{isin: {primitive_row}}`` keyed by ISIN. Empty dict on
+    connectivity failure / missing config so the caller can fall back
+    to a direct PG read without raising.
 
-    Empty dict on connectivity failure / missing config so the caller
-    can fall back to a direct PG read without raising.
+    NIDP keys its MF primitives view on ISIN (migration 058) — the
+    natural cross-system identifier from CAS imports. The Nivesh-side
+    caller resolves instrument_id → ISIN via the local instrument_master
+    PG table before invoking this.
     """
-    if not instrument_ids:
+    if not isins:
         return {}
     try:
         payload = await _post(
             "/mf/performance/v3-primitives/bulk",
-            {"instrument_ids": instrument_ids},
+            {"isins": isins},
             timeout=timeout,
         )
     except DaasError as exc:

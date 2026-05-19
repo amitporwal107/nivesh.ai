@@ -76,22 +76,53 @@ async def _load_v3_primitives_bulk(instrument_ids: List[str]) -> Dict[str, Dict[
     # ── 1. Prefer DaaS HTTP when configured AND admin flag is ON ─────
     # Flag: v3_data_source_daas (admin panel). Set mode="off" for an
     # instant revert to PG-direct without redeploying.
+    #
+    # NIDP keys its MF primitives view on ISIN (migration 058) — the
+    # natural cross-system MF identifier from CAS imports. We resolve
+    # instrument_id → ISIN locally via instrument_master, call DaaS by
+    # ISIN, and remap back to instrument_id for the caller.
     import feature_flags as _ff
     from services.copilot_tools import daas_client as _daas
     if _ff.mode_enabled("v3_data_source_daas") and _daas.is_configured():
-        try:
-            data = await _daas.get_v3_mf_primitives_bulk(real_ids)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "[V3 primitives] DaaS bulk fetch failed: %s — falling back to PG", exc,
-            )
-            data = {}
-        if data:
-            logger.debug(
-                "[V3 primitives] DaaS: %d/%d instruments found", len(data), len(real_ids),
-            )
-            return data
-        # Empty payload + DaaS configured = treat as transient; fall through to PG.
+        pool = await pg_client.get_pool()
+        id_to_isin: Dict[str, str] = {}
+        if pool is not None:
+            async with pool.acquire() as conn:
+                try:
+                    rows = await conn.fetch(
+                        """SELECT instrument_id::text AS iid, isin
+                             FROM instrument_master
+                            WHERE instrument_id::text = ANY($1::text[])
+                              AND isin IS NOT NULL AND isin <> ''""",
+                        real_ids,
+                    )
+                    id_to_isin = {r["iid"]: r["isin"].strip().upper() for r in rows}
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "[V3 primitives] instrument_id→ISIN lookup failed: %s", exc,
+                    )
+        if id_to_isin:
+            try:
+                isin_data = await _daas.get_v3_mf_primitives_bulk(list(set(id_to_isin.values())))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[V3 primitives] DaaS bulk fetch failed: %s — falling back to PG", exc,
+                )
+                isin_data = {}
+            if isin_data:
+                # Remap ISIN-keyed dict back to instrument_id-keyed dict
+                result: Dict[str, Dict[str, Any]] = {}
+                for iid, isin in id_to_isin.items():
+                    row = isin_data.get(isin)
+                    if row:
+                        result[iid] = row
+                logger.debug(
+                    "[V3 primitives] DaaS: %d/%d instruments resolved via ISIN",
+                    len(result), len(real_ids),
+                )
+                if result:
+                    return result
+        # Empty payload, missing ISIN mappings, or transient failure → fall through to PG.
 
     # ── 2/3. Fallback: direct PG read (view or legacy table) ──────────
     pool = await pg_client.get_pool()
