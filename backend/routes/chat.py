@@ -1068,6 +1068,10 @@ async def stream_chat(request: Request):
     async def event_generator():
         full_response = ""
         follow_ups: list = []
+        # insight_card / widget envelope, set by the RAG (or NIDP) branch
+        # when an intent matches a known widget tool. Persisted onto
+        # ai_msg_doc so the chat-history GET returns it on reload.
+        pending_widget: Optional[Dict[str, Any]] = None
         try:
             # Send metadata first
             meta = {"session_id": session_id, "user_msg_id": user_msg_id, "ai_msg_id": ai_msg_id}
@@ -1212,6 +1216,7 @@ async def stream_chat(request: Request):
                     # Emit widget envelope after prose so the frontend can
                     # render the structured widget alongside the text answer.
                     if widget_envelope:
+                        pending_widget = widget_envelope
                         yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
 
                 else:
@@ -1222,6 +1227,7 @@ async def stream_chat(request: Request):
                     )
                     prose = rag_result.get("prose") or ""
                     chart_spec = rag_result.get("chart_spec")
+                    rag_widget_envelope = rag_result.get("widget")
                     if chart_spec:
                         prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
 
@@ -1231,6 +1237,23 @@ async def stream_chat(request: Request):
                         tok = prose[i:i + CHUNK]
                         full_response += tok
                         yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+
+                    # Emit the insight_card envelope (when the intent matched a
+                    # widget tool — see orchestrator._intent_to_envelope). The
+                    # frontend SSE handler expects `widget_type` as the kind
+                    # discriminator and flat `data`/`title`/`freshness`/`agent`
+                    # fields (matches the NIDP-path event shape above so the
+                    # `pendingWidget` parser at ChatView.js:732 works for both).
+                    if rag_widget_envelope:
+                        pending_widget = rag_widget_envelope  # capture for ai_msg_doc
+                        yield "data: " + json.dumps({
+                            "type":        "widget",
+                            "widget_type": rag_widget_envelope.get("kind"),
+                            "data":        rag_widget_envelope.get("data"),
+                            "title":       rag_widget_envelope.get("title"),
+                            "freshness":   rag_widget_envelope.get("freshness"),
+                            "agent":       rag_widget_envelope.get("agent"),
+                        }) + "\n\n"
             else:
                 # Advisor (cross-client) mode — legacy book-block path.
                 full_context = portfolio_context
@@ -1257,7 +1280,7 @@ async def stream_chat(request: Request):
                 invalid=validated["invalid_specs"],
             )
 
-            # Save complete AI response
+            # Save complete AI response (plus widget envelope if one was emitted)
             ai_msg_doc = {
                 "message_id": ai_msg_id,
                 "session_id": session_id,
@@ -1266,6 +1289,8 @@ async def stream_chat(request: Request):
                 "content": full_response,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
+            if pending_widget:
+                ai_msg_doc["widget"] = pending_widget
             await db.chat_messages.insert_one(ai_msg_doc)
 
             done_payload = {
