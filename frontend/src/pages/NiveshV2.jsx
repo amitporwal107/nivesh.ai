@@ -25,7 +25,7 @@ import PersonaOnboardingModal, { shouldShowPersonaOnboarding } from "@/component
 import { detectPersona } from "@/components/v2app/screens/V2CopilotWelcome";
 
 // V1 content components — rendered as-is inside the dark shell
-import OnboardingCopilotView from "@/components/OnboardingCopilotView";
+import OnboardingCopilotWrapped from "@/components/OnboardingCopilotWrapped";
 import RiskProfileView from "@/components/RiskProfileView";
 import ChatView from "@/components/ChatView";
 import ActionablePortfolioView from "@/components/ActionablePortfolioView";
@@ -343,7 +343,7 @@ export default function NiveshV2() {
   if (!userProfile?.onboarding_completed) {
     return (
       <div className="dark min-h-screen bg-[#0f0f0f]">
-        <OnboardingCopilotView
+        <OnboardingCopilotWrapped
           onComplete={handleOnboardingComplete}
           userProfile={userProfile}
         />

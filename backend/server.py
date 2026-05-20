@@ -45,6 +45,7 @@ from routes.admin_nidp_backfill import router as admin_nidp_backfill_router  # N
 from routes.copilot_prompts import router as copilot_prompts_router
 from routes.copilot import router as copilot_router  # Nivesh Copilot (CIO Assistant)
 from routes.gmail import router as gmail_router
+from routes.onboarding_gmail import router as onboarding_gmail_router  # wrapped Gmail onboarding (no SDK popup)
 from routes.portfolio import router as portfolio_router
 from routes.upload import router as upload_router
 from routes.analytics import router as analytics_router
@@ -106,6 +107,7 @@ app.include_router(admin_nidp_backfill_router)
 app.include_router(copilot_prompts_router)
 app.include_router(copilot_router)
 app.include_router(gmail_router)
+app.include_router(onboarding_gmail_router)
 app.include_router(portfolio_router)
 app.include_router(portfolio_export_router)
 app.include_router(upload_router)
