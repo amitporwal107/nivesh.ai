@@ -673,23 +673,45 @@ def _deterministic_insights(
             "action": f"Invest ₹{max(need_rs, 0):,.0f} in a debt fund",
         })
 
-    # ── 6. Fund overlap (if deep_analytics present) ─────────────────────
+    # ── 6. Fund overlap clusters (if deep_analytics present) ───────────
+    # POST-2026-05-20: emit ONE insight per cluster, not per pair. Each
+    # cluster groups same-SEBI-category funds with material pairwise
+    # overlap (via services/fund_clusterer.cluster_overlapping_funds).
+    # Cross-category pairings are impossible by construction now.
     if deep_analytics:
-        for o in (deep_analytics.get("overlap_matrix") or [])[:3]:
-            ov = max(0.0, min(100.0, float(o.get("overlap_pct") or 0)))
-            if ov >= 70:
-                insights.append({
-                    "title": f"Consolidate {o.get('fund_a','?')[:30]} & {o.get('fund_b','?')[:30]}",
-                    "description": (
-                        f"These two funds overlap {ov:.0f}% at the stock level — you're paying "
-                        f"for the same exposure twice."
-                    ),
-                    "type": "warning", "impact": "medium", "effort": "low",
-                    "category": "overlap",
-                    "current_value": f"{ov:.0f}% overlap", "target_value": "<50%",
-                    "affected_funds": [o.get("fund_a", ""), o.get("fund_b", "")],
-                    "action": "Exit one of the two funds with the higher exit score",
-                })
+        clusters = deep_analytics.get("overlap_clusters") or []
+        for cluster in clusters[:3]:
+            members = cluster.get("members") or []
+            n = len(members)
+            if n < 2:
+                continue
+            avg_ov = float(cluster.get("avg_overlap_pct") or 0)
+            cat_label = (
+                cluster.get("sebi_subcategory")
+                or cluster.get("sebi_category")
+                or "category"
+            )
+            insights.append({
+                "title": f"Consolidate {n} funds in your {cat_label} category",
+                "description": (
+                    f"You hold {n} funds in {cat_label}. Average pairwise "
+                    f"overlap {avg_ov:.0f}% — you're paying expenses on funds "
+                    f"providing the same exposure. Keep the highest-scoring "
+                    f"fund (per consolidation score); exit the others."
+                ),
+                "type": "warning",
+                "impact": "high" if n >= 3 else "medium",
+                "effort": "medium",
+                "category": "overlap",
+                "current_value": f"{n} funds, avg {avg_ov:.0f}% overlap",
+                "target_value": "1 fund per category",
+                "affected_funds": [m.get("name", "") for m in members],
+                "action": (
+                    "Keep the highest-scoring fund per the consolidation "
+                    "score; exit the others (stagger over 2 FYs if tax "
+                    "cost is material)."
+                ),
+            })
 
     # Counts for problem_distribution — all values sum to 100 (safe)
     counts = {
