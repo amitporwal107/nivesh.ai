@@ -14,9 +14,9 @@ on:
         type: string
         default: main
       run_migrations:
-        description: 'Run DB migrations after deploy (NIDP already tracks applied — safe to re-run)'
+        description: 'Run DB migrations after deploy. Default ON — nidp.cli migrate skips already-applied files via nidp.schema_migrations, so re-running is a no-op. Untick only for code-only redeploys (e.g. revert that touches no SQL).'
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: deploy-nidp
@@ -58,11 +58,19 @@ jobs:
             sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh \
               --branch="${{ github.event.inputs.branch || 'main' }}"
 
-            # Run pending DB migrations before restarting services (opt-in).
-            # NIDP's `cli migrate` already tracks applied files in
-            # nidp.schema_migrations — only genuinely new files run.
-            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
-              log "=== Running pending NIDP migrations ==="
+            # Run pending DB migrations before restarting services.
+            # nidp.cli migrate tracks applied files in nidp.schema_migrations
+            # and skips them on re-run — safe + idempotent on every deploy.
+            # Gating rule:
+            #   - push event           → always run (the migration files in the
+            #                            push ARE the change we're deploying).
+            #   - workflow_dispatch    → honour the run_migrations input
+            #                            (defaults to true; untick for
+            #                            code-only redeploys like reverts).
+            EVENT='${{ github.event_name }}'
+            RUN_MIGRATIONS_INPUT='${{ github.event.inputs.run_migrations }}'
+            if [[ "$EVENT" == "push" || "$RUN_MIGRATIONS_INPUT" != "false" ]]; then
+              log "=== Running pending NIDP migrations (event=$EVENT) ==="
               sudo -u nidp bash -c '
                 set -a; . /opt/nidp/nidp.env; set +a
                 cd /opt/nidp/repo/backend &&
@@ -70,7 +78,7 @@ jobs:
               '
               ok "Migrations done."
             else
-              log "(migrations skipped — set workflow input run_migrations=true to run them)"
+              log "(migrations skipped — workflow_dispatch with run_migrations=false)"
             fi
 
             # Restart live services to pick up the new code
