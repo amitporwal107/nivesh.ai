@@ -769,12 +769,55 @@ const EmptyState = () => (
   </Card>
 );
 
+// ── Tab strip (shared) ────────────────────────────────────────────
+
+const TabStrip = ({ tabs, active, onChange, testId }) => (
+  <div
+    data-testid={testId}
+    className="flex flex-wrap gap-1 p-1 rounded-xl bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5"
+  >
+    {tabs.map((t) => {
+      const isActive = active === t.id;
+      const Icon = t.icon;
+      return (
+        <button
+          key={t.id}
+          data-testid={`${testId}-${t.id}`}
+          onClick={() => onChange(t.id)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            isActive
+              ? `${t.accent} text-white shadow-sm`
+              : "text-slate-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-white/5"
+          }`}
+        >
+          {Icon && <Icon className="w-3.5 h-3.5" strokeWidth={2.2} />}
+          <span>{t.label}</span>
+          {t.badge != null && (
+            <span
+              className={`ml-0.5 text-[10px] px-1.5 py-0.5 rounded-md tabular-nums ${
+                isActive
+                  ? "bg-white/20"
+                  : "bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-zinc-400"
+              }`}
+              style={{ fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              {t.badge}
+            </span>
+          )}
+        </button>
+      );
+    })}
+  </div>
+);
+
 // ── Main export ───────────────────────────────────────────────────
 
 const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr]         = useState(null);
+  const [exposureTab, setExposureTab] = useState("amc");
+  const [overlapTab, setOverlapTab]   = useState("company");
 
   useEffect(() => {
     let alive = true;
@@ -784,6 +827,15 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
       .catch(e => { if (alive) setErr(e?.response?.data?.detail || e.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const id = e?.detail?.tab;
+      if (id) setExposureTab(id);
+    };
+    window.addEventListener("concentration:set-exposure-tab", handler);
+    return () => window.removeEventListener("concentration:set-exposure-tab", handler);
   }, []);
 
   const ask = (topic) => {
@@ -805,63 +857,109 @@ const ConcentrationAnalyticsTab = ({ onOpenChat, deepAnalytics }) => {
   );
   if (!data || data.empty || (data.holdings_count || 0) === 0) return <EmptyState />;
 
+  const exposureTabs = [
+    { id: "amc",     label: "AMC",     icon: Building2, accent: "bg-gradient-to-br from-purple-500 to-indigo-600", badge: data.amc?.all_items_count },
+    { id: "sector",  label: "Sector",  icon: Layers,    accent: "bg-gradient-to-br from-emerald-500 to-teal-600",  badge: data.sector?.items?.length },
+    { id: "company", label: "Company", icon: Briefcase, accent: "bg-gradient-to-br from-rose-500 to-pink-600",     badge: data.company?.all_items_count },
+    { id: "group",   label: "Group",   icon: Users,     accent: "bg-gradient-to-br from-violet-500 to-fuchsia-600", badge: data.group?.items?.length },
+  ];
+
+  const hiddenOverlapCount = (data.company?.hidden_overlap?.items || []).length;
+  const categoryOverlapCount = (deepAnalytics?.duplication?.category_detail || [])
+    .filter(d => d.is_overlapping).length;
+
+  const overlapTabs = [
+    { id: "company", label: "Company Overlap", icon: Network, accent: "bg-gradient-to-br from-cyan-500 to-blue-600", badge: hiddenOverlapCount },
+    { id: "mf",      label: "MF Overlap",      icon: Layers,  accent: "bg-gradient-to-br from-amber-500 to-orange-600", badge: categoryOverlapCount },
+  ];
+
   return (
     <div className="space-y-4" data-testid="concentration-analytics-tab">
-      <ExposureSection
-        testId="exposure-amc" kind="amc" viz="donut"
-        title="AMC Exposure"
-        subtitle="Concentration by fund house across your mutual fund portfolio"
-        icon={Building2}
-        accent="bg-gradient-to-br from-purple-500 to-indigo-600"
-        items={data.amc?.items || []}
-        hhi={data.amc?.hhi}
-        effectiveN={data.amc?.effective_n}
-        largestPct={data.amc?.largest_pct}
-        warning={data.amc?.warning}
-        heroInsight={data.amc?.hero_insight}
-        secondary={`${data.amc?.all_items_count || 0} AMCs in portfolio`}
-        onAskNivesh={() => ask("amc")}
-      />
+      {/* ── Exposure tabs ───────────────────────────────────────── */}
+      <div data-testid="exposure-tabs-wrap">
+        <TabStrip
+          tabs={exposureTabs}
+          active={exposureTab}
+          onChange={setExposureTab}
+          testId="exposure-tab-strip"
+        />
+        <div className="mt-3">
+          {exposureTab === "amc" && (
+            <ExposureSection
+              testId="exposure-amc" kind="amc" viz="donut"
+              title="AMC Exposure"
+              subtitle="Concentration by fund house across your mutual fund portfolio"
+              icon={Building2}
+              accent="bg-gradient-to-br from-purple-500 to-indigo-600"
+              items={data.amc?.items || []}
+              hhi={data.amc?.hhi}
+              effectiveN={data.amc?.effective_n}
+              largestPct={data.amc?.largest_pct}
+              warning={data.amc?.warning}
+              heroInsight={data.amc?.hero_insight}
+              secondary={`${data.amc?.all_items_count || 0} AMCs in portfolio`}
+              onAskNivesh={() => ask("amc")}
+            />
+          )}
+          {exposureTab === "sector" && (
+            <ExposureSection
+              testId="exposure-sector" kind="sector" viz="donut"
+              title="Sector Exposure"
+              subtitle="Sector weights after dissolving mutual funds into their underlying holdings"
+              icon={Layers}
+              accent="bg-gradient-to-br from-emerald-500 to-teal-600"
+              items={data.sector?.items || []}
+              hhi={data.sector?.hhi}
+              effectiveN={data.sector?.effective_n}
+              largestPct={data.sector?.largest_pct}
+              warning={data.sector?.warning}
+              heroInsight={data.sector?.hero_insight}
+              cycleSplit={data.sector?.cycle_split}
+              secondary={`Look-through coverage: ${data.lookthrough_coverage ?? 0}%`}
+              onAskNivesh={() => ask("sector")}
+            />
+          )}
+          {exposureTab === "company" && (
+            <ExposureSection
+              testId="exposure-company" kind="company" viz="treemap"
+              title="Company Exposure"
+              subtitle="Top single-company exposures across direct equity + mutual fund look-through"
+              icon={Briefcase}
+              accent="bg-gradient-to-br from-rose-500 to-pink-600"
+              items={data.company?.items || []}
+              hhi={data.company?.hhi}
+              effectiveN={data.company?.effective_n}
+              largestPct={data.company?.largest_pct}
+              warning={data.company?.warning}
+              heroInsight={data.company?.hero_insight}
+              top10Pct={data.company?.top10_pct}
+              secondary={`${data.company?.all_items_count || 0} unique companies`}
+              onAskNivesh={() => ask("company")}
+            />
+          )}
+          {exposureTab === "group" && (
+            <GroupExposureSection data={data.group} onAskNivesh={() => ask("group")} />
+          )}
+        </div>
+      </div>
 
-      <ExposureSection
-        testId="exposure-sector" kind="sector" viz="donut"
-        title="Sector Exposure"
-        subtitle="Sector weights after dissolving mutual funds into their underlying holdings"
-        icon={Layers}
-        accent="bg-gradient-to-br from-emerald-500 to-teal-600"
-        items={data.sector?.items || []}
-        hhi={data.sector?.hhi}
-        effectiveN={data.sector?.effective_n}
-        largestPct={data.sector?.largest_pct}
-        warning={data.sector?.warning}
-        heroInsight={data.sector?.hero_insight}
-        cycleSplit={data.sector?.cycle_split}
-        secondary={`Look-through coverage: ${data.lookthrough_coverage ?? 0}%`}
-        onAskNivesh={() => ask("sector")}
-      />
-
-      <ExposureSection
-        testId="exposure-company" kind="company" viz="treemap"
-        title="Company Exposure"
-        subtitle="Top single-company exposures across direct equity + mutual fund look-through"
-        icon={Briefcase}
-        accent="bg-gradient-to-br from-rose-500 to-pink-600"
-        items={data.company?.items || []}
-        hhi={data.company?.hhi}
-        effectiveN={data.company?.effective_n}
-        largestPct={data.company?.largest_pct}
-        warning={data.company?.warning}
-        heroInsight={data.company?.hero_insight}
-        top10Pct={data.company?.top10_pct}
-        secondary={`${data.company?.all_items_count || 0} unique companies`}
-        onAskNivesh={() => ask("company")}
-      />
-
-      <GroupExposureSection data={data.group} onAskNivesh={() => ask("group")} />
-
-      <HiddenOverlapSection data={data.company?.hidden_overlap} onAskNivesh={() => ask("overlap")} />
-
-      <CategoryOverlapSection deepAnalytics={deepAnalytics} />
+      {/* ── Overlap tabs (Company / MF) ─────────────────────────── */}
+      <div data-testid="overlap-tabs-wrap">
+        <TabStrip
+          tabs={overlapTabs}
+          active={overlapTab}
+          onChange={setOverlapTab}
+          testId="overlap-tab-strip"
+        />
+        <div className="mt-3">
+          {overlapTab === "company" && (
+            <HiddenOverlapSection data={data.company?.hidden_overlap} onAskNivesh={() => ask("overlap")} />
+          )}
+          {overlapTab === "mf" && (
+            <CategoryOverlapSection deepAnalytics={deepAnalytics} />
+          )}
+        </div>
+      </div>
     </div>
   );
 };
