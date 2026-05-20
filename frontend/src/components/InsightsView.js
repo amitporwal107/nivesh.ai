@@ -20,7 +20,8 @@ import { InsightsSkeleton } from "@/components/ui/skeleton-loaders";
 import PortfolioIntelligenceTab from "@/components/insights/PortfolioIntelligenceTab";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import V3PortfolioInsights from "@/components/insights/V3PortfolioInsights";
-import { PerformanceAnalyticsCockpit, DiversificationHero } from "@/components/insights/PortfolioAnalyticsCharts";
+import { PerformanceAnalyticsCockpit, DiversificationHero, ActionMatrix } from "@/components/insights/PortfolioAnalyticsCharts";
+import HoldingDrilldownModal from "@/components/insights/HoldingDrilldownModal";
 import ConcentrationAnalyticsTab from "@/components/insights/ConcentrationAnalyticsTab";
 import RecommendationsCenter from "@/components/insights/RecommendationsCenter";
 
@@ -356,6 +357,8 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
                 fmt={fmt}
                 analytics={deepAnalytics}
                 portfolioHealth={portfolioHealth}
+                overlapMatrix={overlapMatrix}
+                fundPerformance={fundPerformance}
                 onAfterChange={fetchAnalysis}
               />
             </div>
@@ -834,13 +837,16 @@ const RiskInsightsTab = ({ onOpenChat }) => {
 // <RecommendationsCenter /> below; this tab still wraps the cost/health/risk
 // cards and the Action Plan funnel.
 // ════════════════════════════════════════
-const OverviewTab = ({ pd, gauge, ba, cost, ins, summary, funnel, doNothing, fmt, analytics, portfolioHealth, onAfterChange }) => {
+const OverviewTab = ({ pd, gauge, ba, cost, ins, summary, funnel, doNothing, fmt, analytics, portfolioHealth, overlapMatrix, fundPerformance, onAfterChange }) => {
   const [completedActions, setCompletedActions] = useState({});
   const [simulation, setSimulation] = useState(null);
   const [simulating, setSimulating] = useState(false);
   const [showHealthExplain, setShowHealthExplain] = useState(false);
   const [showRiskExplain, setShowRiskExplain] = useState(false);
   const [activeIssueCategory, setActiveIssueCategory] = useState(null);
+  // PR C — Action Matrix lives here now; click on a row opens the drilldown.
+  const [drilldownHolding, setDrilldownHolding] = useState(null);
+  const overviewPerfCards = analytics?.performance_cards || [];
 
   const toggleAction = (step) => setCompletedActions(prev => ({ ...prev, [step]: !prev[step] }));
   const completedCount = Object.values(completedActions).filter(Boolean).length;
@@ -1068,6 +1074,28 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, summary, funnel, doNothing, fmt
         </Card>
       </div>
 
+      {/* Section 2.5: Action Matrix — moved here from Performance & Benchmark (PR C).
+          Resizable via CollapsibleSection; click any row to open per-holding drilldown. */}
+      {overviewPerfCards.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+          <CollapsibleSection
+            id="section-action-matrix"
+            title="Action Matrix"
+            subtitle="Top 5 priorities + bucketed actions · click any holding for details"
+            accent="bg-emerald-500"
+            defaultHeight={720}
+            minHeight={420}
+          >
+            <ActionMatrix
+              perfCards={overviewPerfCards}
+              overlapMatrix={overlapMatrix}
+              fundPerformance={fundPerformance}
+              onSelectHolding={setDrilldownHolding}
+            />
+          </CollapsibleSection>
+        </motion.div>
+      )}
+
       {/* Section 3: Recommendations Center (Phase 1+2 redesign) */}
       {ins.length > 0 && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} data-testid="actionable-insights">
@@ -1080,6 +1108,14 @@ const OverviewTab = ({ pd, gauge, ba, cost, ins, summary, funnel, doNothing, fmt
           />
         </motion.div>
       )}
+
+      {/* PR C — Holding drilldown modal (opens when user clicks an Action Matrix row) */}
+      <HoldingDrilldownModal
+        holding={drilldownHolding}
+        onClose={() => setDrilldownHolding(null)}
+        fundPerformance={fundPerformance}
+        fmt={fmt}
+      />
 
       {/* Section 4: Action Plan */}
       {funnel.length > 0 && (

@@ -679,6 +679,7 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
         tax_block = _card_tax_block(h, inv, cur)
 
         performance_cards.append({
+            "holding_id": h.get("holding_id"),  # primary key for click-to-drilldown
             "name": h["name"][:50],
             "ticker": h.get("ticker", ""),
             "asset_type": h.get("asset_type", "other"),
