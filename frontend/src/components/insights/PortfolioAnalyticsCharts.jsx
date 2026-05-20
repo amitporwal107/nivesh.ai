@@ -1,14 +1,15 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
   BarChart, Bar, Cell, LabelList,
 } from "recharts";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   TrendingDown, AlertTriangle, CheckCircle,
   Layers, ArrowRight, Repeat, Rocket, Receipt,
+  X, Sparkles, Award, AlertCircle, ListFilter,
 } from "lucide-react";
 
 // ──────────────────────────────────────────────────────────
@@ -785,33 +786,39 @@ export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfo
 // 6. DIVERSIFICATION HERO
 //    (Hero section for Diversification & Consolidation tab)
 // ──────────────────────────────────────────────────────────
-const SimplificationFunnel = ({ stages }) => {
+const SimplificationFunnel = ({ stages, activeId, onSelect }) => {
   if (!stages?.length) return null;
   const maxVal = stages[0]?.value || 1;
   return (
     <div className="space-y-2">
-      {stages.map((s, i) => {
+      {stages.map((s) => {
         const pct = Math.max(20, (s.value / maxVal) * 100);
+        const isActive = activeId === s.id;
         return (
-          <div key={i} className="flex items-center gap-3">
+          <div key={s.id} className="flex items-center gap-3">
             <div className="w-28 text-right">
               <p className="text-[10px] text-slate-400 leading-tight">{s.label}</p>
             </div>
-            <div className="flex-1 relative h-7 flex items-center" style={{ paddingLeft: `${(100 - pct) / 2}%`, paddingRight: `${(100 - pct) / 2}%` }}>
+            <button
+              type="button"
+              onClick={() => onSelect && onSelect(isActive ? null : s.id)}
+              data-testid={`funnel-stage-${s.id}`}
+              className="flex-1 relative h-7 flex items-center transition-transform hover:scale-[1.02]"
+              style={{ paddingLeft: `${(100 - pct) / 2}%`, paddingRight: `${(100 - pct) / 2}%`, cursor: "pointer" }}
+            >
               <div
                 className="h-full rounded-lg flex items-center justify-center w-full transition-all"
-                style={{ backgroundColor: s.color + "30", border: `1px solid ${s.color}50` }}
+                style={{
+                  backgroundColor: s.color + (isActive ? "55" : "30"),
+                  border: `1px solid ${s.color}${isActive ? "" : "50"}`,
+                  boxShadow: isActive ? `0 0 0 2px ${s.color}40` : "none",
+                }}
               >
                 <span className="text-[10px] font-bold" style={{ color: s.color, fontFamily: "'JetBrains Mono', monospace" }}>
                   {s.value}
                 </span>
               </div>
-              {i < stages.length - 1 && (
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 text-slate-500">
-                  <ArrowRight className="w-3 h-3 rotate-90" />
-                </div>
-              )}
-            </div>
+            </button>
           </div>
         );
       })}
@@ -819,7 +826,117 @@ const SimplificationFunnel = ({ stages }) => {
   );
 };
 
-export const DiversificationHero = ({ perfCards, fundPerformance }) => {
+// ── Drill-down panel for hero chips / funnel stages ───────────────
+const DrillDownPanel = ({ title, subtitle, items, emptyText, icon: Icon, tone = "slate", onClose, renderItem }) => {
+  const toneCls = {
+    slate:   "border-slate-200 dark:border-white/10",
+    sky:     "border-sky-200 dark:border-sky-800",
+    emerald: "border-emerald-200 dark:border-emerald-800",
+    amber:   "border-amber-200 dark:border-amber-800",
+    rose:    "border-rose-200 dark:border-rose-800",
+    indigo:  "border-indigo-200 dark:border-indigo-800",
+  }[tone];
+  const iconCls = {
+    slate:   "text-slate-500 dark:text-zinc-400",
+    sky:     "text-sky-500",
+    emerald: "text-emerald-500",
+    amber:   "text-amber-500",
+    rose:    "text-rose-500",
+    indigo:  "text-indigo-500",
+  }[tone];
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.2 }}
+      className="overflow-hidden"
+    >
+      <div className={`mt-4 rounded-xl border bg-slate-50 dark:bg-white/[0.02] ${toneCls}`}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200/60 dark:border-white/5">
+          <div className="flex items-center gap-2 min-w-0">
+            {Icon && <Icon className={`w-4 h-4 flex-shrink-0 ${iconCls}`} />}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200 truncate">{title}</p>
+              {subtitle && <p className="text-[11px] text-slate-500 dark:text-zinc-500 truncate">{subtitle}</p>}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="drilldown-close"
+            className="w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 hover:bg-slate-200/60 dark:hover:bg-white/5"
+            aria-label="Close drill-down"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="px-4 py-3 max-h-72 overflow-y-auto" data-testid="drilldown-list">
+          {(!items || items.length === 0) ? (
+            <p className="text-xs text-slate-500 dark:text-zinc-500 py-3 text-center">{emptyText || "Nothing to show here yet."}</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {items.map((it, i) => (
+                <li key={`${it.key || it.name || i}`}>
+                  {renderItem ? renderItem(it, i) : (
+                    <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+                      <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{it.name}</span>
+                      {it.value != null && (
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white tabular-nums" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                          {it.value}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// Pick the best fund per category by return_1y (fallback: simple_return_pct)
+const buildIdealHoldings = (fundRatings = [], categoryDetail = []) => {
+  const ratingByName = new Map();
+  fundRatings.forEach((r) => { if (r?.name) ratingByName.set(r.name, r); });
+
+  // Use category_detail to enumerate categories actually held (it includes truncated fund names)
+  const out = [];
+  categoryDetail.forEach((cat) => {
+    const fundNames = cat?.funds || [];
+    if (!fundNames.length) return;
+    let best = null;
+    fundNames.forEach((fn) => {
+      // category_detail names may be truncated; match by startsWith both ways
+      let match = ratingByName.get(fn);
+      if (!match) {
+        for (const [k, v] of ratingByName.entries()) {
+          if (k.startsWith(fn) || fn.startsWith(k)) { match = v; break; }
+        }
+      }
+      const score = match?.return_1y ?? match?.simple_return_pct ?? -Infinity;
+      if (best == null || score > (best._score ?? -Infinity)) {
+        best = { ...(match || { name: fn }), _score: score };
+      }
+    });
+    if (best) {
+      out.push({
+        category: cat.category,
+        name: best.name,
+        return_1y: best.return_1y,
+        rating: best.rating,
+        fund_count: cat.fund_count,
+        is_overlapping: cat.is_overlapping,
+      });
+    }
+  });
+  return out;
+};
+
+export const DiversificationHero = ({ perfCards, fundPerformance, deepAnalytics }) => {
   const mfCards     = (perfCards || []).filter(c => c.asset_type === "mutual_fund");
   const catOverlap  = fundPerformance?.category_overlap || [];
   const dist        = fundPerformance?.performance_distribution || {};
@@ -827,6 +944,13 @@ export const DiversificationHero = ({ perfCards, fundPerformance }) => {
   const overlapping = catOverlap.filter(c => c.is_overlapping).length;
   const uniqueCats  = catOverlap.filter(c => !c.is_overlapping).length;
   const matched     = fundPerformance?.summary?.matched || 0;
+  const fundRatings = fundPerformance?.fund_ratings || [];
+  // category_detail from deep-analytics has richer fund lists than category_overlap
+  const categoryDetail = deepAnalytics?.duplication?.category_detail || catOverlap.map(c => ({
+    category: c.category, funds: c.funds || [], fund_count: c.count, is_overlapping: c.is_overlapping,
+  }));
+
+  const [drill, setDrill] = useState(null); // chip-id | funnel-id | null
 
   // Diversification score: penalise for overlapping categories and excess funds
   const overlapPenalty = Math.min(40, overlapping * 3.5);
@@ -836,11 +960,16 @@ export const DiversificationHero = ({ perfCards, fundPerformance }) => {
     ? Math.round(Math.max(5, Math.min(100, 100 - overlapPenalty - fundExcess + uniqueBonus)))
     : null;
 
+  const idealHoldings = useMemo(
+    () => buildIdealHoldings(fundRatings, categoryDetail),
+    [fundRatings, categoryDetail],
+  );
+
   const chips = [
-    { label: "Total MF Funds", value: totalMF, color: "slate" },
-    { label: "Overlapping Categories", value: overlapping, color: overlapping > 5 ? "red" : overlapping > 2 ? "amber" : "emerald" },
-    { label: "Unique Categories", value: uniqueCats, color: "emerald" },
-    { label: "Ideal Portfolio", value: "18 funds", color: "sky" },
+    { id: "total",   label: "Total MF Funds",         value: totalMF,           color: "slate" },
+    { id: "overlap", label: "Overlapping Categories", value: overlapping,       color: overlapping > 5 ? "red" : overlapping > 2 ? "amber" : "emerald" },
+    { id: "unique",  label: "Unique Categories",      value: uniqueCats,        color: "emerald" },
+    { id: "ideal",   label: "Ideal Portfolio",        value: `${idealHoldings.length || 18} funds`, color: "sky" },
   ];
 
   const chipStyle = {
@@ -856,11 +985,209 @@ export const DiversificationHero = ({ perfCards, fundPerformance }) => {
   const topQuartile = Math.round((dist.overperforming || 0) * 0.85);
   const toReview = dist.underperforming || 0;
   const funnelStages = [
-    { label: "Total Funds", value: totalMF, color: "#6366F1" },
-    { label: "Benchmark Data", value: withData || totalMF, color: "#3B82F6" },
-    { label: "Top Performers", value: topQuartile || Math.round(totalMF * 0.2), color: "#10B981" },
-    { label: "Need Review", value: toReview || Math.round(totalMF * 0.1), color: "#F59E0B" },
+    { id: "funnel-total",    label: "Total Funds",    value: totalMF, color: "#6366F1" },
+    { id: "funnel-data",     label: "Benchmark Data", value: withData || totalMF, color: "#3B82F6" },
+    { id: "funnel-top",      label: "Top Performers", value: topQuartile || Math.round(totalMF * 0.2), color: "#10B981" },
+    { id: "funnel-review",   label: "Need Review",    value: toReview || Math.round(totalMF * 0.1), color: "#F59E0B" },
   ].filter(s => s.value > 0);
+
+  const handleSelect = (id) => setDrill(prev => prev === id ? null : id);
+
+  // ── Build drill-down content ─────────────────────────────────────
+  const drillContent = useMemo(() => {
+    if (!drill) return null;
+    const overlappingCats = (categoryDetail || []).filter(c => c.is_overlapping);
+    const uniqueCatsList  = (categoryDetail || []).filter(c => !c.is_overlapping);
+    const withDataRatings = fundRatings.filter(r => r.rating !== "no_data" || r.return_1y != null);
+    const topPerformers   = [...fundRatings]
+      .filter(r => r.rating === "overperforming")
+      .sort((a, b) => (b.return_1y || -1e9) - (a.return_1y || -1e9));
+    const needReview      = [...fundRatings]
+      .filter(r => r.rating === "underperforming")
+      .sort((a, b) => (a.return_1y || -1e9) - (b.return_1y || -1e9));
+
+    const fmtPct = (v) => v == null ? "—" : `${v.toFixed(1)}%`;
+    const ratingColor = (r) => ({
+      overperforming:  "text-emerald-600 dark:text-emerald-400",
+      meeting:         "text-slate-500 dark:text-zinc-400",
+      underperforming: "text-rose-600 dark:text-rose-400",
+      no_data:         "text-slate-400 dark:text-zinc-500",
+    }[r] || "text-slate-500");
+
+    if (drill === "total") {
+      return {
+        title: `All MF Funds — ${totalMF}`,
+        subtitle: "Every mutual fund currently in your portfolio",
+        icon: ListFilter,
+        tone: "slate",
+        emptyText: "No mutual funds in portfolio.",
+        items: mfCards.map(c => ({ key: c.holding_id || c.name, name: c.name, weight: c.weight })),
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{it.name}</span>
+            <span className="text-xs font-semibold text-slate-900 dark:text-white tabular-nums flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {it.weight != null ? `${it.weight.toFixed(1)}%` : "—"}
+            </span>
+          </div>
+        ),
+      };
+    }
+    if (drill === "overlap") {
+      return {
+        title: `Overlapping Categories — ${overlappingCats.length}`,
+        subtitle: "Categories with 2+ funds — consolidation candidates",
+        icon: AlertTriangle,
+        tone: "amber",
+        emptyText: "No overlapping categories — nice work.",
+        items: overlappingCats.map(c => ({ key: c.category, name: c.category, funds: c.funds, count: c.fund_count })),
+        render: (it) => (
+          <div className="py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate">{it.name}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 font-semibold tabular-nums">
+                {it.count} funds
+              </span>
+            </div>
+            <ul className="pl-3 border-l border-amber-200 dark:border-amber-800 space-y-0.5">
+              {(it.funds || []).map((f, fi) => (
+                <li key={fi} className="text-[11px] text-slate-600 dark:text-zinc-400 truncate">{f}</li>
+              ))}
+            </ul>
+          </div>
+        ),
+      };
+    }
+    if (drill === "unique") {
+      return {
+        title: `Unique Categories — ${uniqueCatsList.length}`,
+        subtitle: "Single-fund categories — already optimised",
+        icon: CheckCircle,
+        tone: "emerald",
+        emptyText: "No unique categories yet.",
+        items: uniqueCatsList.map(c => ({ key: c.category, name: c.category, funds: c.funds })),
+        render: (it) => (
+          <div className="py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate mb-0.5">{it.name}</div>
+            {(it.funds && it.funds[0]) && (
+              <p className="text-[11px] text-slate-500 dark:text-zinc-500 truncate pl-3 border-l border-emerald-200 dark:border-emerald-800">{it.funds[0]}</p>
+            )}
+          </div>
+        ),
+      };
+    }
+    if (drill === "ideal") {
+      return {
+        title: `Ideal Portfolio — ${idealHoldings.length} fund${idealHoldings.length === 1 ? "" : "s"}`,
+        subtitle: "Best 1Y performer per category — your consolidation target",
+        icon: Sparkles,
+        tone: "sky",
+        emptyText: "Load benchmark data to compute the ideal portfolio.",
+        items: idealHoldings,
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate">{it.name}</p>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-500 truncate">
+                {it.category}
+                {it.is_overlapping && it.fund_count > 1 ? ` · best of ${it.fund_count}` : ""}
+              </p>
+            </div>
+            <span className={`text-xs font-bold tabular-nums flex-shrink-0 ${ratingColor(it.rating)}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {fmtPct(it.return_1y)}
+            </span>
+          </div>
+        ),
+      };
+    }
+    if (drill === "funnel-total") {
+      return {
+        title: `Total Funds — ${totalMF}`,
+        subtitle: "Funnel starting point",
+        icon: ListFilter,
+        tone: "indigo",
+        emptyText: "No funds.",
+        items: mfCards.map(c => ({ key: c.holding_id || c.name, name: c.name, weight: c.weight })),
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <span className="text-xs text-slate-700 dark:text-zinc-300 truncate">{it.name}</span>
+            <span className="text-xs font-semibold text-slate-900 dark:text-white tabular-nums" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {it.weight != null ? `${it.weight.toFixed(1)}%` : "—"}
+            </span>
+          </div>
+        ),
+      };
+    }
+    if (drill === "funnel-data") {
+      return {
+        title: `With Benchmark Data — ${withDataRatings.length}`,
+        subtitle: "Funds with 1Y benchmark return matched",
+        icon: CheckCircle,
+        tone: "sky",
+        emptyText: "No benchmark matches yet.",
+        items: withDataRatings,
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate">{it.name}</p>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-500 truncate">{it.scheme_category || it.sector}</p>
+            </div>
+            <span className={`text-xs font-bold tabular-nums flex-shrink-0 ${ratingColor(it.rating)}`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {fmtPct(it.return_1y)}
+            </span>
+          </div>
+        ),
+      };
+    }
+    if (drill === "funnel-top") {
+      return {
+        title: `Top Performers — ${topPerformers.length}`,
+        subtitle: "Funds beating their category average",
+        icon: Award,
+        tone: "emerald",
+        emptyText: "No top performers yet — try refreshing benchmark data.",
+        items: topPerformers,
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate">{it.name}</p>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-500 truncate">
+                {it.scheme_category || it.sector}
+                {it.alpha != null ? ` · α ${it.alpha > 0 ? "+" : ""}${it.alpha.toFixed(1)}` : ""}
+              </p>
+            </div>
+            <span className="text-xs font-bold tabular-nums flex-shrink-0 text-emerald-600 dark:text-emerald-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {fmtPct(it.return_1y)}
+            </span>
+          </div>
+        ),
+      };
+    }
+    if (drill === "funnel-review") {
+      return {
+        title: `Need Review — ${needReview.length}`,
+        subtitle: "Funds trailing category average by 2%+",
+        icon: AlertCircle,
+        tone: "amber",
+        emptyText: "No underperformers — looking good.",
+        items: needReview,
+        render: (it) => (
+          <div className="flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white dark:hover:bg-white/[0.04]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 dark:text-zinc-200 truncate">{it.name}</p>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-500 truncate">
+                {it.scheme_category || it.sector}
+                {it.alpha != null ? ` · α ${it.alpha.toFixed(1)}` : ""}
+              </p>
+            </div>
+            <span className="text-xs font-bold tabular-nums flex-shrink-0 text-rose-600 dark:text-rose-400" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+              {fmtPct(it.return_1y)}
+            </span>
+          </div>
+        ),
+      };
+    }
+    return null;
+  }, [drill, categoryDetail, fundRatings, idealHoldings, mfCards, totalMF]);
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -888,15 +1215,26 @@ export const DiversificationHero = ({ perfCards, fundPerformance }) => {
                   ? "Well-diversified portfolio with minimal category overlap"
                   : divScore >= 45
                   ? `${overlapping} overlapping categories — consider consolidating`
-                  : `Significantly over-diversified — reducing to 18 core funds recommended`}
+                  : `Significantly over-diversified — reducing to ${idealHoldings.length || 18} core funds recommended`}
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {chips.map(ch => (
-                  <div key={ch.label} className={`rounded-xl border px-3 py-2.5 ${chipStyle[ch.color]}`}>
-                    <p className="text-[10px] font-medium opacity-75 mb-0.5">{ch.label}</p>
-                    <p className="text-sm font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ch.value}</p>
-                  </div>
-                ))}
+                {chips.map(ch => {
+                  const isActive = drill === ch.id;
+                  return (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      onClick={() => handleSelect(ch.id)}
+                      data-testid={`hero-chip-${ch.id}`}
+                      className={`text-left rounded-xl border px-3 py-2.5 transition-all hover:shadow-sm ${chipStyle[ch.color]} ${
+                        isActive ? "ring-2 ring-offset-1 ring-offset-transparent ring-current scale-[1.02]" : ""
+                      }`}
+                    >
+                      <p className="text-[10px] font-medium opacity-75 mb-0.5">{ch.label}</p>
+                      <p className="text-sm font-bold" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{ch.value}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             {/* Funnel (hidden on mobile) */}
@@ -905,11 +1243,31 @@ export const DiversificationHero = ({ perfCards, fundPerformance }) => {
                 <div className="hidden lg:block w-px h-28 bg-slate-100 dark:bg-white/5" />
                 <div className="hidden lg:block flex-shrink-0 w-52">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3 text-center">Simplification Funnel</p>
-                  <SimplificationFunnel stages={funnelStages} />
+                  <SimplificationFunnel
+                    stages={funnelStages}
+                    activeId={drill}
+                    onSelect={handleSelect}
+                  />
                 </div>
               </>
             )}
           </div>
+
+          {/* Drill-down panel */}
+          <AnimatePresence>
+            {drill && drillContent && (
+              <DrillDownPanel
+                title={drillContent.title}
+                subtitle={drillContent.subtitle}
+                icon={drillContent.icon}
+                tone={drillContent.tone}
+                items={drillContent.items}
+                emptyText={drillContent.emptyText}
+                renderItem={drillContent.render}
+                onClose={() => setDrill(null)}
+              />
+            )}
+          </AnimatePresence>
         </CardContent>
       </Card>
     </motion.div>

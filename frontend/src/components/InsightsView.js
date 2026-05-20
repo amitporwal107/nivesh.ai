@@ -383,29 +383,36 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
           {/* ══════════════ TAB: DIVERSIFICATION & CONSOLIDATION ══════════════ */}
           {activeTab === "fund_overlap_insights" && (
             <div className="space-y-6" data-testid="tab-fund-overlap-content">
-              {/* Sticky section quick-nav */}
+              {/* Quick-nav: switches the Exposure tab below instead of scrolling */}
               <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 bg-[#F8FAFC]/90 dark:bg-[#09090B]/90 backdrop-blur-sm border-b border-slate-200 dark:border-white/5">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
                   <button
                     data-testid="jump-to-amc-exposure"
-                    onClick={() => document.querySelector('[data-testid="exposure-amc"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    onClick={() => window.dispatchEvent(new CustomEvent("concentration:set-exposure-tab", { detail: { tab: "amc" } }))}
                     className="px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900 hover:bg-purple-100 dark:hover:bg-purple-950/70"
                   >
-                    ↓ AMC exposure
+                    AMC exposure
                   </button>
                   <button
                     data-testid="jump-to-sector-exposure"
-                    onClick={() => document.querySelector('[data-testid="exposure-sector"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    onClick={() => window.dispatchEvent(new CustomEvent("concentration:set-exposure-tab", { detail: { tab: "sector" } }))}
                     className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
                   >
-                    ↓ Sector exposure
+                    Sector exposure
                   </button>
                   <button
                     data-testid="jump-to-company-exposure"
-                    onClick={() => document.querySelector('[data-testid="exposure-company"]')?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    onClick={() => window.dispatchEvent(new CustomEvent("concentration:set-exposure-tab", { detail: { tab: "company" } }))}
                     className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900 hover:bg-rose-100 dark:hover:bg-rose-950/70"
                   >
-                    ↓ Company exposure
+                    Company exposure
+                  </button>
+                  <button
+                    data-testid="jump-to-group-exposure"
+                    onClick={() => window.dispatchEvent(new CustomEvent("concentration:set-exposure-tab", { detail: { tab: "group" } }))}
+                    className="px-3 py-1.5 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-900 hover:bg-violet-100 dark:hover:bg-violet-950/70"
+                  >
+                    Group exposure
                   </button>
                 </div>
               </div>
@@ -414,6 +421,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               <DiversificationHero
                 perfCards={perfCards}
                 fundPerformance={fundPerformance}
+                deepAnalytics={deepAnalytics}
               />
 
               {/* AMC / Sector / Company Exposure + Category Overlap */}
