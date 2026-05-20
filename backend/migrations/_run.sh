@@ -70,6 +70,42 @@ IFS=$'\n' files=($(printf "%s\n" "${files[@]}" | sort)); unset IFS
 # ── 3. Load already-applied set ────────────────────────────────────────────
 applied="$(psql_cmd -tAc 'SELECT filename FROM public.schema_migrations')"
 
+# ── 3b. Safety: refuse to run in 'apply' mode if schema_migrations is
+# empty BUT the DB already has user tables. This is the fingerprint of a
+# database migrated by the old loose runner — re-executing existing files
+# could corrupt backfilled data via non-idempotent INSERT/UPDATE/ALTER.
+# Operator must explicitly run --bootstrap first (zero risk) or --force
+# (eyes-open re-apply).
+if [[ "$MODE" == "apply" ]]; then
+  applied_n="$(psql_cmd -tAc 'SELECT count(*) FROM public.schema_migrations')"
+  if [[ "$applied_n" == "0" ]]; then
+    user_tables="$(psql_cmd -tAc "
+      SELECT count(*) FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_type   = 'BASE TABLE'
+         AND table_name  != 'schema_migrations'
+    ")"
+    if [[ "$user_tables" -gt 0 ]]; then
+      err "REFUSING TO RUN."
+      err ""
+      err "schema_migrations is empty, but this database already has"
+      err "$user_tables user tables. This looks like a DB that was previously"
+      err "migrated by the old loose runner."
+      err ""
+      err "Running pending migrations now would attempt to re-execute every"
+      err "existing .sql file, which can corrupt backfilled data via"
+      err "non-idempotent statements (INSERT, UPDATE, ALTER ADD COLUMN)."
+      err ""
+      err "Run ONCE with --bootstrap to register existing migrations as"
+      err "applied WITHOUT executing them:"
+      err "    docker compose --profile migrate run --rm migrate --bootstrap"
+      err ""
+      err "After that, default mode is safe — only new files will run."
+      exit 1
+    fi
+  fi
+fi
+
 is_applied() {
   printf '%s\n' "$applied" | grep -qxF "$1"
 }
