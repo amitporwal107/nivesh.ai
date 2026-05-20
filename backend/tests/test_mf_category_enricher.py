@@ -29,6 +29,33 @@ def test_nifty_50_index_fund_parses_correctly():
     assert sub == "Nifty 50"
 
 
+def test_nifty_index_without_explicit_50_falls_back_to_nifty_50():
+    """2026-05-20 fix: AMFI/KFinTech sometimes store names that elide
+    the '50' — 'UTI Nifty Index Fund' / 'SBI Nifty Index Fund' both
+    track Nifty 50 in practice. Without this fallback they'd parse to
+    ('Index Fund', None) and get dropped from duplicate-cluster
+    detection — making the user's Index funds appear to 'disappear'
+    from the rec center."""
+    for name in (
+        "UTI Nifty Index Fund Growth",
+        "SBI Nifty Index Fund",
+        "Tata Nifty Index Fund Direct Growth",
+    ):
+        cat, sub = parse_sebi_from_name(name)
+        assert cat == "Index Fund", f"failed cat for {name!r}: {cat}"
+        assert sub == "Nifty 50", (
+            f"failed sub-cat for {name!r}: {sub} — expected 'Nifty 50' fallback"
+        )
+
+
+def test_sensex_index_without_number_falls_back():
+    """A 'Sensex' fund parses to Index Fund / Sensex even if BSE 500
+    et al don't match."""
+    cat, sub = parse_sebi_from_name("HDFC Sensex Index Fund")
+    assert cat == "Index Fund"
+    assert sub == "Sensex"
+
+
 def test_equal_weight_index_distinguished_from_plain_nifty_50():
     cat, sub = parse_sebi_from_name("HDFC NIFTY50 Equal Weight Index Fund Direct Growth")
     assert cat == "Index Fund"

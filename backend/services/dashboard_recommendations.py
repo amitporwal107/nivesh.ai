@@ -54,6 +54,16 @@ _IMPACT_RANK = {"high": 0, "medium": 1, "low": 2}
 _TYPE_RANK = {"opportunity": 0, "warning": 1, "risk": 2, "action": 3, "info": 4}
 
 
+def _truncate_name(s: str, max_len: int = 38) -> str:
+    """Trim a long fund name for inline display. Mutual fund names
+    routinely run 50+ chars (e.g. 'Mirae Asset Large Cap Fund Direct
+    Growth'); the cluster detail line lists 3-5 of them so abbreviation
+    keeps the row scannable."""
+    if not s:
+        return ""
+    return s if len(s) <= max_len else s[: max_len - 1].rstrip() + "…"
+
+
 def _fmt_rs(n: Optional[float]) -> str:
     if n is None or n == 0:
         return "—"
@@ -171,21 +181,44 @@ def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
             max_ov = cluster["max_overlap"]
             label = sub or cat
             impact = "high" if max_ov >= 70 else "medium" if max_ov >= 55 else "low"
+
+            # 2026-05-20 user directive: "Which funds are duplicated not
+            # show" — surface member fund names directly in the detail
+            # text so the user can see the cluster contents without
+            # drilling into metadata. Cap at 4 names + "+N more" so the
+            # text stays scannable even for big clusters.
+            short_names = [_truncate_name(nm, 38) for nm in cluster["names"]]
+            visible = short_names[:4]
+            extra_n = len(short_names) - len(visible)
+            member_line = ", ".join(visible) + (f", +{extra_n} more" if extra_n > 0 else "")
+
+            # TODO(consolidation-score-wire-up):
+            # The consolidation score engine
+            # (services/consolidation_score_engine.score_pair) is shipped
+            # but not yet wired here. Until it is, we can describe the
+            # action generically but cannot tell the user WHICH fund to
+            # keep. Once the wire-up lands, replace the action text with
+            # "Keep <retain_name>; exit <exit_names>" using
+            # score_pair() results to pick the winner per cluster.
+            action_text = (
+                "Keep the highest-scoring fund (per the consolidation "
+                "score) and exit the others. Stagger the exits across "
+                "2 financial years if the tax cost is material. "
+                "(Winner pick coming once the consolidation-score "
+                "engine is wired into this path.)"
+            )
+
             out.append({
                 "id": f"overlap_cluster:{label}:{','.join(sorted(cluster['ids']))}",
                 "signal_type": "warning",
                 "impact": impact,
                 "kind": "OVERLAP",
                 "title": f"Consolidate {n} funds in your {label} category",
-                "action": (
-                    "Keep the highest-scoring fund (per the consolidation "
-                    "score); exit the others. Stagger the exits across 2 "
-                    "financial years if the tax cost is material."
-                ),
+                "action": action_text,
                 "detail": (
                     f"{n} funds in {label} with avg pairwise overlap "
-                    f"{avg_ov:.0f}% (max {max_ov:.0f}%). You're paying "
-                    f"expenses on funds providing the same exposure."
+                    f"{avg_ov:.0f}% (max {max_ov:.0f}%). Funds: "
+                    f"{member_line}."
                 ),
                 "amount_rs": None,
                 "metadata": {
@@ -194,6 +227,7 @@ def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "fund_ids":         cluster["ids"],
                     "fund_names":       cluster["names"],
                     "deep_link":        "insights#overlap",
+                    "winner_pick_pending": True,
                 },
             })
 

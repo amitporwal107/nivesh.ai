@@ -138,3 +138,59 @@ def test_cluster_metadata_includes_fund_names():
     assert set(md["fund_names"]) == {"UTI Nifty 50", "HDFC Nifty 50"}
     assert md["sebi_category"] == "Index Fund"
     assert md["sebi_subcategory"] == "Nifty 50"
+
+
+def test_cluster_detail_lists_member_fund_names():
+    """2026-05-20 directive: 'Which funds are duplicated not show'.
+    Detail text must enumerate the member fund names so the user can
+    see WHICH funds are in the cluster without drilling into metadata."""
+    intelligence = {
+        "pairwise_overlap": [
+            _pair("a", "b", 70, sebi_category="Large Cap",
+                  a_name="HDFC Top 100 Fund", b_name="ICICI Bluechip Fund"),
+            _pair("a", "c", 60, sebi_category="Large Cap",
+                  a_name="HDFC Top 100 Fund", b_name="Axis Bluechip Fund"),
+        ],
+    }
+    out = _project_overlap(intelligence)
+    cluster = [r for r in out if r["kind"] == "OVERLAP"][0]
+    # All three names must appear in the detail line
+    for nm in ("HDFC Top 100 Fund", "ICICI Bluechip Fund", "Axis Bluechip Fund"):
+        assert nm in cluster["detail"], (
+            f"member '{nm}' missing from detail: {cluster['detail']!r}"
+        )
+
+
+def test_cluster_detail_truncates_long_member_lists():
+    """A 6-fund cluster should show first 4 names + '+2 more', not all 6."""
+    pairs = []
+    fund_names = [f"Fund Number {i:02d} Direct Growth" for i in range(6)]
+    for i in range(6):
+        for j in range(i + 1, 6):
+            pairs.append(_pair(
+                f"f{i}", f"f{j}", 60,
+                sebi_category="Large Cap",
+                a_name=fund_names[i], b_name=fund_names[j],
+            ))
+    out = _project_overlap({"pairwise_overlap": pairs})
+    cluster = [r for r in out if r["kind"] == "OVERLAP"][0]
+    detail = cluster["detail"]
+    # First 4 in some order; the rest summarised as "+N more"
+    assert "+2 more" in detail, f"expected '+2 more' tail in: {detail!r}"
+
+
+def test_cluster_action_flags_winner_pick_pending():
+    """Until consolidation_score_engine is wired into this path, the
+    action text must NOT claim we picked a winner — set a metadata
+    flag so the UI can render a 'Coming soon' badge if it wants."""
+    intelligence = {
+        "pairwise_overlap": [
+            _pair("a", "b", 70, sebi_category="Large Cap",
+                  a_name="Fund A", b_name="Fund B"),
+        ],
+    }
+    out = _project_overlap(intelligence)
+    cluster = [r for r in out if r["kind"] == "OVERLAP"][0]
+    assert cluster["metadata"].get("winner_pick_pending") is True
+    assert "coming once" in cluster["action"].lower() \
+        or "wired" in cluster["action"].lower()
