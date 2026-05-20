@@ -108,12 +108,14 @@ async def _run_checks(conn: "asyncpg.Connection") -> tuple[int, int]:
     ))
 
     # ── 3. mf_analytics_engine produced fresh rows ───────────────
+    # Schema note: analytics.fund_category_rank uses `rank_date`, NOT
+    # `as_of_date` — see migration 047 / mf_analytics_engine UPSERT_SQL.
     results.append(await _check(
         conn, "mf_analytics_engine — fund_category_rank fresh rows",
         "SELECT COUNT(*) AS rows, "
         "       COUNT(return_1y) FILTER (WHERE return_1y IS NOT NULL) AS has_ret "
         "  FROM analytics.fund_category_rank "
-        " WHERE as_of_date = (SELECT MAX(as_of_date) FROM analytics.fund_category_rank)",
+        " WHERE rank_date = (SELECT MAX(rank_date) FROM analytics.fund_category_rank)",
         lambda r: (
             r is not None
             and r["rows"] >= CRITICAL_THRESHOLDS["mf_analytics_rows"]

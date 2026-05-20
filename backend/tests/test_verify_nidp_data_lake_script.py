@@ -94,6 +94,66 @@ def test_checks_engine_names_match_cron(script_source):
         assert engine in script_source, f"missing engine reference: {engine}"
 
 
+def test_fund_category_rank_uses_rank_date_not_as_of_date(script_source):
+    """Regression guard for a real bug — analytics.fund_category_rank uses
+    `rank_date` (per migration 047 / mf_analytics_engine UPSERT_SQL), not
+    `as_of_date`. The earlier verify-script revision queried with the
+    wrong column name, which made section 3 silently report 'query failed'
+    even when the data was fine.
+
+    Strategy: strip comments first (so the schema-note comment doesn't
+    trigger a false positive), then concatenate adjacent string literals
+    into single SQL statements, then verify every statement that mentions
+    analytics.fund_category_rank pairs it with rank_date and never with
+    as_of_date."""
+    import re
+    import tokenize
+    import io
+
+    # Walk the token stream to find runs of adjacent string literals
+    # (Python's implicit string concatenation). Each run = one SQL
+    # statement as seen at runtime. Comments are tokens too but we
+    # ignore them — they never make it into runtime SQL.
+    sql_statements: list[str] = []
+    current_run: list[str] = []
+    for tok in tokenize.generate_tokens(io.StringIO(script_source).readline):
+        if tok.type == tokenize.STRING:
+            # Reject docstrings (triple-quoted) — only single-line "..."
+            # forms participate in our SQL concatenation pattern.
+            raw = tok.string
+            if raw.startswith(('"""', "'''")):
+                if current_run:
+                    sql_statements.append("".join(current_run))
+                    current_run = []
+                continue
+            # Strip the surrounding quote chars
+            unquoted = raw[1:-1] if len(raw) >= 2 else raw
+            current_run.append(unquoted)
+        elif tok.type in (tokenize.NEWLINE, tokenize.NL, tokenize.COMMENT):
+            # whitespace / comments don't break adjacency in source —
+            # the Python tokenizer treats them as no-ops between strings.
+            continue
+        else:
+            if current_run:
+                sql_statements.append("".join(current_run))
+                current_run = []
+    if current_run:
+        sql_statements.append("".join(current_run))
+
+    fcr_statements = [s for s in sql_statements if "analytics.fund_category_rank" in s]
+    assert fcr_statements, "no SQL statement references analytics.fund_category_rank"
+    for stmt in fcr_statements:
+        assert "rank_date" in stmt, (
+            f"SQL referencing analytics.fund_category_rank must use "
+            f"`rank_date` (the actual date column). Statement: {stmt!r}"
+        )
+        assert "as_of_date" not in stmt, (
+            f"SQL referencing analytics.fund_category_rank must NOT use "
+            f"`as_of_date` — that's a stock_features_daily column. "
+            f"Use `rank_date` instead. Statement: {stmt!r}"
+        )
+
+
 def test_no_writes_in_sql(script_source):
     """The script must remain read-only. No INSERT/UPDATE/DELETE/CREATE/
     DROP/ALTER/TRUNCATE allowed."""
