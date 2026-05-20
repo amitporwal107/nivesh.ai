@@ -36,6 +36,17 @@ ALTER TABLE mutual_fund_metadata ADD COLUMN IF NOT EXISTS amfi_scheme_code TEXT;
 CREATE INDEX IF NOT EXISTS idx_mfmd_amfi_code ON mutual_fund_metadata(amfi_scheme_code) WHERE amfi_scheme_code IS NOT NULL;
 
 -- 4) Category → Benchmark mapping (SEBI standard)
+--
+-- ⚠️ DEPRECATED 2026-05-21 — this table is superseded by
+-- nidp.sebi_category_master (migration backend/nidp/migrations/061_*).
+-- The NIDP table is the single source of truth for SEBI categorisation
+-- + the canonical benchmark mapping. This Nivesh-DB copy is kept for
+-- backwards compatibility with two existing SQL JOIN consumers:
+--   - services/pg_writer.py:249           (UPDATE...FROM benchmark_master)
+--   - services/nav_analytics.py:278       (LEFT JOIN benchmark_master)
+-- A follow-up PR will rewrite both to fetch from nidp.sebi_category_master
+-- via DAAS, after which this table can be dropped. Until then: do NOT
+-- add new rows here — add them to the NIDP master instead.
 CREATE TABLE IF NOT EXISTS benchmark_master (
     category          TEXT PRIMARY KEY,   -- e.g. "Large Cap", "Mid Cap"
     benchmark_name    TEXT NOT NULL,      -- e.g. "NIFTY 100 TRI"
