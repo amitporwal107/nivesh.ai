@@ -44,11 +44,18 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.NIDP_VM_HOST }}" >> ~/.ssh/known_hosts
 
+      # ── Prepare deploy directory ──────────────────────────────────────────
+      - name: Prepare deploy directory on VM
+        run: |
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
+            sudo mkdir -p /opt/nidp/repo/backend/nidp
+            sudo chown -R $(whoami):$(whoami) /opt/nidp/
+          REMOTE
+
       # ── Rsync NIDP code ───────────────────────────────────────────────────
       - name: Sync backend/nidp → VM
         run: |
           rsync -az --delete \
-            --rsync-path="sudo rsync" \
             --exclude="__pycache__" \
             --exclude="*.pyc" \
             --exclude=".git" \
