@@ -13,7 +13,7 @@ import InsightsView from "@/components/InsightsView";
 import FamilyView from "@/components/FamilyView";
 import AdminView from "@/components/AdminView";
 import GoalsView from "@/components/goals/GoalsView";
-import OnboardingCopilotView from "@/components/OnboardingCopilotView";
+import OnboardingCopilotWrapped from "@/components/OnboardingCopilotWrapped";
 import RiskProfileView from "@/components/RiskProfileView";
 import PlanBoardView from "@/components/v2/PlanBoardView";
 import ActionPromptModal from "@/components/v2/ActionPromptModal";
@@ -201,7 +201,7 @@ const Dashboard = () => {
 
   // Show onboarding if not completed
   if (!userProfile?.onboarding_completed) {
-    return <OnboardingCopilotView onComplete={handleOnboardingComplete} userProfile={userProfile} />;
+    return <OnboardingCopilotWrapped onComplete={handleOnboardingComplete} userProfile={userProfile} />;
   }
 
   const renderContent = () => {
