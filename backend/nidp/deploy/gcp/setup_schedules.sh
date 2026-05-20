@@ -121,6 +121,30 @@ add_schedule nidp-price-adjuster     '30 22 * * 1-5'  'split/bonus adjusted clos
 # ── End-of-day snapshot (after all daily ingesters) ────────────────
 add_schedule nidp-snapshot-builder   '0 22 * * 1-5'   'snapshot builder'
 
+# ── Derived analytics engines (Action Matrix scoring inputs) ───────
+# Run order is load-bearing: each reads from the prior tier.
+#
+# mf_analytics_engine — depends on amfi_nav (20:00) for NAV history.
+#   Populates analytics.fund_category_rank: return_1y/3y/5y, Sharpe,
+#   Sortino, alpha, beta, volatility, max_drawdown. Must land before
+#   mf_derived_refresh (23:50) which reads fund_category_rank.
+#
+# technical_indicator_engine — depends on price_adjuster (22:30) for
+#   adjusted close prices. Computes per-symbol numpy features (SMAs,
+#   RSI, MACD, ATR, Bollinger, swing high/low) AND invokes the SQL
+#   function nidp.populate_stock_price_features() which fills the
+#   252-bar metrics (volatility_1y_pct, return_252d_pct, beta_1y,
+#   max_drawdown_1y_pct) from prices_eod_adjusted in one pass.
+#
+# fundamental_engine — depends on stock_features_daily rows produced
+#   by technical_indicator_engine (it looks up symbols WHERE
+#   as_of_date = target). Computes Piotroski score, Altman Z,
+#   sector_median_pe, and calls populate_stock_features_extended()
+#   for PE/PB/ROE/D-E/market_cap/ROCE/EV-EBITDA/dividend_yield.
+add_schedule nidp-mf-analytics-engine        '30 20 * * 1-5'  'MF return/Sharpe/Sortino/drawdown rankings'
+add_schedule nidp-technical-indicator-engine '35 22 * * 1-5'  'stock technical features + 252-bar price metrics'
+add_schedule nidp-fundamental-engine         '5  23 * * 1-5'  'stock Piotroski / Altman / sector PE'
+
 # ── S4: corporate announcements (NSE + BSE) ────────────────────────
 # Filings stream all day with peaks around results season + post-close
 # 17:00-22:00 IST when board-meeting outcomes land. Every 10 min from

@@ -85,6 +85,12 @@ SPECS: list[ServiceSpec] = [
     ServiceSpec("block_deals",         "nidp.services.block_deals.service",        False, 0.5),
     ServiceSpec("corporate_actions",   "nidp.services.corporate_actions.service",  False, 0.5),
     ServiceSpec("rbi_yields",          "nidp.services.rbi_yields.service",         False, 0.5),
+    # Derived analytics engines (heavy — bigger polite_gap to avoid load spike).
+    # Order is load-bearing when run for the same date: technical writes
+    # stock_features rows, fundamental reads them, mf_analytics is independent.
+    ServiceSpec("mf_analytics_engine",        "nidp.services.mf_analytics_engine.service",        True,  3.0),
+    ServiceSpec("technical_indicator_engine", "nidp.services.technical_indicator_engine.service", True,  3.0),
+    ServiceSpec("fundamental_engine",         "nidp.services.fundamental_engine.service",         True,  3.0),
 ]
 SPEC_BY_NAME = {s.name: s for s in SPECS}
 

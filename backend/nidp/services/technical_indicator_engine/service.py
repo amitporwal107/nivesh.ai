@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -44,14 +45,19 @@ class RunReport:
     symbols_computed: int = 0
     symbols_skipped: int = 0   # insufficient history
     rows_upserted: int = 0
+    # PR D — 252-bar price features populated via nidp.populate_stock_price_features.
+    # Tracks how many rows the SQL function updated (vol_1y, drawdown, beta, ret_252d).
+    price_features_rows: int = 0
     errors: list[str] = field(default_factory=list)
     duration_ms: int = 0
 
     def log(self) -> None:
         logger.info(
-            "ti_engine_complete date=%s run=%s found=%d computed=%d skipped=%d upserted=%d errors=%d duration_ms=%d",
+            "ti_engine_complete date=%s run=%s found=%d computed=%d skipped=%d upserted=%d "
+            "price_features=%d errors=%d duration_ms=%d",
             self.target_date, self.run_id, self.symbols_found, self.symbols_computed,
-            self.symbols_skipped, self.rows_upserted, len(self.errors), self.duration_ms,
+            self.symbols_skipped, self.rows_upserted, self.price_features_rows,
+            len(self.errors), self.duration_ms,
         )
 
     def as_dict(self) -> dict:
@@ -62,6 +68,7 @@ class RunReport:
             "symbols_computed": self.symbols_computed,
             "symbols_skipped": self.symbols_skipped,
             "rows_upserted": self.rows_upserted,
+            "price_features_rows": self.price_features_rows,
             "errors": self.errors[:20],
             "duration_ms": self.duration_ms,
         }
@@ -260,6 +267,26 @@ async def compute_for_date(
             logger.info("ti_engine_batch_done batch=%d-%d computed=%d total_upserted=%d",
                         i, i + len(batch), len(upsert_rows), report.rows_upserted)
 
+        # ── 252-bar price-history features ──
+        # Single-pass SQL window-function compute over prices_eod_adjusted →
+        # populates volatility_1y_pct, return_252d_pct, beta_1y,
+        # max_drawdown_1y_pct on the rows we just upserted. Faster + more
+        # accurate than reimplementing in numpy here. Function is defined
+        # in migration 053_nidp_stock_derived_metrics.sql.
+        # Side effect: requires price_adjuster to have already run for
+        # target_date (cron orders us at 22:35, after price_adjuster at
+        # 22:30). If adj-close is missing we still complete; the SQL
+        # function just leaves NULL where input data is absent.
+        try:
+            n = await conn.fetchval(
+                "SELECT nidp.populate_stock_price_features($1::date)",
+                target_date,
+            )
+            report.price_features_rows = int(n or 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("ti_engine_price_features_error date=%s error=%s", target_date, exc)
+            report.errors.append(f"populate_stock_price_features: {exc}")
+
     report.duration_ms = int((time.monotonic() - t0) * 1000)
     report.log()
     return report
@@ -294,3 +321,21 @@ async def create_pool(url: str) -> asyncpg.Pool:
         statement_cache_size=0,
         server_settings={"search_path": "nidp,public"},
     )
+
+
+# ── Backfill / cron adapter ─────────────────────────────────────────
+# Matches the run(target_date) convention every NIDP ingester exposes,
+# so this service can be invoked by nidp/backfill.py and the existing
+# run_service.sh wrapper that nidp.cron uses.
+async def run(target_date: Optional[date] = None) -> dict:
+    url = os.environ.get("NIDP_POSTGRES_URL") or os.environ.get("POSTGRES_URL")
+    if not url:
+        raise RuntimeError("NIDP_POSTGRES_URL not set")
+    if target_date is None:
+        target_date = date.today() - timedelta(days=1)
+    pool = await create_pool(url)
+    try:
+        report = await compute_for_date(pool, target_date)
+        return report.as_dict()
+    finally:
+        await pool.close()

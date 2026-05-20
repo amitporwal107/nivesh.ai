@@ -45,6 +45,18 @@ MAILTO=""
 # ── End-of-day snapshot (after all daily ingesters) ───────────────
 0  22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh snapshot_builder
 
+# ── Derived analytics engines (Action Matrix scoring inputs) ──────
+# Run order is load-bearing: each reads from the prior tier.
+#   mf_analytics_engine         ← depends on amfi_nav (20:00) for NAV history
+#   technical_indicator_engine  ← depends on price_adjuster (22:30) for adj-close
+#                                  also runs populate_stock_price_features()
+#                                  for vol_1y / drawdown_1y / beta_1y / return_252d
+#   fundamental_engine          ← depends on stock_features_daily rows from TI
+#                                  (Piotroski / Altman / sector_median_pe)
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_analytics_engine
+35 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh technical_indicator_engine
+5  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fundamental_engine
+
 # ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
 */10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_nse
 */10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_bse

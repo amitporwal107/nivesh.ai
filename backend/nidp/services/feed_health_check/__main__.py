@@ -54,7 +54,86 @@ EXPECTED_FEEDS: list[tuple[str, int, str]] = [
     ("index_constituents",       168, "WARN"),
     # Derivatives
     ("price_adjuster",            30, "ERROR"),
+    # Derived analytics engines (feed Action Matrix scoring inputs)
+    ("mf_analytics_engine",        30, "ERROR"),
+    ("technical_indicator_engine", 30, "ERROR"),
+    ("fundamental_engine",         30, "ERROR"),
 ]
+
+
+# History depth check — tables/columns the scoring engine relies on.
+# (table, date_column, min_days_required, severity, comment)
+# min_days_required = 0 means "report but don't fail"; for stock features
+# the scoring engine needs ≥365 trading days for volatility_1y_pct.
+DEPTH_CHECKS: list[tuple[str, str, int, str, str]] = [
+    ("nidp.prices_eod",                "as_of_date",   365, "WARN", "stock CAGR / vol_1y / drawdown_1y need 252+ bars"),
+    ("nidp.prices_eod_adjusted",       "as_of_date",   365, "WARN", "feeds populate_stock_price_features"),
+    ("nidp.amfi_nav_daily",            "as_of_date",   365, "WARN", "MF return_1y / Sharpe / Sortino"),
+    ("nidp.amfi_nav_daily",            "as_of_date",  1095, "WARN", "MF return_3y"),
+    ("nidp.amfi_nav_daily",            "as_of_date",  1825, "WARN", "MF return_5y"),
+    ("nidp.mf_holdings_monthly",       "as_of_month",   30, "WARN", "MF look-through quality view needs ≥1 recent disclosure"),
+    ("nidp.stock_features_daily",      "as_of_date",     1, "ERROR", "Action Matrix scoring needs ≥1 fresh day"),
+    ("analytics.fund_category_rank",   "as_of_date",     1, "ERROR", "MF Sharpe/Sortino/return rankings"),
+]
+
+
+async def _check_depths(conn) -> tuple[list[dict], list[dict]]:
+    """Report MIN / MAX date per critical table and flag insufficient history.
+
+    Returns (depth_rows, depth_gaps). depth_rows is informational;
+    depth_gaps contains entries where the earliest-to-latest span is
+    shorter than the scoring engine needs for a given factor.
+    """
+    depth_rows: list[dict] = []
+    depth_gaps: list[dict] = []
+    seen_tables: set[str] = set()
+
+    for table, date_col, min_days, severity, comment in DEPTH_CHECKS:
+        try:
+            row = await conn.fetchrow(
+                f"SELECT MIN({date_col}) AS first_date, "
+                f"       MAX({date_col}) AS last_date, "
+                f"       COUNT(DISTINCT {date_col}) AS distinct_dates "
+                f"FROM {table}"
+            )
+        except Exception as exc:  # noqa: BLE001 — table might not exist yet
+            depth_gaps.append({
+                "table": table, "severity": severity,
+                "reason": f"query failed: {exc}", "comment": comment,
+            })
+            continue
+
+        if not row or row["first_date"] is None:
+            depth_gaps.append({
+                "table": table, "severity": severity,
+                "reason": "table empty", "comment": comment,
+            })
+            continue
+
+        span_days = (row["last_date"] - row["first_date"]).days
+        # Emit the depth row once per table — multiple DEPTH_CHECKS rows
+        # against the same table share the same span; only the min_days
+        # bar differs.
+        if table not in seen_tables:
+            depth_rows.append({
+                "table":          table,
+                "first_date":     row["first_date"].isoformat(),
+                "last_date":      row["last_date"].isoformat(),
+                "span_days":      span_days,
+                "distinct_dates": row["distinct_dates"],
+            })
+            seen_tables.add(table)
+
+        if span_days < min_days:
+            depth_gaps.append({
+                "table":      table,
+                "severity":   severity,
+                "reason":     f"span {span_days}d < required {min_days}d",
+                "first_date": row["first_date"].isoformat(),
+                "comment":    comment,
+            })
+
+    return depth_rows, depth_gaps
 
 
 async def check() -> dict:
@@ -118,6 +197,12 @@ async def check() -> dict:
     error_gaps = [g for g in gaps if g["severity"] == "ERROR"]
     warn_gaps  = [g for g in gaps if g["severity"] == "WARN"]
 
+    # History-depth check — answers "do we have enough days to compute
+    # 3Y CAGR, 1Y volatility, etc.?"
+    async with pool.acquire() as conn:
+        depth_rows, depth_gaps = await _check_depths(conn)
+    depth_error_gaps = [g for g in depth_gaps if g["severity"] == "ERROR"]
+
     summary = {
         "checked_at":         now.isoformat(),
         "expected_feeds":     len(EXPECTED_FEEDS),
@@ -126,6 +211,8 @@ async def check() -> dict:
         "gaps_error":         len(error_gaps),
         "gaps_warn":          len(warn_gaps),
         "gap_details":        gaps,
+        "depth_checks":       depth_rows,
+        "depth_gaps":         depth_gaps,
         "recent_failures":    [
             {
                 "ingester":      r["ingester"],
@@ -151,7 +238,15 @@ async def check() -> dict:
     else:
         logger.info("FEED HEALTH: all %d feeds healthy", len(healthy))
 
-    if fail_on_gaps and error_gaps:
+    if depth_error_gaps:
+        logger.error("FEED HEALTH: %d ERROR-level depth gaps", len(depth_error_gaps))
+        for g in depth_error_gaps:
+            logger.error("  DEPTH %s severity=%s reason=%s",
+                         g["table"], g["severity"], g["reason"])
+    elif depth_gaps:
+        logger.warning("FEED HEALTH: %d depth gaps (informational)", len(depth_gaps))
+
+    if fail_on_gaps and (error_gaps or depth_error_gaps):
         sys.exit(1)
 
     return summary
