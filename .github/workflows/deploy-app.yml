@@ -25,6 +25,10 @@ on:
         description: 'Branch to deploy (default: main)'
         type: string
         default: main
+      run_migrations:
+        description: 'Run DB migrations after redeploy (re-runs all .sql; safe if every file uses IF NOT EXISTS / ON CONFLICT)'
+        type: boolean
+        default: false
 
 # Only one deploy at a time; new pushes cancel in-progress deploys.
 concurrency:
@@ -80,6 +84,23 @@ jobs:
             # Run the existing redeploy script as root with the correct branch.
             sudo BRANCH="${{ steps.config.outputs.branch }}" \
               bash /opt/nivesh/deploy/redeploy.sh ${{ steps.config.outputs.args }}
+
+            # Run DB migrations (opt-in via workflow_dispatch input).
+            # Invokes the existing migrate compose service — re-runs every
+            # .sql file in /app/backend/migrations/, relying on the existing
+            # 'IF NOT EXISTS / ON CONFLICT' discipline + 'already exists' grep
+            # suppression for idempotency. Same behavior as a manual run.
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
+              echo ""
+              echo "=== Running DB migrations ==="
+              sudo docker compose \
+                -f /opt/nivesh/deploy/docker-compose.prod.yml \
+                --env-file /opt/nivesh/.env.prod \
+                --profile migrate \
+                run --rm migrate
+            else
+              echo "(migrations skipped — set workflow input run_migrations=true to run them)"
+            fi
 
       # ── Post-deploy health probe from runner ──────────────────────────────
       - name: External health check
