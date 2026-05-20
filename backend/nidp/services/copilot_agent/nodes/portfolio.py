@@ -121,12 +121,23 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
                 widget_type=WidgetType.TAX_HARVEST,
             ))
 
-        # Side-by-side MF comparison: returns + TER + overlap together
-        wants_compare = any(kw in user_msg for kw in (
-            "compare", "comparison", "side by side", "side-by-side",
-            "rolling return", "expense ratio", " ter ", " ter.", " ter,", " ter:", "ter%",
-        ))
-        wants_fund_ctx = any(kw in user_msg for kw in ("fund", " mf ", "mutual", "scheme"))
+        # Side-by-side MF comparison: returns + TER + overlap together.
+        # Word-boundary match so "MF" / "TER" hit regardless of punctuation
+        # ("Compare MFs", "What's the TER?", "expense ratio vs TER").
+        import re as _re_kw
+        _padded = f" {user_msg} "
+        def _has_word(words):
+            return any(_re_kw.search(rf"\b{w}\b", _padded) for w in words)
+        wants_compare = (
+            _has_word(["compare", "comparison", "vs", "versus"])
+            or any(p in user_msg for p in (
+                "side by side", "side-by-side", "rolling return", "expense ratio", "ter%"
+            ))
+            or _has_word(["ter"])
+        )
+        wants_fund_ctx = (
+            _has_word(["fund", "funds", "mf", "mfs", "mutual", "scheme", "schemes"])
+        )
         if wants_compare and wants_fund_ctx:
             cmp = await port_mod.compare_portfolio_funds(user_id)
             results.append(ToolResult(

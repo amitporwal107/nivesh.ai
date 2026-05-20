@@ -186,12 +186,34 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
             else:
                 rows = []
 
+            # Embed the top picks (symbol + score + signal + key metric) so the
+            # LLM has actual stocks to quote — without this the summary is
+            # just "20 scanned, 5 picks" and the LLM correctly answers
+            # "data unavailable" under the anti-hallucination rules.
+            pick_lines = []
+            for r in rows[:5]:
+                bits = [r.get("symbol", "?")]
+                if r.get("score") is not None:
+                    bits.append(f"{float(r['score']):.1f}/10")
+                if r.get("signal"):
+                    bits.append(str(r["signal"]))
+                metric_bits = []
+                if r.get("rsi14") is not None:
+                    metric_bits.append(f"RSI {float(r['rsi14']):.0f}")
+                if r.get("pe_ttm") is not None:
+                    metric_bits.append(f"PE {float(r['pe_ttm']):.1f}")
+                if metric_bits:
+                    bits.append("(" + " ".join(metric_bits) + ")")
+                pick_lines.append(" ".join(bits))
+            picks_str = "; ".join(pick_lines) if pick_lines else ""
+
             results.append(ToolResult(
                 ok=screener.ok,
                 tool_name="stock_screener",
                 summary=(
                     f"Screener ({screener.filter_summary}): "
                     f"{screener.total_scanned} scanned, {len(rows)} top picks"
+                    + (f" — {picks_str}" if picks_str else "")
                 ),
                 data={
                     "filter_summary":  screener.filter_summary,

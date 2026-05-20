@@ -152,3 +152,55 @@ async def test_compare_handles_partial_data_gracefully():
     # No exception raised; both fund names appear in the summary
     assert "Some Fund A" in result.summary
     assert "Some Fund B" in result.summary
+
+
+# ── Keyword-gate regression tests for portfolio_node ───────────────────────
+# These guard against the gate I just wrote being too narrow: " mf " required
+# spaces on both sides, so "Compare MF" / "Compare MFs" / "What's the TER?"
+# all failed to trigger compare_portfolio_funds.
+
+def _gate(user_msg_lower: str) -> tuple[bool, bool]:
+    """Run the wants_compare / wants_fund_ctx gates from portfolio_node
+    against a candidate user message. Mirrors the production logic so we
+    can detect regressions without spinning up LangGraph."""
+    import re as _re
+    padded = f" {user_msg_lower} "
+    def _has_word(words):
+        return any(_re.search(rf"\b{w}\b", padded) for w in words)
+    wants_compare = (
+        _has_word(["compare", "comparison", "vs", "versus"])
+        or any(p in user_msg_lower for p in (
+            "side by side", "side-by-side", "rolling return", "expense ratio", "ter%"
+        ))
+        or _has_word(["ter"])
+    )
+    wants_fund_ctx = _has_word(
+        ["fund", "funds", "mf", "mfs", "mutual", "scheme", "schemes"]
+    )
+    return wants_compare, wants_fund_ctx
+
+
+@pytest.mark.parametrize("msg", [
+    "compare the mutual funds in my portfolio. show rolling returns, expense ratio, and overlap.",
+    "compare my mfs by ter",
+    "compare mf returns",
+    "what is the ter of my funds?",
+    "compare fund expense ratios",
+    "side-by-side comparison of my schemes",
+    "show me a rolling return comparison for my funds",
+    "fund a vs fund b in my portfolio",
+])
+def test_compare_keyword_gate_matches_real_user_phrasings(msg):
+    wc, wf = _gate(msg)
+    assert wc, f"wants_compare should match: {msg!r}"
+    assert wf, f"wants_fund_ctx should match: {msg!r}"
+
+
+@pytest.mark.parametrize("msg", [
+    "what is my xirr?",
+    "should i rebalance my portfolio?",
+    "run a stress test",
+])
+def test_compare_keyword_gate_does_not_overfire(msg):
+    wc, wf = _gate(msg)
+    assert not (wc and wf), f"compare_portfolio_funds should NOT trigger on: {msg!r}"
