@@ -13,6 +13,7 @@ from services.fund_performance import compute_benchmark_ratings
 from services.live_price import fetch_live_prices
 from services.sgb_prices import apply_sgb_issue_prices
 from services.equity_sectors import enrich_holdings_with_sectors
+from services.tax_engine import card_tax_block as _card_tax_block
 from helpers.portfolio_utils import extract_fund_house, compute_fund_overlap
 from deps import ai_engine
 
@@ -672,6 +673,11 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
             except Exception:
                 pass
 
+        # Tax classification — reuse services/tax_engine so the dashboard
+        # stays consistent with copilot/switch-decision tools. Honest framing
+        # (tier + confidence), not a "you'll pay ₹X" number.
+        tax_block = _card_tax_block(h, inv, cur)
+
         performance_cards.append({
             "name": h["name"][:50],
             "ticker": h.get("ticker", ""),
@@ -688,6 +694,7 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
             "cagr": cagr,
             "nav_source": h.get("nav_source", ""),
             "nav_date": h.get("nav_date", ""),
+            "tax": tax_block,
         })
 
     performance_cards.sort(key=lambda x: x["pct_return"], reverse=True)

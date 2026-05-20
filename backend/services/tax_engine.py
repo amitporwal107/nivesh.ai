@@ -188,6 +188,31 @@ def classify_holding(h: Dict[str, Any]) -> TaxClassification:
     )
 
 
+# ── Dashboard adapter ──────────────────────────────────────────────────
+def card_tax_block(holding: Dict[str, Any], invested: float, current_value: float) -> Optional[Dict[str, Any]]:
+    """Build a compact tax block for a `performance_cards` row.
+
+    Pure function — never raises. Returns ``None`` when classification fails.
+    Contract consumed by the dashboard Action Matrix ("Tax Watch" bucket and
+    inline STCG/LTCG badges) — keep the keys stable.
+    """
+    try:
+        tc = classify_holding(holding)
+    except Exception:  # noqa: BLE001
+        return None
+    days = tc.estimated_holding_days
+    threshold = tc.threshold_days
+    days_to_ltcg = (threshold - days) if (days is not None and days < threshold) else 0
+    return {
+        "tier": tc.tier,                 # LIKELY_LTCG / LIKELY_STCG / UNKNOWN
+        "confidence": tc.confidence,     # HIGH / MEDIUM / LOW
+        "days_held": days,
+        "threshold_days": threshold,
+        "days_to_ltcg": days_to_ltcg,
+        "is_loss": current_value < invested,
+    }
+
+
 # ── Helpers shared between retrievers ─────────────────────────────────
 async def _enriched_holdings(user_id: str) -> List[Dict[str, Any]]:
     rows = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(500)
