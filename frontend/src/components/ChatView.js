@@ -552,33 +552,37 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
       try {
         let url = null;
         let body = null;
+        // Slash commands all opt into the unified insight_card layout so
+        // /stress, /compare, /tax etc. produce the same mobile-first card
+        // chat-LLM-driven intents do via the orchestrator path.
+        const layout = "insight_card";
         if (cmd === "fundcard" || cmd === "fund") {
           if (!arg) throw new Error("Usage: /fundcard <scheme name>");
-          url = `${API}/copilot/widgets/fund_card`; body = { query: arg };
+          url = `${API}/copilot/widgets/fund_card`; body = { query: arg, layout };
         } else if (cmd === "market" || cmd === "brief") {
-          url = `${API}/copilot/widgets/market_brief`; body = {};
+          url = `${API}/copilot/widgets/market_brief`; body = { layout };
         } else if (cmd === "compare") {
           const codes = arg.split(",").map((s) => s.trim()).filter(Boolean);
           if (codes.length < 2) throw new Error("Usage: /compare <code1>,<code2>[,<code3>]");
-          url = `${API}/copilot/widgets/compare_funds`; body = { scheme_codes: codes };
+          url = `${API}/copilot/widgets/compare_funds`; body = { scheme_codes: codes, layout };
         } else if (cmd === "sip") {
           const parts = arg.split(/\s+/);
           const budget = parseFloat(parts[0] || "0");
           const risk = (parts[1] || "Moderate");
           if (!budget) throw new Error("Usage: /sip <monthly_budget> [conservative|moderate|aggressive]");
-          url = `${API}/copilot/widgets/sip_plan`; body = { monthly_budget: budget, risk_label: risk };
+          url = `${API}/copilot/widgets/sip_plan`; body = { monthly_budget: budget, risk_label: risk, layout };
         } else if (cmd === "rebalance") {
-          url = `${API}/copilot/widgets/rebalance_plan`; body = {};
+          url = `${API}/copilot/widgets/rebalance_plan`; body = { layout };
         } else if (cmd === "tax" || cmd === "harvest") {
-          url = `${API}/copilot/widgets/tax_harvest`; body = {};
+          url = `${API}/copilot/widgets/tax_harvest`; body = { layout };
         } else if (cmd === "stress") {
           const scenario = arg || "covid_2020";
-          url = `${API}/copilot/widgets/stress_test`; body = { scenario };
+          url = `${API}/copilot/widgets/stress_test`; body = { scenario, layout };
         } else if (cmd === "sectors" || cmd === "rotation") {
-          url = `${API}/copilot/widgets/sector_rotation`; body = {};
+          url = `${API}/copilot/widgets/sector_rotation`; body = { layout };
         } else if (cmd === "overlap") {
           const codes = arg ? arg.split(",").map((s) => s.trim()).filter(Boolean) : [];
-          url = `${API}/copilot/widgets/overlap_reveal`; body = { scheme_codes: codes.length ? codes : null };
+          url = `${API}/copilot/widgets/overlap_reveal`; body = { scheme_codes: codes.length ? codes : null, layout };
         } else {
           throw new Error(`Unknown command: /${cmd}. Try /fundcard, /market, /compare, /sip, /rebalance, /tax, /stress, /sectors, /overlap.`);
         }

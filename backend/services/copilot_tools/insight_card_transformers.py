@@ -17,7 +17,7 @@ just don't render.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from models_copilot_widgets import (
     InsightCardData,
@@ -701,4 +701,692 @@ def overlap_to_insight_card(ov: OverlapRevealData) -> InsightCardData:
         recommendation=recommendation,
         actions=actions,
         education=education,
+    )
+
+
+# ────────────────────────────────────────────────────────────────────
+# Retrieval-based transformers (chat-only intents that don't have a
+# dedicated widget endpoint). Each takes the Retrieval object the
+# orchestrator already produces for the intent and maps the rows /
+# extras onto the unified card sections.
+#
+# Why a single dispatcher: every chat intent that wants a card needs
+# the same wrapper (severity, hero, KPIs, findings, recommendation,
+# actions, education). Keeping it in one function means the chat path
+# can wire any new intent with one line — `if intent.name == "X":
+# card = _retrieval_card(intent, retrieval)` — rather than 50 lines
+# of boilerplate per intent.
+# ────────────────────────────────────────────────────────────────────
+
+
+def _retrieval_unavailable_card(intent_name: str, summary: str) -> InsightCardData:
+    """When a retriever fails (`ok=False`), still return a well-formed
+    info card so the chat bubble doesn't surface a blank renderer.
+
+    The hero carries the reason verbatim from the retriever — keeps the
+    user honest about what's missing without inventing data.
+    """
+    return InsightCardData(
+        hero=InsightHero(
+            severity="info",
+            eyebrow=intent_name.replace("_", " ").title(),
+            headline=summary or "No data to show yet.",
+            primary_value=None,
+            primary_label=None,
+            subtitle=None,
+        ),
+    )
+
+
+def _intent_default_actions(intent_name: str) -> List[InsightAction]:
+    """Sensible default action chips per intent — keeps the user in a
+    conversational loop instead of dead-ending after each card."""
+    return {
+        "concentration": [
+            InsightAction(label="How do I diversify?",   action_id="diversify",       style="primary"),
+            InsightAction(label="Show full breakdown",   action_id="show_full",       style="secondary"),
+        ],
+        "goals": [
+            InsightAction(label="Adjust monthly SIP",    action_id="adjust_sip",      style="primary"),
+            InsightAction(label="Show goal projection",  action_id="goal_projection", style="secondary"),
+        ],
+        "health": [
+            InsightAction(label="Improve my score",      action_id="improve_health",  style="primary"),
+            InsightAction(label="Show component detail", action_id="health_detail",   style="secondary"),
+        ],
+        "invest_fresh": [
+            InsightAction(label="Set up SIP into bucket", action_id="setup_sip",      style="primary"),
+            InsightAction(label="Show fund picks",        action_id="fund_picks",     style="secondary"),
+        ],
+        "ranking": [
+            InsightAction(label="Show full leaderboard",  action_id="show_full",       style="primary"),
+            InsightAction(label="Explain ranking",        action_id="explain_ranking", style="secondary"),
+        ],
+        "mf_analysis": [
+            InsightAction(label="Show compare table",    action_id="show_compare",    style="primary"),
+            InsightAction(label="Find cheaper options",  action_id="cheaper_options", style="secondary"),
+        ],
+    }.get(intent_name, [])
+
+
+def _concentration_to_card(intent_name: str, grouping: Optional[str],
+                             retrieval) -> InsightCardData:
+    """Concentration breakdown (sector / AMC / category / company /
+    asset_class). Severity tracks the top-bucket share — anything > 30%
+    is medium, > 40% is high."""
+    rows = retrieval.rows
+    grouping_label = (grouping or "amc").replace("_", " ").title()
+
+    # Top bucket — the visible "you're heavy in X" line.
+    top = rows[0] if rows else None
+    top_pct = float(top.get("value", 0)) if top else 0
+    if top_pct >= 40:   severity: InsightSeverity = "high"
+    elif top_pct >= 30: severity = "medium"
+    elif top_pct >= 20: severity = "info"
+    else:               severity = "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow=f"Concentration · {grouping_label}",
+        headline=(f"Top {grouping_label.lower()}: {top.get('label')} ({top_pct:.0f}%)"
+                  if top else "Concentration breakdown"),
+        primary_value=(f"{top_pct:.0f}%" if top else None),
+        primary_label=(f"share of {grouping_label.lower()}" if top else None),
+        subtitle=retrieval.summary,
+    )
+
+    kpis: List[InsightKpi] = []
+    for r in rows[:4]:
+        kpis.append(InsightKpi(
+            label=r.get("label", "")[:30],
+            value=f"{float(r.get('value', 0)):.0f}%",
+            sublabel=(f"₹{float(r.get('amount_rs', 0)):,.0f}"
+                      if r.get("amount_rs") else None),
+            tone=("high" if float(r.get("value", 0)) >= 30 else None),
+        ))
+
+    findings: List[InsightFinding] = []
+    for r in rows[:5]:
+        v = float(r.get("value", 0))
+        if v < 10:
+            continue
+        findings.append(InsightFinding(
+            priority="high" if v >= 30 else ("medium" if v >= 20 else "low"),
+            title=str(r.get("label", "Bucket")),
+            detail=f"{v:.1f}% of portfolio",
+            impact_value=(f"₹{float(r.get('amount_rs', 0)):,.0f}"
+                          if r.get("amount_rs") else None),
+            impact_label="Value",
+        ))
+
+    recommendation: Optional[InsightRecommendation] = None
+    if top and top_pct >= 30:
+        recommendation = InsightRecommendation(
+            summary=(f"{top.get('label')} accounts for {top_pct:.0f}% of your "
+                     f"{grouping_label.lower()} exposure — that's concentration risk."),
+            rationale=(
+                f"A single {grouping_label.lower()} above 30% means any shock to "
+                f"that bucket disproportionately affects the portfolio. Diversifying "
+                f"reduces single-point-of-failure risk."
+            ),
+        )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=recommendation,
+        actions=_intent_default_actions("concentration"),
+    )
+
+
+def _goals_to_card(retrieval) -> InsightCardData:
+    """Goal progress overview. Severity = the lowest on_track_pct across
+    high-priority goals (the most-behind goal sets the tone)."""
+    rows = retrieval.rows
+    if not rows:
+        return _retrieval_unavailable_card("goals", retrieval.summary)
+
+    high_priority = [r for r in rows if (r.get("priority") or "").lower() == "high"]
+    track_pool = high_priority or rows
+    min_track = min(float(r.get("on_track_pct", 100)) for r in track_pool)
+
+    if min_track < 50:    severity: InsightSeverity = "high"
+    elif min_track < 75:  severity = "medium"
+    elif min_track < 95:  severity = "info"
+    else:                 severity = "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow=f"{len(rows)} active goal(s)",
+        headline=(f"Most-behind goal: {min_track:.0f}% on track"
+                  if min_track < 100 else "All goals on track"),
+        primary_value=f"{min_track:.0f}%",
+        primary_label="on track (weakest)",
+    )
+
+    kpis: List[InsightKpi] = []
+    for r in rows[:4]:
+        on_track = float(r.get("on_track_pct", 0))
+        kpis.append(InsightKpi(
+            label=str(r.get("name", "Goal"))[:24],
+            value=f"{on_track:.0f}%",
+            sublabel=f"₹{float(r.get('target_rs', 0)) / 1e5:.1f}L target",
+            tone=("high" if on_track < 50
+                   else "medium" if on_track < 75
+                   else "healthy" if on_track >= 95 else "info"),
+        ))
+
+    findings: List[InsightFinding] = []
+    behind = sorted([r for r in rows if float(r.get("on_track_pct", 100)) < 90],
+                     key=lambda r: float(r.get("on_track_pct", 100)))[:3]
+    for r in behind:
+        on_track = float(r.get("on_track_pct", 0))
+        findings.append(InsightFinding(
+            priority="high" if on_track < 50 else "medium",
+            title=str(r.get("name", "Goal")),
+            detail=(f"{r.get('horizon_years', 0)} yr horizon · "
+                    f"current ₹{float(r.get('corpus_rs', 0)) / 1e5:.1f}L"),
+            impact_value=f"₹{float(r.get('plan_sip_rs', 0)):,.0f}/mo",
+            impact_label="Plan SIP",
+        ))
+
+    recommendation = InsightRecommendation(
+        summary=(f"Your {behind[0].get('name')} goal is "
+                 f"{float(behind[0].get('on_track_pct', 0)):.0f}% on track. "
+                 f"Step up the SIP or extend the horizon to close the gap."
+                 if behind
+                 else "All goals are tracking ≥ 90% — no urgent SIP changes needed."),
+        rationale=(
+            "On-track % combines current corpus + planned SIP + assumed CAGR "
+            "against the target amount and horizon. Anything below 75% needs "
+            "either a higher SIP, a longer horizon, or both."
+        ),
+    )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=recommendation,
+        actions=_intent_default_actions("goals"),
+    )
+
+
+def _health_to_card(retrieval) -> InsightCardData:
+    """Portfolio health scorecard. Severity tracks the grade letter."""
+    extras = retrieval.extras
+    score = float(extras.get("health_score", 0))
+    grade = extras.get("grade", "—")
+    top_drivers = extras.get("top_drivers") or []
+
+    if score < 50:    severity: InsightSeverity = "high"
+    elif score < 70:  severity = "medium"
+    elif score < 85:  severity = "info"
+    else:             severity = "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow="Portfolio Health",
+        headline=f"Grade {grade} · {score:.0f}/100",
+        primary_value=f"{score:.0f}",
+        primary_label="overall score",
+        subtitle=(extras.get("summary_text") or "")[:140] or None,
+    )
+
+    # KPIs from individual components.
+    kpis: List[InsightKpi] = []
+    for c in retrieval.rows[:4]:
+        c_score = float(c.get("score", 0))
+        kpis.append(InsightKpi(
+            label=str(c.get("component", "Component"))[:24],
+            value=f"{c_score:.0f}/100",
+            sublabel=("low confidence" if c.get("low_confidence") else None),
+            tone=("high" if c_score < 50 else "medium" if c_score < 75 else "healthy"),
+        ))
+
+    findings: List[InsightFinding] = []
+    for d in top_drivers[:3]:
+        findings.append(InsightFinding(
+            priority="medium",
+            title=str(d.get("label", "Driver")),
+            detail=str(d.get("detail", ""))[:180],
+        ))
+
+    recommendation = InsightRecommendation(
+        summary=(extras.get("summary_text") or "Health score is computed across "
+                  "diversification, risk, cost and goal alignment.")[:200],
+        rationale=(
+            "Each component is scored 0–100 and weighted by impact on outcomes. "
+            "The lowest-scoring component is usually the highest-leverage place "
+            "to act first."
+        ),
+    )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=recommendation,
+        actions=_intent_default_actions("health"),
+    )
+
+
+def _invest_fresh_to_card(intent_extras: Dict[str, Any], retrieval) -> InsightCardData:
+    """Allocation-gap recommendation for fresh capital."""
+    rows = retrieval.rows
+    if not rows:
+        # Portfolio is balanced — celebratory healthy card.
+        return InsightCardData(
+            hero=InsightHero(
+                severity="healthy",
+                eyebrow="Fresh capital",
+                headline="Portfolio already balanced",
+                primary_value=None,
+                subtitle=retrieval.summary,
+            ),
+            recommendation=InsightRecommendation(
+                summary="No bucket is underweight enough to recommend fresh capital — split new contributions across existing allocations.",
+            ),
+        )
+
+    headline_bucket = rows[0]
+    amount_rs = intent_extras.get("amount_rs")
+    dev_pp = abs(float(headline_bucket.get("deviation_pp", 0)))
+    if dev_pp >= 15:   severity: InsightSeverity = "high"
+    elif dev_pp >= 8:  severity = "medium"
+    else:              severity = "info"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow="Deploy fresh capital",
+        headline=f"{headline_bucket.get('bucket', '').title()} is most underweight",
+        primary_value=(f"₹{amount_rs:,.0f}" if amount_rs else None),
+        primary_label=("fresh capital" if amount_rs else None),
+        subtitle=retrieval.summary,
+    )
+
+    kpis: List[InsightKpi] = []
+    for r in rows[:4]:
+        cur = float(r.get("current_pct", 0))
+        tgt = float(r.get("target_pct", 0))
+        gap = float(r.get("deviation_pp", 0))
+        kpis.append(InsightKpi(
+            label=str(r.get("bucket", "")).title(),
+            value=f"{cur:.0f}% → {tgt:.0f}%",
+            sublabel=f"{gap:+.1f}pp gap",
+            tone="high" if abs(gap) >= 10 else "medium",
+        ))
+
+    findings: List[InsightFinding] = []
+    for r in rows[:4]:
+        share = float(r.get("share_of_fresh_pct", 0))
+        sugg = r.get("suggested_amount_rs")
+        findings.append(InsightFinding(
+            priority="high" if abs(float(r.get("deviation_pp", 0))) >= 10 else "medium",
+            title=str(r.get("fund_class", r.get("bucket", "Bucket"))),
+            detail=f"{share:.0f}% of fresh capital",
+            impact_value=(f"₹{sugg:,.0f}" if sugg else None),
+            impact_label="Suggested",
+        ))
+
+    recommendation = InsightRecommendation(
+        summary=(
+            f"Direct {float(headline_bucket.get('share_of_fresh_pct', 0)):.0f}% of new money to "
+            f"{headline_bucket.get('bucket', '').title()} first — it's "
+            f"{abs(float(headline_bucket.get('deviation_pp', 0))):.1f}pp below target."
+        ),
+        rationale=(
+            "Fresh capital is the cheapest way to rebalance — no tax cost, no "
+            "transaction friction. Tilting new contributions toward the most "
+            "underweight bucket closes the gap without triggering capital gains."
+        ),
+    )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=recommendation,
+        actions=_intent_default_actions("invest_fresh"),
+    )
+
+
+def _ranking_to_card(retrieval, metric: str) -> InsightCardData:
+    """Top-N holdings ranked by a metric (profit/return/loss/value)."""
+    rows = retrieval.rows
+    if not rows:
+        return _retrieval_unavailable_card("ranking", retrieval.summary)
+
+    is_loss = metric == "loss"
+    top = rows[0]
+    severity: InsightSeverity = "high" if is_loss else "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow=f"Top {len(rows)} by {metric}",
+        headline=str(top.get("name", "Top holding")),
+        primary_value=(
+            f"{float(top.get('return_pct', 0)):+.1f}%" if metric == "return"
+            else f"₹{float(top.get('profit_rs', 0)):+,.0f}"
+        ),
+        primary_label=metric,
+        trend=("down" if is_loss else "up"),
+    )
+
+    kpis: List[InsightKpi] = []
+    for r in rows[:4]:
+        kpis.append(InsightKpi(
+            label=str(r.get("name", ""))[:24],
+            value=(f"{float(r.get('return_pct', 0)):+.1f}%" if metric == "return"
+                   else f"₹{float(r.get('profit_rs', 0)):+,.0f}"),
+            sublabel=f"₹{float(r.get('current_value_rs', 0)):,.0f}",
+            tone="high" if is_loss else "healthy",
+        ))
+
+    findings: List[InsightFinding] = []
+    for r in rows[:5]:
+        findings.append(InsightFinding(
+            priority="high" if is_loss else "medium",
+            title=str(r.get("name", "Holding")),
+            detail=(f"{r.get('asset_type', '')} · {r.get('sector', '')}"),
+            impact_value=(f"{float(r.get('return_pct', 0)):+.1f}%"),
+            impact_label="Return",
+        ))
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=InsightRecommendation(summary=retrieval.summary),
+        actions=_intent_default_actions("ranking"),
+    )
+
+
+def _mf_analysis_to_card(retrieval) -> InsightCardData:
+    """MF leaderboard / analysis. Reuses ranking shape since the
+    retrieval rows are top-funds-by-metric."""
+    return _ranking_to_card(retrieval, "return")
+
+
+def retrieval_to_insight_card(intent_name: str,
+                                intent_extras: Dict[str, Any],
+                                retrieval) -> Optional[InsightCardData]:
+    """Single entry point — dispatch a Retrieval to the right card maker.
+
+    Returns None when:
+      - the intent isn't card-able, OR
+      - the retrieval failed (chat falls back to prose-only)."""
+    if not retrieval.ok:
+        return None
+    if intent_name == "concentration":
+        return _concentration_to_card(intent_name,
+                                       intent_extras.get("grouping"),
+                                       retrieval)
+    if intent_name == "goals":
+        return _goals_to_card(retrieval)
+    if intent_name == "health":
+        return _health_to_card(retrieval)
+    if intent_name == "invest_fresh":
+        return _invest_fresh_to_card(intent_extras, retrieval)
+    if intent_name == "ranking":
+        return _ranking_to_card(retrieval, intent_extras.get("metric") or "profit")
+    if intent_name == "mf_analysis":
+        return _mf_analysis_to_card(retrieval)
+    return None
+
+
+# ────────────────────────────────────────────────────────────────────
+# Widget-endpoint transformers for risk_suitability + portfolio_var.
+# These have HTTP endpoints whose data shape is service-specific, so
+# they get dedicated transformers (mirrors the stress/overlap pattern).
+# ────────────────────────────────────────────────────────────────────
+
+
+def risk_suitability_to_insight_card(data: Dict[str, Any]) -> InsightCardData:
+    """Map the /widgets/risk_suitability payload to InsightCardData."""
+    rating = (data.get("risk_rating") or "MEDIUM").upper()
+    score = data.get("risk_score") or 0
+    misalign = data.get("misalignment") or []
+    profile = data.get("user_profile_category") or "—"
+
+    if rating in ("VERY HIGH",):  severity: InsightSeverity = "critical"
+    elif rating == "HIGH":         severity = "high"
+    elif rating == "MEDIUM":       severity = "medium"
+    else:                          severity = "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow="Risk Suitability",
+        headline=f"Portfolio risk: {rating}",
+        primary_value=f"{score}/10",
+        primary_label="risk score",
+        subtitle=f"User profile: {profile}",
+    )
+
+    kpis: List[InsightKpi] = [
+        InsightKpi(label="Risk rating",    value=rating,           tone=severity),
+        InsightKpi(label="User profile",   value=profile),
+        InsightKpi(label="Misalignments",  value=str(len(misalign)),
+                   tone="high" if misalign else "healthy"),
+    ]
+
+    findings: List[InsightFinding] = []
+    for m in misalign[:4]:
+        if isinstance(m, dict):
+            findings.append(InsightFinding(
+                priority="high",
+                title=str(m.get("label") or m.get("metric") or "Misalignment"),
+                detail=str(m.get("message") or m.get("detail") or ""),
+            ))
+        else:
+            findings.append(InsightFinding(priority="high", title=str(m)))
+
+    recommendation = InsightRecommendation(
+        summary=(f"Portfolio risk is {rating} vs your {profile} profile — "
+                 f"{len(misalign)} misalignment(s) flagged."
+                 if misalign else
+                 f"Portfolio risk ({rating}) aligns with your {profile} profile."),
+        rationale=(
+            "Risk suitability checks equity %, small/mid-cap exposure, and "
+            "weighted portfolio beta against your stored risk profile. "
+            "Misalignments mean a single bad quarter hits harder than your "
+            "stated tolerance."
+        ),
+    )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis, findings=findings,
+        recommendation=recommendation,
+        actions=[
+            InsightAction(label="How do I reduce risk?",   action_id="reduce_risk",   style="primary"),
+            InsightAction(label="Rebalance to profile",    action_id="rebalance_to_profile", style="secondary"),
+            InsightAction(label="Show VaR breakdown",       action_id="show_var",      style="secondary"),
+        ],
+    )
+
+
+# ────────────────────────────────────────────────────────────────────
+# NIDP (LangGraph) widget_data → insight_card adapter.
+#
+# The LangGraph engine emits its own AgentResponse with
+# `widget_type` + `widget_data` (loose dict) instead of one of our
+# native Pydantic models. To paint the unified card in chat without
+# refactoring the NIDP toolchain, this adapter normalises the loose
+# dict into the matching native model and runs the existing
+# per-tool transformer. Tools we don't recognise get None back so
+# the caller can fall back to the legacy widget path.
+# ────────────────────────────────────────────────────────────────────
+
+
+def nidp_widget_to_insight_card(widget_type: str,
+                                  widget_data: Dict[str, Any]) -> Optional[InsightCardData]:
+    """Shape-translate an NIDP `widget_data` dict into our native
+    model and run it through the matching insight_card transformer.
+
+    Returns None when the tool isn't supported or the data is too
+    sparse to build a meaningful card."""
+    wt = (widget_type or "").lower()
+    wd = widget_data or {}
+
+    try:
+        if wt == "stress_test":
+            # Common NIDP fields: stressed_value, drop_pct, loss_rs,
+            # rows[*].name + scenario_name on the outer envelope.
+            current = wd.get("current_value") or wd.get("current_value_rs") or wd.get("portfolio_value_before")
+            stressed = wd.get("stressed_value") or wd.get("stressed_value_rs") or wd.get("portfolio_value_after")
+            drop = wd.get("drop_pct")
+            # If only loss is reported, derive current from stressed + loss.
+            loss = wd.get("loss_rs") or wd.get("loss")
+            if current is None and stressed is not None and loss is not None:
+                current = float(stressed) + float(loss)
+            if drop is None and current and stressed:
+                try:
+                    drop = (float(stressed) - float(current)) / float(current) * 100
+                except Exception:
+                    drop = None
+            scenario_name = wd.get("scenario_name") or wd.get("scenario") or "Portfolio Stress Test"
+            description = wd.get("scenario_description") or wd.get("description")
+            recovery = wd.get("recovery_years") or wd.get("historical_recovery_years")
+            rows = wd.get("rows") or wd.get("breakdown") or []
+
+            breakdown = []
+            for r in rows[:10]:
+                name = r.get("fund_name") or r.get("name") or "Holding"
+                breakdown.append(StressTestBreakdown(  # type: ignore[name-defined]
+                    fund_name=name,
+                    current_value_rs=r.get("current_value") or r.get("current_value_rs"),
+                    stressed_value_rs=r.get("stressed_value") or r.get("stressed_value_rs"),
+                    drop_pct=float(r.get("drop_pct") or 0),
+                ))
+
+            data = StressTestData(
+                scenario_name=str(scenario_name),
+                scenario_description=description,
+                current_value_rs=float(current) if current is not None else None,
+                stressed_value_rs=float(stressed) if stressed is not None else None,
+                drop_pct=round(float(drop), 2) if drop is not None else None,
+                recovery_years=float(recovery) if recovery is not None else None,
+                breakdown=breakdown,
+                insight=wd.get("insight"),
+            )
+            return stress_to_insight_card(data)
+
+        if wt == "tax_harvest":
+            data = TaxHarvestData(
+                fy=wd.get("fy", "FY 2025-26"),
+                ltcg_used_rs=float(wd.get("ltcg_used_rs", 0)),
+                ltcg_limit_rs=float(wd.get("ltcg_limit_rs", 100_000)),
+                ltcg_remaining_rs=float(wd.get("ltcg_remaining_rs", 100_000)),
+                candidates=[],   # NIDP rows are dicts; skip parsing details
+                total_harvestable_rs=wd.get("total_harvestable_rs"),
+                warning=wd.get("warning"),
+            )
+            return tax_harvest_to_insight_card(data)
+
+        if wt == "rebalance_plan":
+            actions = []
+            for r in (wd.get("rows") or wd.get("actions") or [])[:8]:
+                actions.append(RebalanceAction(  # type: ignore[name-defined]
+                    action=(r.get("action") or "HOLD").upper(),
+                    fund_name=r.get("fund_name") or r.get("name") or "Holding",
+                    current_pct=r.get("current_pct"),
+                    target_pct=r.get("target_pct"),
+                    amount_rs=r.get("amount_rs"),
+                    reason=r.get("reason"),
+                ))
+            data = RebalancePlanData(
+                current_value_rs=wd.get("current_value_rs") or wd.get("portfolio_value"),
+                actions=actions,
+                summary=wd.get("summary") or "Rebalance plan",
+            )
+            return rebalance_to_insight_card(data)
+
+        if wt == "overlap_reveal":
+            data = OverlapRevealData(
+                funds=wd.get("funds") or [],
+                overlap_pct=wd.get("overlap_pct"),
+                top_common_stocks=[],
+                verdict=wd.get("verdict"),
+            )
+            return overlap_to_insight_card(data)
+
+        if wt == "sip_plan":
+            data = SipPlanData(
+                monthly_budget=float(wd.get("monthly_budget", 0)),
+                allocations=[],   # NIDP shape divergence — leave empty
+                why_these=wd.get("why_these") or [],
+                counter_points=wd.get("counter_points") or [],
+            )
+            return sip_plan_to_insight_card(data)
+
+        if wt == "fund_comparison":
+            data = CompareTableData(
+                funds=wd.get("funds") or [],
+                rows=[],
+                verdict=wd.get("verdict"),
+            )
+            return compare_to_insight_card(data)
+
+        return None
+    except Exception:
+        return None
+
+
+def portfolio_var_to_insight_card(data: Dict[str, Any]) -> InsightCardData:
+    """Map the /widgets/portfolio_var payload to InsightCardData.
+
+    Var fields vary by service implementation — we pull the common ones
+    (`var_1d_rs`, `var_10d_rs`, `var_1d_pct`, `confidence`, `total_value_rs`).
+    Missing fields just don't render in their section."""
+    var_1d_rs = data.get("var_1d_rs") or data.get("var_1d")
+    var_10d_rs = data.get("var_10d_rs") or data.get("var_10d")
+    var_1d_pct = data.get("var_1d_pct") or data.get("var_pct_1d")
+    confidence = data.get("confidence") or 0.95
+    total_value = data.get("total_value_rs") or data.get("portfolio_value_rs")
+
+    # Severity from 1-day VaR % of portfolio.
+    pct = float(var_1d_pct or 0)
+    if pct >= 3:   severity: InsightSeverity = "high"
+    elif pct >= 2: severity = "medium"
+    elif pct >= 1: severity = "info"
+    else:          severity = "healthy"
+
+    hero = InsightHero(
+        severity=severity,
+        eyebrow=f"Value at Risk · {int(confidence*100)}% confidence",
+        headline=(f"1-day VaR: ₹{float(var_1d_rs):,.0f}"
+                  if var_1d_rs is not None else "Portfolio Value at Risk"),
+        primary_value=(f"{pct:.2f}%" if var_1d_pct is not None else None),
+        primary_label="of portfolio (1-day)",
+    )
+
+    kpis: List[InsightKpi] = []
+    if total_value is not None:
+        kpis.append(InsightKpi(label="Portfolio value", value=f"₹{float(total_value):,.0f}"))
+    if var_1d_rs is not None:
+        kpis.append(InsightKpi(label="1-day VaR",  value=f"₹{float(var_1d_rs):,.0f}", tone=severity))
+    if var_10d_rs is not None:
+        kpis.append(InsightKpi(label="10-day VaR", value=f"₹{float(var_10d_rs):,.0f}",
+                                 tone="high" if pct >= 2 else "medium"))
+    kpis.append(InsightKpi(label="Confidence", value=f"{int(confidence*100)}%"))
+
+    recommendation = InsightRecommendation(
+        summary=(f"With {int(confidence*100)}% confidence, your portfolio "
+                 f"shouldn't lose more than ₹{float(var_1d_rs):,.0f} in a single day."
+                 if var_1d_rs is not None else
+                 "Value at Risk quantifies the worst-case single-day loss at a given confidence level."),
+        rationale=(
+            "VaR is parametric — it assumes returns are approximately normal "
+            "and uses weighted daily volatility. Tail events (crashes) routinely "
+            "exceed VaR, so treat it as a baseline, not a ceiling."
+        ),
+    )
+
+    return InsightCardData(
+        hero=hero, kpis=kpis,
+        recommendation=recommendation,
+        actions=[
+            InsightAction(label="How to reduce VaR",       action_id="reduce_var",    style="primary"),
+            InsightAction(label="10-day breakdown",        action_id="var_10d_detail", style="secondary"),
+            InsightAction(label="Show stress scenario",    action_id="stress_test",   style="secondary"),
+        ],
+        education=InsightEducation(
+            heading="What VaR means",
+            body=(
+                "VaR is a statistical lower bound — 'in 95% of days, losses won't "
+                "exceed this'. The 5% tail can be much worse. Use VaR + stress "
+                "tests together to understand both routine and extreme downside."
+            ),
+        ),
     )

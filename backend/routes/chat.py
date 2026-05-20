@@ -1185,20 +1185,44 @@ async def stream_chat(request: Request):
                                         "goal_tracker":        "Goal Tracker",
                                         "stock_screener":      "Stock Screener",
                                     }
-                                    widget_envelope = {
-                                        "widget_type": wt,
-                                        "data": wd,
-                                        "title": title_map.get(wt, "Insight"),
-                                        "freshness": {
-                                            "state": "cached",
-                                            "last_updated": datetime.now(timezone.utc).isoformat(),
-                                            "source": ["NIDP", "portfolio_holdings"],
-                                        },
-                                        "agent": {
-                                            "id": agent_id or "risk_analyst",
-                                            "confidence": int(round(confidence)),
-                                        },
+                                    title = title_map.get(wt, "Insight")
+                                    freshness = {
+                                        "state": "cached",
+                                        "last_updated": datetime.now(timezone.utc).isoformat(),
+                                        "source": ["NIDP", "portfolio_holdings"],
                                     }
+                                    agent = {
+                                        "id": agent_id or "risk_analyst",
+                                        "confidence": int(round(confidence)),
+                                    }
+                                    # Try to upgrade to the unified insight_card layout
+                                    # by shape-translating wd through the per-tool
+                                    # transformer. When the tool isn't supported, fall
+                                    # back to the legacy `wt` widget so chat still
+                                    # renders something instead of an empty bubble.
+                                    try:
+                                        from services.copilot_tools.insight_card_transformers import (
+                                            nidp_widget_to_insight_card,
+                                        )
+                                        unified = nidp_widget_to_insight_card(wt, wd)
+                                    except Exception:
+                                        unified = None
+                                    if unified is not None:
+                                        widget_envelope = {
+                                            "widget_type": "insight_card",
+                                            "data":        unified.model_dump(),
+                                            "title":       title,
+                                            "freshness":   freshness,
+                                            "agent":       agent,
+                                        }
+                                    else:
+                                        widget_envelope = {
+                                            "widget_type": wt,
+                                            "data":        wd,
+                                            "title":       title,
+                                            "freshness":   freshness,
+                                            "agent":       agent,
+                                        }
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:
                                     follow_ups = list(fu)[:3]

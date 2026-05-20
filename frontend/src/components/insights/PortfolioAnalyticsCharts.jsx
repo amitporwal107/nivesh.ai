@@ -123,7 +123,10 @@ export const RiskReturnBubble = ({ perfCards, fmt }) => {
     const toPoint = c => ({
       x: Math.max(-120, Math.min(320, c.pct_return || 0)),
       y: Math.max(0, c.weight || 0),
-      z: Math.max(20, Math.log(Math.max(c.invested, 1000)) * 4),
+      // sqrt(invested) keeps bubble area roughly proportional to ₹ invested
+      // without letting one large holding dwarf everything else (linear) or
+      // squashing all bubbles to the same size (log).
+      z: Math.sqrt(Math.max(c.invested || 0, 0)),
       pct_return: c.pct_return,
       weight: c.weight,
       invested: c.invested,
@@ -165,19 +168,19 @@ export const RiskReturnBubble = ({ perfCards, fmt }) => {
             tickFormatter={v => `${v}%`}
             label={{ value: "Weight %", angle: -90, position: "insideLeft", offset: 14, fill: "#64748B", fontSize: 10 }}
           />
-          <ZAxis type="number" dataKey="z" range={[30, 320]} />
+          <ZAxis type="number" dataKey="z" range={[30, 900]} />
           <ReferenceLine x={0} stroke="#475569" strokeDasharray="4 3" />
           <Tooltip content={<TooltipWrapper />} />
-          <Scatter name="+15%+" data={strong} fill="#10B981" fillOpacity={0.8} />
-          <Scatter name="0–15%" data={moderate} fill="#34D399" fillOpacity={0.7} />
+          <Scatter name="+15%+" data={strong} fill="#047857" fillOpacity={0.85} />
+          <Scatter name="0–15%" data={moderate} fill="#86EFAC" fillOpacity={0.75} />
           <Scatter name="-15 to 0" data={weak} fill="#F59E0B" fillOpacity={0.75} />
           <Scatter name="<-15%" data={negative} fill="#EF4444" fillOpacity={0.8} />
         </ScatterChart>
       </ResponsiveContainer>
       <div className="flex flex-wrap gap-3 mt-1 text-[9px] text-slate-400">
         {[
-          { color: "#10B981", label: "+15%+" },
-          { color: "#34D399", label: "0–15%" },
+          { color: "#047857", label: "+15%+" },
+          { color: "#86EFAC", label: "0–15%" },
           { color: "#F59E0B", label: "−15 to 0%" },
           { color: "#EF4444", label: "< −15%" },
         ].map(l => (

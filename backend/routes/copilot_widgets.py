@@ -1190,7 +1190,7 @@ async def overlap_reveal(request: Request, payload: OverlapRequest):
 # ── 10. Risk Suitability ────────────────────────────────────────────
 
 @router.post("/risk_suitability")
-async def risk_suitability_widget(request: Request):
+async def risk_suitability_widget(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """Portfolio risk rating vs user's risk profile.
 
     Calls services.copilot_tools.risk.get_risk_suitability() which computes
@@ -1231,23 +1231,33 @@ async def risk_suitability_widget(request: Request):
     }
 
     confidence = max(0, min(99, int(85 - len(result.misalignment) * 5)))
+    title = f"Risk Suitability · {result.risk_rating}"
+    freshness = FreshnessChip(
+        state="live" if result.ok else "stale",
+        last_updated=_iso_now(),
+        source=["portfolio_holdings", "user_profile", "DAAS"],
+    )
+    agent = AgentInfo(id="risk_analyst", label="Risk Analyst",
+                      version="v1", confidence=confidence)
+    primary_cta = {"label": "How do I reduce my risk?", "action": "reduce_risk"}
+    suggestions = [
+        "What is my portfolio beta?",
+        "Rebalance to match my risk profile",
+        "Show my VaR breakdown",
+    ]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        from services.copilot_tools.insight_card_transformers import risk_suitability_to_insight_card
+        card = risk_suitability_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="risk_suitability",
-        title=f"Risk Suitability · {result.risk_rating}",
-        freshness=FreshnessChip(
-            state="live" if result.ok else "stale",
-            last_updated=_iso_now(),
-            source=["portfolio_holdings", "user_profile", "DAAS"],
-        ),
-        agent=AgentInfo(id="risk_analyst", label="Risk Analyst",
-                        version="v1", confidence=confidence),
-        data=data,
-        primary_cta={"label": "How do I reduce my risk?", "action": "reduce_risk"},
-        suggestions=[
-            "What is my portfolio beta?",
-            "Rebalance to match my risk profile",
-            "Show my VaR breakdown",
-        ],
+        kind="risk_suitability", title=title, freshness=freshness, agent=agent,
+        data=data, primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -1255,7 +1265,7 @@ async def risk_suitability_widget(request: Request):
 # ── 11. Portfolio VaR ───────────────────────────────────────────────
 
 @router.post("/portfolio_var")
-async def portfolio_var_widget(request: Request):
+async def portfolio_var_widget(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """Parametric Value at Risk for the user's portfolio.
 
     Calls services.copilot_tools.risk.get_portfolio_var() which computes
@@ -1286,23 +1296,33 @@ async def portfolio_var_widget(request: Request):
         "rows": result.rows,
     }
 
+    title = "Portfolio VaR · 95% Confidence"
+    freshness = FreshnessChip(
+        state="live" if result.ok else "stale",
+        last_updated=_iso_now(),
+        source=["portfolio_holdings", "DAAS"],
+    )
+    agent = AgentInfo(id="risk_analyst", label="Risk Analyst",
+                      version="v1", confidence=82)
+    primary_cta = {"label": "How do I reduce my VaR?", "action": "reduce_var"}
+    suggestions = [
+        "What drives my portfolio risk?",
+        "Show my most volatile holding",
+        "Add a hedge to my portfolio",
+    ]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        from services.copilot_tools.insight_card_transformers import portfolio_var_to_insight_card
+        card = portfolio_var_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="portfolio_var",
-        title="Portfolio VaR · 95% Confidence",
-        freshness=FreshnessChip(
-            state="live" if result.ok else "stale",
-            last_updated=_iso_now(),
-            source=["portfolio_holdings", "DAAS"],
-        ),
-        agent=AgentInfo(id="risk_analyst", label="Risk Analyst",
-                        version="v1", confidence=82),
-        data=data,
-        primary_cta={"label": "How do I reduce my VaR?", "action": "reduce_var"},
-        suggestions=[
-            "What drives my portfolio risk?",
-            "Show my most volatile holding",
-            "Add a hedge to my portfolio",
-        ],
+        kind="portfolio_var", title=title, freshness=freshness, agent=agent,
+        data=data, primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
