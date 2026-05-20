@@ -248,6 +248,7 @@ const impactScore = (card, medR) => {
 const truncateName = (s, n = 26) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
 
 export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance, onSelectHolding }) => {
+  const [activeTab, setActiveTab] = useState(null);
   const handleSelect = (card) => {
     if (typeof onSelectHolding === "function" && card) onSelectHolding(card);
   };
@@ -510,6 +511,72 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance, onSele
   const conCfg = BUCKET_CONFIG.consolidate;
   const ConIcon = conCfg.icon;
 
+  // Consolidate has its own pair-based body; show all pairs (scrollable) here
+  // since the tab is dedicated to this bucket now.
+  const renderConsolidateBody = () => {
+    if (!showConsolidate) return null;
+    return (
+      <div className={`rounded-2xl p-5 border ${conCfg.border}`}>
+        <div className="flex items-center gap-2.5 mb-2">
+          <ConIcon className="w-5 h-5" style={{ color: conCfg.color }} />
+          <span className="text-base font-bold text-slate-900 dark:text-white">{conCfg.label}</span>
+          <span className="ml-auto text-xs font-bold text-slate-400">
+            {con.pairs.length} pair{con.pairs.length === 1 ? "" : "s"} · {con.fund_count} fund{con.fund_count === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="text-sm font-bold mb-1.5" style={{ color: conCfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+          {getFmtShort(con.value)}{pctOfPortfolio(con.value)} in overlapping funds
+        </p>
+        <p className="text-xs text-slate-400 mb-3">{conCfg.sub}</p>
+        <div className="space-y-2 max-h-[420px] overflow-y-auto">
+          {con.pairs.map((p, i) => {
+            const a = p.fund_a || p.fund1 || "Fund A";
+            const b = p.fund_b || p.fund2 || "Fund B";
+            const pct = p.overlap_pct ?? 0;
+            return (
+              <div key={i} className="flex items-center justify-between gap-2 rounded-lg p-2">
+                <p className="text-sm text-slate-700 dark:text-zinc-200 truncate flex-1">
+                  {truncateName(a, 26)} ↔ {truncateName(b, 26)}
+                </p>
+                <span className="text-sm font-bold flex-shrink-0 text-violet-400">
+                  {pct.toFixed(0)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Build the ordered list of available tabs. A tab is shown only when its
+  // bucket has content — that way users never click into an empty pane.
+  const tabs = [];
+  if (showConsolidate) {
+    tabs.push({ key: "consolidate", count: con.pairs.length, value: con.value });
+  }
+  if ((buckets.tax?.funds?.length || 0) > 0) {
+    tabs.push({ key: "tax", count: buckets.tax.funds.length, value: buckets.tax.value });
+  }
+  ["review", "exit", "increase", "core"].forEach(k => {
+    const b = buckets[k];
+    if (b && (b.funds?.length || 0) > 0) {
+      tabs.push({ key: k, count: b.funds.length, value: b.value });
+    }
+  });
+
+  // Pick a sane default when activeTab is null or points at a tab that no
+  // longer exists (e.g. portfolio changed since last render).
+  const currentTab = (activeTab && tabs.find(t => t.key === activeTab))
+    ? activeTab
+    : (tabs[0]?.key ?? null);
+
+  const renderTabBody = (key) => {
+    if (key === "consolidate") return renderConsolidateBody();
+    if (key === "tax") return renderTaxRow();
+    return renderFundBucket(key);
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-400 dark:text-zinc-500">
@@ -570,49 +637,49 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance, onSele
         </div>
       )}
 
-      {/* Consolidate row — pairs (not single holdings, so click does nothing here yet; PR D wires to OptimizationCard) */}
-      {showConsolidate && (
-        <div className={`rounded-2xl p-5 border ${conCfg.border}`}>
-          <div className="flex items-center gap-2.5 mb-2">
-            <ConIcon className="w-5 h-5" style={{ color: conCfg.color }} />
-            <span className="text-base font-bold text-slate-900 dark:text-white">{conCfg.label}</span>
-            <span className="ml-auto text-xs font-bold text-slate-400">
-              {con.pairs.length} pair{con.pairs.length === 1 ? "" : "s"} · {con.fund_count} fund{con.fund_count === 1 ? "" : "s"}
-            </span>
-          </div>
-          <p className="text-sm font-bold mb-1.5" style={{ color: conCfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
-            {getFmtShort(con.value)}{pctOfPortfolio(con.value)} in overlapping funds
-          </p>
-          <p className="text-xs text-slate-400 mb-3">{conCfg.sub}</p>
-          <div className="space-y-2 max-h-[180px] overflow-y-auto">
-            {con.pairs.slice(0, 4).map((p, i) => {
-              const a = p.fund_a || p.fund1 || "Fund A";
-              const b = p.fund_b || p.fund2 || "Fund B";
-              const pct = p.overlap_pct ?? 0;
+      {/* Tabbed per-category view: one bucket at a time, full width */}
+      {tabs.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/40 p-2">
+          <div
+            role="tablist"
+            aria-label="Action categories"
+            className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-white/10 pb-2 mb-3"
+          >
+            {tabs.map(t => {
+              const cfg = BUCKET_CONFIG[t.key];
+              const Icon = cfg.icon;
+              const isActive = t.key === currentTab;
               return (
-                <div key={i} className="flex items-center justify-between gap-2 rounded-lg p-2">
-                  <p className="text-sm text-slate-700 dark:text-zinc-200 truncate flex-1">
-                    {truncateName(a, 26)} ↔ {truncateName(b, 26)}
-                  </p>
-                  <span className="text-sm font-bold flex-shrink-0 text-violet-400">
-                    {pct.toFixed(0)}%
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveTab(t.key)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 ${
+                    isActive
+                      ? `${cfg.border} border`
+                      : "border border-transparent text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5"
+                  }`}
+                  style={isActive ? { color: cfg.color } : undefined}
+                >
+                  <Icon className="w-4 h-4" style={{ color: cfg.color }} />
+                  <span>{cfg.label}</span>
+                  <span className={`text-xs font-bold ${isActive ? "" : "text-slate-400 dark:text-zinc-500"}`}>
+                    {t.count}
                   </span>
-                </div>
+                  <span className="hidden sm:inline text-[11px] font-medium text-slate-400 dark:text-zinc-500">
+                    · {getFmtShort(t.value)}
+                  </span>
+                </button>
               );
             })}
-            {con.pairs.length > 4 && (
-              <p className="text-xs text-slate-500 text-center pt-1">+{con.pairs.length - 4} more pairs</p>
-            )}
+          </div>
+          <div role="tabpanel">
+            {currentTab && renderTabBody(currentTab)}
           </div>
         </div>
       )}
-
-      {renderTaxRow()}
-
-      {/* 2×2 grid: Review / Exit / Increase / Core */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {(["review", "exit", "increase", "core"]).map(renderFundBucket)}
-      </div>
     </div>
   );
 };
