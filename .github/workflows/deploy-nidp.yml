@@ -48,6 +48,7 @@ jobs:
       - name: Sync backend/nidp → VM
         run: |
           rsync -az --delete \
+            --rsync-path="sudo rsync" \
             --exclude="__pycache__" \
             --exclude="*.pyc" \
             --exclude=".git" \
