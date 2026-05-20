@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertTriangle, TrendingUp, Target, ChevronDown, ChevronRight,
   CheckCircle2, Circle, MessageSquare, Sparkles, Layers, Coins,
-  Building2, Shield, Wallet, RefreshCw, AlertCircle,
+  Building2, Shield, Wallet, RefreshCw, AlertCircle, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,31 +46,56 @@ const formatRs = (v) => {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 };
 
-// Insights from the legacy path may not carry severity/theme — derive defensively.
-const deriveSeverity = (insight) => {
-  if (insight.severity && SEVERITY[insight.severity]) return insight.severity;
-  if (insight.type === "warning" && insight.impact === "high") return "critical";
-  if (insight.type === "opportunity" || insight.impact === "low") return "optimization";
-  return "important";
-};
-const deriveTheme = (insight) => insight.theme || "other";
-const deriveThemeLabel = (insight) => insight.theme_label || ({
+const SEV_ORDER = { critical: 0, important: 1, optimization: 2, positive: 3 };
+
+const THEME_LABEL = {
   duplication: "Duplicate Funds", overlap: "Fund Overlap",
   amc_concentration: "AMC Concentration", category_concentration: "Category Concentration",
   sector_risk: "Sector Risk", drift: "Allocation Drift",
   allocation_gap: "Allocation Gaps", cost: "Cost Leakage", other: "Other",
-}[deriveTheme(insight)] || "Other");
+};
 
-// Match holdings to an insight by name/sector/keyword — mirrors the legacy
-// getAffectedHoldings in InsightsView so the new card keeps showing holdings.
+// Works for both backend-enriched insights (.theme/.severity present) and
+// unenriched basicInsights (only .title/.type/.impact available).
+const deriveSeverity = (insight) => {
+  if (insight.severity && SEVERITY[insight.severity]) return insight.severity;
+  const itype = (insight.type || "").toLowerCase();
+  const impact = (insight.impact || "").toLowerCase();
+  if (itype === "success") return "positive";
+  if (itype === "alert" || (itype === "warning" && impact === "high")) return "critical";
+  if (itype === "opportunity" && impact === "high") return "important";
+  if (itype === "opportunity" || impact === "low" || itype === "info") return "optimization";
+  return "important";
+};
+
+// Parses title text directly when backend theme is absent, so basicInsights
+// (which never went through _enrich_insights) classify correctly.
+const deriveTheme = (insight) => {
+  if (insight.theme && insight.theme !== "other") return insight.theme;
+  const t = (insight.title || insight.headline || "").toLowerCase();
+  const d = (insight.description || insight.detail || insight.action || "").toLowerCase();
+  const text = `${t} ${d}`;
+  if (/overlap\s+\d+%/.test(t) || t.includes("same fund") || t.includes("consolidate")) return "duplication";
+  if (t.includes("overlap") || d.includes("overlap")) return "overlap";
+  if (t.includes("amc") || t.includes("fund house") || /holds.*%.*of.*mf/i.test(text)) return "amc_concentration";
+  if (t.includes("category concentration") || text.includes("mf corpus") || text.includes("guardrail")) return "category_concentration";
+  if (t.includes("sector") && !t.includes("cap")) return "sector_risk";
+  if (t.includes("drift") || t.includes("rebalance") || (t.includes("equity") && t.includes("target"))) return "drift";
+  if (t.includes("direct") || t.includes("regular plan") || t.includes("expense") || t.includes("switch to direct")) return "cost";
+  if (t.includes("debt") || t.includes("allocation") || t.includes("gold") || t.includes("emergency")) return "allocation_gap";
+  return "other";
+};
+
+const deriveThemeLabel = (insight) => insight.theme_label || THEME_LABEL[deriveTheme(insight)] || "Other";
+
 const matchHoldings = (insight, perfCards) => {
   if (!perfCards || perfCards.length === 0) return [];
-  const txt = `${insight.title || ""} ${insight.description || ""} ${insight.action || ""}`.toLowerCase();
+  const txt = `${insight.title || insight.headline || ""} ${insight.description || insight.detail || ""} ${insight.action || ""}`.toLowerCase();
   return perfCards.filter((h) => {
     const name = (h.name || "").toLowerCase();
     const sector = (h.sector || "").toLowerCase();
     const type = (h.asset_type || "").toLowerCase();
-    if (txt.includes(name.slice(0, 15))) return true;
+    if (name.length > 10 && txt.includes(name.slice(0, 12))) return true;
     if (txt.includes("gold") && (sector.includes("gold") || type === "gold")) return true;
     if (txt.includes("debt") && (type.includes("debt") || sector.includes("debt"))) return true;
     if (txt.includes("small cap") && sector.includes("small cap")) return true;
@@ -80,67 +105,100 @@ const matchHoldings = (insight, perfCards) => {
   }).slice(0, 8);
 };
 
-// ── Hero summary card ──────────────────────────────────────────────────
-const HeroSummary = ({ summary, totalInsights, completedCount }) => {
-  const critical = summary?.critical_count || 0;
-  const important = summary?.important_count || 0;
-  const opps = summary?.opportunity_count || 0;
-  const feeSavings = summary?.potential_fee_savings_annual_rs || 0;
-  const taxSavings = summary?.potential_tax_savings_rs || 0;
-  const dupCount = summary?.duplicate_fund_count || 0;
+// ── Hero: "Here are your N most important actions" ─────────────────────
+// Reads from locally-computed counts — never from backend summary — so it
+// works correctly even before the user has run a full analysis.
+const HeroSummary = ({ counts, totalInsights, completedCount, topActions, onScrollToActions }) => {
+  const { critical, important, opportunities: opps } = counts;
+
+  let headline = "Portfolio looks healthy";
+  let subtext = "No high-priority issues found.";
+  if (critical > 0) {
+    headline = `${critical} critical action${critical === 1 ? "" : "s"} need your attention`;
+    subtext = `Plus ${important} important and ${opps} optimisation${opps === 1 ? "" : "s"}.`;
+  } else if (important > 0) {
+    headline = `${important} important recommendation${important === 1 ? "" : "s"} to review`;
+    subtext = `Plus ${opps} optimisation opportunit${opps === 1 ? "y" : "ies"}.`;
+  } else if (opps > 0) {
+    headline = `${opps} optimisation opportunit${opps === 1 ? "y" : "ies"} detected`;
+    subtext = "No critical issues — focus on these to tune your portfolio.";
+  }
 
   return (
     <div className="rounded-2xl bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 dark:from-amber-500/10 dark:via-orange-500/5 dark:to-rose-500/10 border border-amber-200/60 dark:border-amber-500/20 p-5 md:p-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
             <Sparkles className="w-4 h-4 text-amber-600" />
             <p className="text-[10px] font-bold tracking-wider uppercase text-amber-700 dark:text-amber-400">
-              Portfolio Optimization
+              Recommendations Center
             </p>
           </div>
-          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white">
-            {critical > 0
-              ? `${critical} high-priority action${critical === 1 ? "" : "s"} identified`
-              : important > 0
-              ? `${important} recommendation${important === 1 ? "" : "s"} to review`
-              : opps > 0
-              ? `${opps} opportunit${opps === 1 ? "y" : "ies"} to optimize`
-              : "Portfolio looks healthy"}
+          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">
+            {headline}
           </h2>
-          <p className="text-sm text-slate-600 dark:text-zinc-400 mt-1">
-            {totalInsights} insight{totalInsights === 1 ? "" : "s"} detected
-            {completedCount > 0 && ` · ${completedCount} resolved`}
-          </p>
+          <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">{subtext}</p>
+
+          {/* Top-3 action chips — the spec's core ask */}
+          {topActions.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+                Start with these
+              </p>
+              {topActions.map((ins, i) => {
+                const sev = SEVERITY[deriveSeverity(ins)] || SEVERITY.important;
+                const ThemeIcon = THEME_ICON[deriveTheme(ins)] || Sparkles;
+                const title = ins.title || ins.headline || "";
+                return (
+                  <button
+                    key={ins.insight_id || `top-${i}`}
+                    type="button"
+                    onClick={onScrollToActions}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/70 dark:bg-zinc-900/50 border border-white/60 dark:border-white/5 hover:bg-white dark:hover:bg-zinc-900/80 transition text-left group"
+                  >
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-white"
+                      style={{ backgroundColor: sev.color }}
+                    >
+                      {i + 1}
+                    </span>
+                    <ThemeIcon className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                    <span className="text-xs font-medium text-slate-700 dark:text-zinc-300 flex-1 truncate">
+                      {title}
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-slate-400 flex-shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+
         {totalInsights > 0 && (
-          <div className="text-right">
-            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Progress</p>
+          <div className="flex-shrink-0 text-right">
+            <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Progress</p>
             <p className="text-2xl font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
               {completedCount}/{totalInsights}
             </p>
-            <div className="w-28 h-1.5 rounded-full bg-slate-200/60 dark:bg-zinc-700/40 mt-1 overflow-hidden">
+            <div className="w-24 h-1.5 rounded-full bg-slate-200/60 dark:bg-zinc-700/40 mt-1.5 overflow-hidden">
               <div
                 className="h-full bg-emerald-500 transition-all"
                 style={{ width: totalInsights > 0 ? `${(completedCount / totalInsights) * 100}%` : "0%" }}
               />
             </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {totalInsights > 0 ? `${Math.round((completedCount / totalInsights) * 100)}% done` : ""}
+            </p>
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-        <StatTile label="Critical" value={critical} accent="#EF4444" />
-        <StatTile label="Important" value={important} accent="#F59E0B" />
-        <StatTile label="Fee savings" value={feeSavings > 0 ? `${formatRs(feeSavings)}/yr` : "—"} accent="#10B981" />
-        <StatTile label="Duplicate funds" value={dupCount > 0 ? dupCount : "—"} accent="#3B82F6" />
+        <StatTile label="Critical"      value={critical > 0 ? critical : "—"}          accent="#EF4444" />
+        <StatTile label="Important"     value={important > 0 ? important : "—"}        accent="#F59E0B" />
+        <StatTile label="Opportunities" value={opps > 0 ? opps : "—"}                  accent="#3B82F6" />
+        <StatTile label="Resolved"      value={completedCount > 0 ? completedCount : "—"} accent="#10B981" />
       </div>
-
-      {taxSavings > 0 && (
-        <p className="text-xs text-slate-500 dark:text-zinc-500 mt-3">
-          Estimated tax savings: <span className="font-medium text-emerald-600">{formatRs(taxSavings)}</span>
-        </p>
-      )}
     </div>
   );
 };
@@ -155,7 +213,7 @@ const StatTile = ({ label, value, accent }) => (
 );
 
 // ── Single insight card ───────────────────────────────────────────────
-const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) => {
+const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, highlight }) => {
   const [open, setOpen] = useState(false);
   const [marking, setMarking] = useState(false);
   const sev = SEVERITY[deriveSeverity(insight)] || SEVERITY.important;
@@ -163,6 +221,8 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
   const ThemeIcon = THEME_ICON[deriveTheme(insight)] || THEME_ICON.other;
   const benefit = insight.benefit || {};
   const completed = !!insight.completed;
+  const title = insight.title || insight.headline || "";
+  const description = insight.description || insight.detail || "";
   const affectedHoldings = useMemo(() => matchHoldings(insight, perfCards), [insight, perfCards]);
 
   const handleMark = async (e) => {
@@ -193,8 +253,8 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`rounded-xl border overflow-hidden transition-opacity ${sev.border} ${completed ? "opacity-60" : ""}`}
-      data-testid={`rec-card-${insight.insight_id || insight.title}`}
+      className={`rounded-xl border overflow-hidden transition-opacity ${sev.border} ${highlight ? "ring-2 ring-amber-400/40" : ""} ${completed ? "opacity-60" : ""}`}
+      data-testid={`rec-card-${insight.insight_id || title}`}
     >
       <div
         className={`p-4 cursor-pointer ${sev.bg} hover:opacity-90 transition-opacity`}
@@ -205,7 +265,7 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className={`text-sm font-semibold text-slate-900 dark:text-white ${completed ? "line-through" : ""}`}>
-                {insight.title}
+                {title}
               </p>
               <span
                 className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
@@ -226,7 +286,7 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
             )}
 
             <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1 line-clamp-2">
-              {insight.description}
+              {description}
             </p>
           </div>
 
@@ -257,10 +317,10 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
             className="bg-white dark:bg-[#121212] border-t border-slate-100 dark:border-white/5"
           >
             <div className="p-4 space-y-3">
-              {insight.description && (
+              {description && (
                 <div>
                   <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400 mb-1">Details</p>
-                  <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{insight.description}</p>
+                  <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">{description}</p>
                 </div>
               )}
 
@@ -375,7 +435,7 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt }) =
 };
 
 // ── Theme group (collapsible) ─────────────────────────────────────────
-const ThemeGroup = ({ theme, label, items, perfCards, onMarkDone, onUnmark, onAsk, fmt }) => {
+const ThemeGroup = ({ theme, label, items, perfCards, onMarkDone, onUnmark, onAsk, fmt, highlightIds }) => {
   const [open, setOpen] = useState(true);
   const Icon = THEME_ICON[theme] || THEME_ICON.other;
   if (!items.length) return null;
@@ -404,6 +464,7 @@ const ThemeGroup = ({ theme, label, items, perfCards, onMarkDone, onUnmark, onAs
               onUnmark={onUnmark}
               onAsk={onAsk}
               fmt={fmt}
+              highlight={highlightIds?.has(ins.insight_id)}
             />
           ))}
         </div>
@@ -422,29 +483,31 @@ const SUGGESTED_PROMPTS = [
 
 export default function RecommendationsCenter({
   insights,
-  summary,
+  summary,   // kept for future backend-driven benefit data; hero uses computed counts
   perfCards,
   fmt,
   onAfterChange,
 }) {
   const [activeTab, setActiveTab] = useState("all");
-  const [localCompletions, setLocalCompletions] = useState({}); // optimistic overlay
+  const [localCompletions, setLocalCompletions] = useState({});
+  const actionsRef = React.useRef(null);
 
-  // Apply optimistic overlay so the UI doesn't flicker waiting for refetch
   const enriched = useMemo(() =>
     (insights || []).map((ins) => {
       const id = ins.insight_id;
-      const local = id && localCompletions[id];
+      const local = id !== undefined ? localCompletions[id] : undefined;
       return local !== undefined ? { ...ins, completed: local } : ins;
     }),
   [insights, localCompletions]);
 
+  // Counts derived entirely from local array — works before backend analysis runs
   const counts = useMemo(() => {
     const c = { all: 0, critical: 0, important: 0, opportunities: 0, completed: 0 };
     enriched.forEach((ins) => {
       const sev = deriveSeverity(ins);
-      if (ins.completed) c.completed += 1;
-      else {
+      if (ins.completed) {
+        c.completed += 1;
+      } else {
         c.all += 1;
         if (sev === "critical") c.critical += 1;
         else if (sev === "important") c.important += 1;
@@ -453,6 +516,20 @@ export default function RecommendationsCenter({
     });
     return c;
   }, [enriched]);
+
+  // Top-3 by severity (critical > important > optimization), excluding completed
+  const topActions = useMemo(() =>
+    [...enriched]
+      .filter((ins) => !ins.completed)
+      .sort((a, b) => (SEV_ORDER[deriveSeverity(a)] ?? 99) - (SEV_ORDER[deriveSeverity(b)] ?? 99))
+      .slice(0, 3),
+  [enriched]);
+
+  // IDs used to ring-highlight the top-3 cards in the All tab list
+  const topActionIds = useMemo(
+    () => new Set(topActions.map((i) => i.insight_id).filter(Boolean)),
+    [topActions],
+  );
 
   const filtered = useMemo(() => {
     if (activeTab === "completed") return enriched.filter((i) => i.completed);
@@ -469,7 +546,7 @@ export default function RecommendationsCenter({
       map.get(t).items.push(ins);
     });
     return Array.from(map.entries())
-      .sort((a, b) => a[1].order - b[1].order)
+      .sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0]))
       .map(([theme, v]) => ({ theme, ...v }));
   }, [filtered]);
 
@@ -509,7 +586,13 @@ export default function RecommendationsCenter({
 
   return (
     <section className="space-y-4" data-testid="recommendations-center">
-      <HeroSummary summary={summary} totalInsights={totalInsights} completedCount={completedCount} />
+      <HeroSummary
+        counts={counts}
+        totalInsights={totalInsights}
+        completedCount={completedCount}
+        topActions={topActions}
+        onScrollToActions={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      />
 
       {/* Priority tabs */}
       <div className="flex gap-1 bg-slate-100 dark:bg-[#1A1A1A] rounded-xl p-1 border border-slate-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
@@ -539,34 +622,37 @@ export default function RecommendationsCenter({
         })}
       </div>
 
-      {/* Grouped cards */}
-      {grouped.length === 0 ? (
-        <div className="rounded-2xl border border-slate-100 dark:border-white/5 bg-white dark:bg-[#121212] p-8 text-center">
-          <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-          <p className="text-sm font-medium text-slate-900 dark:text-white">
-            {activeTab === "completed" ? "Nothing completed yet" : "Nothing in this category"}
-          </p>
-          <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">
-            {activeTab === "completed" ? "Mark recommendations as done to track progress here." : "Try another tab."}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {grouped.map((g) => (
-            <ThemeGroup
-              key={g.theme}
-              theme={g.theme}
-              label={g.label}
-              items={g.items}
-              perfCards={perfCards}
-              onMarkDone={markDone}
-              onUnmark={unmarkDone}
-              onAsk={onAsk}
-              fmt={fmt}
-            />
-          ))}
-        </div>
-      )}
+      {/* Grouped action cards */}
+      <div ref={actionsRef} className="scroll-mt-4">
+        {grouped.length === 0 ? (
+          <div className="rounded-2xl border border-slate-100 dark:border-white/5 bg-white dark:bg-[#121212] p-8 text-center">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+            <p className="text-sm font-medium text-slate-900 dark:text-white">
+              {activeTab === "completed" ? "Nothing completed yet" : "Nothing in this category"}
+            </p>
+            <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1">
+              {activeTab === "completed" ? "Mark recommendations as done to track progress here." : "Try another tab."}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {grouped.map((g) => (
+              <ThemeGroup
+                key={g.theme}
+                theme={g.theme}
+                label={g.label}
+                items={g.items}
+                perfCards={perfCards}
+                onMarkDone={markDone}
+                onUnmark={unmarkDone}
+                onAsk={onAsk}
+                fmt={fmt}
+                highlightIds={activeTab === "all" ? topActionIds : null}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Suggested Copilot prompts */}
       {totalInsights > 0 && (
