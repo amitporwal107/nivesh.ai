@@ -640,7 +640,9 @@ const TaxInsightsTab = ({ onOpenChat }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/copilot/widgets/tax_harvest`, {}, { withCredentials: true })
+    // layout=insight_card switches the envelope to the unified 9-section card.
+    axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/copilot/widgets/tax_harvest`,
+                { layout: "insight_card" }, { withCredentials: true })
       .then((r) => setEnvelope(r.data))
       .catch(() => setError("Could not load tax harvest data."))
       .finally(() => setLoading(false));
@@ -697,8 +699,9 @@ const RiskInsightsTab = ({ onOpenChat }) => {
     Promise.all([
       axios.post(`${BACKEND}/api/copilot/widgets/risk_suitability`,  {}, { withCredentials: true }).catch(() => null),
       axios.post(`${BACKEND}/api/copilot/widgets/portfolio_var`,      {}, { withCredentials: true }).catch(() => null),
-      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "covid_2020" }, { withCredentials: true }).catch(() => null),
-      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "gfc_2008"  }, { withCredentials: true }).catch(() => null),
+      // layout=insight_card switches the envelope to the unified 9-section card.
+      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "covid_2020", layout: "insight_card" }, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "gfc_2008",  layout: "insight_card" }, { withCredentials: true }).catch(() => null),
     ]).then(([s, v, c, g]) => {
       if (s) setSuitability(s.data?.data || s.data);
       if (v) setVarData(v.data?.data || v.data);

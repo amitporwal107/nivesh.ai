@@ -827,7 +827,10 @@ const HoldingIntelligenceDrawer = ({ holding, onClose }) => {
       );
     } else {
       tasks.push(
-        axios.post(`${API}/copilot/widgets/fund_card`, { query: holding.ticker || holding.name }, { withCredentials: true })
+        // layout=insight_card switches the envelope to the unified 9-section card.
+        axios.post(`${API}/copilot/widgets/fund_card`,
+                    { query: holding.ticker || holding.name, layout: "insight_card" },
+                    { withCredentials: true })
           .then((r) => { if (!cancelled) setEnvelope(r.data); })
           .catch((e) => { if (!cancelled) setError(e.response?.data?.detail || null); })
       );

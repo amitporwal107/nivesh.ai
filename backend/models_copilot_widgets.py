@@ -43,6 +43,7 @@ WidgetKind = Literal[
     "portfolio_var",
     "company_financials",
     "fd_comparison",
+    "insight_card",
 ]
 
 FreshnessState = Literal["live", "cached", "delayed", "eod", "stale"]
@@ -247,6 +248,103 @@ class OverlapRevealData(BaseModel):
     verdict: Optional[str] = None
 
 
+# ── Insight Card (unified 9-section conversational response) ──────
+#
+# The InsightCard is the forward-looking response shape for every
+# Copilot tool. It standardises the mobile-first card layout with a
+# fixed information architecture so users always know where to look:
+#
+#   1. Hero        — the headline number + severity tag
+#   2. KPIs        — supporting metrics, swipeable on mobile
+#   3. Findings    — prioritised list of specific issues
+#   4. Recommendation — what the AI suggests in one paragraph
+#   5. Impact      — optional before/after preview
+#   6. Actions     — checklist of one-tap next steps
+#   7. Education   — optional "why this matters" explainer
+#   8. Suggested questions — follow-up chips
+#   9. Sticky CTA  — derived from actions[0] on mobile
+#
+# Tools opt in by emitting `kind="insight_card"` with this payload.
+# Sections are individually optional — only the populated ones render.
+
+InsightSeverity = Literal["critical", "high", "medium", "info", "healthy"]
+ActionStyle = Literal["primary", "secondary", "tertiary"]
+Trend = Literal["up", "down", "flat"]
+
+
+class InsightHero(BaseModel):
+    """The single most important takeaway. Big number + short label."""
+    severity: InsightSeverity = "info"
+    eyebrow: Optional[str] = None              # "Top Priority", "Healthy", etc.
+    headline: str                              # short title (≤ 60 chars)
+    primary_value: Optional[str] = None        # rendered as-is (e.g. "₹8,400/yr", "97%")
+    primary_label: Optional[str] = None        # subtitle under the value
+    subtitle: Optional[str] = None             # one-sentence explanation
+    trend: Optional[Trend] = None
+
+
+class InsightKpi(BaseModel):
+    """A single metric card in the swipeable carousel."""
+    label: str                                 # "Funds Analysed"
+    value: str                                 # rendered as-is — formatter is server-side
+    sublabel: Optional[str] = None             # "out of 14"
+    trend: Optional[Trend] = None
+    tone: Optional[InsightSeverity] = None     # tints background
+
+
+class InsightFinding(BaseModel):
+    """A specific issue or observation, ranked by priority."""
+    priority: Literal["high", "medium", "low"] = "medium"
+    title: str                                 # "Axis Bluechip vs Mirae Largecap"
+    detail: Optional[str] = None               # "97% portfolio overlap"
+    impact_value: Optional[str] = None         # "Save ₹8,400/yr"
+    impact_label: Optional[str] = None         # "Estimated annual savings"
+    confidence_pct: Optional[int] = None       # 0..100
+
+
+class InsightRecommendation(BaseModel):
+    """The AI's narrative recommendation — kept short for mobile."""
+    summary: str                               # 2–3 lines max
+    rationale: Optional[str] = None            # expanded reasoning, shown on tap
+    confidence_pct: Optional[int] = None
+
+
+class InsightImpact(BaseModel):
+    """Optional before/after preview of acting on the recommendation."""
+    before_label: str = "Today"
+    before_value: str
+    after_label: str = "After"
+    after_value: str
+    delta_label: Optional[str] = None          # "Save ₹8,400/yr"
+    delta_tone: Optional[InsightSeverity] = None
+
+
+class InsightAction(BaseModel):
+    """A single one-tap action. Rendered as a chip or sticky CTA."""
+    label: str                                 # "Review findings"
+    action_id: str                             # routed to onAction() callback
+    style: ActionStyle = "secondary"
+    icon: Optional[str] = None                 # lucide icon name; optional
+
+
+class InsightEducation(BaseModel):
+    """Optional 'why this matters' block, collapsed by default on mobile."""
+    heading: str = "Why this matters"
+    body: str
+
+
+class InsightCardData(BaseModel):
+    hero: InsightHero
+    kpis: List[InsightKpi] = Field(default_factory=list)
+    findings: List[InsightFinding] = Field(default_factory=list)
+    recommendation: Optional[InsightRecommendation] = None
+    impact: Optional[InsightImpact] = None
+    actions: List[InsightAction] = Field(default_factory=list)
+    education: Optional[InsightEducation] = None
+    # NOTE: suggested_questions live on the envelope's `suggestions` field
+    # — reusing the existing channel keeps the dispatcher uniform.
+
+
 __all__ = [
     "WidgetEnvelope", "FreshnessChip", "AgentInfo", "WidgetKind", "FreshnessState",
     "FundCardData", "CompareTableData", "CompareRow",
@@ -258,4 +356,7 @@ __all__ = [
     "StressTestData", "StressTestBreakdown",
     "SectorRotationData", "SectorPoint",
     "OverlapRevealData", "OverlapStock",
+    "InsightCardData", "InsightHero", "InsightKpi", "InsightFinding",
+    "InsightRecommendation", "InsightImpact", "InsightAction", "InsightEducation",
+    "InsightSeverity", "ActionStyle", "Trend",
 ]

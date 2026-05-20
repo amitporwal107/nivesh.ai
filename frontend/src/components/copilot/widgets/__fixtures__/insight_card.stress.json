@@ -1,0 +1,127 @@
+{
+  "kind": "insight_card",
+  "title": "Stress Test · COVID-19 Crash",
+  "freshness": {
+    "state": "cached",
+    "last_updated": null,
+    "source": [
+      "portfolio_holdings",
+      "nidp.scenarios"
+    ],
+    "age_seconds": null,
+    "confidence": null
+  },
+  "agent": {
+    "id": "market_strategist",
+    "label": "Market Strategist",
+    "version": "v1",
+    "confidence": 82
+  },
+  "data": {
+    "hero": {
+      "severity": "high",
+      "eyebrow": "COVID-19 Crash (Feb–Mar 2020)",
+      "headline": "Projected impact: -34.3%",
+      "primary_value": "₹657,000",
+      "primary_label": "Stressed portfolio value",
+      "subtitle": "Nifty 50 fell ~38% in 40 days. Debt remained largely stable.",
+      "trend": "down"
+    },
+    "kpis": [
+      {
+        "label": "Current value",
+        "value": "₹1,000,000",
+        "sublabel": null,
+        "trend": null,
+        "tone": null
+      },
+      {
+        "label": "Drawdown",
+        "value": "-34.3%",
+        "sublabel": null,
+        "trend": "down",
+        "tone": "high"
+      },
+      {
+        "label": "Recovery",
+        "value": "~1.2 yr",
+        "sublabel": "historical avg",
+        "trend": null,
+        "tone": null
+      },
+      {
+        "label": "Holdings stressed",
+        "value": "4",
+        "sublabel": null,
+        "trend": null,
+        "tone": null
+      }
+    ],
+    "findings": [
+      {
+        "priority": "high",
+        "title": "Axis Bluechip Direct",
+        "detail": "-38.0% in this scenario",
+        "impact_value": "₹-152,000",
+        "impact_label": "Value at risk",
+        "confidence_pct": null
+      },
+      {
+        "priority": "high",
+        "title": "HDFC Mid-Cap Opp",
+        "detail": "-38.0% in this scenario",
+        "impact_value": "₹-114,000",
+        "impact_label": "Value at risk",
+        "confidence_pct": null
+      },
+      {
+        "priority": "high",
+        "title": "Parag Parikh Flexi Cap",
+        "detail": "-38.0% in this scenario",
+        "impact_value": "₹-76,000",
+        "impact_label": "Value at risk",
+        "confidence_pct": null
+      }
+    ],
+    "recommendation": {
+      "summary": "Your portfolio would fall to ₹6,57,000 (-34.3%) under this scenario. Historical recovery took ~1.2 year(s).",
+      "rationale": "Stress tests apply historical shock magnitudes uniformly to each holding by asset class. Real outcomes vary by fund manager skill, sector tilt, and rebalancing speed.",
+      "confidence_pct": 72
+    },
+    "impact": null,
+    "actions": [
+      {
+        "label": "Run custom scenario",
+        "action_id": "custom_stress",
+        "style": "primary",
+        "icon": null
+      },
+      {
+        "label": "Compare 2008 GFC",
+        "action_id": "compare_gfc_2008",
+        "style": "secondary",
+        "icon": null
+      },
+      {
+        "label": "Show hedge ideas",
+        "action_id": "hedge_ideas",
+        "style": "secondary",
+        "icon": null
+      }
+    ],
+    "education": {
+      "heading": "Why this matters",
+      "body": "Stress tests don't predict the future — they show how today's portfolio would have fared in a past crash. Use them to gauge whether your drawdown tolerance matches your allocation, not to time markets."
+    }
+  },
+  "primary_cta": {
+    "label": "Run custom scenario",
+    "action": "custom_stress"
+  },
+  "suggestions": [
+    "Compare with 2008 GFC",
+    "How to reduce drawdown?",
+    "Hedge strategies"
+  ],
+  "partial": false
+}

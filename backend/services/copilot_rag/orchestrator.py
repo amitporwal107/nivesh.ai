@@ -625,6 +625,116 @@ async def _llm_prose(
         return f"(Copilot temporarily unavailable: {e})"
 
 
+# ── Insight-card widget envelope wiring ────────────────────────────
+#
+# Selected intents map to a tool we already build a `WidgetEnvelope`
+# for. When matched, we run that tool's data-builder + insight_card
+# transformer and attach the envelope to the chat response. The chat
+# route persists it on the assistant message so the frontend's
+# WidgetRenderer can paint the unified card alongside the prose.
+#
+# Disabled by default so existing chat-text-only behaviour is unchanged;
+# set COPILOT_INSIGHT_CARD_CHAT=true to turn it on globally. Per-intent
+# wiring lives in `_intent_to_envelope` — adding a new intent is one
+# entry there plus a builder import.
+
+_INSIGHT_CARD_ENABLED = (os.environ.get("COPILOT_INSIGHT_CARD_CHAT", "true").lower() == "true")
+
+
+async def _intent_to_envelope(intent: Intent, user_id: str) -> Optional[Dict[str, Any]]:
+    """Map an Intent to a fully-formed insight_card WidgetEnvelope dict
+    by calling the matching widget builder + transformer.
+
+    Returns None when the intent has no widget mapping (chat falls back
+    to prose-only as it does today). Any failure logs and returns None
+    — chat must never 500 because the optional card couldn't build."""
+    try:
+        from services.copilot_tools import widget_builders as WB
+        from services.copilot_tools import insight_card_transformers as TR
+        from models_copilot_widgets import (
+            WidgetEnvelope, FreshnessChip, AgentInfo,
+        )
+        from datetime import datetime, timezone
+
+        def _now_iso() -> str:
+            return datetime.now(timezone.utc).isoformat()
+
+        name = intent.name
+
+        if name == "stress_test":
+            scenario = intent.extras.get("scenario", "covid_2020")
+            custom_drop = intent.extras.get("custom_equity_drop")
+            data, scen = await WB.build_stress_test_data(
+                user_id=user_id, scenario=scenario, custom_drop_pct=custom_drop,
+            )
+            card = TR.stress_to_insight_card(data)
+            env = WidgetEnvelope(
+                kind="insight_card", title=scen["name"],
+                freshness=FreshnessChip(state="cached", last_updated=_now_iso(),
+                                          source=["portfolio_holdings", "nidp.scenarios"]),
+                agent=AgentInfo(id="market_strategist", label="Market Strategist",
+                                 version="v1", confidence=82),
+                data=card.model_dump(),
+                primary_cta={"label": "Run custom scenario", "action": "custom_stress"},
+                suggestions=["Compare with 2008 GFC", "How to reduce drawdown?", "Hedge strategies"],
+            )
+            return env.model_dump()
+
+        if name == "overlap":
+            data = await WB.build_overlap_data(user_id=user_id)
+            if not data.funds:
+                return None
+            card = TR.overlap_to_insight_card(data)
+            env = WidgetEnvelope(
+                kind="insight_card",
+                title=f"Overlap · {' vs '.join(data.funds[:2]) if len(data.funds) >= 2 else 'Portfolio funds'}",
+                freshness=FreshnessChip(state="cached", last_updated=_now_iso(),
+                                          source=["mf_master"]),
+                agent=AgentInfo(id="mf_research", label="Mutual Fund Research",
+                                 version="v1", confidence=78),
+                data=card.model_dump(),
+                primary_cta={"label": "Find alternatives with less overlap",
+                              "action": "reduce_overlap"},
+                suggestions=["Cheaper alternatives", "Compare returns", "Remove a fund"],
+            )
+            return env.model_dump()
+
+        if name == "tax":
+            data = await WB.build_tax_harvest_data(user_id=user_id)
+            card = TR.tax_harvest_to_insight_card(data)
+            env = WidgetEnvelope(
+                kind="insight_card", title=f"Tax Harvest Plan · {data.fy}",
+                freshness=FreshnessChip(state="cached", last_updated=_now_iso(),
+                                          source=["portfolio_holdings", "capital_gains_summary"]),
+                agent=AgentInfo(id="tax_agent", label="Tax Agent",
+                                 version="v1", confidence=85),
+                data=card.model_dump(),
+                primary_cta={"label": "Simulate harvest", "action": "simulate_harvest"},
+                suggestions=["Plan switch", "Show STCG separately", "Generate gains statement"],
+            )
+            return env.model_dump()
+
+        if name in ("plan", "drift"):
+            data = await WB.build_rebalance_data(user_id=user_id)
+            card = TR.rebalance_to_insight_card(data)
+            env = WidgetEnvelope(
+                kind="insight_card", title="Rebalance Plan",
+                freshness=FreshnessChip(state="cached", last_updated=_now_iso(),
+                                          source=["portfolio_holdings"]),
+                agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
+                                 version="v1", confidence=80),
+                data=card.model_dump(),
+                primary_cta={"label": "Execute plan", "action": "execute_rebalance"},
+                suggestions=["Simulate tax impact", "Show only equity changes", "Compare with my goals"],
+            )
+            return env.model_dump()
+
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("insight_card envelope build failed for intent=%s: %s", intent.name, e)
+        return None
+
+
 async def answer(
     user_id: str,
     message: str,
@@ -668,9 +778,16 @@ async def answer(
         logger.debug("NIDP context injection skipped: %s", _nidp_exc)
 
     prose = await _llm_prose(payload_text, message, history)
+
+    # Optional insight_card envelope alongside the prose.
+    widget_envelope: Optional[Dict[str, Any]] = None
+    if _INSIGHT_CARD_ENABLED:
+        widget_envelope = await _intent_to_envelope(intent, user_id)
+
     return {
         "prose": prose,
         "chart_spec": retrieval.chart_spec,
+        "widget": widget_envelope,
         "intent": intent.name,
         "retrieval_ok": retrieval.ok,
         "retrieval_reason": retrieval.reason or None,
