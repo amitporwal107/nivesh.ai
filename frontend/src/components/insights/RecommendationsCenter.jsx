@@ -108,12 +108,37 @@ const matchHoldings = (insight, perfCards) => {
 // ── Hero: "Here are your N most important actions" ─────────────────────
 // Reads from locally-computed counts — never from backend summary — so it
 // works correctly even before the user has run a full analysis.
-const HeroSummary = ({ counts, totalInsights, completedCount, topActions, onScrollToActions }) => {
+// ── Hero: "₹X Lakhs can be optimized" — the spec's optimisation engine framing
+const HeroSummary = ({ counts, summary, totalInsights, completedCount, topActions, onScrollToActions }) => {
   const { critical, important, opportunities: opps } = counts;
 
-  let headline = "Portfolio looks healthy";
-  let subtext = "No high-priority issues found.";
-  if (critical > 0) {
+  // Optimisation aggregates (only present once backend returns enriched summary)
+  const optimizableRs   = Number(summary?.total_optimizable_rs || 0);
+  const annualSavingsRs = Number(summary?.potential_fee_savings_annual_rs || 0);
+  const wealth10yRs     = Number(summary?.projected_wealth_gain_10y_rs || 0);
+  const currentFunds    = Number(summary?.current_fund_count || 0);
+  const targetFunds     = Number(summary?.target_fund_count || 0);
+  const divCurrent      = summary?.diversification_score_current;
+  const divTarget       = summary?.diversification_score_target;
+  const dupCount        = Number(summary?.duplicate_fund_count || 0);
+
+  const hasOptimization = optimizableRs > 0 || annualSavingsRs > 0 || dupCount > 0;
+
+  // Headline — leads with money optimised when we have it, falls back to count-based copy
+  let headline;
+  let subtext;
+  if (hasOptimization) {
+    headline = `${formatRs(optimizableRs)} can be optimised`;
+    const parts = [];
+    if (annualSavingsRs > 0) parts.push(`save ${formatRs(annualSavingsRs)}/yr in fees`);
+    if (currentFunds && targetFunds && currentFunds > targetFunds) {
+      parts.push(`simplify ${currentFunds} → ${targetFunds} funds`);
+    }
+    if (divCurrent && divTarget && divTarget > divCurrent) {
+      parts.push(`diversification ${divCurrent} → ${divTarget}`);
+    }
+    subtext = parts.length ? parts.join(" · ") : "Consolidate duplicate funds to unlock long-term gains.";
+  } else if (critical > 0) {
     headline = `${critical} critical action${critical === 1 ? "" : "s"} need your attention`;
     subtext = `Plus ${important} important and ${opps} optimisation${opps === 1 ? "" : "s"}.`;
   } else if (important > 0) {
@@ -122,6 +147,9 @@ const HeroSummary = ({ counts, totalInsights, completedCount, topActions, onScro
   } else if (opps > 0) {
     headline = `${opps} optimisation opportunit${opps === 1 ? "y" : "ies"} detected`;
     subtext = "No critical issues — focus on these to tune your portfolio.";
+  } else {
+    headline = "Portfolio looks healthy";
+    subtext = "No high-priority issues found.";
   }
 
   return (
@@ -131,15 +159,15 @@ const HeroSummary = ({ counts, totalInsights, completedCount, topActions, onScro
           <div className="flex items-center gap-2 mb-1">
             <Sparkles className="w-4 h-4 text-amber-600" />
             <p className="text-[10px] font-bold tracking-wider uppercase text-amber-700 dark:text-amber-400">
-              Recommendations Center
+              Portfolio Optimisation Opportunities
             </p>
           </div>
-          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white leading-tight">
+          <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white leading-tight" data-testid="rec-hero-headline">
             {headline}
           </h2>
           <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">{subtext}</p>
 
-          {/* Top-3 action chips — the spec's core ask */}
+          {/* Top-3 action chips */}
           {topActions.length > 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
@@ -193,22 +221,72 @@ const HeroSummary = ({ counts, totalInsights, completedCount, topActions, onScro
         )}
       </div>
 
+      {/* Optimisation metric tiles when backend provides aggregates,
+          severity counts otherwise */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-        <StatTile label="Critical"      value={critical > 0 ? critical : "—"}          accent="#EF4444" />
-        <StatTile label="Important"     value={important > 0 ? important : "—"}        accent="#F59E0B" />
-        <StatTile label="Opportunities" value={opps > 0 ? opps : "—"}                  accent="#3B82F6" />
-        <StatTile label="Resolved"      value={completedCount > 0 ? completedCount : "—"} accent="#10B981" />
+        {hasOptimization ? (
+          <>
+            <StatTile
+              label="Annual savings"
+              value={annualSavingsRs > 0 ? `${formatRs(annualSavingsRs)}` : "—"}
+              sublabel={annualSavingsRs > 0 ? "in fees" : null}
+              accent="#10B981"
+              testid="hero-tile-savings"
+            />
+            <StatTile
+              label="Funds to consolidate"
+              value={dupCount > 0 ? dupCount : (currentFunds && targetFunds ? `${currentFunds} → ${targetFunds}` : "—")}
+              sublabel={dupCount > 0 ? "duplicates" : null}
+              accent="#3B82F6"
+              testid="hero-tile-funds"
+            />
+            <StatTile
+              label="Diversification"
+              value={(divCurrent != null && divTarget != null && divTarget > divCurrent) ? `${divCurrent} → ${divTarget}` : "—"}
+              sublabel={(divCurrent != null && divTarget != null) ? `+${Math.max(0, divTarget - divCurrent)} pts` : null}
+              accent="#8B5CF6"
+              testid="hero-tile-diversification"
+            />
+            <StatTile
+              label="10Y wealth gain"
+              value={wealth10yRs > 0 ? formatRs(wealth10yRs) : "—"}
+              sublabel={wealth10yRs > 0 ? "@ 12% CAGR" : null}
+              accent="#F59E0B"
+              testid="hero-tile-wealth"
+            />
+          </>
+        ) : (
+          <>
+            <StatTile label="Critical"      value={critical > 0 ? critical : "—"}          accent="#EF4444" />
+            <StatTile label="Important"     value={important > 0 ? important : "—"}        accent="#F59E0B" />
+            <StatTile label="Opportunities" value={opps > 0 ? opps : "—"}                  accent="#3B82F6" />
+            <StatTile label="Resolved"      value={completedCount > 0 ? completedCount : "—"} accent="#10B981" />
+          </>
+        )}
       </div>
+
+      {/* Status footer — severity breakdown stays visible even when opt numbers show */}
+      {hasOptimization && (critical > 0 || important > 0 || opps > 0) && (
+        <p className="text-[11px] text-slate-500 dark:text-zinc-500 mt-3 flex flex-wrap gap-x-3 gap-y-1">
+          {critical > 0 && <span><span className="font-semibold text-red-500">{critical}</span> critical</span>}
+          {important > 0 && <span><span className="font-semibold text-amber-500">{important}</span> important</span>}
+          {opps > 0 && <span><span className="font-semibold text-blue-500">{opps}</span> opportunities</span>}
+          {completedCount > 0 && <span><span className="font-semibold text-emerald-500">{completedCount}</span> resolved</span>}
+        </p>
+      )}
     </div>
   );
 };
 
-const StatTile = ({ label, value, accent }) => (
-  <div className="bg-white/70 dark:bg-zinc-900/40 rounded-xl px-3 py-2.5 border border-white/40 dark:border-white/5">
+const StatTile = ({ label, value, accent, sublabel, testid }) => (
+  <div className="bg-white/70 dark:bg-zinc-900/40 rounded-xl px-3 py-2.5 border border-white/40 dark:border-white/5" data-testid={testid}>
     <p className="text-[9px] font-bold tracking-wider uppercase text-slate-500 dark:text-zinc-500">{label}</p>
-    <p className="text-lg font-bold mt-0.5" style={{ color: accent, fontFamily: "'Outfit', sans-serif" }}>
+    <p className="text-lg font-bold mt-0.5 leading-tight" style={{ color: accent, fontFamily: "'Outfit', sans-serif" }}>
       {value}
     </p>
+    {sublabel && (
+      <p className="text-[9px] text-slate-400 dark:text-zinc-500 mt-0.5">{sublabel}</p>
+    )}
   </div>
 );
 
@@ -588,6 +666,7 @@ export default function RecommendationsCenter({
     <section className="space-y-4" data-testid="recommendations-center">
       <HeroSummary
         counts={counts}
+        summary={summary}
         totalInsights={totalInsights}
         completedCount={completedCount}
         topActions={topActions}

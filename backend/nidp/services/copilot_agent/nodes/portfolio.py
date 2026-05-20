@@ -29,6 +29,10 @@ Style:
 - If rebalance: show a table with Action | Fund | Amount
 - If stress test: show portfolio value before/after and % drop
 - If tax harvest: show Loss | Gain-offset | Est. tax saving
+- If `compare_portfolio_funds` ran, render a markdown table with columns:
+  Fund | Category | 1Y | 3Y | 5Y | TER | Allocation. Use scheme names verbatim from TOOL_DATA (never UUIDs).
+  Then list the top 3 overlap pairs by name (from TOP_OVERLAP block) with %.
+  If returns/TER are missing for some funds, mark those cells "—" — do not write "data unavailable" for the whole answer when partial data exists.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
 
@@ -117,6 +121,20 @@ async def _fetch_portfolio_data(state: CopilotState) -> list:
                 widget_type=WidgetType.TAX_HARVEST,
             ))
 
+        # Side-by-side MF comparison: returns + TER + overlap together
+        wants_compare = any(kw in user_msg for kw in (
+            "compare", "comparison", "side by side", "side-by-side",
+            "rolling return", "expense ratio", " ter ", " ter.", " ter,", " ter:", "ter%",
+        ))
+        wants_fund_ctx = any(kw in user_msg for kw in ("fund", " mf ", "mutual", "scheme"))
+        if wants_compare and wants_fund_ctx:
+            cmp = await port_mod.compare_portfolio_funds(user_id)
+            results.append(ToolResult(
+                ok=cmp.ok, tool_name="compare_portfolio_funds",
+                summary=cmp.summary, data=cmp.data, rows=cmp.rows,
+                widget_type=WidgetType.FUND_COMPARISON,
+            ))
+
         if any(kw in user_msg for kw in ("overlap", "duplicate", "similar fund")):
             ov = await port_mod.get_portfolio_overlap(user_id)
             results.append(ToolResult(
@@ -156,7 +174,7 @@ async def portfolio_node(state: CopilotState) -> dict:
     # pick the richest widget to surface
     _PRIORITY = [
         WidgetType.STRESS_TEST, WidgetType.TAX_HARVEST, WidgetType.REBALANCE_PLAN,
-        WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
+        WidgetType.FUND_COMPARISON, WidgetType.OVERLAP_REVEAL, WidgetType.PORTFOLIO_OVERVIEW,
     ]
     widget_type = WidgetType.NONE
     widget_data: dict = {}

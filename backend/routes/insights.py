@@ -133,24 +133,38 @@ def _compute_benefit(
 
     Returns:
         fee_savings_annual_rs: ₹ saved/year by acting
+        optimizable_rs: ₹ AUM that can be freed / redeployed by this action
         tax_savings_rs: ₹ tax saved (placeholder until Tax engine wires up)
+        funds_removed: # of MF holdings eliminated on resolution (0/1)
         health_score_delta: +points to portfolio health on resolution
         simplicity_delta_pct: % reduction in holding count
         summary: one-line user-facing benefit pitch
     """
     fee_savings = 0.0
     tax_savings = 0.0
+    optimizable_rs = 0.0
+    funds_removed = 0
     affected = [a.lower() for a in (insight.get("affected_funds") or [])]
 
     if theme == _THEME_COST:
         # Cost insight already carries the ₹/yr in current_value or action text
         fee_savings = _parse_rs(insight.get("action", "").split("save ")[-1] if "save" in insight.get("action", "") else 0)
         if fee_savings == 0:
-            fee_savings = _parse_rs(insight.get("current_value", ""))
+            cur_val = _parse_rs(insight.get("current_value", ""))
             # 1% of regular-plan AUM is the standard ER delta
-            fee_savings = fee_savings * 0.01 if fee_savings > 1000 else 0
+            fee_savings = cur_val * 0.01 if cur_val > 1000 else 0
+            optimizable_rs = cur_val
+        else:
+            # Regular-plan AUM from holdings: any MF whose name contains "regular"
+            optimizable_rs = sum(
+                (h.get("quantity") or 0) * (h.get("current_price") or 0)
+                for h in holdings
+                if h.get("asset_type") in ("mutual_fund", "etf")
+                and "regular" in (h.get("name") or "").lower()
+            )
     elif theme in (_THEME_DUPLICATION, _THEME_OVERLAP):
-        # Estimate 50 bps saved on the smaller of the two overlapping funds
+        # The smaller fund in the pair is what would be exited. Its AUM is what
+        # can be redeployed; ~50 bps annual fee delta on that AUM is recovered.
         smallest = 0.0
         for h in holdings:
             if h.get("asset_type") not in ("mutual_fund", "etf"):
@@ -161,6 +175,8 @@ def _compute_benefit(
                 if smallest == 0 or val < smallest:
                     smallest = val
         fee_savings = round(smallest * 0.005)
+        optimizable_rs = smallest
+        funds_removed = 1 if smallest > 0 else 0
 
     health_delta_map = {"critical": 8, "important": 4, "optimization": 2, "positive": 0}
     health_delta = health_delta_map.get(severity, 2)
@@ -180,7 +196,9 @@ def _compute_benefit(
 
     return {
         "fee_savings_annual_rs": round(fee_savings, 2),
+        "optimizable_rs": round(optimizable_rs, 2),
         "tax_savings_rs": round(tax_savings, 2),
+        "funds_removed": funds_removed,
         "health_score_delta": health_delta,
         "simplicity_delta_pct": simplicity,
         "summary": summary,
@@ -210,13 +228,25 @@ def _enrich_insights(
     return out
 
 
-def _build_summary(insights: List[Dict[str, Any]], completed_ids: set) -> Dict[str, Any]:
-    """Hero-summary aggregate for the Recommendations Center."""
+def _build_summary(
+    insights: List[Dict[str, Any]],
+    completed_ids: set,
+    holdings: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Hero-summary aggregate for the Recommendations Center.
+
+    Adds the optimisation-engine numbers the redesign spec asks for:
+    `total_optimizable_rs` (₹ AUM that can be freed), fund-count
+    before/after, and a 10-year projected wealth gain from reinvesting
+    the annual fee savings at 12% CAGR.
+    """
     by_sev = {"critical": 0, "important": 0, "optimization": 0, "positive": 0}
     theme_counts: Dict[str, int] = {}
     total_fee = 0.0
     total_tax = 0.0
+    total_optimizable = 0.0
     duplicate_funds = 0
+    funds_removed_total = 0
     for ins in insights:
         sev = ins.get("severity") or "optimization"
         by_sev[sev] = by_sev.get(sev, 0) + 1
@@ -225,9 +255,37 @@ def _build_summary(insights: List[Dict[str, Any]], completed_ids: set) -> Dict[s
         b = ins.get("benefit") or {}
         total_fee += float(b.get("fee_savings_annual_rs") or 0)
         total_tax += float(b.get("tax_savings_rs") or 0)
+        total_optimizable += float(b.get("optimizable_rs") or 0)
+        funds_removed_total += int(b.get("funds_removed") or 0)
         if theme in (_THEME_DUPLICATION, _THEME_OVERLAP):
             duplicate_funds += len(ins.get("affected_funds") or []) // 2 or 1
     completed = sum(1 for ins in insights if ins.get("insight_id") in completed_ids)
+
+    # Fund counts: today vs after recommended consolidation
+    current_fund_count = 0
+    if holdings:
+        current_fund_count = sum(
+            1 for h in holdings if h.get("asset_type") in ("mutual_fund", "etf")
+        )
+    target_fund_count = max(0, current_fund_count - funds_removed_total) if current_fund_count else 0
+
+    # 10-year wealth projection: annuity of fee savings reinvested at 12% CAGR.
+    # FV of growing annuity = pmt * ((1+r)^n - 1) / r  with r=0.12, n=10
+    r, n = 0.12, 10
+    projected_10y = total_fee * (((1 + r) ** n) - 1) / r if total_fee > 0 else 0.0
+
+    # Heuristic diversification score: 100 - (duplicate% of MF count).
+    # Conservative — Phase B replaces with a real diversification engine.
+    if current_fund_count > 0:
+        dup_ratio = min(1.0, funds_removed_total / current_fund_count)
+        div_current = round(max(40, 100 - dup_ratio * 60))
+        # Target = current + (gain from consolidating) but never below current.
+        div_target = round(min(95, div_current + dup_ratio * 25))
+        if div_target < div_current:
+            div_target = div_current
+    else:
+        div_current = div_target = None
+
     return {
         "total": len(insights),
         "critical_count": by_sev["critical"],
@@ -236,6 +294,12 @@ def _build_summary(insights: List[Dict[str, Any]], completed_ids: set) -> Dict[s
         "completed_count": completed,
         "potential_fee_savings_annual_rs": round(total_fee, 2),
         "potential_tax_savings_rs": round(total_tax, 2),
+        "total_optimizable_rs": round(total_optimizable, 2),
+        "projected_wealth_gain_10y_rs": round(projected_10y, 2),
+        "current_fund_count": current_fund_count,
+        "target_fund_count": target_fund_count,
+        "diversification_score_current": div_current,
+        "diversification_score_target": div_target,
         "duplicate_fund_count": duplicate_funds,
         "themes": theme_counts,
     }
@@ -761,7 +825,7 @@ async def generate_insights(request: Request):
     for ins in saved_insights:
         ins["completed"] = ins["insight_id"] in completed_ids
     analysis["insights"] = saved_insights
-    analysis["summary"] = _build_summary(saved_insights, completed_ids)
+    analysis["summary"] = _build_summary(saved_insights, completed_ids, holdings)
 
     # Add reason text to problem_distribution
     for pd_item in analysis.get("problem_distribution", []):
@@ -796,16 +860,18 @@ async def get_analysis(request: Request):
             "theme" not in ins or "severity" not in ins or "benefit" not in ins
             for ins in analysis["insights"]
         )
+        # Need holdings for the new aggregate optimisation numbers even when
+        # the insights themselves are already enriched.
+        holdings = await db.holdings.find({"user_id": uid}, {"_id": 0}).to_list(500)
+        holdings = enrich_holdings_with_sectors(holdings) if holdings else []
         if needs_enrich:
-            holdings = await db.holdings.find({"user_id": uid}, {"_id": 0}).to_list(500)
-            holdings = enrich_holdings_with_sectors(holdings) if holdings else []
             total_cur = sum((h.get("quantity") or 0) * (h.get("current_price") or 0) for h in holdings) or 1.0
             enriched = _enrich_insights(analysis["insights"], holdings, total_cur)
             # preserve previously-saved insight_id if it was already stable
             analysis["insights"] = enriched
         for ins in analysis["insights"]:
             ins["completed"] = ins.get("insight_id") in completed_ids
-        analysis["summary"] = _build_summary(analysis["insights"], completed_ids)
+        analysis["summary"] = _build_summary(analysis["insights"], completed_ids, holdings)
 
     # Always attach the unified Portfolio Health block so the Insights tab
     # renders the same score as the Dashboard.

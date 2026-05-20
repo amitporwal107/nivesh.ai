@@ -43,6 +43,14 @@ _PORT_FULL_TAX = MagicMock(
           "stcg_tax": 8_000, "ltcg_equity_tax": 10_000, "total_tax": 18_000},
     rows=[],
 )
+_PORT_COMPARE = MagicMock(
+    ok=True,
+    summary="2 MFs in portfolio (returns available for 2/2, TER for 2/2); 1 pair(s) ≥40% overlap.",
+    data={"fund_count": 2, "funds_with_returns": 2, "funds_with_ter": 2, "high_overlap_pairs": 1},
+    rows=[{"scheme_name": "Parag Parikh Flexi Cap", "return_1y_pct": 18.5, "expense_ratio_pct": 0.62}],
+    error=None,
+)
+
 _port_mod = _stub(
     "services.copilot_tools.portfolio",
     get_portfolio_summary=AsyncMock(return_value=_PORT_SUMMARY),
@@ -52,6 +60,9 @@ _port_mod = _stub(
     get_full_tax_report=AsyncMock(return_value=_PORT_FULL_TAX),
     run_stress_test=AsyncMock(return_value=_PORT_STRESS),
     get_portfolio_overlap=AsyncMock(return_value=_PORT_OVERLAP),
+    compare_portfolio_funds=AsyncMock(return_value=_PORT_COMPARE),
+    get_tax_timing_advice=AsyncMock(return_value=_PORT_TAX),
+    get_fd_comparison=AsyncMock(return_value=_PORT_OVERLAP),
 )
 
 _TECH_RESULT = MagicMock(ok=True, summary="RSI 48, MACD bullish", data={"rsi14": 48.0, "macd": 0.5, "close": 2850.0}, signals=["MACD bullish"], error=None)
