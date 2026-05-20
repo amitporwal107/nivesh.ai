@@ -226,10 +226,10 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
 
     rows = [
         {
-            "fund_a": p.get("a") or p.get("fund_a", ""),
-            "fund_b": p.get("b") or p.get("fund_b", ""),
+            "fund_a": p.get("a_name") or p.get("fund_a") or p.get("a", ""),
+            "fund_b": p.get("b_name") or p.get("fund_b") or p.get("b", ""),
             "overlap_pct": round(float(p.get("overlap_pct") or 0), 1),
-            "shared_count": p.get("shared_stocks") or len(p.get("shared", [])),
+            "shared_count": p.get("shared_count") or p.get("shared_stocks") or len(p.get("shared", []) or []),
             "top_shared": (p.get("reasons") or [])[:3],
         }
         for p in pairs
@@ -237,12 +237,158 @@ async def get_portfolio_overlap(user_id: str) -> PortfolioResult:
     rows.sort(key=lambda r: r["overlap_pct"], reverse=True)
 
     high = [r for r in rows if r["overlap_pct"] >= 40]
+    # Embed top high-overlap pairs (names + %) so the LLM can quote them verbatim
+    top_lines = "; ".join(
+        f"{r['fund_a']} ↔ {r['fund_b']} {r['overlap_pct']:.0f}%"
+        for r in high[:5]
+    ) if high else ""
     summary = (
-        f"{len(rows)} fund pair(s) analysed; "
-        f"{len(high)} pair(s) with ≥40% overlap"
-        + (f" — top: {rows[0]['fund_a']} ↔ {rows[0]['fund_b']} {rows[0]['overlap_pct']:.0f}%" if rows else "")
+        f"{len(rows)} fund pair(s) analysed; {len(high)} pair(s) with ≥40% overlap"
+        + (f" — top: {top_lines}" if top_lines else "")
     )
-    return PortfolioResult(ok=True, summary=summary, rows=rows)
+    return PortfolioResult(
+        ok=True,
+        summary=summary,
+        data={"pair_count": len(rows), "high_overlap_count": len(high)},
+        rows=rows,
+    )
+
+
+# ── Portfolio fund comparison (rolling returns + TER + overlap) ───────────
+
+async def compare_portfolio_funds(user_id: str) -> PortfolioResult:
+    """Side-by-side comparison of every mutual fund in the user's portfolio:
+    1y/3y/5y rolling returns, expense ratio, category, AUM, Sharpe, and top
+    pairwise overlap. Returns scheme NAMES (never raw instrument UUIDs).
+
+    Used for: "Compare the mutual funds in my portfolio",
+              "Show rolling returns, expense ratio, and overlap"
+    """
+    try:
+        from services import portfolio_intelligence as PI
+        intel = await PI.compute_portfolio_intelligence(user_id)
+    except Exception as exc:
+        return PortfolioResult(ok=False, summary="Could not compute fund comparison", error=str(exc))
+
+    investments = intel.get("mf_investments") or []
+    catalog = intel.get("catalog") or {}
+    pairs = intel.get("pairwise_overlap") or []
+
+    if not investments:
+        return PortfolioResult(
+            ok=True,
+            summary="No mutual fund holdings found in your portfolio",
+            rows=[],
+        )
+
+    def _f(v):
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    rows: List[Dict[str, Any]] = []
+    funds_with_returns = 0
+    funds_with_ter = 0
+
+    for inv in investments:
+        inv_id = inv.get("instrument_id")
+        ratios = (catalog.get(inv_id, {}) or {}).get("ratios", {}) if inv_id else {}
+        rr = inv.get("rolling_returns") or {}
+
+        ret_1y = _f(rr.get("1y") if rr else ratios.get("ret_1y"))
+        ret_3y = _f(rr.get("3y") if rr else ratios.get("ret_3y"))
+        ret_5y = _f(rr.get("5y") if rr else ratios.get("ret_5y"))
+        ter    = _f(inv.get("expense_ratio"))
+        sharpe = _f(ratios.get("sharpe"))
+        std    = _f(ratios.get("std_dev"))
+        amt    = _f(inv.get("amount_rs")) or 0.0
+
+        if any(v is not None for v in (ret_1y, ret_3y, ret_5y)):
+            funds_with_returns += 1
+        if ter is not None:
+            funds_with_ter += 1
+
+        rows.append({
+            "scheme_name":       inv.get("scheme_name", "Unknown"),
+            "category":          inv.get("category"),
+            "amount_rs":         round(amt, 0),
+            "return_1y_pct":     round(ret_1y, 2) if ret_1y is not None else None,
+            "return_3y_pct":     round(ret_3y, 2) if ret_3y is not None else None,
+            "return_5y_pct":     round(ret_5y, 2) if ret_5y is not None else None,
+            "expense_ratio_pct": round(ter, 2) if ter is not None else None,
+            "aum_cr":            inv.get("aum_cr"),
+            "sharpe":            round(sharpe, 2) if sharpe is not None else None,
+            "std_dev_pct":       round(std, 2) if std is not None else None,
+        })
+
+    rows.sort(key=lambda r: r["amount_rs"], reverse=True)
+
+    overlap_rows: List[Dict[str, Any]] = []
+    for p in sorted(pairs, key=lambda x: x.get("overlap_pct", 0), reverse=True):
+        overlap_rows.append({
+            "fund_a":       p.get("a_name") or p.get("a", ""),
+            "fund_b":       p.get("b_name") or p.get("b", ""),
+            "overlap_pct":  round(float(p.get("overlap_pct") or 0), 1),
+            "shared_count": p.get("shared_count") or 0,
+        })
+    high_overlap = [o for o in overlap_rows if o["overlap_pct"] >= 40]
+
+    # Build LLM-readable summary: top 10 funds (multi-line) + top 3 overlap pairs.
+    # We use a multi-line block so the LLM has verbatim figures to quote.
+    fund_lines: List[str] = []
+    for r in rows[:10]:
+        bits = [f"- {r['scheme_name']}"]
+        if r["category"]:
+            bits.append(f"({r['category']})")
+        metrics = []
+        if r["return_1y_pct"] is not None:
+            metrics.append(f"1y {r['return_1y_pct']:+.1f}%")
+        if r["return_3y_pct"] is not None:
+            metrics.append(f"3y {r['return_3y_pct']:+.1f}%")
+        if r["return_5y_pct"] is not None:
+            metrics.append(f"5y {r['return_5y_pct']:+.1f}%")
+        if r["expense_ratio_pct"] is not None:
+            metrics.append(f"TER {r['expense_ratio_pct']:.2f}%")
+        if r["sharpe"] is not None:
+            metrics.append(f"Sharpe {r['sharpe']:.2f}")
+        metrics.append(f"₹{r['amount_rs']:,.0f}")
+        bits.append(" | ".join(metrics))
+        fund_lines.append(" ".join(bits))
+
+    overlap_lines = [
+        f"- {o['fund_a']} ↔ {o['fund_b']} {o['overlap_pct']:.0f}%"
+        for o in overlap_rows[:5]
+    ]
+
+    extras = []
+    if len(rows) > 10:
+        extras.append(f"(+{len(rows) - 10} more not shown)")
+    coverage = (
+        f"returns available for {funds_with_returns}/{len(rows)}, "
+        f"TER for {funds_with_ter}/{len(rows)}"
+    )
+
+    summary = (
+        f"{len(rows)} MFs in portfolio ({coverage}); "
+        f"{len(high_overlap)} pair(s) ≥40% overlap.\n"
+        + "FUNDS:\n" + "\n".join(fund_lines)
+        + ("\n" + " ".join(extras) if extras else "")
+        + ("\nTOP_OVERLAP:\n" + "\n".join(overlap_lines) if overlap_lines else "")
+    )
+
+    return PortfolioResult(
+        ok=True,
+        summary=summary,
+        data={
+            "fund_count":           len(rows),
+            "funds_with_returns":   funds_with_returns,
+            "funds_with_ter":       funds_with_ter,
+            "high_overlap_pairs":   len(high_overlap),
+            "overlap_rows":         overlap_rows[:20],
+        },
+        rows=rows,
+    )
 
 
 # ── Rebalance plan ────────────────────────────────────────────────────────
