@@ -1,0 +1,15 @@
+# Force LF line endings for shell scripts so they execute correctly on
+# Linux VMs regardless of which OS committed them. Without this, Windows
+# checkouts convert .sh files to CRLF, which breaks `bash` on the VM with
+# `$'\r': command not found` errors.
+*.sh        text eol=lf
+*.bash      text eol=lf
+
+# Same protection for systemd/cron/yaml/conf files deployed to Linux hosts.
+*.service   text eol=lf
+*.timer     text eol=lf
+*.cron      text eol=lf
+*.conf      text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+Dockerfile* text eol=lf

@@ -53,17 +53,19 @@ jobs:
           echo "target=$TARGET"   >> "$GITHUB_OUTPUT"
 
       # ── Deploy via SSH ────────────────────────────────────────────────────
-      # Secrets required in GitHub → Settings → Secrets → Actions:
-      #   NIVESH_APP_VM_HOST    IP address of nivesh-app-vm
-      #   NIVESH_APP_VM_SSH_KEY Ed25519 private key (matching a key in VM's
-      #                         ~/.ssh/authorized_keys for the SSH_USER)
-      #   SSH_USER              aporwal107_gmail_com  (or whichever user has sudo)
+      # Secrets required:
+      #   DEVOPS_SSH_KEY   Ed25519 private key for the 'devops' Linux user
+      #   DEVOPS_SSH_USER  'devops'  (the CI/CD Linux user on both VMs)
+      #   NIVESH_VM_HOST   IP of nivesh-app-vm (34.100.186.141)
+      #
+      # One-time VM setup: sudo bash backend/nidp/deploy/vm/setup_devops_access.sh '<pub-key>'
+      # See: docs/DEVOPS_IDENTITY_SETUP.md
       - name: SSH into VM and redeploy
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:             ${{ secrets.NIVESH_APP_VM_HOST }}
-          username:         ${{ secrets.SSH_USER }}
-          key:              ${{ secrets.NIVESH_APP_VM_SSH_KEY }}
+          host:             ${{ secrets.NIVESH_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
           port:             22
           timeout:          10m
           command_timeout:  30m

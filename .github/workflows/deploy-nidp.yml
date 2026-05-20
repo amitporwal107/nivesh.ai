@@ -1,6 +1,6 @@
 name: Deploy → nidp-stack-vm
 
-# Triggers when NIDP backend code changes on the deploy branch.
+# Triggers when NIDP backend code changes on the main branch.
 on:
   push:
     branches: [main]
@@ -24,80 +24,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
-
-      # ── SSH agent ─────────────────────────────────────────────────────────
+      # ── Deploy via SSH ────────────────────────────────────────────────────
       # Secrets required:
-      #   NIDP_VM_SSH_KEY   Ed25519 private key authorised on nidp-stack-vm
-      #   NIDP_VM_HOST      IP of nidp-stack-vm (currently 34.93.60.254)
-      # Note: nidp-stack-vm uses GCP OS Login — connecting as 'ubuntu' user
-      - name: Set up SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
+      #   DEVOPS_SSH_KEY   Ed25519 private key for the 'devops' Linux user
+      #   DEVOPS_SSH_USER  'devops'  (the CI/CD Linux user on both VMs)
+      #   NIDP_VM_HOST     IP of nidp-stack-vm (34.93.60.254)
+      #
+      # One-time VM setup: sudo bash backend/nidp/deploy/vm/setup_devops_access.sh '<pub-key>'
+      # See: docs/DEVOPS_IDENTITY_SETUP.md
+      - name: Deploy NIDP code and restart services
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          ssh-private-key: ${{ secrets.NIDP_VM_SSH_KEY }}
-
-      - name: Add nidp-stack-vm to known hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.NIDP_VM_HOST }}" >> ~/.ssh/known_hosts
-
-      # ── Prepare deploy directory ──────────────────────────────────────────
-      - name: Prepare deploy directory on VM
-        run: |
-          ssh "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
-            sudo mkdir -p /opt/nidp/repo/backend/nidp
-            sudo chown -R $(whoami):$(whoami) /opt/nidp/
-          REMOTE
-
-      # ── Rsync NIDP code ───────────────────────────────────────────────────
-      - name: Sync backend/nidp → VM
-        run: |
-          rsync -az --delete \
-            --exclude="__pycache__" \
-            --exclude="*.pyc" \
-            --exclude=".git" \
-            --exclude="*.egg-info" \
-            --exclude=".pytest_cache" \
-            backend/nidp/ \
-            "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}:/opt/nidp/repo/backend/nidp/"
-
-          echo "✅ Code synced. Commit: ${{ github.sha }}"
-
-      # ── Restart NIDP services ─────────────────────────────────────────────
-      - name: Restart NIDP services on VM
-        run: |
-          ssh "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  15m
+          script: |
             set -euo pipefail
             log() { printf '\033[1;36m[nidp-ci]\033[0m %s\n' "$*"; }
-            ok()  { printf '\033[1;32m[nidp-ci]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-ci]\033[0m ✅ %s\n' "$*"; }
 
-            # Reload cron jobs (new scheduler scripts)
-            sudo systemctl reload cron 2>/dev/null && ok "Cron reloaded." || log "Cron: skipped."
+            log "=== NIDP deploy triggered by GitHub Actions ==="
+            log "    Branch : ${{ github.event.inputs.branch || 'main' }}"
+            log "    Commit : ${{ github.sha }}"
 
-            # Restart query API if it exists as a systemd service
-            if sudo systemctl is-active --quiet nidp-query-api 2>/dev/null; then
-              sudo systemctl restart nidp-query-api
-              ok "nidp-query-api restarted."
-            fi
+            # Pull latest code and reinstall deps (if requirements changed)
+            sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh \
+              --branch="${{ github.event.inputs.branch || 'main' }}"
 
-            # Restart DaaS API if it exists
-            if sudo systemctl is-active --quiet nidp-daas 2>/dev/null; then
-              sudo systemctl restart nidp-daas
-              ok "nidp-daas restarted."
-            fi
+            # Restart live services to pick up the new code
+            for svc in nidp-daas-api nidp-query-api; do
+              if sudo systemctl is-active --quiet "$svc" 2>/dev/null; then
+                sudo systemctl restart "$svc"
+                ok "$svc restarted"
+              else
+                log "$svc not active — skipping"
+              fi
+            done
 
-            ok "All NIDP services reloaded."
-          REMOTE
+            ok "Deploy complete."
 
       # ── Health check ──────────────────────────────────────────────────────
-      - name: Health check DaaS
+      - name: Health check DaaS API
         run: |
-          sleep 8
+          sleep 10
           HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
-            --max-time 10 "http://${{ secrets.NIDP_VM_HOST }}:8010/health" \
+            --max-time 15 "https://data.niveshcopilot.com/daas/health" \
             2>/dev/null || echo "000")
           echo "DaaS health → HTTP $HTTP"
-          [[ "$HTTP" == "200" ]] || echo "::warning::DaaS health returned $HTTP (may be internal-only)"
+          [[ "$HTTP" == "200" ]] || echo "::warning::DaaS health returned $HTTP"

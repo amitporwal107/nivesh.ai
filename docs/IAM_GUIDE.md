@@ -1,9 +1,12 @@
 # Nivesh GCP — IAM Users, Service Accounts & Keys
 
 **Project:** `niveshdataintelligence`  
-**Last updated:** 2026-05-14
+**Last updated:** 2026-05-20
 
 All IAM operations require an **Owner token**. Section 1 shows how to use yours.
+
+> **Full DevOps identity setup** (new devops user + VM access + GitHub secrets): see [DEVOPS_IDENTITY_SETUP.md](DEVOPS_IDENTITY_SETUP.md)
+
 Sections 2–5 cover every role that exists or needs to be created.
 
 ---
