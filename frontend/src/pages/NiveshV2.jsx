@@ -25,7 +25,7 @@ import PersonaOnboardingModal, { shouldShowPersonaOnboarding } from "@/component
 import { detectPersona } from "@/components/v2app/screens/V2CopilotWelcome";
 
 // V1 content components — rendered as-is inside the dark shell
-import OnboardingView from "@/components/OnboardingView";
+import OnboardingCopilotView from "@/components/OnboardingCopilotView";
 import RiskProfileView from "@/components/RiskProfileView";
 import ChatView from "@/components/ChatView";
 import ActionablePortfolioView from "@/components/ActionablePortfolioView";
@@ -339,11 +339,11 @@ export default function NiveshV2() {
 
   if (!user) return null;
 
-  // ── Show onboarding (reuses V1 OnboardingView) ────────────────────────────
+  // ── Show onboarding (Nivesh-branded Copilot pitch + Gmail SDK) ────────────
   if (!userProfile?.onboarding_completed) {
     return (
       <div className="dark min-h-screen bg-[#0f0f0f]">
-        <OnboardingView
+        <OnboardingCopilotView
           onComplete={handleOnboardingComplete}
           userProfile={userProfile}
         />
