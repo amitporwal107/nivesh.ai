@@ -1389,7 +1389,15 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                           </div>
                         </div>
                       )}
-                      <div className={`max-w-[85%] sm:max-w-[75%]`}>
+                      <div className={
+                        // Widget responses render as full-width dashboard
+                        // tiles inside the chat — drop the chat-bubble
+                        // max-w that's only meant for text. Prose-only
+                        // bubbles still constrain to a readable column.
+                        !isUser && msg.widget
+                          ? "w-full"
+                          : "max-w-[85%] sm:max-w-[75%]"
+                      }>
                         {/* Agent ribbon — Phase B (above bubble) */}
                         {!isUser && msg.agent && (
                           <div className="mb-1.5">

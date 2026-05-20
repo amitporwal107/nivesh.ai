@@ -107,27 +107,33 @@ const HeroBlock = ({ hero }) => {
           {hero.eyebrow || sev.label}
         </span>
       </div>
-      <h3 className="text-base sm:text-lg font-semibold leading-snug text-[color:var(--cp-text-primary)]">
-        {hero.headline}
-      </h3>
-      {hero.primary_value && (
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className={`text-2xl sm:text-3xl font-bold cp-num ${sev.text} flex items-center gap-1`}>
-            {hero.primary_value}
-            {trendIcon(hero.trend)}
-          </span>
-          {hero.primary_label && (
-            <span className="text-[11px] text-[color:var(--cp-text-secondary)]">
-              {hero.primary_label}
-            </span>
+      {/* Dashboard-style hero: headline left, big primary value
+          aligned right on lg+ so the card reads like a stat tile. */}
+      <div className="lg:flex lg:items-center lg:justify-between lg:gap-6">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base sm:text-lg lg:text-xl font-semibold leading-snug text-[color:var(--cp-text-primary)]">
+            {hero.headline}
+          </h3>
+          {hero.subtitle && (
+            <p className="mt-2 text-xs lg:text-sm leading-relaxed text-[color:var(--cp-text-secondary)] lg:max-w-2xl">
+              {hero.subtitle}
+            </p>
           )}
         </div>
-      )}
-      {hero.subtitle && (
-        <p className="mt-2 text-xs leading-relaxed text-[color:var(--cp-text-secondary)] line-clamp-3">
-          {hero.subtitle}
-        </p>
-      )}
+        {hero.primary_value && (
+          <div className="mt-3 lg:mt-0 lg:text-right flex lg:flex-col items-baseline lg:items-end gap-2 lg:gap-0 shrink-0">
+            <span className={`text-3xl sm:text-4xl lg:text-5xl font-bold cp-num leading-none ${sev.text} flex items-center gap-1`}>
+              {hero.primary_value}
+              {trendIcon(hero.trend)}
+            </span>
+            {hero.primary_label && (
+              <span className="text-[11px] lg:mt-1 text-[color:var(--cp-text-secondary)]">
+                {hero.primary_label}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -142,7 +148,7 @@ const KpiCarousel = ({ kpis }) => {
       className="px-4 py-3 border-b border-[color:var(--cp-border-subtle)]"
     >
       <div
-        className="flex gap-2 overflow-x-auto sm:overflow-visible sm:grid sm:grid-cols-4 snap-x snap-mandatory -mx-1 px-1 scrollbar-thin"
+        className="flex gap-3 overflow-x-auto sm:overflow-visible sm:grid sm:grid-cols-2 xl:grid-cols-4 snap-x snap-mandatory -mx-1 px-1 scrollbar-thin"
         role="list"
       >
         {kpis.map((k, i) => {
@@ -154,17 +160,17 @@ const KpiCarousel = ({ kpis }) => {
               data-testid={`insight-card-kpi-${i}`}
               role="listitem"
               aria-label={ariaLabel}
-              className={`snap-start shrink-0 min-w-[42%] sm:min-w-0 sm:w-full rounded-xl border ${tone ? tone.accent : "border-[color:var(--cp-border-subtle)]"} ${tone ? tone.tint : "bg-[color:var(--cp-surface-1)]"} px-3 py-2.5`}
+              className={`snap-start shrink-0 min-w-[42%] sm:min-w-0 sm:w-full rounded-xl border ${tone ? tone.accent : "border-[color:var(--cp-border-subtle)]"} ${tone ? tone.tint : "bg-[color:var(--cp-surface-1)]"} px-4 py-3 lg:py-4`}
             >
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5 truncate">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1 truncate">
                 {k.label}
               </div>
-              <div className={`text-base font-semibold cp-num flex items-center gap-1 ${tone ? tone.text : "text-[color:var(--cp-text-primary)]"}`}>
+              <div className={`text-lg lg:text-xl font-bold cp-num flex items-center gap-1 leading-tight ${tone ? tone.text : "text-[color:var(--cp-text-primary)]"}`}>
                 <span className="truncate">{k.value}</span>
                 {trendIcon(k.trend)}
               </div>
               {k.sublabel && (
-                <div className="text-[10px] text-slate-500 mt-0.5 truncate">{k.sublabel}</div>
+                <div className="text-[10px] text-slate-500 mt-1 truncate">{k.sublabel}</div>
               )}
             </div>
           );
@@ -440,12 +446,23 @@ const InsightCardWidget = ({ envelope, onAction, testId }) => {
       </header>
 
       <HeroBlock hero={hero} />
-      <KpiCarousel kpis={kpis} />
-      <FindingsBlock findings={findings} />
-      <RecommendationBlock recommendation={recommendation} />
-      <ImpactBlock impact={impact} />
+
+      {/* Dashboard-style grid: KPIs + Findings on the left, AI
+          Recommendation + Education on the right at lg+. Stacks
+          vertically at narrower widths so mobile still feels native. */}
+      <div className="lg:grid lg:grid-cols-3 lg:gap-0">
+        <div className="lg:col-span-2 lg:border-r lg:border-[color:var(--cp-border-subtle)]">
+          <KpiCarousel kpis={kpis} />
+          <FindingsBlock findings={findings} />
+          <ImpactBlock impact={impact} />
+        </div>
+        <div className="lg:col-span-1">
+          <RecommendationBlock recommendation={recommendation} />
+          <EducationBlock education={education} />
+        </div>
+      </div>
+
       <ActionsBlock actions={actions} onAction={onAction} envelope={envelope} />
-      <EducationBlock education={education} />
       <SuggestionsBlock suggestions={suggestions} onAction={onAction} envelope={envelope} />
 
       {primary_cta && (
