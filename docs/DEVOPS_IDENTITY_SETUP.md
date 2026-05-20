@@ -28,22 +28,24 @@ cat ~/.ssh/nivesh_devops_ci       # → add to GitHub secret DEVOPS_SSH_KEY
 
 The setup script is idempotent — safe to re-run. It accepts the public key as its only argument.
 
+> **Windows note:** `gcloud compute scp` uses PuTTY's `pscp.exe` on Windows, which does not expand `~` as a remote path. Use an explicit absolute path like `/tmp/` for the destination (as shown below).
+
 ```bash
 # copy setup script to each VM
 gcloud compute scp backend/nidp/deploy/vm/setup_devops_access.sh \
-  nidp-stack-vm:~ --project=niveshdataintelligence --zone=asia-south1-a
+  nidp-stack-vm:/tmp/ --project=niveshdataintelligence --zone=asia-south1-a
 
 gcloud compute ssh nidp-stack-vm \
   --project=niveshdataintelligence --zone=asia-south1-a \
-  --command="sudo bash ~/setup_devops_access.sh '$(cat ~/.ssh/nivesh_devops_ci.pub)'"
+  --command="sudo bash /tmp/setup_devops_access.sh '$(cat ~/.ssh/nivesh_devops_ci.pub)'"
 
 # repeat for nivesh-app-vm
 gcloud compute scp backend/nidp/deploy/vm/setup_devops_access.sh \
-  nivesh-app-vm:~ --project=niveshdataintelligence --zone=asia-south1-a
+  nivesh-app-vm:/tmp/ --project=niveshdataintelligence --zone=asia-south1-a
 
 gcloud compute ssh nivesh-app-vm \
   --project=niveshdataintelligence --zone=asia-south1-a \
-  --command="sudo bash ~/setup_devops_access.sh '$(cat ~/.ssh/nivesh_devops_ci.pub)'"
+  --command="sudo bash /tmp/setup_devops_access.sh '$(cat ~/.ssh/nivesh_devops_ci.pub)'"
 ```
 
 ---
