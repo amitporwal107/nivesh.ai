@@ -461,6 +461,10 @@ const DailyMarketBriefing = ({ onOpenChat }) => {
   const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
   useEffect(() => {
+    // Note: this consumer reads `brief.indices / brief.fii_dii` directly
+    // instead of going through WidgetRenderer, so we keep the native
+    // market_brief envelope (no layout=insight_card here). The unified
+    // card system applies to the WidgetRenderer-mounted surfaces below.
     axios.post(`${BACKEND}/api/copilot/widgets/market_brief`, {}, { withCredentials: true })
       .then((r) => setBrief(r.data?.data || r.data))
       .catch(() => {})

@@ -641,9 +641,20 @@ async def _llm_prose(
 _INSIGHT_CARD_ENABLED = (os.environ.get("COPILOT_INSIGHT_CARD_CHAT", "true").lower() == "true")
 
 
-async def _intent_to_envelope(intent: Intent, user_id: str) -> Optional[Dict[str, Any]]:
+async def _intent_to_envelope(
+    intent: Intent,
+    user_id: str,
+    retrieval: Optional["R.Retrieval"] = None,
+) -> Optional[Dict[str, Any]]:
     """Map an Intent to a fully-formed insight_card WidgetEnvelope dict
     by calling the matching widget builder + transformer.
+
+    `retrieval` is the result of the orchestrator's own `_retrieve()`
+    call — passed in so retrieval-only intents (concentration, goals,
+    health, invest_fresh, ranking, mf_analysis) can reuse the rows
+    instead of running the query twice. Optional so this function is
+    still callable standalone (in which case retrieval-only intents
+    return None).
 
     Returns None when the intent has no widget mapping (chat falls back
     to prose-only as it does today). Any failure logs and returns None
@@ -729,6 +740,50 @@ async def _intent_to_envelope(intent: Intent, user_id: str) -> Optional[Dict[str
             )
             return env.model_dump()
 
+        # ── Retrieval-only intents (no dedicated widget endpoint) ───
+        # These intents already have a retriever the orchestrator
+        # invokes for the prose answer; we reuse that data to populate
+        # the card. The retrieval object is threaded in by `answer()`
+        # — if it's missing (e.g. _intent_to_envelope was called
+        # standalone), we skip the card rather than re-running the DB
+        # query.
+        if name in ("concentration", "goals", "health", "invest_fresh",
+                     "ranking", "mf_analysis"):
+            if retrieval is None or not retrieval.ok:
+                return None
+            extras = dict(intent.extras or {})
+            extras.setdefault("grouping", intent.grouping)
+            extras.setdefault("metric", intent.metric)
+            card = TR.retrieval_to_insight_card(name, extras, retrieval)
+            if card is None:
+                return None
+            title_map = {
+                "concentration":  "Concentration breakdown",
+                "goals":          "Goal progress",
+                "health":         "Portfolio Health",
+                "invest_fresh":   "Deploy fresh capital",
+                "ranking":        f"Top by {intent.metric or 'profit'}",
+                "mf_analysis":    "Mutual Fund analysis",
+            }
+            agent_map = {
+                "concentration":  ("portfolio_analyzer", "Portfolio Analyzer"),
+                "goals":          ("goal_planner", "Goal Planner"),
+                "health":         ("portfolio_analyzer", "Portfolio Analyzer"),
+                "invest_fresh":   ("portfolio_analyzer", "Portfolio Analyzer"),
+                "ranking":        ("portfolio_analyzer", "Portfolio Analyzer"),
+                "mf_analysis":    ("mf_research", "Mutual Fund Research"),
+            }
+            aid, alabel = agent_map[name]
+            env = WidgetEnvelope(
+                kind="insight_card", title=title_map[name],
+                freshness=FreshnessChip(state="cached", last_updated=_now_iso(),
+                                          source=["portfolio_holdings"]),
+                agent=AgentInfo(id=aid, label=alabel, version="v1", confidence=80),
+                data=card.model_dump(),
+                suggestions=[],
+            )
+            return env.model_dump()
+
         return None
     except Exception as e:  # noqa: BLE001
         logger.warning("insight_card envelope build failed for intent=%s: %s", intent.name, e)
@@ -782,7 +837,7 @@ async def answer(
     # Optional insight_card envelope alongside the prose.
     widget_envelope: Optional[Dict[str, Any]] = None
     if _INSIGHT_CARD_ENABLED:
-        widget_envelope = await _intent_to_envelope(intent, user_id)
+        widget_envelope = await _intent_to_envelope(intent, user_id, retrieval=retrieval)
 
     return {
         "prose": prose,
