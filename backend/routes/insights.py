@@ -937,6 +937,97 @@ async def unmark_insight_complete(insight_id: str, request: Request):
     return {"ok": True, "insight_id": insight_id, "completed": False}
 
 
+# ── Optimisation engine (Phases B-D): per-insight Keep/Exit/Redeploy/Simulate ──
+from services import duplicate_optimizer as _dopt
+from services import redeploy_suggester as _redeploy
+from services import switch_simulator as _sim
+
+
+async def _load_insight(user_id: str, insight_id: str) -> Optional[Dict[str, Any]]:
+    """Load one enriched insight from the saved analysis."""
+    doc = await db.portfolio_analysis.find_one({"user_id": user_id}, {"_id": 0})
+    analysis = (doc or {}).get("analysis") or {}
+    for ins in analysis.get("insights") or []:
+        if ins.get("insight_id") == insight_id:
+            return ins
+    return None
+
+
+@router.get("/insights/{insight_id}/optimization-plan")
+async def get_optimization_plan(insight_id: str, request: Request):
+    """Phase B + C: Keep/Exit/Redeploy plan for one duplicate-pair insight.
+
+    Returns 404 when the insight isn't found or isn't a duplicate/overlap;
+    409 when fewer than two of the affected holdings can be resolved.
+    """
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    if not insight_id or len(insight_id) > 64:
+        raise HTTPException(status_code=400, detail="invalid insight_id")
+
+    insight = await _load_insight(uid, insight_id)
+    if insight is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+    if (insight.get("theme") or "") not in ("duplication", "overlap"):
+        raise HTTPException(status_code=400, detail="optimisation plan only applies to duplicate/overlap insights")
+
+    holdings = await db.holdings.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    holdings = enrich_holdings_with_sectors(holdings) if holdings else []
+
+    plan = _dopt.build_plan(insight, holdings)
+    if plan is None:
+        raise HTTPException(status_code=409, detail="could not resolve at least two affected holdings")
+
+    plan_dict = plan.to_dict()
+    redeploy = _redeploy.suggest_redeployment(plan.capital_released_rs, holdings)
+    plan_dict["redeploy"] = redeploy
+    return plan_dict
+
+
+@router.get("/insights/{insight_id}/simulate")
+async def simulate_insight_switch(insight_id: str, request: Request):
+    """Phase D: Before/After simulation for one duplicate-pair insight.
+
+    Returns *two* scenarios:
+      - `switch_only`: exit the loser, park capital in the keep fund. Pure
+        fee-savings + tax impact — usually a clear positive wealth delta.
+      - `switch_and_redeploy`: same, but the freed capital is spread
+        across debt/gold/international per the redeploy plan. Lower
+        expected return but better diversification.
+
+    The UI shows both side-by-side so the user can choose.
+    """
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    if not insight_id or len(insight_id) > 64:
+        raise HTTPException(status_code=400, detail="invalid insight_id")
+
+    insight = await _load_insight(uid, insight_id)
+    if insight is None:
+        raise HTTPException(status_code=404, detail="insight not found")
+
+    holdings = await db.holdings.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    holdings = enrich_holdings_with_sectors(holdings) if holdings else []
+
+    plan = _dopt.build_plan(insight, holdings)
+    if plan is None:
+        raise HTTPException(status_code=409, detail="could not build optimisation plan for this insight")
+
+    plan_dict = plan.to_dict()
+    redeploy = _redeploy.suggest_redeployment(plan.capital_released_rs, holdings)
+
+    switch_only = _sim.simulate_switch(insight, holdings, plan_dict, redeploy=None)
+    switch_redeploy = _sim.simulate_switch(insight, holdings, plan_dict, redeploy=redeploy)
+
+    return {
+        "insight_id": insight_id,
+        "plan": plan_dict,
+        "redeploy": redeploy,
+        "switch_only": switch_only,
+        "switch_and_redeploy": switch_redeploy,
+    }
+
+
 # ── V3 Engine Phase 3 — Portfolio-level V3 scoring for Insights ──────────
 from services import (  # noqa: E402
     v3_integration,
