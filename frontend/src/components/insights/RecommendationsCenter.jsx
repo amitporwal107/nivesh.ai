@@ -8,9 +8,30 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import OptimizationCard from "@/components/insights/OptimizationCard";
+import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
+import { recommendationToInsightEnvelope } from "@/components/insights/recommendationToInsightCard";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Feature flag — when true, every recommendation card on the Insights
+// page renders through the unified InsightCardWidget instead of the
+// bespoke per-insight JSX. Toggle via localStorage:
+//
+//   localStorage.setItem("nivesh.unified_card_layout", "1")  → on
+//   localStorage.removeItem("nivesh.unified_card_layout")    → off
+//
+// Kept opt-in so we can A/B against the current layout before flipping
+// the default — RecommendationsCenter has rich mark-as-done / theme
+// grouping behaviour that we want to confirm survives unchanged.
+const UNIFIED_CARD_LAYOUT = (() => {
+  try {
+    return typeof window !== "undefined" &&
+      window.localStorage?.getItem("nivesh.unified_card_layout") === "1";
+  } catch {
+    return false;
+  }
+})();
 
 // ── Severity + theme visual config ──────────────────────────────────────
 const SEVERITY = {
@@ -293,8 +314,42 @@ const StatTile = ({ label, value, accent, sublabel, testid }) => (
 
 // ── Single insight card ───────────────────────────────────────────────
 const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, highlight }) => {
+  // All hooks first (rules of hooks) — both paths read them so the
+  // unified-layout early return doesn't disrupt the call order.
   const [open, setOpen] = useState(false);
   const [marking, setMarking] = useState(false);
+  const affectedHoldings = useMemo(
+    () => matchHoldings(insight, perfCards),
+    [insight, perfCards],
+  );
+
+  // Unified-layout opt-in path: render the insight as an InsightCardWidget
+  // envelope so visual chrome matches the Copilot chat. Action chips wire
+  // back to the same callbacks the legacy card uses (mark/ask/unmark).
+  if (UNIFIED_CARD_LAYOUT) {
+    const envelope = recommendationToInsightEnvelope(insight);
+    const handleAction = (actionId) => {
+      if (actionId === "rec_ask") {
+        const prompt = insight.action
+          ? `Tell me more about this recommendation: "${insight.title}". Specifically — ${insight.action}`
+          : `Explain this insight in detail: ${insight.title}`;
+        onAsk(prompt);
+      } else if (actionId === "rec_mark_done" && insight.insight_id) {
+        onMarkDone(insight.insight_id);
+      } else if (actionId === "rec_unmark" && insight.insight_id) {
+        onUnmark(insight.insight_id);
+      }
+    };
+    return (
+      <div
+        data-testid={`rec-card-${insight.insight_id || insight.title}`}
+        className={`${highlight ? "ring-2 ring-amber-400/40 rounded-[var(--cp-radius-lg)]" : ""} ${insight.completed ? "opacity-60" : ""}`}
+      >
+        <WidgetRenderer envelope={envelope} embedded="insights" onAction={handleAction} />
+      </div>
+    );
+  }
+
   const sev = SEVERITY[deriveSeverity(insight)] || SEVERITY.important;
   const SevIcon = sev.icon;
   const ThemeIcon = THEME_ICON[deriveTheme(insight)] || THEME_ICON.other;
@@ -302,7 +357,7 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, hig
   const completed = !!insight.completed;
   const title = insight.title || insight.headline || "";
   const description = insight.description || insight.detail || "";
-  const affectedHoldings = useMemo(() => matchHoldings(insight, perfCards), [insight, perfCards]);
+  // `affectedHoldings` is already computed in the hooks block above.
 
   const handleMark = async (e) => {
     e.stopPropagation();
