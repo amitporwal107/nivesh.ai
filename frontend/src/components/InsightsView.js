@@ -28,6 +28,21 @@ import RecommendationsCenter from "@/components/insights/RecommendationsCenter";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Unified card layout opt-in — same flag as RecommendationsCenter (PR #35).
+// When set, market_brief / risk_suitability / portfolio_var fetch with
+// ?layout=insight_card and render through <WidgetRenderer> instead of
+// the bespoke inline JSX cards. Off by default so the current layout
+// stays the safe path. Toggle:
+//   localStorage.setItem("nivesh.unified_card_layout", "1")
+const UNIFIED_CARD_LAYOUT = (() => {
+  try {
+    return typeof window !== "undefined" &&
+      window.localStorage?.getItem("nivesh.unified_card_layout") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 const RISK_COLORS = { high: "#EF4444", medium: "#F59E0B", low: "#10B981" };
 const CHART_COLORS = ["#059669", "#3B82F6", "#F59E0B", "#8B5CF6", "#EF4444", "#EC4899", "#14B8A6", "#F97316", "#6366F1", "#84CC16"];
 
@@ -457,22 +472,43 @@ const _REGIME_STYLE = {
 
 const DailyMarketBriefing = ({ onOpenChat }) => {
   const [brief, setBrief] = useState(null);
+  const [envelope, setEnvelope] = useState(null);
   const [loading, setLoading] = useState(true);
   const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
   useEffect(() => {
-    // Note: this consumer reads `brief.indices / brief.fii_dii` directly
-    // instead of going through WidgetRenderer, so we keep the native
-    // market_brief envelope (no layout=insight_card here). The unified
-    // card system applies to the WidgetRenderer-mounted surfaces below.
-    axios.post(`${BACKEND}/api/copilot/widgets/market_brief`, {}, { withCredentials: true })
-      .then((r) => setBrief(r.data?.data || r.data))
+    // Unified-layout path: request insight_card envelope and render via
+    // WidgetRenderer. Legacy path: keep the existing inline JSX which
+    // reads brief.indices / brief.fii_dii directly.
+    const body = UNIFIED_CARD_LAYOUT ? { layout: "insight_card" } : {};
+    axios.post(`${BACKEND}/api/copilot/widgets/market_brief`, body, { withCredentials: true })
+      .then((r) => {
+        if (UNIFIED_CARD_LAYOUT) {
+          setEnvelope(r.data);
+        } else {
+          setBrief(r.data?.data || r.data);
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [BACKEND]);
 
   if (loading) {
     return <div className="h-24 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />;
+  }
+  if (UNIFIED_CARD_LAYOUT) {
+    if (!envelope) return null;
+    return (
+      <WidgetRenderer
+        envelope={envelope}
+        embedded="insights"
+        onAction={(action) => {
+          if (action === "portfolio_impact") onOpenChat("What's the impact of today's market move on my portfolio?");
+          if (action === "sector_trim")      onOpenChat("Which sectors should I trim?");
+          if (action === "set_nifty_alert")  onOpenChat("Set an alert on Nifty 50.");
+        }}
+      />
+    );
   }
   if (!brief) return null;
 
@@ -694,21 +730,32 @@ const _RISK_RATING_STYLE = {
 const RiskInsightsTab = ({ onOpenChat }) => {
   const [suitability, setSuitability] = useState(null);
   const [varData, setVarData]         = useState(null);
+  const [suitEnv, setSuitEnv]         = useState(null);   // unified-layout envelope
+  const [varEnv, setVarEnv]           = useState(null);   // unified-layout envelope
   const [covidEnv, setCovidEnv]       = useState(null);
   const [gfcEnv, setGfcEnv]           = useState(null);
   const [loading, setLoading]         = useState(true);
   const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
   useEffect(() => {
+    // Suitability + VaR endpoints support layout=insight_card. Opt in
+    // when the flag is on; legacy inline cards otherwise.
+    const riskBody = UNIFIED_CARD_LAYOUT ? { layout: "insight_card" } : {};
     Promise.all([
-      axios.post(`${BACKEND}/api/copilot/widgets/risk_suitability`,  {}, { withCredentials: true }).catch(() => null),
-      axios.post(`${BACKEND}/api/copilot/widgets/portfolio_var`,      {}, { withCredentials: true }).catch(() => null),
-      // layout=insight_card switches the envelope to the unified 9-section card.
+      axios.post(`${BACKEND}/api/copilot/widgets/risk_suitability`,  riskBody, { withCredentials: true }).catch(() => null),
+      axios.post(`${BACKEND}/api/copilot/widgets/portfolio_var`,      riskBody, { withCredentials: true }).catch(() => null),
+      // stress_test is always insight_card — the inline-JSX path doesn't render these (we use WidgetRenderer).
       axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "covid_2020", layout: "insight_card" }, { withCredentials: true }).catch(() => null),
       axios.post(`${BACKEND}/api/copilot/widgets/stress_test`, { scenario: "gfc_2008",  layout: "insight_card" }, { withCredentials: true }).catch(() => null),
     ]).then(([s, v, c, g]) => {
-      if (s) setSuitability(s.data?.data || s.data);
-      if (v) setVarData(v.data?.data || v.data);
+      if (s) {
+        if (UNIFIED_CARD_LAYOUT) setSuitEnv(s.data);
+        else                     setSuitability(s.data?.data || s.data);
+      }
+      if (v) {
+        if (UNIFIED_CARD_LAYOUT) setVarEnv(v.data);
+        else                     setVarData(v.data?.data || v.data);
+      }
       if (c) setCovidEnv(c.data);
       if (g) setGfcEnv(g.data);
     }).finally(() => setLoading(false));
@@ -737,6 +784,34 @@ const RiskInsightsTab = ({ onOpenChat }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[1,2,3,4].map((i) => <div key={i} className="h-32 rounded-2xl bg-slate-100 dark:bg-white/5 animate-pulse" />)}
         </div>
+      ) : UNIFIED_CARD_LAYOUT ? (
+        <>
+          {/* Row 1: Unified insight cards (suitability + VaR) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {suitEnv && (
+              <WidgetRenderer
+                envelope={suitEnv}
+                embedded="insights"
+                onAction={(action) => {
+                  if (action === "reduce_risk")            onOpenChat("How do I reduce my portfolio risk?");
+                  else if (action === "rebalance_to_profile") onOpenChat("Rebalance my portfolio to match my risk profile.");
+                  else if (action === "show_var")          onOpenChat("Show my Value at Risk breakdown.");
+                }}
+              />
+            )}
+            {varEnv && (
+              <WidgetRenderer
+                envelope={varEnv}
+                embedded="insights"
+                onAction={(action) => {
+                  if (action === "reduce_var")        onOpenChat("How do I reduce my Value at Risk?");
+                  else if (action === "var_10d_detail") onOpenChat("Show my 10-day VaR breakdown.");
+                  else if (action === "stress_test")    onOpenChat("Run a stress test on my portfolio.");
+                }}
+              />
+            )}
+          </div>
+        </>
       ) : (
         <>
           {/* Row 1: Suitability + VaR summary */}
