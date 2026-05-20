@@ -1509,7 +1509,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
           <CardContent className={`p-3 sm:p-4 space-y-2.5 ${v2Mode ? "border-t border-white/5" : "border-t border-slate-100 dark:border-slate-800"}`}>
             {/* Persistent smart-prompt chips (dynamic, context-aware) */}
             {messages.length > 0 && !suggestionsLoading && suggestedPrompts.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1 scrollbar-thin" data-testid="copilot-chip-strip">
+              <div className="flex flex-wrap items-center gap-1.5 -mx-1 px-1" data-testid="copilot-chip-strip">
                 <span className="text-[10px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider whitespace-nowrap pr-1">
                   Ask:
                 </span>
