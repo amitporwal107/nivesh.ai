@@ -5,7 +5,7 @@ import {
   Target, Users, User, Settings, Zap, ChevronRight, Sparkles,
   Bell, ArrowRight, History, Lightbulb, TrendingUp, Globe2,
   FlaskConical, Terminal, LogOut, RefreshCw, Bot, ArrowLeft,
-  Receipt, Shield, Beaker, LineChart as LineChartIcon, Activity,
+  LineChart as LineChartIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -40,11 +40,7 @@ const RETAIL_NAV = [
   { id: "markets",     label: "Market Dashboard", icon: Globe2 },
   { id: "portfolio",   label: "Portfolio",        icon: Briefcase },
   { id: "insights",    label: "Insights",         icon: Lightbulb },
-  { id: "risk",        label: "Risk Center",      icon: Shield },
-  { id: "tax",         label: "Tax Center",       icon: Receipt },
-  { id: "scenarios",   label: "What-If Lab",      icon: Beaker,         badge: "NEW" },
   { id: "benchmark",   label: "Benchmark",        icon: LineChartIcon },
-  { id: "trade",       label: "Trading Hub",      icon: Activity,       badge: "NEW" },
   { id: "plan_board",  label: "Plan Board",       icon: TrendingUp },
   { id: "goals",       label: "Goals",            icon: Target },
   { id: "strategy",    label: "Strategy Builder", icon: FlaskConical,   badge: "BETA" },
