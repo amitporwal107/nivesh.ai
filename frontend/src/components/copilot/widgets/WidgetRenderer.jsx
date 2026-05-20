@@ -36,11 +36,15 @@ const WidgetRenderer = ({ envelope, onAction, embedded = "chat", testId }) => {
     case "sector_rotation": return <SectorRotationWidget {...common} />;
     case "overlap_reveal":  return <OverlapRevealWidget  {...common} />;
     case "insight_card":    return <InsightCardWidget    {...common} />;
-    // NIDP's MF analyst emits widget_type="fund_comparison"; map it to
-    // the existing compare-table renderer so legacy payloads don't show
-    // an "unsupported kind" placeholder when the insight_card adapter
-    // wasn't able to upgrade the envelope (e.g. empty rows).
-    case "fund_comparison": return <CompareTableWidget   {...common} />;
+    // ── NIDP-emitted widget kinds without dedicated frontend handlers ──
+    // The insight_card adapter SHOULD have upgraded these to insight_card
+    // before they reach the renderer. If the adapter returned null (e.g.
+    // empty rows), these fall back to a "best-fit" existing widget so the
+    // user sees something usable instead of an "unsupported kind" stub.
+    case "fund_comparison":     return <CompareTableWidget   {...common} />;
+    case "portfolio_overview":  return <MarketBriefWidget    {...common} />;
+    case "goal_tracker":        return <SipPlanWidget        {...common} />;
+    case "stock_screener":      return <CompareTableWidget   {...common} />;
     default:
       // Unknown kind — render a small "preview" so it isn't silently dropped.
       return (
