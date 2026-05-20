@@ -7,7 +7,8 @@ import ChatView from "@/components/ChatView";
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const STORAGE_KEY = "nivesh-copilot-drawer-width";
-const DEFAULT_WIDTH = 560;
+const MAXIMIZED_KEY = "nivesh-copilot-drawer-maximized";
+const DEFAULT_WIDTH = 1100;
 const MIN_WIDTH = 380;
 const MAX_WIDTH_VW = 0.95;  // never let user drag past 95% of viewport width
 
@@ -30,8 +31,19 @@ const NiveshCopilotDrawer = ({ open, onClose, onNavigateToPlanBoard }) => {
     } catch { /* noop */ }
     return DEFAULT_WIDTH;
   };
+  // Default to maximized (full-screen) so the chat reads as a dashboard
+  // tile — the dashboard-style grid + bigger hero in InsightCardWidget
+  // depend on viewport-level Tailwind breakpoints (lg/xl). User can
+  // un-maximize via the header chevron; the choice persists.
+  const readPersistedMaximized = () => {
+    try {
+      const v = localStorage.getItem(MAXIMIZED_KEY);
+      if (v === "0") return false;   // user explicitly un-maximized
+      return true;                    // default = maximized
+    } catch { return true; }
+  };
   const [width, setWidth] = useState(readPersistedWidth);
-  const [maximized, setMaximized] = useState(false);
+  const [maximized, setMaximized] = useState(readPersistedMaximized);
   const [dragging, setDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, w: 0 });
 
@@ -39,6 +51,11 @@ const NiveshCopilotDrawer = ({ open, onClose, onNavigateToPlanBoard }) => {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, String(width)); } catch { /* noop */ }
   }, [width]);
+
+  // Persist maximize state
+  useEffect(() => {
+    try { localStorage.setItem(MAXIMIZED_KEY, maximized ? "1" : "0"); } catch { /* noop */ }
+  }, [maximized]);
 
   // Escape / body-scroll-lock
   useEffect(() => {
