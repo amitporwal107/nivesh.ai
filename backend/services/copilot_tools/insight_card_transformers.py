@@ -307,6 +307,21 @@ def compare_to_insight_card(ct: CompareTableData) -> InsightCardData:
     counts. Findings list each metric with the leader marker.
     """
     n = len(ct.funds)
+    if n == 0:
+        # Defensive: empty CompareTableData can be passed in by the NIDP
+        # adapter when the shape mismatch hides the fund names. Return a
+        # minimal info card rather than crashing on `max(range(0))`.
+        return InsightCardData(
+            hero=InsightHero(
+                severity="info",
+                eyebrow="Fund comparison",
+                headline="Comparison data unavailable",
+                subtitle=ct.verdict,
+            ),
+            recommendation=(
+                InsightRecommendation(summary=ct.verdict) if ct.verdict else None
+            ),
+        )
     # Tally how many metrics each fund leads
     leads = [0] * n
     for r in ct.rows:
@@ -1311,12 +1326,115 @@ def nidp_widget_to_insight_card(widget_type: str,
             return sip_plan_to_insight_card(data)
 
         if wt == "fund_comparison":
-            data = CompareTableData(
-                funds=wd.get("funds") or [],
-                rows=[],
-                verdict=wd.get("verdict"),
+            # NIDP shape: widget_data = {"rows": [{scheme_name, category,
+            # amount_rs, return_1y_pct, return_3y_pct, return_5y_pct,
+            # expense_ratio_pct, sharpe, std_dev_pct, aum_cr, ...}], ...}.
+            # We translate directly to InsightCardData instead of through
+            # CompareTableData (which has a different shape — best_index
+            # per row — that we'd have to synthesize from scratch).
+            rows = wd.get("rows") or []
+            if not rows:
+                return InsightCardData(
+                    hero=InsightHero(
+                        severity="info",
+                        eyebrow="Fund comparison",
+                        headline="No mutual fund holdings to compare",
+                    ),
+                )
+            # Severity: count "weak" funds (any with negative 5Y or TER > 1.5).
+            weak = [r for r in rows
+                     if (r.get("return_5y_pct") is not None and r["return_5y_pct"] < 8)
+                     or (r.get("expense_ratio_pct") is not None and r["expense_ratio_pct"] > 1.5)]
+            if   len(weak) >= 4: severity: InsightSeverity = "high"
+            elif len(weak) >= 2: severity = "medium"
+            elif len(weak) >= 1: severity = "info"
+            else:                severity = "healthy"
+
+            # Pick leader by 5Y return where available, else 3Y, else 1Y.
+            def _score(r: Dict[str, Any]) -> float:
+                for k in ("return_5y_pct", "return_3y_pct", "return_1y_pct"):
+                    if r.get(k) is not None:
+                        return float(r[k])
+                return -1e9
+            leader = max(rows, key=_score)
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow=f"{len(rows)} funds compared",
+                headline=f"Leader: {leader.get('scheme_name', '—')}",
+                primary_value=(f"{_score(leader):+.1f}%"
+                                if _score(leader) > -1e8 else None),
+                primary_label="5Y return",
+                subtitle=(f"{len(weak)} fund(s) below threshold"
+                          if weak else "All funds within healthy bands"),
             )
-            return compare_to_insight_card(data)
+
+            kpis: List[InsightKpi] = []
+            # Show the top 4 funds with their 5Y returns (or best available).
+            for r in rows[:4]:
+                ret_5y = r.get("return_5y_pct")
+                ret_3y = r.get("return_3y_pct")
+                ret_1y = r.get("return_1y_pct")
+                primary = ret_5y if ret_5y is not None else (
+                    ret_3y if ret_3y is not None else ret_1y
+                )
+                sublabel = ("5Y" if ret_5y is not None
+                            else "3Y" if ret_3y is not None
+                            else "1Y" if ret_1y is not None
+                            else None)
+                kpis.append(InsightKpi(
+                    label=str(r.get("scheme_name", ""))[:24],
+                    value=(f"{primary:+.1f}%" if primary is not None else "—"),
+                    sublabel=sublabel,
+                    tone="healthy" if (primary or 0) >= 12
+                         else "medium" if (primary or 0) >= 8
+                         else "high",
+                ))
+
+            findings: List[InsightFinding] = []
+            # Flag high-TER funds as findings.
+            ter_outliers = sorted(
+                [r for r in rows if r.get("expense_ratio_pct") is not None],
+                key=lambda r: -r["expense_ratio_pct"],
+            )[:3]
+            for r in ter_outliers:
+                ter = r["expense_ratio_pct"]
+                if ter < 1.2:
+                    continue
+                findings.append(InsightFinding(
+                    priority="high" if ter > 1.7 else "medium",
+                    title=str(r.get("scheme_name", "Fund")),
+                    detail=f"TER {ter:.2f}% · {r.get('category') or 'unknown category'}",
+                    impact_value=f"₹{float(r.get('amount_rs') or 0):,.0f}",
+                    impact_label="Allocation",
+                ))
+
+            recommendation = InsightRecommendation(
+                summary=(
+                    f"{leader.get('scheme_name', 'Top fund')} leads on long-term "
+                    f"return. Consider trimming any high-TER funds with weak "
+                    f"trailing performance to compound the gap."
+                    if findings else
+                    f"{leader.get('scheme_name', 'Top fund')} is your strongest "
+                    f"long-term performer — the rest of the portfolio sits in healthy bands."
+                ),
+                rationale=(
+                    "Comparison ranks every MF in your portfolio on 1Y/3Y/5Y "
+                    "returns, TER, and overlap. The leader is the fund with the "
+                    "best long-horizon return; high-TER underperformers are the "
+                    "first candidates to consolidate."
+                ),
+            )
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=recommendation,
+                actions=[
+                    InsightAction(label="Show full comparison",  action_id="show_full_compare", style="primary"),
+                    InsightAction(label="Cheaper alternatives",  action_id="cheaper_alternatives", style="secondary"),
+                    InsightAction(label="Show portfolio overlap", action_id="show_overlap",  style="secondary"),
+                ],
+            )
 
         return None
     except Exception:
