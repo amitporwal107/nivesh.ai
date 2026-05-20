@@ -192,17 +192,29 @@ export const RiskReturnBubble = ({ perfCards, fmt }) => {
 };
 
 // ──────────────────────────────────────────────────────────
-// 3. ACTION MATRIX — Priority board
-//    Phase 1: Consolidate (overlap-driven) + Review / Exit / Increase / Core.
-//    Buckets ranked by potential impact (₹ at risk / opportunity).
+// 3. ACTION MATRIX — Priority board (now in AI Overview tab)
+//    Phases 1-3: Consolidate / Tax Watch / Review / Exit / Increase / Core.
+//    PR C additions: top-5 banner across all buckets, click-to-drilldown,
+//    doubled vertical density, resizable container.
 // ──────────────────────────────────────────────────────────
 const BUCKET_CONFIG = {
-  consolidate: { label: "Consolidate", sub: "Overlapping funds — merge into best performer", icon: Repeat,         color: "#A78BFA", border: "border-violet-500/25 bg-violet-500/5" },
-  tax:         { label: "Tax Watch",   sub: "Exit candidates with material STCG cost or close to LTCG", icon: Receipt, color: "#FB923C", border: "border-orange-500/25 bg-orange-500/5" },
-  review:      { label: "Review",      sub: "Heavy weight, weak return — evaluate alternatives", icon: AlertTriangle, color: "#F59E0B", border: "border-amber-500/25 bg-amber-500/5"  },
-  exit:        { label: "Exit",        sub: "Low weight + weak return — trim clutter",          icon: TrendingDown,  color: "#EF4444", border: "border-red-500/25 bg-red-500/5"     },
-  increase:    { label: "Increase",    sub: "Strong return, low weight — consider scaling up",  icon: Rocket,        color: "#38BDF8", border: "border-sky-500/25 bg-sky-500/5"     },
-  core:        { label: "Core / Add",  sub: "Strong return, significant weight — keep / add",   icon: CheckCircle,   color: "#10B981", border: "border-emerald-500/25 bg-emerald-500/5" },
+  consolidate: { label: "Consolidate", sub: "Overlapping funds — merge into best performer",     icon: Repeat,        color: "#A78BFA", border: "border-violet-500/25 bg-violet-500/5",   hoverBg: "hover:bg-violet-500/10"  },
+  tax:         { label: "Tax Watch",   sub: "Exit candidates with material STCG cost or close to LTCG", icon: Receipt, color: "#FB923C", border: "border-orange-500/25 bg-orange-500/5",  hoverBg: "hover:bg-orange-500/10"  },
+  review:      { label: "Review",      sub: "Heavy weight, weak return — evaluate alternatives", icon: AlertTriangle, color: "#F59E0B", border: "border-amber-500/25 bg-amber-500/5",    hoverBg: "hover:bg-amber-500/10"   },
+  exit:        { label: "Exit",        sub: "Low weight + weak return — trim clutter",           icon: TrendingDown,  color: "#EF4444", border: "border-red-500/25 bg-red-500/5",        hoverBg: "hover:bg-red-500/10"     },
+  increase:    { label: "Increase",    sub: "Strong return, low weight — consider scaling up",   icon: Rocket,        color: "#38BDF8", border: "border-sky-500/25 bg-sky-500/5",        hoverBg: "hover:bg-sky-500/10"     },
+  core:        { label: "Core / Add",  sub: "Strong return, significant weight — keep / add",    icon: CheckCircle,   color: "#10B981", border: "border-emerald-500/25 bg-emerald-500/5", hoverBg: "hover:bg-emerald-500/10" },
+};
+
+// Priority weight for ranking across buckets. Drives the Top-5 banner.
+// Higher = surfaced first when impact scores tie.
+const BUCKET_PRIORITY = {
+  consolidate: 5,
+  tax:         4,
+  review:      3,
+  exit:        2,
+  increase:    1,
+  core:        0,
 };
 
 // Derive a short tax-status label + colour for an individual card row.
@@ -231,7 +243,10 @@ const impactScore = (card, medR) => {
 
 const truncateName = (s, n = 26) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
 
-export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
+export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance, onSelectHolding }) => {
+  const handleSelect = (card) => {
+    if (typeof onSelectHolding === "function" && card) onSelectHolding(card);
+  };
   // Map fund name → server-computed alternative payload. Populated only when
   // fundPerformance has been fetched (lazy in InsightsView). Null-safe.
   const altByName = useMemo(() => {
@@ -336,7 +351,45 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
 
   const pctOfPortfolio = (v) => totalValue > 0 ? ` · ${((v / totalValue) * 100).toFixed(0)}%` : "";
 
-  // Only show tax badges + alternatives in buckets where exit/switch is a live recommendation.
+  // Quick one-line "why" string used in Top-5 cards. Computed client-side from
+  // existing per-card signals — PR D extends this with fundamentals / technicals.
+  const reasonFor = (card, bucketKey) => {
+    const ret = card.pct_return ?? 0;
+    const wt  = card.weight ?? 0;
+    const alt = altByName.get(card.name);
+    if (bucketKey === "review")
+      return alt
+        ? `${wt.toFixed(1)}% weight · −${(medR - ret).toFixed(0)}pp vs peers — alt available`
+        : `${wt.toFixed(1)}% weight · −${(medR - ret).toFixed(0)}pp vs peers`;
+    if (bucketKey === "exit")
+      return ret < 0
+        ? `Down ${ret.toFixed(0)}% · only ${wt.toFixed(1)}% of portfolio — clutter`
+        : `Lagging peers · only ${wt.toFixed(1)}% of portfolio`;
+    if (bucketKey === "increase")
+      return `+${ret.toFixed(0)}% return · only ${wt.toFixed(1)}% weight — scale up`;
+    if (bucketKey === "core")
+      return `Strong return at ${wt.toFixed(1)}% weight — keep / add`;
+    return "";
+  };
+
+  // Build the Top-5 list across all buckets ranked by (bucket priority, impact).
+  // Excludes Core (action = "keep", not interesting for action surfacing).
+  const top5 = (() => {
+    const flat = [];
+    ["review", "exit", "increase", "tax"].forEach(key => {
+      const b = buckets[key] || { funds: [] };
+      (b.funds || []).forEach(f => flat.push({
+        card: f, bucketKey: key,
+        score: impactScore(f, medR) * (1 + BUCKET_PRIORITY[key] * 0.15),
+      }));
+    });
+    flat.sort((a, b) => b.score - a.score);
+    return flat.slice(0, 5);
+  })();
+
+  // Doubled vertical density — rows go from ~22px to ~44px; bucket cards from
+  // ~150px to ~320px. Tighter density (the prior small-card variant) was needed
+  // when the matrix lived in P&B's split column. In AI Overview we have full width.
   const renderFundBucket = (key) => {
     const cfg = BUCKET_CONFIG[key];
     const b = buckets[key] || { funds: [], value: 0 };
@@ -344,55 +397,59 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
     const withBadges = key === "exit" || key === "review";
     const withAlts = key === "exit" || key === "review";
     return (
-      <div key={key} className={`rounded-xl p-3 border ${cfg.border}`}>
-        <div className="flex items-center gap-1.5 mb-1">
-          <Icon className="w-3.5 h-3.5" style={{ color: cfg.color }} />
-          <span className="text-xs font-bold text-slate-900 dark:text-white">{cfg.label}</span>
-          <span className="ml-auto text-[10px] font-bold text-slate-400">{b.funds.length}</span>
+      <div key={key} className={`rounded-2xl p-5 border ${cfg.border}`}>
+        <div className="flex items-center gap-2.5 mb-2">
+          <Icon className="w-5 h-5" style={{ color: cfg.color }} />
+          <span className="text-base font-bold text-slate-900 dark:text-white">{cfg.label}</span>
+          <span className="ml-auto text-xs font-bold text-slate-400">{b.funds.length}</span>
         </div>
-        <p className="text-[10px] font-bold mb-1" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+        <p className="text-sm font-bold mb-1.5" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
           {getFmtShort(b.value)}{pctOfPortfolio(b.value)}
         </p>
-        <p className="text-[9px] text-slate-400 mb-2">{cfg.sub}</p>
-        <div className="space-y-1 max-h-[110px] overflow-y-auto">
+        <p className="text-xs text-slate-400 mb-3">{cfg.sub}</p>
+        <div className="space-y-2 max-h-[260px] overflow-y-auto">
           {b.funds.slice(0, 5).map((f, i) => {
             const badge = withBadges ? taxBadge(f) : null;
             const alt = withAlts ? altByName.get(f.name) : null;
             return (
-              <div key={i} className="flex flex-col gap-px">
-                <div className="flex items-center justify-between gap-1">
-                  <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">{truncateName(f.name, badge ? 18 : 24)}</p>
+              <button
+                type="button"
+                key={i}
+                onClick={() => handleSelect(f)}
+                className={`w-full text-left rounded-lg p-2 transition-colors ${cfg.hoverBg} focus:outline-none focus:ring-1 focus:ring-white/20`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm text-slate-700 dark:text-zinc-200 truncate flex-1">{truncateName(f.name, badge ? 22 : 32)}</p>
                   {badge && (
-                    <span className={`text-[8px] font-semibold px-1 py-px rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
                   )}
-                  <span className={`text-[9px] font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                  <span className={`text-sm font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
                     {f.pct_return >= 0 ? "+" : ""}{f.pct_return?.toFixed(0)}%
                   </span>
                 </div>
                 {alt && (
-                  <div className="flex items-center gap-1 pl-2 -mt-px">
-                    <ArrowRight className="w-2.5 h-2.5 text-emerald-500/80 flex-shrink-0" />
-                    <p className="text-[8px] text-slate-500 dark:text-zinc-500 truncate flex-1" title={`${alt.name} · ${alt.confidence} confidence`}>
-                      {truncateName(alt.name, 22)}
+                  <div className="flex items-center gap-1.5 pl-3 mt-1">
+                    <ArrowRight className="w-3 h-3 text-emerald-500/80 flex-shrink-0" />
+                    <p className="text-xs text-slate-500 dark:text-zinc-500 truncate flex-1" title={`${alt.name} · ${alt.confidence} confidence`}>
+                      {truncateName(alt.name, 26)}
                     </p>
-                    <span className="text-[8px] font-bold text-emerald-500 flex-shrink-0">+{getFmtShort(alt.uplift_per_year_rs)}/yr</span>
+                    <span className="text-xs font-bold text-emerald-500 flex-shrink-0">+{getFmtShort(alt.uplift_per_year_rs)}/yr</span>
                   </div>
                 )}
-              </div>
+              </button>
             );
           })}
           {b.funds.length > 5 && (
-            <p className="text-[9px] text-slate-500 text-center">+{b.funds.length - 5} more</p>
+            <p className="text-xs text-slate-500 text-center pt-1">+{b.funds.length - 5} more</p>
           )}
           {b.funds.length === 0 && (
-            <p className="text-[9px] text-slate-500 text-center italic">None</p>
+            <p className="text-xs text-slate-500 text-center italic py-4">None</p>
           )}
         </div>
       </div>
     );
   };
 
-  // Tax Watch as a full-width priority row (only shown when candidates exist).
   const renderTaxRow = () => {
     const cfg = BUCKET_CONFIG.tax;
     const b = buckets.tax || { funds: [], value: 0 };
@@ -403,36 +460,41 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
       return d > 0 && d <= 60;
     }).length;
     return (
-      <div className={`rounded-xl p-3 border ${cfg.border} mb-2`}>
-        <div className="flex items-center gap-1.5 mb-1">
-          <Icon className="w-3.5 h-3.5" style={{ color: cfg.color }} />
-          <span className="text-xs font-bold text-slate-900 dark:text-white">{cfg.label}</span>
-          <span className="ml-auto text-[10px] font-bold text-slate-400">
+      <div className={`rounded-2xl p-5 border ${cfg.border} mb-4`}>
+        <div className="flex items-center gap-2.5 mb-2">
+          <Icon className="w-5 h-5" style={{ color: cfg.color }} />
+          <span className="text-base font-bold text-slate-900 dark:text-white">{cfg.label}</span>
+          <span className="ml-auto text-xs font-bold text-slate-400">
             {b.funds.length} fund{b.funds.length === 1 ? "" : "s"}
             {approachingCount > 0 && ` · ${approachingCount} ≤ 60d to LTCG`}
           </span>
         </div>
-        <p className="text-[10px] font-bold mb-1" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+        <p className="text-sm font-bold mb-1.5" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
           {getFmtShort(b.value)}{pctOfPortfolio(b.value)} · stagger exits or wait for LTCG
         </p>
-        <p className="text-[9px] text-slate-400 mb-2">{cfg.sub}</p>
-        <div className="space-y-1 max-h-[80px] overflow-y-auto">
+        <p className="text-xs text-slate-400 mb-3">{cfg.sub}</p>
+        <div className="space-y-2 max-h-[180px] overflow-y-auto">
           {b.funds.slice(0, 4).map((f, i) => {
             const badge = taxBadge(f);
             return (
-              <div key={i} className="flex items-center justify-between gap-1">
-                <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">{truncateName(f.name, 22)}</p>
+              <button
+                type="button"
+                key={i}
+                onClick={() => handleSelect(f)}
+                className={`w-full text-left rounded-lg p-2 transition-colors ${cfg.hoverBg} focus:outline-none focus:ring-1 focus:ring-white/20 flex items-center justify-between gap-2`}
+              >
+                <p className="text-sm text-slate-700 dark:text-zinc-200 truncate flex-1">{truncateName(f.name, 28)}</p>
                 {badge && (
-                  <span className={`text-[8px] font-semibold px-1 py-px rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
                 )}
-                <span className={`text-[9px] font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                <span className={`text-sm font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
                   {f.pct_return >= 0 ? "+" : ""}{f.pct_return?.toFixed(0)}%
                 </span>
-              </div>
+              </button>
             );
           })}
           {b.funds.length > 4 && (
-            <p className="text-[9px] text-slate-500 text-center">+{b.funds.length - 4} more</p>
+            <p className="text-xs text-slate-500 text-center pt-1">+{b.funds.length - 4} more</p>
           )}
         </div>
       </div>
@@ -445,70 +507,106 @@ export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
   const ConIcon = conCfg.icon;
 
   return (
-    <div>
-      <p className="text-[10px] text-slate-400 dark:text-zinc-500 mb-3">
+    <div className="space-y-4">
+      <p className="text-xs text-slate-400 dark:text-zinc-500">
         Ranked by potential impact. Median return {medR?.toFixed(1)}% · median weight {medW?.toFixed(1)}%
         {showConsolidate && ` · ${con.pairs.length} high-overlap pair${con.pairs.length === 1 ? "" : "s"}`}
+        {" · "}<span className="text-slate-500">click any holding for details</span>
       </p>
 
       {/* Aggregate uplift banner — sum of in-portfolio switch opportunities */}
       {totalUplift > 0 && (
-        <div className="rounded-xl p-3 border border-emerald-500/25 bg-emerald-500/5 mb-2 flex items-center gap-3">
-          <Rocket className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+        <div className="rounded-2xl p-4 border border-emerald-500/25 bg-emerald-500/5 flex items-center gap-4">
+          <Rocket className="w-6 h-6 text-emerald-400 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-900 dark:text-white">Potential uplift</p>
-            <p className="text-[9px] text-slate-400">
+            <p className="text-sm font-bold text-slate-900 dark:text-white">Potential uplift</p>
+            <p className="text-xs text-slate-400">
               If underperformers were re-allocated to better funds you already own (1Y category-rank basis)
             </p>
           </div>
-          <p className="text-sm font-bold text-emerald-400 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+          <p className="text-xl font-bold text-emerald-400 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
             +{getFmtShort(totalUplift)}/yr
           </p>
         </div>
       )}
 
-      {/* Priority row: Consolidate (only shown when real overlap pairs exist) */}
+      {/* Top 5 Recommendations — ranked across all action buckets (excludes Core) */}
+      {top5.length > 0 && (
+        <div className="rounded-2xl p-5 border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900/40">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="w-5 h-5 text-sky-400" />
+            <h4 className="text-base font-bold text-slate-900 dark:text-white">Top 5 Recommendations</h4>
+            <span className="ml-auto text-[10px] text-slate-500 uppercase tracking-wider">click to drill down</span>
+          </div>
+          <div className="space-y-2">
+            {top5.map(({ card, bucketKey }, i) => {
+              const cfg = BUCKET_CONFIG[bucketKey];
+              const Icon = cfg.icon;
+              return (
+                <button
+                  type="button"
+                  key={i}
+                  onClick={() => handleSelect(card)}
+                  className={`w-full text-left rounded-xl p-3 border ${cfg.border} ${cfg.hoverBg} flex items-center gap-3 transition-colors focus:outline-none focus:ring-2 focus:ring-white/20`}
+                >
+                  <span className="text-xs font-mono text-slate-500 w-5 flex-shrink-0">#{i + 1}</span>
+                  <Icon className="w-4 h-4 flex-shrink-0" style={{ color: cfg.color }} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: cfg.color }}>{cfg.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{card.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-zinc-500 truncate">{reasonFor(card, bucketKey)}</p>
+                  </div>
+                  <span className={`text-sm font-bold flex-shrink-0 ${(card.pct_return ?? 0) >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                    {(card.pct_return ?? 0) >= 0 ? "+" : ""}{card.pct_return?.toFixed(0)}%
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Consolidate row — pairs (not single holdings, so click does nothing here yet; PR D wires to OptimizationCard) */}
       {showConsolidate && (
-        <div className={`rounded-xl p-3 border ${conCfg.border} mb-2`}>
-          <div className="flex items-center gap-1.5 mb-1">
-            <ConIcon className="w-3.5 h-3.5" style={{ color: conCfg.color }} />
-            <span className="text-xs font-bold text-slate-900 dark:text-white">{conCfg.label}</span>
-            <span className="ml-auto text-[10px] font-bold text-slate-400">
+        <div className={`rounded-2xl p-5 border ${conCfg.border}`}>
+          <div className="flex items-center gap-2.5 mb-2">
+            <ConIcon className="w-5 h-5" style={{ color: conCfg.color }} />
+            <span className="text-base font-bold text-slate-900 dark:text-white">{conCfg.label}</span>
+            <span className="ml-auto text-xs font-bold text-slate-400">
               {con.pairs.length} pair{con.pairs.length === 1 ? "" : "s"} · {con.fund_count} fund{con.fund_count === 1 ? "" : "s"}
             </span>
           </div>
-          <p className="text-[10px] font-bold mb-1" style={{ color: conCfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+          <p className="text-sm font-bold mb-1.5" style={{ color: conCfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
             {getFmtShort(con.value)}{pctOfPortfolio(con.value)} in overlapping funds
           </p>
-          <p className="text-[9px] text-slate-400 mb-2">{conCfg.sub}</p>
-          <div className="space-y-1 max-h-[80px] overflow-y-auto">
+          <p className="text-xs text-slate-400 mb-3">{conCfg.sub}</p>
+          <div className="space-y-2 max-h-[180px] overflow-y-auto">
             {con.pairs.slice(0, 4).map((p, i) => {
               const a = p.fund_a || p.fund1 || "Fund A";
               const b = p.fund_b || p.fund2 || "Fund B";
               const pct = p.overlap_pct ?? 0;
               return (
-                <div key={i} className="flex items-center justify-between gap-1">
-                  <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">
-                    {truncateName(a, 18)} ↔ {truncateName(b, 18)}
+                <div key={i} className="flex items-center justify-between gap-2 rounded-lg p-2">
+                  <p className="text-sm text-slate-700 dark:text-zinc-200 truncate flex-1">
+                    {truncateName(a, 26)} ↔ {truncateName(b, 26)}
                   </p>
-                  <span className="text-[9px] font-bold flex-shrink-0 text-violet-400">
+                  <span className="text-sm font-bold flex-shrink-0 text-violet-400">
                     {pct.toFixed(0)}%
                   </span>
                 </div>
               );
             })}
             {con.pairs.length > 4 && (
-              <p className="text-[9px] text-slate-500 text-center">+{con.pairs.length - 4} more pairs</p>
+              <p className="text-xs text-slate-500 text-center pt-1">+{con.pairs.length - 4} more pairs</p>
             )}
           </div>
         </div>
       )}
 
-      {/* Priority row 2: Tax Watch (only shown when STCG-cost candidates exist) */}
       {renderTaxRow()}
 
       {/* 2×2 grid: Review / Exit / Increase / Core */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {(["review", "exit", "increase", "core"]).map(renderFundBucket)}
       </div>
     </div>
@@ -590,7 +688,7 @@ export const ContributionWaterfall = ({ perfCards, fmt }) => {
 // 5. PERFORMANCE ANALYTICS COCKPIT
 //    (Hero section for Performance & Benchmark tab)
 // ──────────────────────────────────────────────────────────
-export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfolioHealth, overlapMatrix, fmt }) => {
+export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfolioHealth, fmt }) => {
   const cards = (perfCards || []).filter(c => c.invested > 0);
   const dist = fundPerformance?.performance_distribution || {};
   const score = portfolioHealth?.health_score ?? null;
@@ -649,31 +747,18 @@ export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfo
         </CardContent>
       </Card>
 
-      {/* Charts Row: Risk/Return + Action Matrix */}
+      {/* Charts Row: Risk vs Return (Action Matrix now lives in AI Overview tab) */}
       {cards.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <Card className="bg-white dark:bg-[#111] border-slate-100 dark:border-white/5 rounded-2xl h-full">
-              <CardContent className="p-5">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Risk vs Return
-                </h3>
-                <RiskReturnBubble perfCards={cards} fmt={fmt} />
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <Card className="bg-white dark:bg-[#111] border-slate-100 dark:border-white/5 rounded-2xl h-full">
-              <CardContent className="p-5">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
-                  Action Matrix
-                </h3>
-                <ActionMatrix perfCards={cards} overlapMatrix={overlapMatrix} fundPerformance={fundPerformance} />
-              </CardContent>
-            </Card>
-          </motion.div>
-        </div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <Card className="bg-white dark:bg-[#111] border-slate-100 dark:border-white/5 rounded-2xl">
+            <CardContent className="p-5">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                Risk vs Return
+              </h3>
+              <RiskReturnBubble perfCards={cards} fmt={fmt} />
+            </CardContent>
+          </Card>
+        </motion.div>
       )}
 
       {/* Contribution Waterfall */}
