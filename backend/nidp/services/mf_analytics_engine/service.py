@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -437,3 +438,20 @@ async def create_pool(url: str) -> asyncpg.Pool:
         statement_cache_size=0,
         server_settings={"search_path": "nidp,analytics,public"},
     )
+
+
+# ── Backfill / cron adapter ─────────────────────────────────────────
+# Matches the run(target_date) convention every NIDP ingester exposes,
+# so this service can be invoked by nidp/backfill.py and run_service.sh.
+async def run(target_date: Optional[date] = None) -> dict:
+    url = os.environ.get("NIDP_POSTGRES_URL") or os.environ.get("POSTGRES_URL")
+    if not url:
+        raise RuntimeError("NIDP_POSTGRES_URL not set")
+    if target_date is None:
+        target_date = date.today() - timedelta(days=1)
+    pool = await create_pool(url)
+    try:
+        report = await compute_for_date(pool, target_date)
+        return report.as_dict() if hasattr(report, "as_dict") else {"rank_date": str(target_date)}
+    finally:
+        await pool.close()

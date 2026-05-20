@@ -1237,7 +1237,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                 {suggestionsLoading ? (
                   <div className="flex items-center gap-2 text-slate-400 text-xs"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analysing your portfolio…</div>
                 ) : (tieredPrompts.primary.length === 0 && tieredPrompts.secondary.length === 0) ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 w-full">
                     {intentQuestions.map((q) => (
                       <button
                         key={q.text}
@@ -1253,7 +1253,7 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
                     ))}
                   </div>
                 ) : (
-                  <div className="w-full max-w-xl space-y-4">
+                  <div className="w-full space-y-4">
                     {/* ── 5-category filter chips (when persona prompts are enabled) ── */}
                     {tieredPrompts.persona_prompts_enabled && (
                       <div className="flex flex-wrap gap-2 justify-center pb-2">

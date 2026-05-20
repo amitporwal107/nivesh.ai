@@ -364,10 +364,10 @@ export default function V2CopilotWelcome({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="flex flex-col items-center justify-start h-full py-8 px-4 overflow-y-auto"
+      className="flex flex-col items-stretch justify-start h-full py-8 px-4 sm:px-6 lg:px-8 overflow-y-auto"
       style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}
     >
-      <div className="w-full max-w-5xl space-y-5">
+      <div className="w-full space-y-5">
 
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-3">
