@@ -13,6 +13,10 @@ on:
         description: 'Branch to deploy from'
         type: string
         default: main
+      run_migrations:
+        description: 'Run DB migrations after deploy (only applies pending ones)'
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-nidp
@@ -53,6 +57,21 @@ jobs:
             # Pull latest code and reinstall deps (if requirements changed)
             sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh \
               --branch="${{ github.event.inputs.branch || 'main' }}"
+
+            # Run pending DB migrations before restarting services (opt-in).
+            # Uses nidp.cli migrate which tracks applied set in
+            # nidp.schema_migrations and only runs files not yet applied.
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
+              log "=== Running pending NIDP migrations ==="
+              sudo -u nidp bash -c '
+                set -a; . /opt/nidp/nidp.env; set +a
+                cd /opt/nidp/repo/backend &&
+                /opt/nidp/venv/bin/python -m nidp.cli migrate
+              '
+              ok "Migrations done."
+            else
+              log "(migrations skipped — set workflow input run_migrations=true to run them)"
+            fi
 
             # Restart live services to pick up the new code
             for svc in nidp-daas-api nidp-query-api; do

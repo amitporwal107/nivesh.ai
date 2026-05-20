@@ -25,6 +25,10 @@ on:
         description: 'Branch to deploy (default: main)'
         type: string
         default: main
+      run_migrations:
+        description: 'Run DB migrations after redeploy (only applies pending ones)'
+        type: boolean
+        default: false
 
 # Only one deploy at a time; new pushes cancel in-progress deploys.
 concurrency:
@@ -80,6 +84,21 @@ jobs:
             # Run the existing redeploy script as root with the correct branch.
             sudo BRANCH="${{ steps.config.outputs.branch }}" \
               bash /opt/nivesh/deploy/redeploy.sh ${{ steps.config.outputs.args }}
+
+            # Run pending DB migrations (opt-in via workflow_dispatch input).
+            # Uses backend/migrations/_run.sh: tracks applied set in
+            # public.schema_migrations and only runs files not yet applied.
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
+              echo ""
+              echo "=== Running pending DB migrations ==="
+              sudo docker compose \
+                -f /opt/nivesh/deploy/docker-compose.prod.yml \
+                --env-file /opt/nivesh/.env.prod \
+                --profile migrate \
+                run --rm migrate
+            else
+              echo "(migrations skipped — set workflow input run_migrations=true to run them)"
+            fi
 
       # ── Post-deploy health probe from runner ──────────────────────────────
       - name: External health check

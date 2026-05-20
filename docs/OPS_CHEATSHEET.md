@@ -166,9 +166,23 @@ $COMPOSE --env-file /opt/nivesh/.env.prod up -d
 # ── Health check ──────────────────────────────────────────────────────────────
 curl -sf http://34.100.186.141.nip.io/health
 
-# ── Run DB migrations (idempotent) ────────────────────────────────────────────
-$COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate up migrate
+# ── Run DB migrations (idempotent, tracked) ──────────────────────────────────
+# Applies ONLY .sql files not yet in public.schema_migrations.
+$COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate run --rm migrate
+
+# ── One-time bootstrap (run once per DB to migrate to the tracked runner) ────
+# Marks all existing migrations as 'applied' WITHOUT executing the SQL again.
+# Required on any DB that was migrated by the old bash loop, so the new tracked
+# runner doesn't re-apply history. Idempotent — safe to re-run.
+$COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate run --rm migrate --bootstrap
+
+# ── Force re-apply (escape hatch — rarely needed) ────────────────────────────
+$COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate run --rm migrate --force
 ```
+
+GitHub Actions: trigger via `workflow_dispatch` on `deploy-app` with the
+`run_migrations` input set to `true`. The same logic applies — only pending
+files are run. Bootstrap mode is operator-only (not exposed via workflow).
 
 ---
 

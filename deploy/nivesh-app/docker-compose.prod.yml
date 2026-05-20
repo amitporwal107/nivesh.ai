@@ -111,20 +111,14 @@ services:
       backend: { condition: service_healthy }
 
   # ── DB migration runner (runs once, exits) ───────────────────────────────────
+  # Applies only pending migrations; tracks state in public.schema_migrations.
+  # See backend/migrations/_run.sh for modes (--bootstrap, --force).
   migrate:
     image: nivesh/backend:prod
     container_name: nivesh-migrate
     restart: "no"
     env_file: /opt/nivesh/.env.prod
-    command: >
-      bash -c "
-        echo 'Running PostgreSQL migrations...' &&
-        for f in /app/backend/migrations/*.sql; do
-          echo \"Applying \$f\" &&
-          psql \"${POSTGRES_URL}\" -f \"\$f\" 2>&1 | grep -v 'already exists' || true;
-        done &&
-        echo 'Migrations done.'
-      "
+    entrypoint: ["bash", "/app/backend/migrations/_run.sh"]
     networks: [nivesh-prod]
     depends_on:
       postgres: { condition: service_healthy }
