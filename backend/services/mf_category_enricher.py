@@ -175,6 +175,21 @@ def parse_sebi_from_name(name: str) -> Tuple[Optional[str], Optional[str]]:
             if re.search(pattern, name_lc):
                 subcat = label
                 break
+
+        # 2026-05-20 fallback: many AMFI / KFinTech names elide the "50"
+        # ("UTI Nifty Index Fund" / "SBI Nifty Index Fund" in practice
+        # track Nifty 50). If we couldn't pin a specific tracked index
+        # but the name has "nifty" + "index", default to "Nifty 50" —
+        # the canonical large-cap index and the most likely target.
+        # Without this, these funds get None sub-category and
+        # _sebi_buckets_match drops them, which makes them silently
+        # disappear from duplicate detection.
+        if subcat is None and re.search(r"\bnifty\b", name_lc) and re.search(r"\bindex\b", name_lc):
+            subcat = "Nifty 50"
+        # "Sensex Index" without a number → BSE Sensex
+        elif subcat is None and re.search(r"\bsensex\b", name_lc):
+            subcat = "Sensex"
+
         return "Index Fund", subcat
 
     if _GOLD_TRIGGER.search(name_lc):
