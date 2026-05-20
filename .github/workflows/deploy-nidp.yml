@@ -47,7 +47,7 @@ jobs:
       # ── Prepare deploy directory ──────────────────────────────────────────
       - name: Prepare deploy directory on VM
         run: |
-          ssh "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
+          ssh "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
             sudo mkdir -p /opt/nidp/repo/backend/nidp
             sudo chown -R $(whoami):$(whoami) /opt/nidp/
           REMOTE
@@ -62,14 +62,14 @@ jobs:
             --exclude="*.egg-info" \
             --exclude=".pytest_cache" \
             backend/nidp/ \
-            "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}:/opt/nidp/repo/backend/nidp/"
+            "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}:/opt/nidp/repo/backend/nidp/"
 
           echo "✅ Code synced. Commit: ${{ github.sha }}"
 
       # ── Restart NIDP services ─────────────────────────────────────────────
       - name: Restart NIDP services on VM
         run: |
-          ssh "${{ secrets.SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
+          ssh "${{ secrets.NIDP_SSH_USER }}@${{ secrets.NIDP_VM_HOST }}" bash <<'REMOTE'
             set -euo pipefail
             log() { printf '\033[1;36m[nidp-ci]\033[0m %s\n' "$*"; }
             ok()  { printf '\033[1;32m[nidp-ci]\033[0m %s\n' "$*"; }
