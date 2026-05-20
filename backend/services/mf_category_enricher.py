@@ -66,32 +66,46 @@ _EQUITY_PATTERNS: List[Tuple[str, str]] = [
 
 # Sectoral / Thematic
 _SECTORAL_PATTERNS: List[Tuple[str, str]] = [
-    (r"\bbank(ing)?\b",     "Banking"),
-    (r"\bpharma\b",         "Pharma"),
-    (r"\bit\b|\btechnolog", "IT"),
-    (r"\binfrastruct",      "Infrastructure"),
-    (r"\bfmcg\b|consumer",  "Consumption"),
-    (r"\benerg(y|ie)",      "Energy"),
-    (r"\bauto\b",           "Auto"),
-    (r"\bmnc\b",            "MNC"),
-    (r"\bpsu\b",            "PSU"),
+    (r"\bbank(ing)?\b",       "Banking"),
+    (r"\bpharma\b",           "Pharma"),
+    (r"\bit\b|\btechnolog",   "IT"),
+    (r"\binfrastruct",        "Infrastructure"),
+    # Split FMCG and Consumption — NSE publishes distinct indices for each
+    # (NIFTY FMCG vs NIFTY India Consumption), so the SEBI master treats
+    # them as separate Sectoral/Thematic sub-categories. The previous
+    # combined pattern emitted "Consumption" for FMCG funds, which
+    # mismatched the master seed.
+    (r"\bfmcg\b",             "FMCG"),
+    (r"\bconsum(er|ption)\b", "Consumption"),
+    (r"\benerg(y|ie)",        "Energy"),
+    (r"\bauto\b",             "Auto"),
+    (r"\bmnc\b",              "MNC"),
+    (r"\bpsu\b",              "PSU"),
 ]
 
-# Debt Funds
+# Debt Funds — labels must match nidp.sebi_category_master seed
+# (migration 061). "Income" is intentionally absent: SEBI's 2017
+# re-categorisation retired it; funds previously named "Income" got
+# re-mapped to Dynamic Bond / Medium Duration / etc.
 _DEBT_PATTERNS: List[Tuple[str, str]] = [
-    (r"\bliquid\b",                "Liquid"),
-    (r"\bultra\s*short\b",         "Ultra Short Duration"),
-    (r"\blow\s*duration\b",        "Low Duration"),
-    (r"\bmoney\s*market\b",        "Money Market"),
-    (r"\bcorporate\s*bond\b",      "Corporate Bond"),
-    (r"\bbanking\s*&?\s*psu\b",    "Banking & PSU"),
-    (r"\bgilt\b",                  "Gilt"),
-    (r"\bdynamic\s*bond\b",        "Dynamic Bond"),
-    (r"\bcredit\s*risk\b",         "Credit Risk"),
-    (r"\bovernight\b",             "Overnight"),
-    (r"\bshort[\s-]?duration\b",   "Short Duration"),
-    (r"\bmedium[\s-]?duration\b",  "Medium Duration"),
-    (r"\bincome\b",                "Income"),
+    (r"\bliquid\b",                          "Liquid"),
+    (r"\bultra\s*short\b",                   "Ultra Short Duration"),
+    (r"\blow\s*duration\b",                  "Low Duration"),
+    (r"\bmoney\s*market\b",                  "Money Market"),
+    (r"\bcorporate\s*bond\b",                "Corporate Bond"),
+    (r"\bbanking\s*&?\s*psu\b",              "Banking & PSU"),
+    # "Gilt 10Y Constant" / "Constant Maturity Gilt" — beats generic Gilt
+    (r"\bgilt.*\b10\s*y\b|\bconstant\s+maturity\s+gilt\b", "Gilt 10Y Constant"),
+    (r"\bgilt\b",                            "Gilt"),
+    (r"\bdynamic\s*bond\b",                  "Dynamic Bond"),
+    (r"\bcredit\s*risk\b",                   "Credit Risk"),
+    (r"\bovernight\b",                       "Overnight"),
+    # "Medium to Long" must beat plain "Medium Duration"
+    (r"\bmedium\s+to\s+long[\s-]?duration\b", "Medium to Long Duration"),
+    (r"\bmedium[\s-]?duration\b",            "Medium Duration"),
+    (r"\bshort[\s-]?duration\b",             "Short Duration"),
+    (r"\blong[\s-]?duration\b",              "Long Duration"),
+    (r"\bfloater\b|\bfloating\s+rate\b",     "Floater"),
 ]
 
 # Hybrid Funds — "Hybrid Equity" funds are SEBI-classified as
@@ -233,6 +247,7 @@ _SCHEME_CATEGORY_REWRITES: List[Tuple[str, str]] = [
     (r"\bvalue\b",                        "Value Fund"),
     (r"\bcontra\b",                       "Contra Fund"),
     (r"\belss\b|tax\s*saver",             "ELSS"),
+    (r"\bdividend\s*yield\b",             "Dividend Yield"),
     (r"\bindex\s*fund|index\s*funds?/etf", "Index Fund"),
     (r"\bgold\s*etf|gold\s*fund\b",       "Gold ETF"),
     (r"\bfund\s*of\s*funds?\b|\bfof\b",   "Fund of Funds"),
@@ -250,10 +265,17 @@ _SCHEME_CATEGORY_REWRITES: List[Tuple[str, str]] = [
     (r"\bmoney\s*market\b",               "Money Market"),
     (r"\bcorporate\s*bond\b",             "Corporate Bond"),
     (r"\bbanking\s*&?\s*psu\b",           "Banking & PSU"),
+    # Order: 10Y constant beats plain Gilt
+    (r"\bgilt.*\b10\s*y\b|\bconstant\s+maturity\s+gilt\b", "Gilt 10Y Constant"),
     (r"\bgilt\b",                         "Gilt"),
     (r"\bdynamic\s*bond\b",               "Dynamic Bond"),
     (r"\bcredit\s*risk\b",                "Credit Risk"),
     (r"\bovernight\b",                    "Overnight"),
+    (r"\bmedium\s+to\s+long",             "Medium to Long Duration"),
+    (r"\bmedium\s+duration\b",            "Medium Duration"),
+    (r"\bshort\s+duration\b",             "Short Duration"),
+    (r"\blong\s+duration\b",              "Long Duration"),
+    (r"\bfloater\b|\bfloating\s+rate\b",  "Floater"),
     (r"\bretirement\b",                   "Retirement Fund"),
     (r"\bchildren\b",                     "Children's Fund"),
     (r"\bsector\b|\bthematic\b",          "Sectoral/Thematic"),
