@@ -7,6 +7,7 @@ import {
   Building2, Shield, Wallet, RefreshCw, AlertCircle, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import OptimizationCard from "@/components/insights/OptimizationCard";
 import WidgetRenderer from "@/components/copilot/widgets/WidgetRenderer";
 import { recommendationToInsightEnvelope } from "@/components/insights/recommendationToInsightCard";
@@ -130,8 +131,11 @@ const matchHoldings = (insight, perfCards) => {
 // ── Hero: "Here are your N most important actions" ─────────────────────
 // Reads from locally-computed counts — never from backend summary — so it
 // works correctly even before the user has run a full analysis.
-// ── Hero: "₹X Lakhs can be optimized" — the spec's optimisation engine framing
-const HeroSummary = ({ counts, summary, totalInsights, completedCount, topActions, onScrollToActions }) => {
+// ── Hero: "₹X Lakhs can be optimized" — the spec's optimisation engine framing.
+// Disabled in the AI Overview path (2026-05-20 directive) — the Action Matrix's
+// Top-5 banner upstream covers the same framing. Prefix retained so lint
+// recognises this as deliberately-unused; restore by removing the underscore.
+const _HeroSummary = ({ counts, summary, totalInsights, completedCount, topActions, onScrollToActions }) => {
   const { critical, important, opportunities: opps } = counts;
 
   // Optimisation aggregates (only present once backend returns enriched summary)
@@ -422,6 +426,15 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, hig
             <p className="text-xs text-slate-500 dark:text-zinc-500 mt-1 line-clamp-2">
               {description}
             </p>
+
+            {/* AMC-concentration cards get an explicit "How to reduce"
+                next-step line — the spec said the card states the fact
+                ("HDFC holds 44%") but never tells the user what to do. */}
+            {deriveTheme(insight) === "amc_concentration" && _amcReductionHint(insight) && (
+              <p className="text-xs text-slate-700 dark:text-zinc-300 mt-1.5 leading-relaxed">
+                {_amcReductionHint(insight)}
+              </p>
+            )}
           </div>
 
           <button
@@ -574,6 +587,264 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, hig
 };
 
 // ── Theme group (collapsible) ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// Duplicate / Overlap collapsed views
+//
+// Pre-PR: every pair was rendered as its own InsightCard inline → 40+
+// stacked rows in the "Duplicate Funds" theme made the page unscrollable.
+// Post-PR: the theme collapses into 1-2 summary cards; clicking opens a
+// modal listing the underlying pairs. Matches the user directive
+// 2026-05-20: "summarize like this 10 funds are duplicated with regular
+// and direct schemes; click on duplicate funds displays in separate popup".
+// ─────────────────────────────────────────────────────────────────────
+
+/** Normalise a fund name so we can match a Regular plan against its Direct
+ *  counterpart. Strips suffixes like " - Direct - Growth", " Direct Plan",
+ *  " - Growth", etc., plus extra whitespace. Case-insensitive. */
+const _normaliseFundName = (s) => {
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .replace(/\s*[-–]\s*direct(\s+plan)?\b/gi, "")
+    .replace(/\s*[-–]\s*regular(\s+plan)?\b/gi, "")
+    .replace(/\s+direct(\s+plan)?\b/gi, "")
+    .replace(/\s+regular(\s+plan)?\b/gi, "")
+    .replace(/\s*[-–]\s*growth\b/gi, "")
+    .replace(/\s+growth\b/gi, "")
+    .replace(/\s*[-–]\s*idcw\b/gi, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/** Decide whether the two fund names on a duplicate-funds insight are the
+ *  same fund's Regular vs Direct plan. Heuristic: their normalised forms
+ *  match AND at least one of the original names mentions "Direct". */
+const isRegularVsDirect = (insight) => {
+  const funds = insight?.affected_funds || [];
+  if (funds.length < 2) {
+    // Some payloads stuff both fund names into the title:
+    //   "Nippon India Small Cap Growth and Nippon India Small Cap Direct Growth overlap 97%"
+    const m = (insight?.title || "").match(/^(.+?)\s+and\s+(.+?)\s+overlap/i);
+    if (!m) return false;
+    return _checkRegDirPair(m[1], m[2]);
+  }
+  return _checkRegDirPair(funds[0], funds[1]);
+};
+
+const _checkRegDirPair = (a, b) => {
+  if (!a || !b) return false;
+  const norm = _normaliseFundName(a) === _normaliseFundName(b);
+  const oneIsDirect =
+    /\bdirect\b/i.test(a || "") || /\bdirect\b/i.test(b || "");
+  return norm && oneIsDirect;
+};
+
+/** Sum of `fee_savings_annual_rs` across a set of insights. Treats missing
+ *  values as 0 — never imputes. Used for the headline benefit on the
+ *  Regular-vs-Direct summary card. */
+const _sumFeeSavings = (insights) => {
+  return insights.reduce(
+    (s, ins) => s + (ins?.benefit?.fee_savings_annual_rs || 0),
+    0,
+  );
+};
+
+/** Modal listing the underlying pairs of a collapsed group. Reuses the
+ *  existing Dialog primitive so styling matches HoldingDrilldownModal. */
+const PairsListModal = ({ open, onClose, title, description, items, perfCards, onMarkDone, onUnmark, onAsk, fmt }) => {
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900 dark:text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>
+            {title}
+          </DialogTitle>
+          {description && (
+            <DialogDescription className="text-xs text-slate-400">
+              {description}
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        <div className="space-y-2 mt-2">
+          {items.map((ins, i) => (
+            <InsightCard
+              key={ins.insight_id || `pair-${i}`}
+              insight={ins}
+              perfCards={perfCards}
+              onMarkDone={onMarkDone}
+              onUnmark={onUnmark}
+              onAsk={onAsk}
+              fmt={fmt}
+            />
+          ))}
+          {items.length === 0 && (
+            <p className="text-xs text-slate-500 text-center py-6 italic">No pairs to show.</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+/** Single summary tile for a collapsed group (Regular-vs-Direct OR
+ *  same-category overlaps). Click anywhere on the row to open the modal. */
+const CollapsedSummaryCard = ({ icon: Icon, accent, title, subtitle, benefit, count, onOpen }) => (
+  <button
+    type="button"
+    onClick={onOpen}
+    className={`w-full text-left rounded-xl border ${accent} p-4 flex items-center gap-3 hover:bg-slate-50/60 dark:hover:bg-white/[0.03] transition-colors focus:outline-none focus:ring-2 focus:ring-white/20`}
+  >
+    <Icon className="w-5 h-5 flex-shrink-0" />
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
+      <p className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{subtitle}</p>
+      {benefit && (
+        <p className="text-xs font-bold text-emerald-500 mt-1" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+          {benefit}
+        </p>
+      )}
+    </div>
+    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-400 flex-shrink-0">
+      {count} pair{count === 1 ? "" : "s"}
+    </span>
+    <ArrowRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
+  </button>
+);
+
+/** Collapsed Duplicate Funds theme — splits Regular-vs-Direct from
+ *  same-category, renders ≤2 summary cards, opens a modal per click. */
+const CollapsedDuplicatesGroup = ({ items, perfCards, fmt, onMarkDone, onUnmark, onAsk }) => {
+  const [openModal, setOpenModal] = useState(null);  // 'regdir' | 'cat' | null
+
+  const regDir = items.filter(isRegularVsDirect);
+  const sameCat = items.filter((i) => !isRegularVsDirect(i));
+
+  if (regDir.length === 0 && sameCat.length === 0) return null;
+
+  const feeSavings = _sumFeeSavings(regDir);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+        <Layers className="w-3.5 h-3.5" />
+        <span>Duplicate Funds</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-500">
+          {regDir.length + sameCat.length}
+        </span>
+      </div>
+
+      {regDir.length > 0 && (
+        <CollapsedSummaryCard
+          icon={(props) => <Coins {...props} className={`${props.className} text-emerald-500`} />}
+          accent="border-emerald-500/25 bg-emerald-500/5"
+          title={`${regDir.length} fund${regDir.length === 1 ? "" : "s"} held in both Regular and Direct plans`}
+          subtitle="Switch to Direct → typically saves 0.5-1.5 pp/yr in expense ratio"
+          benefit={feeSavings > 0 ? `~${fmt ? fmt(feeSavings) : `₹${feeSavings.toLocaleString("en-IN")}`}/yr in fee savings` : null}
+          count={regDir.length}
+          onOpen={() => setOpenModal("regdir")}
+        />
+      )}
+
+      {sameCat.length > 0 && (
+        <CollapsedSummaryCard
+          icon={(props) => <Layers {...props} className={`${props.className} text-amber-500`} />}
+          accent="border-amber-500/25 bg-amber-500/5"
+          title={`${sameCat.length} fund pair${sameCat.length === 1 ? "" : "s"} duplicated within the same category`}
+          subtitle="Consolidate into the better-scoring fund (Consolidation Score)"
+          benefit={null}
+          count={sameCat.length}
+          onOpen={() => setOpenModal("cat")}
+        />
+      )}
+
+      <PairsListModal
+        open={openModal === "regdir"}
+        onClose={() => setOpenModal(null)}
+        title="Regular ↔ Direct plan duplicates"
+        description="Same scheme held in both Regular and Direct plans. Switching the Regular position to Direct typically saves 0.5-1.5pp/yr in expense ratio."
+        items={regDir}
+        perfCards={perfCards}
+        onMarkDone={onMarkDone}
+        onUnmark={onUnmark}
+        onAsk={onAsk}
+        fmt={fmt}
+      />
+      <PairsListModal
+        open={openModal === "cat"}
+        onClose={() => setOpenModal(null)}
+        title="Same-category duplicates"
+        description="Two funds in the same category with high stock-level overlap. Consolidate into the higher-scoring fund based on its consolidation score."
+        items={sameCat}
+        perfCards={perfCards}
+        onMarkDone={onMarkDone}
+        onUnmark={onUnmark}
+        onAsk={onAsk}
+        fmt={fmt}
+      />
+    </div>
+  );
+};
+
+/** Collapsed Fund Overlap theme — one summary card, click to expand. */
+const CollapsedOverlapGroup = ({ items, perfCards, fmt, onMarkDone, onUnmark, onAsk }) => {
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+        <TrendingUp className="w-3.5 h-3.5" />
+        <span>Fund Overlap</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-500">
+          {items.length}
+        </span>
+      </div>
+      <CollapsedSummaryCard
+        icon={(props) => <TrendingUp {...props} className={`${props.className} text-sky-500`} />}
+        accent="border-sky-500/25 bg-sky-500/5"
+        title={`${items.length} fund pair${items.length === 1 ? "" : "s"} with high stock-level overlap`}
+        subtitle="Consolidate into the best-suited alternative based on consolidation score"
+        benefit={null}
+        count={items.length}
+        onOpen={() => setOpen(true)}
+      />
+      <PairsListModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Overlapping fund pairs"
+        description="Funds whose underlying stock holdings overlap significantly. Consolidate into whichever scores higher on the consolidation rubric (performance, risk-adj, expense, manager stability, drawdown control)."
+        items={items}
+        perfCards={perfCards}
+        onMarkDone={onMarkDone}
+        onUnmark={onUnmark}
+        onAsk={onAsk}
+        fmt={fmt}
+      />
+    </div>
+  );
+};
+
+/** AMC-concentration enhancement — wraps an InsightCard with a "How to
+ *  reduce" line that gives the user an actionable next step. */
+const _amcReductionHint = (insight) => {
+  // Title shape: "HDFC holds 44% of your MF corpus"
+  const m = (insight?.title || "").match(/^(\S+) holds (\d+(?:\.\d+)?)% of your MF corpus/i);
+  if (!m) return null;
+  const [, amc, pctStr] = m;
+  const pct = parseFloat(pctStr);
+  const excessPp = Math.max(0, Math.round(pct - 25));   // 25% target ceiling
+  return (
+    <>
+      <span className="font-semibold">How to reduce:</span>{" "}
+      redirect new SIPs away from {amc} until exposure drops below 25%.
+      {excessPp >= 5 && (
+        <> Consider switching ~{excessPp}pp (the excess over the ceiling) to a different fund house.</>
+      )}
+    </>
+  );
+};
+
+
 const ThemeGroup = ({ theme, label, items, perfCards, onMarkDone, onUnmark, onAsk, fmt, highlightIds }) => {
   const [open, setOpen] = useState(true);
   const Icon = THEME_ICON[theme] || THEME_ICON.other;
@@ -622,7 +893,7 @@ const SUGGESTED_PROMPTS = [
 
 export default function RecommendationsCenter({
   insights,
-  summary,   // kept for future backend-driven benefit data; hero uses computed counts
+  summary: _summary,   // kept on the API for the deprecated hero; alias-rename so lint stays quiet
   perfCards,
   fmt,
   onAfterChange,
@@ -721,18 +992,13 @@ export default function RecommendationsCenter({
   if (!enriched.length) return null;
 
   const totalInsights = enriched.length;
-  const completedCount = counts.completed;
+  // `completedCount` was previously passed to HeroSummary; removed with the hero.
 
   return (
     <section className="space-y-4" data-testid="recommendations-center">
-      <HeroSummary
-        counts={counts}
-        summary={summary}
-        totalInsights={totalInsights}
-        completedCount={completedCount}
-        topActions={topActions}
-        onScrollToActions={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-      />
+      {/* HeroSummary removed — the Action Matrix's Top-5 banner upstream
+          already covers the "N recommendations to review" framing. Keeping
+          two top-of-page summaries was redundant and ate vertical space. */}
 
       {/* Priority tabs */}
       <div className="flex gap-1 bg-slate-100 dark:bg-[#1A1A1A] rounded-xl p-1 border border-slate-200 dark:border-white/5 overflow-x-auto scrollbar-hide">
@@ -776,20 +1042,51 @@ export default function RecommendationsCenter({
           </div>
         ) : (
           <div className="space-y-4">
-            {grouped.map((g) => (
-              <ThemeGroup
-                key={g.theme}
-                theme={g.theme}
-                label={g.label}
-                items={g.items}
-                perfCards={perfCards}
-                onMarkDone={markDone}
-                onUnmark={unmarkDone}
-                onAsk={onAsk}
-                fmt={fmt}
-                highlightIds={activeTab === "all" ? topActionIds : null}
-              />
-            ))}
+            {grouped.map((g) => {
+              // Collapse the two highest-cardinality themes into summary
+              // cards with a click-to-expand modal. Without this, a 40-item
+              // duplicates group makes the page un-scannable.
+              if (g.theme === "duplication") {
+                return (
+                  <CollapsedDuplicatesGroup
+                    key={g.theme}
+                    items={g.items}
+                    perfCards={perfCards}
+                    onMarkDone={markDone}
+                    onUnmark={unmarkDone}
+                    onAsk={onAsk}
+                    fmt={fmt}
+                  />
+                );
+              }
+              if (g.theme === "overlap") {
+                return (
+                  <CollapsedOverlapGroup
+                    key={g.theme}
+                    items={g.items}
+                    perfCards={perfCards}
+                    onMarkDone={markDone}
+                    onUnmark={unmarkDone}
+                    onAsk={onAsk}
+                    fmt={fmt}
+                  />
+                );
+              }
+              return (
+                <ThemeGroup
+                  key={g.theme}
+                  theme={g.theme}
+                  label={g.label}
+                  items={g.items}
+                  perfCards={perfCards}
+                  onMarkDone={markDone}
+                  onUnmark={unmarkDone}
+                  onAsk={onAsk}
+                  fmt={fmt}
+                  highlightIds={activeTab === "all" ? topActionIds : null}
+                />
+              );
+            })}
           </div>
         )}
       </div>
