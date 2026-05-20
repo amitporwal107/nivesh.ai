@@ -196,6 +196,64 @@ def test_compare_keyword_gate_matches_real_user_phrasings(msg):
     assert wf, f"wants_fund_ctx should match: {msg!r}"
 
 
+# ── DAAS enrichment regression: resolved fund without PG ratios ────────────
+# Production bug observed by the user: after the first round of fixes the
+# Copilot answered "Rolling returns — data unavailable" even though TER and
+# overlap worked. Root cause: `_enrich_unresolved_via_daas` only filled
+# `rolling_returns` for *unresolved* funds, so PG-resolved funds whose
+# `mutual_fund_performance_ratios` row was missing silently had no returns.
+
+async def test_daas_enrichment_fills_returns_for_resolved_funds_missing_ratios():
+    from services import portfolio_intelligence as PI
+
+    mf_investments = [
+        {
+            "instrument_id": "mf-pg-1",
+            "scheme_name": "Some Resolved Large Cap",
+            "isin": "INF111A11AA1",
+            "amount_rs": 100_000,
+            "expense_ratio": 0.85,           # PG mirror had TER
+            "resolved": True,                # but PG ratios row was missing
+            # NOTE: no `rolling_returns` key — the bug we're fixing
+        },
+    ]
+
+    fake_daas_rows = [{
+        "isin":           "INF111A11AA1",
+        "security_name":  "Some Resolved Large Cap",
+        "expense_ratio":  0.85,
+        "ret_1y":         14.2,
+        "ret_3y":         18.7,
+        "ret_5y":         15.9,
+        "perf_as_of":     "2026-05-19",
+    }]
+
+    fake_daas_client = type("DAAS", (), {
+        "is_configured": staticmethod(lambda: True),
+        "get_user_holdings": AsyncMock(return_value=fake_daas_rows),
+    })()
+
+    with patch.dict(
+        "sys.modules",
+        {"services.copilot_tools.daas_client": fake_daas_client},
+    ), patch.object(
+        PI.db.users, "find_one",
+        AsyncMock(return_value={"email": "u@example.com"}),
+    ):
+        await PI._enrich_unresolved_via_daas("user-x", mf_investments)
+
+    # The resolved fund now has rolling_returns filled from DAAS
+    m = mf_investments[0]
+    assert m.get("rolling_returns"), "rolling_returns should be filled"
+    assert m["rolling_returns"]["1y"] == 14.2
+    assert m["rolling_returns"]["3y"] == 18.7
+    assert m["rolling_returns"]["5y"] == 15.9
+    # And we did NOT clobber the canonical PG scheme_name
+    assert m["scheme_name"] == "Some Resolved Large Cap"
+    # And we did NOT mark a PG-resolved fund as resolved_via_nidp
+    assert "resolved_via_nidp" not in m
+
+
 @pytest.mark.parametrize("msg", [
     "what is my xirr?",
     "should i rebalance my portfolio?",
