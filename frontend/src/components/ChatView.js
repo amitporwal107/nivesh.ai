@@ -731,8 +731,15 @@ const ChatView = ({ onNavigateToPlanBoard, initialSessionId, v2Mode = false, v2P
               renderTokens();
             } else if (data.type === "widget") {
               // Agent produced a structured widget — store it and attach to
-              // the final message when the done event fires.
-              pendingWidget = { kind: data.widget_type, ...(data.data || {}) };
+              // the final message when the done event fires. The renderer
+              // reads envelope.data.*, so keep widget fields under .data.
+              pendingWidget = {
+                kind: data.widget_type,
+                data: data.data || {},
+                ...(data.title ? { title: data.title } : {}),
+                ...(data.freshness ? { freshness: data.freshness } : {}),
+                ...(data.agent ? { agent: data.agent } : {}),
+              };
             } else if (data.type === "done" || data.type === "error") {
               // Flush remaining tokens
               const remaining = tokenQueue.join("");

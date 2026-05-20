@@ -34,6 +34,44 @@ _VAR_RATING_THRESHOLDS = [
     (0.22, "HIGH"),
 ]
 
+# Historical / hypothetical stress scenarios. Each entry encodes the
+# asset-class shocks needed to project portfolio drawdown. Recovery years
+# come from the post-event mean-reversion windows observed in Nifty 50.
+_STRESS_SCENARIOS: Dict[str, Dict[str, Any]] = {
+    "gfc_2008": {
+        "name": "2008 Global Financial Crisis",
+        "description": "Nifty 50 fell ~60% peak-to-trough over 14 months; debt held up.",
+        "equity_drop_pct": -60.0,
+        "debt_drop_pct":   -5.0,
+        "gold_drop_pct":    8.0,
+        "recovery_years":  4.0,
+    },
+    "covid_2020": {
+        "name": "COVID-19 Crash (Feb–Mar 2020)",
+        "description": "Nifty 50 fell ~38% in 40 days. Recovery took ~14 months.",
+        "equity_drop_pct": -38.0,
+        "debt_drop_pct":   -2.0,
+        "gold_drop_pct":    5.0,
+        "recovery_years":  1.2,
+    },
+    "rate_shock": {
+        "name": "Rate Shock (+200 bps)",
+        "description": "Sudden 200 bps rate hike: long-duration debt loses 7–10%, equity ~12% on multiple compression.",
+        "equity_drop_pct": -12.0,
+        "debt_drop_pct":   -8.0,
+        "gold_drop_pct":   -3.0,
+        "recovery_years":  1.5,
+    },
+    "inflation_spike": {
+        "name": "Inflation Spike (CPI > 7%)",
+        "description": "Sticky CPI > 7% triggers earnings downgrades and real-rate compression on debt.",
+        "equity_drop_pct": -18.0,
+        "debt_drop_pct":   -6.0,
+        "gold_drop_pct":   10.0,
+        "recovery_years":  2.0,
+    },
+}
+
 
 @dataclass
 class RiskResult:
@@ -542,5 +580,165 @@ async def get_portfolio_var(
             "data_state": var_state,
         },
         rows=position_rows,
+        error=None,
+    )
+
+
+# ── TASK-040b: Stress test scenarios ──────────────────────────────────────────
+
+def _asset_bucket(asset_type: str, eq_pct: Optional[float]) -> str:
+    """Map a holding's asset_type (and equity allocation for MFs) to a bucket
+    used by the stress scenario shocks."""
+    at = (asset_type or "").upper()
+    if at in ("STOCK", "ETF", "EQUITY"):
+        return "equity"
+    if at in ("BOND", "DEBT"):
+        return "debt"
+    if at == "GOLD":
+        return "gold"
+    if at in ("MF", "MUTUAL_FUND"):
+        # If equity_allocation_pct is known, treat the MF as a blend.
+        return "mf_blend"
+    return "equity"  # conservative default
+
+
+async def get_stress_scenarios(
+    user_id: str,
+    scenario_keys: Optional[List[str]] = None,
+) -> RiskResult:
+    """Project portfolio value under one or more historical/hypothetical shocks.
+
+    Each scenario applies asset-class drop assumptions (equity / debt / gold /
+    MF-blend by equity_allocation_pct) to every holding and computes a stressed
+    value, drop %, and worst-case recovery time.
+
+    Returns a RiskResult whose `data` matches the StressTestWidget envelope
+    (current_value_rs, stressed_value_rs, drop_pct, breakdown, scenarios).
+    """
+    keys = [k for k in (scenario_keys or list(_STRESS_SCENARIOS.keys())) if k in _STRESS_SCENARIOS]
+    if not keys:
+        keys = ["gfc_2008", "rate_shock", "inflation_spike"]
+
+    try:
+        holdings = await _load_holdings(user_id)
+    except Exception as exc:
+        logger.warning("stress_scenarios: holdings load failed for %s: %s", user_id, exc)
+        return RiskResult(
+            ok=False, summary="Could not load holdings for stress test",
+            data={"data_state": "load_error", "current_value_rs": 0.0,
+                  "stressed_value_rs": 0.0, "drop_pct": 0.0, "scenarios": []},
+            error=str(exc),
+        )
+
+    if not holdings:
+        return RiskResult(
+            ok=False, summary="No holdings found to stress-test",
+            data={"data_state": "no_holdings", "current_value_rs": 0.0,
+                  "stressed_value_rs": 0.0, "drop_pct": 0.0, "scenarios": []},
+            error="no_holdings",
+        )
+
+    # Normalise per-holding value + bucket once
+    items: List[Dict[str, Any]] = []
+    total_value = 0.0
+    for h in holdings:
+        try:
+            price = float(h.get("current_price") or h.get("buy_price") or 0)
+            qty   = float(h.get("quantity") or 0)
+            value = float(h.get("current_value") or price * qty)
+        except (TypeError, ValueError):
+            continue
+        if value <= 0:
+            continue
+        try:
+            eq_pct_raw = h.get("equity_allocation_pct")
+            eq_pct = float(eq_pct_raw) / 100.0 if eq_pct_raw is not None else None
+        except (TypeError, ValueError):
+            eq_pct = None
+        items.append({
+            "name": h.get("fund_name") or h.get("scheme_name") or h.get("name") or h.get("symbol") or "Holding",
+            "asset_type": (h.get("asset_type") or "").upper(),
+            "value": value,
+            "bucket": _asset_bucket(h.get("asset_type") or "", eq_pct),
+            "eq_pct": eq_pct if eq_pct is not None else 0.65,  # generic MF default
+        })
+        total_value += value
+
+    if total_value <= 0:
+        return RiskResult(
+            ok=False, summary="Holdings have no priced value to stress-test",
+            data={"data_state": "no_prices", "current_value_rs": 0.0,
+                  "stressed_value_rs": 0.0, "drop_pct": 0.0, "scenarios": []},
+            error="zero_value",
+        )
+
+    def _stressed_value(item: Dict[str, Any], scen: Dict[str, Any]) -> tuple[float, float]:
+        eq = scen["equity_drop_pct"] / 100.0
+        de = scen["debt_drop_pct"] / 100.0
+        gd = scen["gold_drop_pct"] / 100.0
+        if item["bucket"] == "equity":
+            shock = eq
+        elif item["bucket"] == "debt":
+            shock = de
+        elif item["bucket"] == "gold":
+            shock = gd
+        else:  # mf_blend
+            shock = item["eq_pct"] * eq + (1 - item["eq_pct"]) * de
+        return item["value"] * (1 + shock), shock * 100.0  # stressed_value, drop_pct
+
+    scenarios_out: List[Dict[str, Any]] = []
+    worst: Optional[Dict[str, Any]] = None
+    worst_breakdown: List[Dict[str, Any]] = []
+
+    for k in keys:
+        scen = _STRESS_SCENARIOS[k]
+        stressed_total = 0.0
+        breakdown: List[Dict[str, Any]] = []
+        for it in items:
+            sv, dp = _stressed_value(it, scen)
+            stressed_total += sv
+            breakdown.append({
+                "fund_name": it["name"],
+                "current_value_rs": round(it["value"], 2),
+                "stressed_value_rs": round(sv, 2),
+                "drop_pct": round(dp, 2),
+            })
+        drop_pct = ((stressed_total - total_value) / total_value) * 100.0
+        scen_entry = {
+            "key": k,
+            "name": scen["name"],
+            "description": scen["description"],
+            "stressed_value_rs": round(stressed_total, 2),
+            "drop_pct": round(drop_pct, 2),
+            "recovery_years": scen["recovery_years"],
+        }
+        scenarios_out.append(scen_entry)
+        if worst is None or stressed_total < worst["stressed_value_rs"]:
+            worst = scen_entry
+            worst_breakdown = sorted(breakdown, key=lambda b: b["drop_pct"])[:10]
+
+    summary = "; ".join(
+        f"{s['name']}: {s['drop_pct']:+.1f}% → ₹{s['stressed_value_rs']:,.0f}"
+        for s in scenarios_out
+    )
+
+    data = {
+        # StressTestWidget header fields (use the worst scenario)
+        "scenario_name":        worst["name"],
+        "scenario_description": worst["description"],
+        "current_value_rs":     round(total_value, 2),
+        "stressed_value_rs":    worst["stressed_value_rs"],
+        "drop_pct":             worst["drop_pct"],
+        "recovery_years":       worst["recovery_years"],
+        "breakdown":            worst_breakdown,
+        # Full multi-scenario list for the LLM / text rendering
+        "scenarios":            scenarios_out,
+        "data_state":           "complete",
+    }
+    return RiskResult(
+        ok=True,
+        summary=summary,
+        data=data,
+        rows=worst_breakdown,
         error=None,
     )
