@@ -8,6 +8,7 @@ import TaxHarvestWidget from "./TaxHarvestWidget";
 import StressTestWidget from "./StressTestWidget";
 import SectorRotationWidget from "./SectorRotationWidget";
 import OverlapRevealWidget from "./OverlapRevealWidget";
+import InsightCardWidget from "./InsightCardWidget";
 import SkeletonCard from "../shared/SkeletonCard";
 
 /**
@@ -34,6 +35,7 @@ const WidgetRenderer = ({ envelope, onAction, embedded = "chat", testId }) => {
     case "stress_test":     return <StressTestWidget     {...common} />;
     case "sector_rotation": return <SectorRotationWidget {...common} />;
     case "overlap_reveal":  return <OverlapRevealWidget  {...common} />;
+    case "insight_card":    return <InsightCardWidget    {...common} />;
     default:
       // Unknown kind — render a small "preview" so it isn't silently dropped.
       return (

@@ -845,6 +845,11 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         for m in recent_msgs[:-1]:
             history.append({"role": m["role"], "content": m["content"][:500]})
 
+    # insight_card envelope — populated only on the V3 RAG path when the
+    # intent maps to a known widget tool. Other paths leave it None so
+    # the frontend renders prose as today.
+    widget_envelope: Optional[Dict[str, Any]] = None
+
     # \u2500\u2500 Single-portfolio (investor) path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     # Engine selection (same flag as /chat/stream):
     #   NIDP / LangGraph  \u2014 "copilot_engine_nidp" flag ON  (admin default)
@@ -908,6 +913,9 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 )
                 prose = rag_result.get("prose") or ""
                 chart_spec = rag_result.get("chart_spec")
+                # Insight-card envelope (when the intent matched a known
+                # widget tool — see orchestrator._intent_to_envelope).
+                widget_envelope = rag_result.get("widget")
                 if chart_spec:
                     prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
                 validated = validate_chart_blocks(prose)
@@ -924,6 +932,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     "I'm having trouble connecting to my AI engine right now. "
                     "Please try again in a moment."
                 )
+                widget_envelope = None
     else:
         # Advisor (cross-client) mode still uses the legacy path \u2014 its
         # context shape (cross-client book) hasn't been ported to RAG yet.
@@ -952,7 +961,7 @@ async def send_chat(request: Request, msg: ChatMessageInput):
             invalid=validated["invalid_specs"],
         )
 
-    # Save AI response
+    # Save AI response (plus the insight_card envelope if one was built).
     ai_msg_doc = {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
         "session_id": session_id,
@@ -961,6 +970,8 @@ async def send_chat(request: Request, msg: ChatMessageInput):
         "content": ai_response,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
+    if widget_envelope:
+        ai_msg_doc["widget"] = widget_envelope
     await db.chat_messages.insert_one(ai_msg_doc)
 
     return {

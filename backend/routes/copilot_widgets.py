@@ -32,6 +32,21 @@ from models_copilot_widgets import (
     SectorRotationData, SectorPoint,
     OverlapRevealData, OverlapStock,
 )
+from services.copilot_tools.insight_card_transformers import (
+    stress_to_insight_card,
+    fund_card_to_insight_card,
+    market_brief_to_insight_card,
+    compare_to_insight_card,
+    sip_plan_to_insight_card,
+    rebalance_to_insight_card,
+    tax_harvest_to_insight_card,
+    sector_rotation_to_insight_card,
+    overlap_to_insight_card,
+)
+def _maybe_insight_card(layout: Optional[str]) -> bool:
+    """Single boolean check for ?layout=insight_card. Centralised so the
+    keyword is spelt the same on every endpoint."""
+    return (layout or "").lower() == "insight_card"
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/copilot/widgets", tags=["copilot-widgets"])
@@ -77,6 +92,7 @@ def _iso_now() -> str:
 class FundCardRequest(BaseModel):
     query: str = Field(..., min_length=2, max_length=200,
                        description="Scheme name, code, or natural-language fragment")
+    layout: Optional[str] = None   # "insight_card" → unified card envelope
 
 
 _QUALITY_LABEL_VERDICT = {
@@ -284,33 +300,45 @@ async def fund_card(request: Request, payload: FundCardRequest):
         nidp_red_flags=nidp_red_flags,
     )
 
+    freshness = FreshnessChip(
+        state="live" if nidp_scorecard else "cached",
+        last_updated=_iso_now(),
+        source=data_source,
+        confidence=score,
+    )
+    agent = AgentInfo(id="mf_research", label="Mutual Fund Research",
+                      version="v2" if nidp_scorecard else "v1", confidence=score)
+    suggestions = [
+        "Compare with my fund",
+        "Show overlap with my portfolio",
+        "Cheaper alternatives",
+        "Start SIP",
+    ]
+    primary_cta = {"label": "Compare with my fund", "action": "compare_with_mine"}
+
+    if _maybe_insight_card(payload.layout):
+        card = fund_card_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=scheme_name, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="fund_card",
-        title=scheme_name,
-        freshness=FreshnessChip(
-            state="live" if nidp_scorecard else "cached",
-            last_updated=_iso_now(),
-            source=data_source,
-            confidence=score,
-        ),
-        agent=AgentInfo(id="mf_research", label="Mutual Fund Research",
-                        version="v2" if nidp_scorecard else "v1", confidence=score),
-        data=data.model_dump(),
-        primary_cta={"label": "Compare with my fund", "action": "compare_with_mine"},
-        suggestions=[
-            "Compare with my fund",
-            "Show overlap with my portfolio",
-            "Cheaper alternatives",
-            "Start SIP",
-        ],
+        kind="fund_card", title=scheme_name, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
 
 # ── 2. Market Brief ─────────────────────────────────────────────
 
+class _LayoutOnlyRequest(BaseModel):
+    layout: Optional[str] = None
+
+
 @router.post("/market_brief")
-async def market_brief(request: Request):
+async def market_brief(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """Today's market brief widget. Reads the NIDP DaaS
     `/v1/intelligence/snapshots/market` endpoint (already deployed)
     and overlays the user's portfolio impact (Phase C will plug
@@ -378,22 +406,30 @@ async def market_brief(request: Request):
     as_of = snap.get("as_of_date") or _iso_now()
     state = "live" if indices else "stale"
 
+    freshness = FreshnessChip(
+        state=state, last_updated=str(as_of),
+        source=["NIDP", "NSE", "DaaS"],
+    )
+    agent = AgentInfo(id="market_strategist", label="Market Strategist",
+                      version="v1", confidence=84)
+    primary_cta = {"label": "Impact on my portfolio", "action": "portfolio_impact"}
+    suggestions = [
+        "Which sectors should I trim?",
+        "Set an alert on Nifty 50",
+        "FII/DII trends over 5 days",
+    ]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        card = market_brief_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title="Markets · Today", freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="market_brief",
-        title="Markets · Today",
-        freshness=FreshnessChip(
-            state=state, last_updated=str(as_of),
-            source=["NIDP", "NSE", "DaaS"],
-        ),
-        agent=AgentInfo(id="market_strategist", label="Market Strategist",
-                        version="v1", confidence=84),
-        data=data.model_dump(),
-        primary_cta={"label": "Impact on my portfolio", "action": "portfolio_impact"},
-        suggestions=[
-            "Which sectors should I trim?",
-            "Set an alert on Nifty 50",
-            "FII/DII trends over 5 days",
-        ],
+        kind="market_brief", title="Markets · Today", freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -402,6 +438,7 @@ async def market_brief(request: Request):
 
 class CompareRequest(BaseModel):
     scheme_codes: List[str] = Field(..., min_items=2, max_items=4)
+    layout: Optional[str] = None
 
 
 @router.post("/compare_funds")
@@ -468,20 +505,29 @@ async def compare_funds(request: Request, payload: CompareRequest):
         funds=names, rows=rows, verdict=verdict, differences_only_default=False,
     )
 
+    freshness = FreshnessChip(state="cached", last_updated=_iso_now(),
+                              source=["mf_master"])
+    agent = AgentInfo(id="mf_research", label="Mutual Fund Research", version="v1",
+                      confidence=82)
+    primary_cta = {"label": "Switch to leader", "action": "switch_to_leader"}
+    suggestions = [
+        "Show overlap between these",
+        "Cheaper alternatives",
+        "Explain the verdict",
+    ]
+    title = f"Compare — {len(schemes)} funds"
+
+    if _maybe_insight_card(payload.layout):
+        card = compare_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="compare_table",
-        title=f"Compare — {len(schemes)} funds",
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["mf_master"]),
-        agent=AgentInfo(id="mf_research", label="Mutual Fund Research", version="v1",
-                        confidence=82),
-        data=data.model_dump(),
-        primary_cta={"label": "Switch to leader", "action": "switch_to_leader"},
-        suggestions=[
-            "Show overlap between these",
-            "Cheaper alternatives",
-            "Explain the verdict",
-        ],
+        kind="compare_table", title=title, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -494,6 +540,7 @@ class SipPlanRequest(BaseModel):
     years: Optional[int] = Field(default=10, ge=1, le=40)
     goal_amount: Optional[float] = Field(default=None, ge=0)
     step_up_pct: Optional[float] = Field(default=0.0, ge=0.0, le=0.5)
+    layout: Optional[str] = None
 
 
 # Fund split templates by risk band — used for allocation labels only;
@@ -582,20 +629,29 @@ async def sip_plan(request: Request, payload: SipPlanRequest):
         why_these=why_these,
         counter_points=counter_points,
     )
+    title = f"SIP plan · ₹{int(payload.monthly_budget):,}/month · {years}yr"
+    freshness = FreshnessChip(state="live", last_updated=_iso_now(),
+                              source=["nivesh.sip_engine"])
+    agent = AgentInfo(id="goal_planner", label="Goal Planner",
+                      version="v2", confidence=82)
+    primary_cta = {"label": "Set up SIP", "action": "setup_sip"}
+    suggestions = [
+        "What if I increase SIP by 10% every year?",
+        "Compare these fund picks",
+        "Show tax impact of this plan",
+    ]
+
+    if _maybe_insight_card(payload.layout):
+        card = sip_plan_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="sip_plan",
-        title=f"SIP plan · ₹{int(payload.monthly_budget):,}/month · {years}yr",
-        freshness=FreshnessChip(state="live", last_updated=_iso_now(),
-                                source=["nivesh.sip_engine"]),
-        agent=AgentInfo(id="goal_planner", label="Goal Planner",
-                        version="v2", confidence=82),
-        data=data.model_dump(),
-        primary_cta={"label": "Set up SIP", "action": "setup_sip"},
-        suggestions=[
-            f"What if I increase SIP by 10% every year?",
-            "Compare these fund picks",
-            "Show tax impact of this plan",
-        ],
+        kind="sip_plan", title=title, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -603,7 +659,7 @@ async def sip_plan(request: Request, payload: SipPlanRequest):
 # ── 5. Rebalance Plan ───────────────────────────────────────────────
 
 @router.post("/rebalance_plan")
-async def rebalance_plan(request: Request):
+async def rebalance_plan(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """Build a rebalance-plan widget from the user's current holdings.
 
     Reads `holdings` collection for the authenticated user, computes
@@ -688,16 +744,24 @@ async def rebalance_plan(request: Request):
         actions=actions,
         summary=summary,
     )
+    freshness = FreshnessChip(state="cached", last_updated=_iso_now(),
+                              source=["portfolio_holdings"])
+    agent = AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
+                      version="v1", confidence=80)
+    primary_cta = {"label": "Execute plan", "action": "execute_rebalance"}
+    suggestions = ["Simulate tax impact", "Show only equity changes", "Compare with my goals"]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        card = rebalance_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title="Rebalance Plan", freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="rebalance_plan",
-        title="Rebalance Plan",
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["portfolio_holdings"]),
-        agent=AgentInfo(id="portfolio_analyzer", label="Portfolio Analyzer",
-                        version="v1", confidence=80),
-        data=data.model_dump(),
-        primary_cta={"label": "Execute plan", "action": "execute_rebalance"},
-        suggestions=["Simulate tax impact", "Show only equity changes", "Compare with my goals"],
+        kind="rebalance_plan", title="Rebalance Plan", freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -705,7 +769,7 @@ async def rebalance_plan(request: Request):
 # ── 6. Tax Harvest Plan ─────────────────────────────────────────────
 
 @router.post("/tax_harvest")
-async def tax_harvest(request: Request):
+async def tax_harvest(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """LTCG harvest candidates for the authenticated user.
 
     Reads `holdings` (or `portfolio_holdings`) and `capital_gains_summary`
@@ -767,15 +831,24 @@ async def tax_harvest(request: Request):
         total_harvestable_rs=total_harvestable or None,
         warning="Repurchasing within 30 days may trigger wash-sale rules in some jurisdictions." if candidates else None,
     )
+    title = f"Tax Harvest Plan · {data.fy}"
+    freshness = FreshnessChip(state="cached", last_updated=_iso_now(),
+                              source=["portfolio_holdings", "capital_gains_summary"])
+    agent = AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=85)
+    primary_cta = {"label": "Simulate harvest", "action": "simulate_harvest"}
+    suggestions = ["Plan switch", "Show STCG separately", "Generate gains statement"]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        card = tax_harvest_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="tax_harvest",
-        title=f"Tax Harvest Plan · {data.fy}",
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["portfolio_holdings", "capital_gains_summary"]),
-        agent=AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=85),
-        data=data.model_dump(),
-        primary_cta={"label": "Simulate harvest", "action": "simulate_harvest"},
-        suggestions=["Plan switch", "Show STCG separately", "Generate gains statement"],
+        kind="tax_harvest", title=title, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -785,6 +858,7 @@ async def tax_harvest(request: Request):
 class StressTestRequest(BaseModel):
     scenario: str = "covid_2020"   # covid_2020 | gfc_2008 | custom
     custom_drop_pct: Optional[float] = None   # only for scenario="custom"
+    layout: Optional[str] = None              # "insight_card" → return unified card envelope
 
 
 _STRESS_SCENARIOS = {
@@ -873,16 +947,33 @@ async def stress_test(request: Request, payload: StressTestRequest):
         breakdown=breakdown[:10],
         insight=insight,
     )
+    freshness = FreshnessChip(state="cached", last_updated=_iso_now(),
+                              source=["portfolio_holdings", "nidp.scenarios"])
+    agent = AgentInfo(id="market_strategist", label="Market Strategist",
+                      version="v1", confidence=82)
+    suggestions = ["Compare with 2008 GFC", "How to reduce drawdown?", "Hedge strategies"]
+
+    if (payload.layout or "").lower() == "insight_card":
+        card = stress_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card",
+            title=scen["name"],
+            freshness=freshness,
+            agent=agent,
+            data=card.model_dump(),
+            primary_cta={"label": "Run custom scenario", "action": "custom_stress"},
+            suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
         kind="stress_test",
         title=scen["name"],
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["portfolio_holdings", "nidp.scenarios"]),
-        agent=AgentInfo(id="market_strategist", label="Market Strategist",
-                        version="v1", confidence=82),
+        freshness=freshness,
+        agent=agent,
         data=data.model_dump(),
         primary_cta={"label": "Run custom scenario", "action": "custom_stress"},
-        suggestions=["Compare with 2008 GFC", "How to reduce drawdown?", "Hedge strategies"],
+        suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -890,7 +981,7 @@ async def stress_test(request: Request, payload: StressTestRequest):
 # ── 8. Sector Rotation ──────────────────────────────────────────────
 
 @router.post("/sector_rotation")
-async def sector_rotation(request: Request):
+async def sector_rotation(request: Request, payload: Optional[_LayoutOnlyRequest] = None):
     """RS quadrant chart data from DaaS, falling back to a static fixture."""
     await get_current_user(request)
 
@@ -942,19 +1033,28 @@ async def sector_rotation(request: Request):
         sectors=sectors,
         as_of_date=_iso_now(),
     )
+    title = "Sector Rotation · 1M"
+    freshness = FreshnessChip(
+        state="live" if sectors_raw else "cached",
+        last_updated=_iso_now(),
+        source=["NIDP", "NSE"],
+    )
+    agent = AgentInfo(id="market_strategist", label="Market Strategist",
+                      version="v1", confidence=80)
+    primary_cta = {"label": "Which sectors should I trim?", "action": "sector_trim_advice"}
+    suggestions = ["Show my exposure to Leading sectors", "Alert me on IT recovery", "3M view"]
+
+    if _maybe_insight_card(payload.layout if payload else None):
+        card = sector_rotation_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="sector_rotation",
-        title="Sector Rotation · 1M",
-        freshness=FreshnessChip(
-            state="live" if sectors_raw else "cached",
-            last_updated=_iso_now(),
-            source=["NIDP", "NSE"],
-        ),
-        agent=AgentInfo(id="market_strategist", label="Market Strategist",
-                        version="v1", confidence=80),
-        data=data.model_dump(),
-        primary_cta={"label": "Which sectors should I trim?", "action": "sector_trim_advice"},
-        suggestions=["Show my exposure to Leading sectors", "Alert me on IT recovery", "3M view"],
+        kind="sector_rotation", title=title, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
@@ -963,6 +1063,7 @@ async def sector_rotation(request: Request):
 
 class OverlapRequest(BaseModel):
     scheme_codes: Optional[List[str]] = None   # if None → use user's portfolio
+    layout: Optional[str] = None
 
 
 @router.post("/overlap_reveal")
@@ -1063,16 +1164,25 @@ async def overlap_reveal(request: Request, payload: OverlapRequest):
         top_common_stocks=common_stocks[:8],
         verdict=verdict,
     )
+    title = f"Overlap · {' vs '.join(names[:2]) if len(names) >= 2 else 'Portfolio funds'}"
+    freshness = FreshnessChip(state="cached", last_updated=_iso_now(),
+                              source=["mf_master"])
+    agent = AgentInfo(id="mf_research", label="Mutual Fund Research",
+                      version="v1", confidence=78)
+    primary_cta = {"label": "Find alternatives with less overlap", "action": "reduce_overlap"}
+    suggestions = ["Cheaper alternatives", "Compare returns", "Remove a fund"]
+
+    if _maybe_insight_card(payload.layout):
+        card = overlap_to_insight_card(data)
+        env = WidgetEnvelope(
+            kind="insight_card", title=title, freshness=freshness, agent=agent,
+            data=card.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
+        )
+        return env.model_dump()
+
     env = WidgetEnvelope(
-        kind="overlap_reveal",
-        title=f"Overlap · {' vs '.join(names[:2]) if len(names) >= 2 else 'Portfolio funds'}",
-        freshness=FreshnessChip(state="cached", last_updated=_iso_now(),
-                                source=["mf_master"]),
-        agent=AgentInfo(id="mf_research", label="Mutual Fund Research",
-                        version="v1", confidence=78),
-        data=data.model_dump(),
-        primary_cta={"label": "Find alternatives with less overlap", "action": "reduce_overlap"},
-        suggestions=["Cheaper alternatives", "Compare returns", "Remove a fund"],
+        kind="overlap_reveal", title=title, freshness=freshness, agent=agent,
+        data=data.model_dump(), primary_cta=primary_cta, suggestions=suggestions,
     )
     return env.model_dump()
 
