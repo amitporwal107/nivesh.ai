@@ -612,7 +612,7 @@ async def rebalance_plan(request: Request):
     Advisor agent LLM for the rationale text; Phase B uses heuristics.
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     # Fetch holdings ─ try several collection shapes used across the codebase
     raw: list = []
@@ -713,7 +713,7 @@ async def tax_harvest(request: Request):
     under the ₹1L exemption limit still available.
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     raw: list = []
     async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
@@ -816,7 +816,7 @@ _STRESS_SCENARIOS = {
 async def stress_test(request: Request, payload: StressTestRequest):
     """Simulate portfolio performance under a historical or custom crash scenario."""
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     raw: list = []
     async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
@@ -974,7 +974,7 @@ async def overlap_reveal(request: Request, payload: OverlapRequest):
     (top-holdings per scheme) from the local DB.
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     codes = payload.scheme_codes or []
     if not codes:
@@ -1089,7 +1089,7 @@ async def risk_suitability_widget(request: Request):
     (conservative / moderate / aggressive).
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.risk import get_risk_suitability
@@ -1154,7 +1154,7 @@ async def portfolio_var_widget(request: Request):
     VaR at 95% and 99% confidence.
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.risk import get_portfolio_var
@@ -1328,7 +1328,7 @@ async def fd_comparison_widget(request: Request):
     Used for: "Am I beating FD?", "Is my portfolio better than fixed deposit?"
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.portfolio import get_fd_comparison
@@ -1382,7 +1382,7 @@ async def tax_timing_widget(request: Request):
               "Which holdings flip to LTCG soon?"
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.portfolio import get_tax_timing_advice
@@ -1494,7 +1494,7 @@ async def fd_comparison_widget(request: Request):
     Used for quick-action: 'Am I beating FD?'
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.portfolio import get_fd_comparison
@@ -1537,7 +1537,7 @@ async def tax_timing_widget(request: Request):
     Used for: 'When should I sell?', 'Am I close to LTCG?'
     """
     user = await get_current_user(request)
-    user_id = str(user.get("_id") or user.get("id") or "")
+    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
 
     try:
         from services.copilot_tools.portfolio import get_tax_timing_advice

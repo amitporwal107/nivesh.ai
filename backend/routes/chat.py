@@ -1148,11 +1148,42 @@ async def stream_chat(request: Request):
                                 if not prose:
                                     # fallback: response was not streamed token-by-token
                                     prose = getattr(final_resp, "text", "") or str(final_resp)
-                                # Extract widget envelope when the agent produced one
+                                # Extract widget envelope when the agent produced one.
+                                # Build a complete envelope (kind / title / freshness /
+                                # agent / data) so the frontend widget renderer can
+                                # display the header chrome, not just the body.
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
                                 if wt and wt != "none" and wd:
-                                    widget_envelope = {"widget_type": wt, "data": wd}
+                                    agent_val = getattr(final_resp, "agent", None)
+                                    agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
+                                    confidence = float(getattr(final_resp, "confidence", 0.85) or 0.85) * 100
+                                    title_map = {
+                                        "stress_test":         (wd.get("scenario_name") or "Portfolio Stress Test"),
+                                        "rebalance_plan":      "Rebalance Plan",
+                                        "tax_harvest":         "Tax Harvest Plan",
+                                        "sip_plan":            "SIP Plan",
+                                        "overlap_reveal":      "Fund Overlap",
+                                        "sector_rotation":     "Sector Rotation",
+                                        "fund_comparison":     "Fund Comparison",
+                                        "portfolio_overview":  "Portfolio Overview",
+                                        "goal_tracker":        "Goal Tracker",
+                                        "stock_screener":      "Stock Screener",
+                                    }
+                                    widget_envelope = {
+                                        "widget_type": wt,
+                                        "data": wd,
+                                        "title": title_map.get(wt, "Insight"),
+                                        "freshness": {
+                                            "state": "cached",
+                                            "last_updated": datetime.now(timezone.utc).isoformat(),
+                                            "source": ["NIDP", "portfolio_holdings"],
+                                        },
+                                        "agent": {
+                                            "id": agent_id or "risk_analyst",
+                                            "confidence": int(round(confidence)),
+                                        },
+                                    }
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:
                                     follow_ups = list(fu)[:3]
