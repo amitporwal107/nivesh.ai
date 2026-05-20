@@ -302,17 +302,32 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
 async def _enrich_unresolved_via_daas(
     user_id: str, mf_investments: List[Dict[str, Any]],
 ) -> None:
-    """Mutate `mf_investments` in place: for each unresolved entry whose
-    ISIN matches a row from the NIDP DAAS holdings endpoint, fill in
-    `scheme_name`, `expense_ratio`, and `rolling_returns` (1y/3y/5y).
+    """Mutate `mf_investments` in place using NIDP DAAS as the source of truth.
+
+    For each holding with an ISIN that matches a row from the NIDP DAAS
+    holdings endpoint we fill in:
+      • `scheme_name`, `expense_ratio` — only when the local PG mirror
+        didn't already supply them (don't overwrite resolved data).
+      • `rolling_returns` (1y/3y/5y) — fill whenever the holding doesn't
+        already have them, *including PG-resolved holdings* whose
+        `mutual_fund_performance_ratios` row is missing (the table is
+        backfilled lazily, while `analytics.fund_category_rank` behind
+        DAAS is always current). This is the path that previously caused
+        the Copilot "rolling returns — data unavailable" answer even for
+        resolved funds.
 
     Silent no-op when DAAS is unconfigured or unreachable — the rest of
-    the analytics pipeline already tolerates unresolved holdings.
+    the analytics pipeline already tolerates missing return data.
     """
-    unresolved_with_isin = [
-        m for m in mf_investments if not m.get("resolved") and m.get("isin")
+    candidates = [
+        m for m in mf_investments
+        if m.get("isin") and (
+            not m.get("resolved")
+            or not m.get("rolling_returns")
+            or m.get("expense_ratio") is None
+        )
     ]
-    if not unresolved_with_isin:
+    if not candidates:
         return
 
     try:
@@ -342,38 +357,57 @@ async def _enrich_unresolved_via_daas(
         if isin:
             by_isin[isin] = r
 
-    enriched = 0
-    for m in unresolved_with_isin:
+    enriched_unresolved = 0
+    enriched_returns = 0
+    enriched_ter = 0
+    for m in candidates:
         match = by_isin.get((m.get("isin") or "").strip().upper())
         if not match:
             continue
-        scheme_name = (
-            match.get("security_name")
-            or match.get("instrument_name")
-            or m.get("scheme_name")
-        )
-        m["scheme_name"] = scheme_name
-        if match.get("expense_ratio") is not None:
-            m["expense_ratio"] = float(match["expense_ratio"])
-        ret_1y = match.get("ret_1y")
-        ret_3y = match.get("ret_3y")
-        ret_5y = match.get("ret_5y")
-        if any(v is not None for v in (ret_1y, ret_3y, ret_5y)):
-            m["rolling_returns"] = {
-                "1y": float(ret_1y) if ret_1y is not None else None,
-                "3y": float(ret_3y) if ret_3y is not None else None,
-                "5y": float(ret_5y) if ret_5y is not None else None,
-                "as_of": str(match.get("perf_as_of")) if match.get("perf_as_of") else None,
-            }
-        if match.get("sector"):
-            m["sector"] = match["sector"]
-        m["resolved_via_nidp"] = True
-        enriched += 1
 
-    if enriched:
+        is_unresolved = not m.get("resolved")
+
+        # Scheme name: only set for unresolved holdings (don't overwrite
+        # the canonical PG instrument_master name for resolved ones).
+        if is_unresolved:
+            m["scheme_name"] = (
+                match.get("security_name")
+                or match.get("instrument_name")
+                or m.get("scheme_name")
+            )
+
+        # Expense ratio: fill if missing (resolved or not).
+        if m.get("expense_ratio") is None and match.get("expense_ratio") is not None:
+            m["expense_ratio"] = float(match["expense_ratio"])
+            enriched_ter += 1
+
+        # Rolling returns: fill whenever the holding doesn't already
+        # have them — this covers resolved funds whose PG ratios row
+        # is missing.
+        if not m.get("rolling_returns"):
+            ret_1y = match.get("ret_1y")
+            ret_3y = match.get("ret_3y")
+            ret_5y = match.get("ret_5y")
+            if any(v is not None for v in (ret_1y, ret_3y, ret_5y)):
+                m["rolling_returns"] = {
+                    "1y": float(ret_1y) if ret_1y is not None else None,
+                    "3y": float(ret_3y) if ret_3y is not None else None,
+                    "5y": float(ret_5y) if ret_5y is not None else None,
+                    "as_of": str(match.get("perf_as_of")) if match.get("perf_as_of") else None,
+                }
+                enriched_returns += 1
+
+        if is_unresolved and match.get("sector"):
+            m["sector"] = match["sector"]
+        if is_unresolved:
+            m["resolved_via_nidp"] = True
+            enriched_unresolved += 1
+
+    if enriched_unresolved or enriched_returns or enriched_ter:
         logger.info(
-            "portfolio_intelligence DAAS fallback: enriched %d/%d unresolved MF holdings for %s",
-            enriched, len(unresolved_with_isin), email,
+            "portfolio_intelligence DAAS enrichment for %s: "
+            "%d unresolved resolved-via-NIDP, %d rolling-returns filled, %d TER filled",
+            email, enriched_unresolved, enriched_returns, enriched_ter,
         )
 
 
