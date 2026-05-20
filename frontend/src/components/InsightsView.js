@@ -368,6 +368,7 @@ const InsightsView = ({ insights: basicInsights, onRefresh, riskProfile, copilot
               sortedPerfCards={sortedPerfCards}
               fundPerformance={fundPerformance}
               portfolioHealth={portfolioHealth}
+              overlapMatrix={overlapMatrix}
               loadingBenchmark={loadingBenchmark}
               fetchFundPerformance={fetchFundPerformance}
               perfSort={perfSort} perfDir={perfDir} perfFilter={perfFilter}
@@ -551,7 +552,7 @@ const DailyMarketBriefing = ({ onOpenChat }) => {
 
 // ── Performance & Benchmark tab ──────────────────────────────────────────
 const PerformanceBenchmarkTab = ({
-  perfCards, sortedPerfCards, fundPerformance, portfolioHealth,
+  perfCards, sortedPerfCards, fundPerformance, portfolioHealth, overlapMatrix,
   loadingBenchmark, fetchFundPerformance,
   perfSort, perfDir, perfFilter, setPerfSort, setPerfDir, setPerfFilter, fmt,
 }) => {
@@ -564,6 +565,7 @@ const PerformanceBenchmarkTab = ({
         perfCards={perfCards}
         fundPerformance={fundPerformance}
         portfolioHealth={portfolioHealth}
+        overlapMatrix={overlapMatrix}
         fmt={fmt}
       />
 
