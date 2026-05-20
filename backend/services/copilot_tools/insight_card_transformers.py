@@ -30,11 +30,14 @@ from models_copilot_widgets import (
     InsightEducation,
     InsightSeverity,
     StressTestData,
+    StressTestBreakdown,
     FundCardData,
     MarketBriefData,
     CompareTableData,
     SipPlanData,
+    SipPlanAllocation,
     RebalancePlanData,
+    RebalanceAction,
     TaxHarvestData,
     SectorRotationData,
     OverlapRevealData,
@@ -307,6 +310,21 @@ def compare_to_insight_card(ct: CompareTableData) -> InsightCardData:
     counts. Findings list each metric with the leader marker.
     """
     n = len(ct.funds)
+    if n == 0:
+        # Defensive: empty CompareTableData can be passed in by the NIDP
+        # adapter when the shape mismatch hides the fund names. Return a
+        # minimal info card rather than crashing on `max(range(0))`.
+        return InsightCardData(
+            hero=InsightHero(
+                severity="info",
+                eyebrow="Fund comparison",
+                headline="Comparison data unavailable",
+                subtitle=ct.verdict,
+            ),
+            recommendation=(
+                InsightRecommendation(summary=ct.verdict) if ct.verdict else None
+            ),
+        )
     # Tally how many metrics each fund leads
     leads = [0] * n
     for r in ct.rows:
@@ -1209,6 +1227,17 @@ def risk_suitability_to_insight_card(data: Dict[str, Any]) -> InsightCardData:
 # ────────────────────────────────────────────────────────────────────
 
 
+def _fmt_inr(v: Optional[float]) -> str:
+    if v is None:
+        return "—"
+    v = float(v)
+    if abs(v) >= 1e7:
+        return f"₹{v/1e7:.1f}Cr"
+    if abs(v) >= 1e5:
+        return f"₹{v/1e5:.1f}L"
+    return f"₹{v:,.0f}"
+
+
 def nidp_widget_to_insight_card(widget_type: str,
                                   widget_data: Dict[str, Any]) -> Optional[InsightCardData]:
     """Shape-translate an NIDP `widget_data` dict into our native
@@ -1263,34 +1292,373 @@ def nidp_widget_to_insight_card(widget_type: str,
             return stress_to_insight_card(data)
 
         if wt == "tax_harvest":
-            data = TaxHarvestData(
-                fy=wd.get("fy", "FY 2025-26"),
-                ltcg_used_rs=float(wd.get("ltcg_used_rs", 0)),
-                ltcg_limit_rs=float(wd.get("ltcg_limit_rs", 100_000)),
-                ltcg_remaining_rs=float(wd.get("ltcg_remaining_rs", 100_000)),
-                candidates=[],   # NIDP rows are dicts; skip parsing details
-                total_harvestable_rs=wd.get("total_harvestable_rs"),
-                warning=wd.get("warning"),
+            # NIDP shape: data has ltcg_exemption_used_rs / ltcg_exemption_remaining_rs
+            # (the FY 2025-26 ₹1,25,000 limit), total_harvestable_loss_rs,
+            # total_tax_if_sold_rs. Rows are per-holding tax estimates.
+            ltcg_used = float(wd.get("ltcg_exemption_used_rs")
+                               or wd.get("ltcg_used_rs") or 0)
+            ltcg_limit = 125_000.0  # FY 2025-26 limit in the NIDP engine
+            ltcg_remaining = float(wd.get("ltcg_exemption_remaining_rs",
+                                            max(0, ltcg_limit - ltcg_used)))
+            harvestable_loss = float(wd.get("total_harvestable_loss_rs") or 0)
+            tax_if_sold = float(wd.get("total_tax_if_sold_rs") or 0)
+            rows = wd.get("rows") or []
+            loss_rows = [r for r in rows if (r.get("capital_gain") or 0) < 0]
+            gain_rows = [r for r in rows if (r.get("capital_gain") or 0) > 0]
+
+            pct_used = (ltcg_used / ltcg_limit * 100) if ltcg_limit else 0
+            severity: InsightSeverity = (
+                "high"     if pct_used >= 80 else
+                "medium"   if pct_used >= 40 else
+                "healthy"
             )
-            return tax_harvest_to_insight_card(data)
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow="FY 2025-26 Tax Harvest",
+                headline=(
+                    f"Harvest up to {_fmt_inr(harvestable_loss)} in losses"
+                    if loss_rows else
+                    f"₹{tax_if_sold:,.0f} tax if all gains booked today"
+                    if gain_rows else
+                    "No tax-harvest candidates"
+                ),
+                primary_value=_fmt_inr(ltcg_remaining),
+                primary_label="LTCG room remaining",
+                subtitle=f"{len(rows)} holding(s) analysed",
+            )
+
+            kpis: List[InsightKpi] = [
+                InsightKpi(label="LTCG limit",    value=_fmt_inr(ltcg_limit)),
+                InsightKpi(label="Used this FY",  value=_fmt_inr(ltcg_used), tone=severity),
+                InsightKpi(label="Remaining",     value=_fmt_inr(ltcg_remaining), tone="healthy"),
+                InsightKpi(label="Loss positions", value=str(len(loss_rows)),
+                            tone="healthy" if loss_rows else "info"),
+            ]
+
+            findings: List[InsightFinding] = []
+            # Loss positions first (harvest immediately), then high-tax gains
+            for r in loss_rows[:3]:
+                findings.append(InsightFinding(
+                    priority="high",
+                    title=str(r.get("name", "Holding")),
+                    detail=f"{r.get('gain_type', '')} loss · {r.get('holding_days', 0)}d held",
+                    impact_value=_fmt_inr(r.get("tax_saved_if_harvested")),
+                    impact_label="Tax saved",
+                ))
+            for r in sorted(gain_rows, key=lambda x: -abs(x.get("tax_if_sold", 0)))[:max(0, 4 - len(findings))]:
+                findings.append(InsightFinding(
+                    priority="medium",
+                    title=str(r.get("name", "Holding")),
+                    detail=(f"{r.get('gain_type', '')} · {_fmt_inr(r.get('capital_gain'))} gain"),
+                    impact_value=_fmt_inr(r.get("tax_if_sold")),
+                    impact_label="Tax if sold",
+                ))
+
+            recommendation = InsightRecommendation(
+                summary=(
+                    f"Harvest losses worth {_fmt_inr(harvestable_loss)} to offset gains; "
+                    f"stagger LTCG sales to use the ₹1,25,000 exemption."
+                    if loss_rows else
+                    f"You have ₹{tax_if_sold:,.0f} in pending tax liability — pace your exits."
+                ),
+                rationale=(
+                    "FY 2025-26 LTCG on equity has a ₹1,25,000 exemption per year "
+                    "(taxed at 12.5% above that). Booking losses against gains in "
+                    "the same FY reduces taxable income at your slab rate."
+                ),
+            )
+
+            education = InsightEducation(
+                heading="Why this matters",
+                body=(
+                    "Tax-loss harvesting resets cost basis without changing your "
+                    "exposure. Done correctly, it can save 10-30% of your gain in "
+                    "taxes each year."
+                ),
+            )
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=recommendation, education=education,
+                actions=[
+                    InsightAction(label="Simulate harvest",   action_id="simulate_harvest",   style="primary"),
+                    InsightAction(label="Show STCG separately", action_id="show_stcg",       style="secondary"),
+                    InsightAction(label="Generate gains statement", action_id="gains_statement", style="secondary"),
+                ],
+            )
 
         if wt == "rebalance_plan":
-            actions = []
-            for r in (wd.get("rows") or wd.get("actions") or [])[:8]:
-                actions.append(RebalanceAction(  # type: ignore[name-defined]
-                    action=(r.get("action") or "HOLD").upper(),
-                    fund_name=r.get("fund_name") or r.get("name") or "Holding",
-                    current_pct=r.get("current_pct"),
-                    target_pct=r.get("target_pct"),
-                    amount_rs=r.get("amount_rs"),
-                    reason=r.get("reason"),
-                ))
-            data = RebalancePlanData(
-                current_value_rs=wd.get("current_value_rs") or wd.get("portfolio_value"),
-                actions=actions,
-                summary=wd.get("summary") or "Rebalance plan",
+            # NIDP shape: data has current_value_rs / equity_pct / debt_pct /
+            # target_equity_pct / target_debt_pct. Rows are actions with
+            # action / asset / amount_rs / current_pct / target_pct / reason.
+            current_value = float(wd.get("current_value_rs") or 0)
+            eq = float(wd.get("equity_pct") or 0)
+            dt = float(wd.get("debt_pct") or 0)
+            target_eq = float(wd.get("target_equity_pct") or 65)
+            drift_pp = abs(eq - target_eq)
+            rows = wd.get("rows") or []
+            non_hold = [r for r in rows if (r.get("action") or "").upper() != "HOLD"]
+            severity: InsightSeverity = (
+                "high"   if drift_pp >= 15 else
+                "medium" if drift_pp >= 5  else
+                "healthy"
             )
-            return rebalance_to_insight_card(data)
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow="Rebalance plan",
+                headline=(
+                    f"Equity {eq:.0f}% vs target {target_eq:.0f}%"
+                    if drift_pp >= 5 else
+                    "Allocation is within ±5pp of target"
+                ),
+                primary_value=_fmt_inr(current_value) if current_value else None,
+                primary_label="portfolio value",
+                subtitle=(f"{len(non_hold)} action(s) suggested"
+                          if non_hold else "No rebalance needed today"),
+            )
+
+            kpis: List[InsightKpi] = []
+            if current_value:
+                kpis.append(InsightKpi(label="Portfolio", value=_fmt_inr(current_value)))
+            kpis.append(InsightKpi(label="Equity",  value=f"{eq:.0f}%",
+                                    sublabel=f"target {target_eq:.0f}%",
+                                    tone=severity))
+            kpis.append(InsightKpi(label="Debt",    value=f"{dt:.0f}%",
+                                    sublabel=f"target {100-target_eq:.0f}%"))
+            kpis.append(InsightKpi(label="Actions", value=str(len(non_hold))))
+
+            findings: List[InsightFinding] = []
+            for r in non_hold[:4]:
+                act = (r.get("action") or "").upper()
+                asset = r.get("asset") or r.get("fund_name") or r.get("name", "")
+                findings.append(InsightFinding(
+                    priority="high" if act in ("SELL", "SWITCH") else "medium",
+                    title=f"{act} · {asset}",
+                    detail=r.get("reason"),
+                    impact_value=_fmt_inr(r.get("amount_rs")) if r.get("amount_rs") else None,
+                ))
+
+            recommendation = InsightRecommendation(
+                summary=(
+                    f"Trim equity by {drift_pp:.0f}pp and add to debt to "
+                    f"restore the {target_eq:.0f}/{100-target_eq:.0f} target."
+                    if eq > target_eq + 5 else
+                    f"Add to equity by {drift_pp:.0f}pp to reach the {target_eq:.0f}% target."
+                    if eq < target_eq - 5 else
+                    "No rebalance needed — fresh contributions can stay at your target split."
+                ),
+                rationale=(
+                    "The target asset mix is set by your risk profile. "
+                    "Drift beyond ±5pp materially changes your portfolio's "
+                    "expected return and drawdown."
+                ),
+            )
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=recommendation,
+                actions=[
+                    InsightAction(label="Execute plan",      action_id="execute_rebalance", style="primary"),
+                    InsightAction(label="Simulate tax",      action_id="rebalance_tax_sim", style="secondary"),
+                    InsightAction(label="Equity only",       action_id="rebalance_equity_only", style="secondary"),
+                ],
+            )
+
+        if wt == "portfolio_overview":
+            # NIDP shape: data has total_value_rs, equity_pct, debt_pct,
+            # high_overlap_pairs, effective_stocks, compression_score.
+            # Rows are stock + sector breakdowns.
+            total = float(wd.get("total_value_rs") or wd.get("total_value") or 0)
+            eq = float(wd.get("equity_pct") or 0)
+            dt = float(wd.get("debt_pct") or 0)
+            high_overlap = int(wd.get("high_overlap_pairs") or 0)
+            effective_stocks = wd.get("effective_stocks")
+            rows = wd.get("rows") or []
+            stock_rows = [r for r in rows if r.get("type") == "stock_exposure"]
+            sector_rows = [r for r in rows if r.get("type") == "sector"]
+
+            severity: InsightSeverity = (
+                "high"     if high_overlap >= 3 else
+                "medium"   if high_overlap >= 1 else
+                "healthy"
+            )
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow="Portfolio overview",
+                headline=(_fmt_inr(total) if total else "Portfolio at a glance"),
+                primary_value=f"{eq:.0f}%",
+                primary_label="equity",
+                subtitle=(f"{high_overlap} high-overlap fund pair(s)"
+                          if high_overlap else "Diversified across funds and sectors"),
+            )
+
+            kpis: List[InsightKpi] = []
+            if total:
+                kpis.append(InsightKpi(label="Total value", value=_fmt_inr(total)))
+            kpis.append(InsightKpi(label="Equity", value=f"{eq:.0f}%"))
+            kpis.append(InsightKpi(label="Debt",   value=f"{dt:.0f}%"))
+            if effective_stocks is not None:
+                kpis.append(InsightKpi(label="Effective stocks",
+                                         value=str(int(effective_stocks)),
+                                         sublabel="diversification proxy"))
+
+            findings: List[InsightFinding] = []
+            for r in stock_rows[:3]:
+                findings.append(InsightFinding(
+                    priority="medium" if float(r.get("value", 0)) >= 5 else "low",
+                    title=str(r.get("label", "Stock")),
+                    detail=f"{float(r.get('value', 0)):.1f}% of portfolio",
+                    impact_value=_fmt_inr(r.get("amount_rs")),
+                    impact_label="Exposure",
+                ))
+
+            recommendation = InsightRecommendation(
+                summary=(
+                    f"You're {eq:.0f}% equity / {dt:.0f}% debt across "
+                    f"{len(stock_rows) + len(sector_rows)} tracked positions. "
+                    + (f"{high_overlap} fund pair(s) have ≥40% overlap — consider consolidating."
+                       if high_overlap else "No major concentration issues.")
+                ),
+                rationale=(
+                    "Portfolio overview combines holistic allocation, sector mix, "
+                    "and look-through stock exposure. Use it as the starting point "
+                    "for deeper drilldowns into specific risks."
+                ),
+            )
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=recommendation,
+                actions=[
+                    InsightAction(label="Show overlap detail", action_id="show_overlap", style="primary"),
+                    InsightAction(label="Rebalance plan",      action_id="rebalance",    style="secondary"),
+                    InsightAction(label="Tax exposure",        action_id="tax_exposure", style="secondary"),
+                ],
+            )
+
+        if wt == "goal_tracker":
+            # NIDP shape: data.goals = [...], rows = same goals list.
+            # Each goal has: goal_name|name, target_amount_rs|target_rs,
+            # current_corpus_rs|corpus_rs, on_track_pct, horizon_years, ...
+            goals = wd.get("rows") or wd.get("goals") or []
+            if not goals:
+                return InsightCardData(
+                    hero=InsightHero(
+                        severity="info", eyebrow="Goals",
+                        headline="No goals set yet",
+                        subtitle="Add a goal to see progress tracking.",
+                    ),
+                )
+
+            min_track = min(float(g.get("on_track_pct") or 100) for g in goals)
+            severity: InsightSeverity = (
+                "high"    if min_track < 50 else
+                "medium"  if min_track < 75 else
+                "info"    if min_track < 95 else
+                "healthy"
+            )
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow=f"{len(goals)} active goal(s)",
+                headline=(f"Most-behind goal: {min_track:.0f}% on track"
+                          if min_track < 100 else "All goals on track"),
+                primary_value=f"{min_track:.0f}%",
+                primary_label="weakest on-track",
+            )
+
+            kpis: List[InsightKpi] = []
+            for g in goals[:4]:
+                ot = float(g.get("on_track_pct") or 0)
+                kpis.append(InsightKpi(
+                    label=str(g.get("goal_name") or g.get("name", "Goal"))[:24],
+                    value=f"{ot:.0f}%",
+                    sublabel=f"{_fmt_inr(g.get('target_amount_rs') or g.get('target_rs'))} target",
+                    tone="high" if ot < 50 else "medium" if ot < 75 else "healthy",
+                ))
+
+            findings: List[InsightFinding] = []
+            behind = sorted([g for g in goals if float(g.get("on_track_pct") or 100) < 90],
+                             key=lambda g: float(g.get("on_track_pct") or 100))[:3]
+            for g in behind:
+                ot = float(g.get("on_track_pct") or 0)
+                findings.append(InsightFinding(
+                    priority="high" if ot < 50 else "medium",
+                    title=str(g.get("goal_name") or g.get("name", "Goal")),
+                    detail=(f"{g.get('horizon_years', 0)}yr horizon · "
+                            f"corpus {_fmt_inr(g.get('current_corpus_rs') or g.get('corpus_rs'))}"),
+                    impact_value=f"₹{float(g.get('monthly_sip_rs') or g.get('plan_sip_rs') or 0):,.0f}/mo",
+                    impact_label="Current SIP",
+                ))
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=InsightRecommendation(
+                    summary=(f"Your weakest goal is {min_track:.0f}% on track — "
+                              "step up SIP or extend horizon to close the gap."
+                              if min_track < 100 else
+                              "All goals are tracking ≥ 90%."),
+                ),
+                actions=[
+                    InsightAction(label="Step up SIP",        action_id="step_up_sip",   style="primary"),
+                    InsightAction(label="Extend horizon",     action_id="extend_horizon", style="secondary"),
+                ],
+            )
+
+        if wt == "stock_screener":
+            # NIDP shape: data has filters / count / picks; rows are
+            # stocks with symbol|name, score, momentum, value, etc.
+            rows = wd.get("rows") or wd.get("picks") or []
+            count = len(rows)
+            if count == 0:
+                return InsightCardData(
+                    hero=InsightHero(
+                        severity="info", eyebrow="Stock screener",
+                        headline="No stocks match the screen",
+                    ),
+                )
+
+            top = rows[0]
+            hero = InsightHero(
+                severity="info",
+                eyebrow=f"Stock screener · {count} picks",
+                headline=str(top.get("name") or top.get("symbol", "Top pick")),
+                primary_value=(f"{float(top.get('score') or 0):.0f}/100"
+                                if top.get("score") is not None else None),
+                primary_label="quality score" if top.get("score") is not None else None,
+                subtitle=str(top.get("sector") or top.get("category") or ""),
+            )
+
+            kpis: List[InsightKpi] = []
+            for r in rows[:4]:
+                kpis.append(InsightKpi(
+                    label=str(r.get("name") or r.get("symbol", ""))[:24],
+                    value=(f"{float(r.get('score') or 0):.0f}"
+                           if r.get("score") is not None else "—"),
+                    sublabel=str(r.get("sector") or r.get("category") or ""),
+                ))
+
+            findings: List[InsightFinding] = []
+            for r in rows[:4]:
+                findings.append(InsightFinding(
+                    priority="medium",
+                    title=str(r.get("name") or r.get("symbol", "Stock")),
+                    detail=str(r.get("rationale") or r.get("note") or ""),
+                ))
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=InsightRecommendation(
+                    summary=f"{count} stock(s) passed the screen — top pick by score is {top.get('name') or top.get('symbol', '')}.",
+                ),
+                actions=[
+                    InsightAction(label="Show all picks",      action_id="show_all_picks",   style="primary"),
+                    InsightAction(label="Drill into top",      action_id="drill_top_pick",   style="secondary"),
+                ],
+            )
 
         if wt == "overlap_reveal":
             data = OverlapRevealData(
@@ -1302,21 +1670,137 @@ def nidp_widget_to_insight_card(widget_type: str,
             return overlap_to_insight_card(data)
 
         if wt == "sip_plan":
+            # NIDP shape: matches SipPlanData fields directly (built that way
+            # by goal_node) — populate allocations from the same shape so
+            # the card surfaces the per-bucket breakdown.
+            allocs = []
+            for a in (wd.get("allocations") or [])[:6]:
+                try:
+                    allocs.append(SipPlanAllocation(  # type: ignore[name-defined]
+                        scheme_name=str(a.get("scheme_name", "Allocation")),
+                        monthly_amount=float(a.get("monthly_amount", 0)),
+                        rationale=str(a.get("rationale", "")),
+                    ))
+                except Exception:
+                    continue
             data = SipPlanData(
                 monthly_budget=float(wd.get("monthly_budget", 0)),
-                allocations=[],   # NIDP shape divergence — leave empty
+                allocations=allocs,
                 why_these=wd.get("why_these") or [],
                 counter_points=wd.get("counter_points") or [],
             )
             return sip_plan_to_insight_card(data)
 
         if wt == "fund_comparison":
-            data = CompareTableData(
-                funds=wd.get("funds") or [],
-                rows=[],
-                verdict=wd.get("verdict"),
+            # NIDP shape: widget_data = {"rows": [{scheme_name, category,
+            # amount_rs, return_1y_pct, return_3y_pct, return_5y_pct,
+            # expense_ratio_pct, sharpe, std_dev_pct, aum_cr, ...}], ...}.
+            # We translate directly to InsightCardData instead of through
+            # CompareTableData (which has a different shape — best_index
+            # per row — that we'd have to synthesize from scratch).
+            rows = wd.get("rows") or []
+            if not rows:
+                return InsightCardData(
+                    hero=InsightHero(
+                        severity="info",
+                        eyebrow="Fund comparison",
+                        headline="No mutual fund holdings to compare",
+                    ),
+                )
+            # Severity: count "weak" funds (any with negative 5Y or TER > 1.5).
+            weak = [r for r in rows
+                     if (r.get("return_5y_pct") is not None and r["return_5y_pct"] < 8)
+                     or (r.get("expense_ratio_pct") is not None and r["expense_ratio_pct"] > 1.5)]
+            if   len(weak) >= 4: severity: InsightSeverity = "high"
+            elif len(weak) >= 2: severity = "medium"
+            elif len(weak) >= 1: severity = "info"
+            else:                severity = "healthy"
+
+            # Pick leader by 5Y return where available, else 3Y, else 1Y.
+            def _score(r: Dict[str, Any]) -> float:
+                for k in ("return_5y_pct", "return_3y_pct", "return_1y_pct"):
+                    if r.get(k) is not None:
+                        return float(r[k])
+                return -1e9
+            leader = max(rows, key=_score)
+
+            hero = InsightHero(
+                severity=severity,
+                eyebrow=f"{len(rows)} funds compared",
+                headline=f"Leader: {leader.get('scheme_name', '—')}",
+                primary_value=(f"{_score(leader):+.1f}%"
+                                if _score(leader) > -1e8 else None),
+                primary_label="5Y return",
+                subtitle=(f"{len(weak)} fund(s) below threshold"
+                          if weak else "All funds within healthy bands"),
             )
-            return compare_to_insight_card(data)
+
+            kpis: List[InsightKpi] = []
+            # Show the top 4 funds with their 5Y returns (or best available).
+            for r in rows[:4]:
+                ret_5y = r.get("return_5y_pct")
+                ret_3y = r.get("return_3y_pct")
+                ret_1y = r.get("return_1y_pct")
+                primary = ret_5y if ret_5y is not None else (
+                    ret_3y if ret_3y is not None else ret_1y
+                )
+                sublabel = ("5Y" if ret_5y is not None
+                            else "3Y" if ret_3y is not None
+                            else "1Y" if ret_1y is not None
+                            else None)
+                kpis.append(InsightKpi(
+                    label=str(r.get("scheme_name", ""))[:24],
+                    value=(f"{primary:+.1f}%" if primary is not None else "—"),
+                    sublabel=sublabel,
+                    tone="healthy" if (primary or 0) >= 12
+                         else "medium" if (primary or 0) >= 8
+                         else "high",
+                ))
+
+            findings: List[InsightFinding] = []
+            # Flag high-TER funds as findings.
+            ter_outliers = sorted(
+                [r for r in rows if r.get("expense_ratio_pct") is not None],
+                key=lambda r: -r["expense_ratio_pct"],
+            )[:3]
+            for r in ter_outliers:
+                ter = r["expense_ratio_pct"]
+                if ter < 1.2:
+                    continue
+                findings.append(InsightFinding(
+                    priority="high" if ter > 1.7 else "medium",
+                    title=str(r.get("scheme_name", "Fund")),
+                    detail=f"TER {ter:.2f}% · {r.get('category') or 'unknown category'}",
+                    impact_value=f"₹{float(r.get('amount_rs') or 0):,.0f}",
+                    impact_label="Allocation",
+                ))
+
+            recommendation = InsightRecommendation(
+                summary=(
+                    f"{leader.get('scheme_name', 'Top fund')} leads on long-term "
+                    f"return. Consider trimming any high-TER funds with weak "
+                    f"trailing performance to compound the gap."
+                    if findings else
+                    f"{leader.get('scheme_name', 'Top fund')} is your strongest "
+                    f"long-term performer — the rest of the portfolio sits in healthy bands."
+                ),
+                rationale=(
+                    "Comparison ranks every MF in your portfolio on 1Y/3Y/5Y "
+                    "returns, TER, and overlap. The leader is the fund with the "
+                    "best long-horizon return; high-TER underperformers are the "
+                    "first candidates to consolidate."
+                ),
+            )
+
+            return InsightCardData(
+                hero=hero, kpis=kpis, findings=findings,
+                recommendation=recommendation,
+                actions=[
+                    InsightAction(label="Show full comparison",  action_id="show_full_compare", style="primary"),
+                    InsightAction(label="Cheaper alternatives",  action_id="cheaper_alternatives", style="secondary"),
+                    InsightAction(label="Show portfolio overlap", action_id="show_overlap",  style="secondary"),
+                ],
+            )
 
         return None
     except Exception:
