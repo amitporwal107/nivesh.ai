@@ -14,6 +14,8 @@ from services.live_price import fetch_live_prices
 from services.sgb_prices import apply_sgb_issue_prices
 from services.equity_sectors import enrich_holdings_with_sectors
 from services.tax_engine import card_tax_block as _card_tax_block
+from services.mf_category_enricher import enrich_mf_with_sebi_category
+from services.fund_clusterer import cluster_overlapping_funds
 from helpers.portfolio_utils import extract_fund_house, compute_fund_overlap
 from deps import ai_engine
 
@@ -635,19 +637,40 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
             "risk_level": "high" if pct > 40 else "medium" if pct > 25 else "low"
         })
 
-    # Fund Overlap Matrix
+    # Fund Overlap Clusters (replaces the pre-2026-05-20 nested pair-loop).
+    #
+    # OLD behaviour: every cross-product pair was emitted, with no
+    # SEBI-category gate. Cross-category pairs (Large Cap vs Index Fund)
+    # made it into the user-facing insights because `compute_fund_overlap`
+    # used the holding's `sector` field — which reflects the primary
+    # stock universe, not the SEBI primary category. Both a Large Cap
+    # fund and a Nifty 50 Index fund had `sector = "Large Cap"`.
+    #
+    # NEW behaviour: enrich MF holdings with `sebi_category` +
+    # `sebi_subcategory`, then cluster N-way INSIDE each category.
+    # A cluster of 3 Nifty 50 funds is now ONE row, not 3 pairs.
+    # Cross-category pairings are impossible by construction.
     mf_holdings = [h for h in holdings if h.get("asset_type") == "mutual_fund"]
+    mf_holdings = enrich_mf_with_sebi_category(mf_holdings)
+    overlap_clusters = cluster_overlapping_funds(mf_holdings)
+
+    # Legacy `overlap_matrix`: keep as a flat list of within-cluster
+    # pair-edges so existing UI consumers (the deep-analytics heatmap)
+    # keep working. The new cluster shape is what insight generation
+    # now consumes.
     overlap_matrix = []
-
-    if len(mf_holdings) >= 2:
-        for i in range(len(mf_holdings)):
-            for j in range(i + 1, len(mf_holdings)):
-                overlap = compute_fund_overlap(mf_holdings[i], mf_holdings[j])
-                if overlap["overlap_pct"] > 0:
-                    overlap_matrix.append(overlap)
-
-        overlap_matrix.sort(key=lambda x: x["overlap_pct"], reverse=True)
-        overlap_matrix = overlap_matrix[:15]
+    for cluster in overlap_clusters:
+        members = cluster["members"]
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                overlap_matrix.append({
+                    "fund_a":      members[i]["name"],
+                    "fund_b":      members[j]["name"],
+                    "overlap_pct": cluster["avg_overlap_pct"],
+                    "reasons":     [f"Same SEBI category: {cluster['sebi_subcategory'] or cluster['sebi_category']}"],
+                })
+    overlap_matrix.sort(key=lambda x: x["overlap_pct"], reverse=True)
+    overlap_matrix = overlap_matrix[:15]
 
     # Performance Cards
     performance_cards = []
@@ -805,6 +828,7 @@ async def get_deep_analytics(request: Request, portfolio_id: str = ""):
             "total_value": round(total_value, 2),
         },
         "overlap_matrix": overlap_matrix,
+        "overlap_clusters": overlap_clusters,
         "performance_cards": performance_cards,
         "duplication": {
             "score": duplication_pct,
