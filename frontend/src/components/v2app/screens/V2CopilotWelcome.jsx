@@ -367,7 +367,7 @@ export default function V2CopilotWelcome({
       className="flex flex-col items-center justify-start h-full py-8 px-4 overflow-y-auto"
       style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.06) transparent" }}
     >
-      <div className="w-full max-w-2xl space-y-5">
+      <div className="w-full max-w-5xl space-y-5">
 
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-3">
@@ -591,16 +591,14 @@ export default function V2CopilotWelcome({
               </div>
             ) : (
               <div
-                className="flex gap-2 overflow-x-auto pb-1"
-                style={{ scrollbarWidth: "none", scrollSnapType: "x mandatory" }}
+                className="flex flex-wrap gap-2 pb-1"
               >
                 {suggestedPrompts.slice(0, 8).map((p) => (
                   <button
                     key={p.id}
                     onClick={() => onAsk(p.query)}
                     disabled={streaming}
-                    style={{ scrollSnapAlign: "start" }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/[0.09] border border-white/10 hover:border-indigo-500/30 rounded-full text-xs text-white/50 hover:text-white transition-all disabled:opacity-40 whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/[0.09] border border-white/10 hover:border-indigo-500/30 rounded-full text-xs text-white/50 hover:text-white transition-all disabled:opacity-40 whitespace-nowrap"
                   >
                     <Lightbulb className="w-3 h-3 text-indigo-400 shrink-0" strokeWidth={1.5} />
                     {p.label}
