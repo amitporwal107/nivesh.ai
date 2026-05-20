@@ -7,6 +7,7 @@ import {
   Building2, Shield, Wallet, RefreshCw, AlertCircle, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import OptimizationCard from "@/components/insights/OptimizationCard";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -479,6 +480,11 @@ const InsightCard = ({ insight, perfCards, onMarkDone, onAsk, onUnmark, fmt, hig
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Phase B/C/D: Keep / Exit / Redeploy / Simulate panel for duplicate-pair insights */}
+              {insight.insight_id && ["duplication", "overlap"].includes(deriveTheme(insight)) && (
+                <OptimizationCard insightId={insight.insight_id} />
               )}
 
               <div className="flex gap-2 pt-1">
