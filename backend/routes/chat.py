@@ -668,6 +668,12 @@ async def create_chat_session(request: Request):
     return {k: v for k, v in session_doc.items() if k != "_id"}
 
 
+# NOTE: /chat/rag and the V3 RAG orchestration path are decommissioned.
+# Copilot now runs exclusively on the NIDP LangGraph engine, which has
+# canonical intent coverage and emits insight_card envelopes directly.
+# The /chat/rag endpoint stays only to return a clean 410 Gone so any
+# stale clients fail loudly instead of silently degrading.
+
 class RAGRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     history: Optional[List[Dict[str, str]]] = None
@@ -675,39 +681,11 @@ class RAGRequest(BaseModel):
 
 @router.post("/chat/rag")
 async def rag_chat(request: Request, payload: RAGRequest):
-    """RAG-driven Copilot endpoint.
-
-    Replaces the "dump the entire portfolio into the system prompt" flow
-    of /chat/send. Pipeline:
-
-      1. Keyword-based intent router → narrow query type.
-      2. Deterministic retriever → tight structured payload (~500 chars
-         instead of 5000), guaranteed to match the user's actual data.
-      3. Server-side chart spec (computed from the same retrieval — never
-         asked from the LLM, so values can't drift).
-      4. Small LLM call (≤400 tokens) that ONLY writes prose around the
-         payload. Hallucinated fund names are now structurally impossible
-         because the model never has training-data fund names in scope.
-
-    Returns:
-      {
-        "prose":            "<assistant text>",
-        "chart_spec":       {...} | null,    # rendered by frontend ChartBlock
-        "intent":           "ranking" | "concentration" | ...,
-        "retrieval_ok":     bool,
-        "retrieval_reason": "no_holdings" | ... | null,
-        "retrieval_summary": "<one-liner>",
-        "rows":             [...],            # raw structured data for client-side table
-      }
-    """
-    user = await get_current_user(request)
-    user_id = user["user_id"]
-
-    from services import copilot_rag
-    result = await copilot_rag.answer(
-        user_id=user_id, message=payload.message, history=payload.history,
+    """Retired — Copilot is NIDP-only. Use /chat/send or /chat/stream."""
+    raise HTTPException(
+        status_code=410,
+        detail="The V3 RAG endpoint has been retired. Use /chat/stream or /chat/send (both run on the NIDP engine).",
     )
-    return result
 
 
 @router.post("/chat/warmup")
@@ -850,16 +828,17 @@ async def send_chat(request: Request, msg: ChatMessageInput):
     # the frontend renders prose as today.
     widget_envelope: Optional[Dict[str, Any]] = None
 
-    # \u2500\u2500 Single-portfolio (investor) path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    # Engine selection (same flag as /chat/stream):
-    #   NIDP / LangGraph  \u2014 "copilot_engine_nidp" flag ON  (admin default)
-    #   V3  / RAG         \u2014 flag OFF or LangGraph unavailable
+    # ── Single-portfolio (investor) path ─────────────────────────────
+    # Copilot is NIDP-only — V3 RAG retired. If LangGraph deps failed
+    # to import at startup, surface a clean error rather than silently
+    # degrading.
     if not advisor_mode:
-        import feature_flags as _ff
-        _use_nidp = _lg_available and _ff.is_enabled("copilot_engine_nidp", user.get("email"))
-
-        if _use_nidp:
-            # \u2500\u2500 NIDP LangGraph path (non-streaming via ainvoke) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        if not _lg_available:
+            ai_response = (
+                "Copilot is currently unavailable — the LangGraph engine "
+                "failed to load. Please try again shortly."
+            )
+        else:
             try:
                 await _ensure_plan_for_actionable_question(user_id, msg.message)
                 graph = _get_copilot_graph()
@@ -883,12 +862,40 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                 )
                 resp = result.get("response")
                 prose = (getattr(resp, "text", None) or "") if resp else ""
-                widget_type = getattr(resp, "widget_type", None)
-                widget_data = getattr(resp, "widget_data", None)
-                if widget_type and widget_type != "none" and widget_data:
-                    prose += "\n\n```chart\n" + json.dumps(
-                        {"widget_type": widget_type, "data": widget_data}, separators=(",", ":")
-                    ) + "\n```\n"
+                wt = getattr(resp, "widget_type", None)
+                wd = getattr(resp, "widget_data", None)
+                if wt and wt != "none" and wd:
+                    # Upgrade NIDP widget to the unified insight_card layout
+                    # (matches /chat/stream behaviour).
+                    try:
+                        from services.copilot_tools.insight_card_transformers import (
+                            nidp_widget_to_insight_card,
+                        )
+                        unified = nidp_widget_to_insight_card(wt, wd)
+                    except Exception:
+                        unified = None
+                    agent_val = getattr(resp, "agent", None)
+                    agent_id = agent_val.value if hasattr(agent_val, "value") else agent_val
+                    freshness = {
+                        "state": "cached",
+                        "last_updated": datetime.now(timezone.utc).isoformat(),
+                        "source": ["NIDP", "portfolio_holdings"],
+                    }
+                    agent_block = {"id": agent_id or "risk_analyst", "confidence": 85}
+                    if unified is not None:
+                        widget_envelope = {
+                            "widget_type": "insight_card",
+                            "data":        unified.model_dump(),
+                            "freshness":   freshness,
+                            "agent":       agent_block,
+                        }
+                    else:
+                        widget_envelope = {
+                            "widget_type": wt,
+                            "data":        wd,
+                            "freshness":   freshness,
+                            "agent":       agent_block,
+                        }
                 validated = validate_chart_blocks(prose)
                 ai_response = validated["clean_text"]
                 await log_invalid_chart_specs(
@@ -903,36 +910,6 @@ async def send_chat(request: Request, msg: ChatMessageInput):
                     "I'm having trouble connecting to my AI engine right now. "
                     "Please try again in a moment."
                 )
-        else:
-            # \u2500\u2500 V3 RAG path \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-            try:
-                from services import copilot_rag
-                await _ensure_plan_for_actionable_question(user_id, msg.message)
-                rag_result = await copilot_rag.answer(
-                    user_id=user_id, message=msg.message, history=history,
-                )
-                prose = rag_result.get("prose") or ""
-                chart_spec = rag_result.get("chart_spec")
-                # Insight-card envelope (when the intent matched a known
-                # widget tool — see orchestrator._intent_to_envelope).
-                widget_envelope = rag_result.get("widget")
-                if chart_spec:
-                    prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
-                validated = validate_chart_blocks(prose)
-                ai_response = validated["clean_text"]
-                await log_invalid_chart_specs(
-                    db, user_id,
-                    model="copilot_rag",
-                    route=f"chat/send/{rag_result.get('intent','generic')}",
-                    invalid=validated["invalid_specs"],
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"RAG chat error: {e}", exc_info=True)
-                ai_response = (
-                    "I'm having trouble connecting to my AI engine right now. "
-                    "Please try again in a moment."
-                )
-                widget_envelope = None
     else:
         # Advisor (cross-client) mode still uses the legacy path \u2014 its
         # context shape (cross-client book) hasn't been ported to RAG yet.
@@ -1084,12 +1061,12 @@ async def stream_chat(request: Request):
                 # Per-request engine selection: NIDP (LangGraph) when the
                 # "copilot_engine_nidp" feature flag is on for this user AND
                 # the LangGraph deps imported successfully at startup.
-                import feature_flags as _ff
-                _use_nidp = _lg_available and _ff.is_enabled(
-                    "copilot_engine_nidp", user.get("email")
-                )
-
-                if _use_nidp:
+                # Copilot is NIDP-only — V3 RAG retired. If the LangGraph
+                # engine isn't available, fail loud rather than silently fall back.
+                if not _lg_available:
+                    yield f"data: {json.dumps({'type': 'token', 'content': 'Copilot is currently unavailable — the LangGraph engine failed to load. Please try again shortly.'})}\n\n"
+                    full_response = "Copilot is currently unavailable."
+                else:
                     # ── LangGraph multi-agent path ──────────────────────────
                     graph = _get_copilot_graph()
                     lg_config = {"configurable": {"thread_id": session_id}}
@@ -1118,17 +1095,12 @@ async def stream_chat(request: Request):
                     widget_envelope: Optional[Dict] = None
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
-                        # Emit thinking indicators for tool calls so frontend can show progress
                         if kind == "on_tool_start":
                             tool_name = event.get("name") or event.get("data", {}).get("input", {}).get("name", "tool")
                             yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'start'})}\n\n"
                         elif kind == "on_tool_end":
                             tool_name = event.get("name") or "tool"
                             yield f"data: {json.dumps({'type': 'thinking', 'tool': tool_name, 'status': 'end'})}\n\n"
-                        # Stream tokens as they come from any LLM node. Skip
-                        # internal LLM calls tagged for filtering (e.g. the
-                        # intent classifier returns JSON that must not be
-                        # rendered as part of the assistant's prose).
                         elif kind == "on_chat_model_stream":
                             tags = event.get("tags") or []
                             if "intent_internal" in tags:
@@ -1137,10 +1109,6 @@ async def stream_chat(request: Request):
                             if chunk and hasattr(chunk, "content") and chunk.content:
                                 prose += chunk.content
                                 yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
-                        # When the intent node finishes, surface the chosen
-                        # agent + confidence as a dedicated SSE event so the
-                        # frontend can attach it to the bubble without the
-                        # raw JSON leaking into rendered prose.
                         elif kind == "on_chain_end" and event.get("name") == "intent_node":
                             output = event.get("data", {}).get("output", {})
                             intent = output.get("intent") if isinstance(output, dict) else None
@@ -1155,18 +1123,12 @@ async def stream_chat(request: Request):
                                     "scheme_code": getattr(intent, "scheme_code", None),
                                 }
                                 yield f"data: {json.dumps(route_payload)}\n\n"
-                        # After graph finishes, grab the final response + widget
                         elif kind == "on_chain_end" and event.get("name") == "LangGraph":
                             output = event.get("data", {}).get("output", {})
                             final_resp = output.get("response")
                             if final_resp:
                                 if not prose:
-                                    # fallback: response was not streamed token-by-token
                                     prose = getattr(final_resp, "text", "") or str(final_resp)
-                                # Extract widget envelope when the agent produced one.
-                                # Build a complete envelope (kind / title / freshness /
-                                # agent / data) so the frontend widget renderer can
-                                # display the header chrome, not just the body.
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
                                 if wt and wt != "none" and wd:
@@ -1195,11 +1157,6 @@ async def stream_chat(request: Request):
                                         "id": agent_id or "risk_analyst",
                                         "confidence": int(round(confidence)),
                                     }
-                                    # Try to upgrade to the unified insight_card layout
-                                    # by shape-translating wd through the per-tool
-                                    # transformer. When the tool isn't supported, fall
-                                    # back to the legacy `wt` widget so chat still
-                                    # renders something instead of an empty bubble.
                                     try:
                                         from services.copilot_tools.insight_card_transformers import (
                                             nidp_widget_to_insight_card,
@@ -1227,7 +1184,6 @@ async def stream_chat(request: Request):
                                 if fu:
                                     follow_ups = list(fu)[:3]
 
-                    # If nothing was streamed (all models returned at once), chunk now
                     if prose and not full_response:
                         CHUNK = 24
                         for i in range(0, len(prose), CHUNK):
@@ -1237,47 +1193,9 @@ async def stream_chat(request: Request):
                     else:
                         full_response = prose
 
-                    # Emit widget envelope after prose so the frontend can
-                    # render the structured widget alongside the text answer.
                     if widget_envelope:
                         pending_widget = widget_envelope
                         yield f"data: {json.dumps({'type': 'widget', **widget_envelope})}\n\n"
-
-                else:
-                    # ── RAG orchestrator path (default) ────────────────────
-                    from services import copilot_rag
-                    rag_result = await copilot_rag.answer(
-                        user_id=user_id, message=message, history=history,
-                    )
-                    prose = rag_result.get("prose") or ""
-                    chart_spec = rag_result.get("chart_spec")
-                    rag_widget_envelope = rag_result.get("widget")
-                    if chart_spec:
-                        prose += "\n\n```chart\n" + json.dumps(chart_spec, separators=(",", ":")) + "\n```\n"
-
-                    # Chunk prose into ~24-char tokens for frontend animation.
-                    CHUNK = 24
-                    for i in range(0, len(prose), CHUNK):
-                        tok = prose[i:i + CHUNK]
-                        full_response += tok
-                        yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
-
-                    # Emit the insight_card envelope (when the intent matched a
-                    # widget tool — see orchestrator._intent_to_envelope). The
-                    # frontend SSE handler expects `widget_type` as the kind
-                    # discriminator and flat `data`/`title`/`freshness`/`agent`
-                    # fields (matches the NIDP-path event shape above so the
-                    # `pendingWidget` parser at ChatView.js:732 works for both).
-                    if rag_widget_envelope:
-                        pending_widget = rag_widget_envelope  # capture for ai_msg_doc
-                        yield "data: " + json.dumps({
-                            "type":        "widget",
-                            "widget_type": rag_widget_envelope.get("kind"),
-                            "data":        rag_widget_envelope.get("data"),
-                            "title":       rag_widget_envelope.get("title"),
-                            "freshness":   rag_widget_envelope.get("freshness"),
-                            "agent":       rag_widget_envelope.get("agent"),
-                        }) + "\n\n"
             else:
                 # Advisor (cross-client) mode — legacy book-block path.
                 full_context = portfolio_context
