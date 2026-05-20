@@ -77,12 +77,131 @@ def _rank(insight: Dict[str, Any]) -> tuple:
 # ──────────────────────────────────────────────────────────────────────────
 
 def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collapse pairwise-overlap edges into N-way clusters per SEBI category.
+
+    PRE-2026-05-20 bug: every pair emitted its own insight. With 3 Nifty 50
+    funds that's 3 separate "Fund A and Fund B overlap N%" rows. The user
+    wants ONE cluster row: "Consolidate 3 funds in your Nifty 50 category".
+
+    Algorithm:
+      1. Filter pairs to overlap >= 40 (was already here).
+      2. Group remaining pairs by (sebi_category, sebi_subcategory) —
+         populated by services/portfolio_intelligence._pairwise_overlap.
+      3. Run union-find on each group so transitive edges collapse.
+      4. Emit one insight per connected component of size >= 2.
+
+    Falls back gracefully when SEBI fields are absent (e.g. old upstream
+    data): each pair without a SEBI bucket is emitted as its own row,
+    preserving the pre-PR behaviour for that edge.
+    """
     pairs = intelligence.get("pairwise_overlap") or []
     out: List[Dict[str, Any]] = []
+
+    # ── Step 1: filter + bucket by SEBI category ─────────────────────
+    by_bucket: Dict[tuple, List[Dict[str, Any]]] = {}
+    unbucketed: List[Dict[str, Any]] = []
     for p in pairs:
         pct = float(p.get("overlap_pct") or 0)
         if pct < 40:
             continue
+        cat = p.get("sebi_category")
+        sub = p.get("sebi_subcategory")
+        if not cat:
+            unbucketed.append(p)
+            continue
+        by_bucket.setdefault((cat, sub), []).append(p)
+
+    # ── Step 2: per-bucket union-find → cluster of fund IDs ─────────
+    def _union_find(bucket_pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Returns list of cluster dicts: {members, avg_overlap, max_overlap}."""
+        parent: Dict[str, str] = {}
+
+        def find(x: str) -> str:
+            while parent.get(x, x) != x:
+                parent[x] = parent.get(parent.get(x, x), parent.get(x, x))
+                x = parent[x]
+            return x
+
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        # Seed nodes
+        node_names: Dict[str, str] = {}
+        for p in bucket_pairs:
+            for k_id, k_name in (("a", "a_name"), ("b", "b_name")):
+                nid = p.get(k_id)
+                if nid is not None:
+                    parent.setdefault(nid, nid)
+                    node_names.setdefault(nid, p.get(k_name) or nid)
+
+        edge_weights: Dict[tuple, float] = {}
+        for p in bucket_pairs:
+            a, b = p.get("a"), p.get("b")
+            if a is None or b is None:
+                continue
+            union(a, b)
+            edge_weights[(a, b)] = float(p.get("overlap_pct") or 0)
+
+        # Bucket nodes by root
+        groups: Dict[str, List[str]] = {}
+        for nid in parent:
+            groups.setdefault(find(nid), []).append(nid)
+
+        clusters: List[Dict[str, Any]] = []
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            mset = set(members)
+            edge_pcts = [w for (a, b), w in edge_weights.items() if a in mset and b in mset]
+            clusters.append({
+                "ids": members,
+                "names": [node_names[m] for m in members],
+                "avg_overlap": sum(edge_pcts) / len(edge_pcts) if edge_pcts else 0.0,
+                "max_overlap": max(edge_pcts) if edge_pcts else 0.0,
+            })
+        return clusters
+
+    # ── Step 3: emit one insight per cluster ────────────────────────
+    for (cat, sub), bucket_pairs in by_bucket.items():
+        for cluster in _union_find(bucket_pairs):
+            n = len(cluster["ids"])
+            avg_ov = cluster["avg_overlap"]
+            max_ov = cluster["max_overlap"]
+            label = sub or cat
+            impact = "high" if max_ov >= 70 else "medium" if max_ov >= 55 else "low"
+            out.append({
+                "id": f"overlap_cluster:{label}:{','.join(sorted(cluster['ids']))}",
+                "signal_type": "warning",
+                "impact": impact,
+                "kind": "OVERLAP",
+                "title": f"Consolidate {n} funds in your {label} category",
+                "action": (
+                    "Keep the highest-scoring fund (per the consolidation "
+                    "score); exit the others. Stagger the exits across 2 "
+                    "financial years if the tax cost is material."
+                ),
+                "detail": (
+                    f"{n} funds in {label} with avg pairwise overlap "
+                    f"{avg_ov:.0f}% (max {max_ov:.0f}%). You're paying "
+                    f"expenses on funds providing the same exposure."
+                ),
+                "amount_rs": None,
+                "metadata": {
+                    "sebi_category":    cat,
+                    "sebi_subcategory": sub,
+                    "fund_ids":         cluster["ids"],
+                    "fund_names":       cluster["names"],
+                    "deep_link":        "insights#overlap",
+                },
+            })
+
+    # ── Step 4: unbucketed pairs keep the old pair-shape (rare) ────
+    # If SEBI categories aren't yet enriched upstream (e.g. older data),
+    # emit pair-shape so the UI still surfaces something.
+    for p in unbucketed:
+        pct = float(p.get("overlap_pct") or 0)
         impact = "high" if pct >= 70 else "medium" if pct >= 55 else "low"
         out.append({
             "id": f"overlap:{p.get('a')}:{p.get('b')}",
@@ -99,6 +218,13 @@ def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "deep_link": "insights#overlap",
             },
         })
+
+    # Sort: cluster insights (high impact) first, ties broken by max overlap.
+    out.sort(key=lambda r: (
+        0 if r["kind"] == "OVERLAP" and r["impact"] == "high" else
+        1 if r["impact"] == "medium" else
+        2,
+    ))
     return out
 
 

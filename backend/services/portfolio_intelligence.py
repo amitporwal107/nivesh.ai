@@ -27,6 +27,7 @@ from collections import defaultdict
 
 from deps import db
 from services import pg_client
+from services.mf_category_enricher import parse_sebi_from_name, normalise_scheme_category
 
 logger = logging.getLogger(__name__)
 
@@ -412,13 +413,88 @@ async def _enrich_unresolved_via_daas(
 
 
 # ── Sub-computations ─────────────────────────────────────────────────────
+
+def _sebi_cat_for_catalog_entry(entry: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the SEBI primary category + sub-category for one catalog entry.
+
+    Tries the structured `category` field first (which is the legacy
+    primary-stock-universe field — only used here as a parser hint), then
+    falls back to the scheme name. The category-enricher's
+    `normalise_scheme_category` understands strings like
+    "Equity Scheme - Large Cap Fund" and routes to the right SEBI bucket;
+    if it can't, the name-parser kicks in.
+
+    This is a READ-ONLY helper — it does NOT mutate the catalog entry."""
+    name = entry.get("scheme_name") or ""
+    raw_cat = entry.get("category")
+
+    # 1. Try normalising the raw category string (works when NIDP has
+    #    populated scheme_category like "Equity Scheme - Large Cap Fund").
+    cat, sub = normalise_scheme_category(raw_cat, name)
+    if cat:
+        return cat, sub
+
+    # 2. Name-parser fallback.
+    return parse_sebi_from_name(name)
+
+
+def _sebi_buckets_match(
+    cat_a: Optional[str], sub_a: Optional[str],
+    cat_b: Optional[str], sub_b: Optional[str],
+) -> bool:
+    """Two funds belong in the same SEBI bucket iff their primary
+    categories match. For Index Funds we additionally require the
+    sub-category to match (a Nifty 50 fund and a Nifty Next 50 fund
+    are both 'Index Fund' but distinct exposures)."""
+    if not cat_a or not cat_b:
+        return False
+    if cat_a != cat_b:
+        return False
+    if cat_a == "Index Fund":
+        # Both sub-categories must be known AND equal
+        if not sub_a or not sub_b:
+            return False
+        return sub_a == sub_b
+    return True
+
+
 def _pairwise_overlap(
     ids: List[str], weights: Dict[str, Dict[str, float]], catalog: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
+    """Pairwise stock-level overlap, filtered to same-SEBI-category pairs only.
+
+    PRE-2026-05-20 bug: this loop emitted every (i, j) pair regardless of
+    SEBI category, producing wrong duplicate insights like
+    "Mirae Asset Large Cap Fund and UTI Nifty 50 Index Fund overlap 69%".
+    The two funds aren't duplicates — they're different SEBI categories
+    that happen to hold the same large-cap stocks.
+
+    POST-FIX: we resolve each catalog entry's SEBI primary category +
+    sub-category via the mf_category_enricher, and skip pairs whose SEBI
+    buckets don't match. Cross-category combinations are now impossible
+    by construction.
+
+    Downstream consumers (signal_detector, dashboard_recommendations,
+    v3_integration, etc.) read this exact list — the shape is unchanged."""
+    # Precompute SEBI categories for every catalog entry once.
+    # Reads only — never mutates the catalog dict.
+    sebi_buckets: Dict[str, Tuple[Optional[str], Optional[str]]] = {
+        mf_id: _sebi_cat_for_catalog_entry(catalog[mf_id]) for mf_id in ids
+    }
+
     out: List[Dict[str, Any]] = []
     for i in range(len(ids)):
         for j in range(i + 1, len(ids)):
             a, b = ids[i], ids[j]
+            cat_a, sub_a = sebi_buckets[a]
+            cat_b, sub_b = sebi_buckets[b]
+
+            # ── SEBI-category gate ──
+            # If the two funds are in different SEBI buckets, they are
+            # NOT duplicates regardless of stock overlap. Skip outright.
+            if not _sebi_buckets_match(cat_a, sub_a, cat_b, sub_b):
+                continue
+
             ov = _overlap(weights[a], weights[b])
             shared_keys = set(weights[a]) & set(weights[b])
             shared = sorted(
@@ -429,13 +505,19 @@ def _pairwise_overlap(
                  for s in shared_keys],
                 key=lambda x: x["shared_w"], reverse=True,
             )[:10]
+
+            # Surface the SEBI bucket as the reason (replaces the legacy
+            # "Same category: <primary stock universe>" which was the
+            # source of the wrong-pair bug).
             reasons: List[str] = []
-            if catalog[a].get("category") and catalog[a]["category"] == catalog[b].get("category"):
-                reasons.append(f"Same category: {catalog[a]['category']}")
+            sebi_label = sub_a or cat_a
+            if sebi_label:
+                reasons.append(f"Same SEBI category: {sebi_label}")
             if ov >= 60:
                 reasons.append("Very high stock-level overlap")
             elif ov >= 35:
                 reasons.append("Moderate overlap")
+
             out.append({
                 "a": a, "b": b,
                 "a_name": catalog[a]["scheme_name"],
@@ -444,6 +526,11 @@ def _pairwise_overlap(
                 "shared_count": len(shared_keys),
                 "top_shared": shared,
                 "reasons": reasons,
+                # Surfaced so dashboard_recommendations can collapse pairs
+                # into N-way clusters keyed by (sebi_category, sebi_subcategory)
+                # without re-resolving categories itself.
+                "sebi_category":    cat_a,
+                "sebi_subcategory": sub_a,
             })
     out.sort(key=lambda x: x["overlap_pct"], reverse=True)
     return out
