@@ -7,8 +7,8 @@ import {
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
-  Layers, Target, ArrowRight,
+  TrendingDown, AlertTriangle, CheckCircle,
+  Layers, ArrowRight, Repeat, Rocket, Receipt,
 } from "lucide-react";
 
 // ──────────────────────────────────────────────────────────
@@ -192,83 +192,324 @@ export const RiskReturnBubble = ({ perfCards, fmt }) => {
 };
 
 // ──────────────────────────────────────────────────────────
-// 3. ACTION MATRIX (2×2 Quadrant)
+// 3. ACTION MATRIX — Priority board
+//    Phase 1: Consolidate (overlap-driven) + Review / Exit / Increase / Core.
+//    Buckets ranked by potential impact (₹ at risk / opportunity).
 // ──────────────────────────────────────────────────────────
-const QUADRANT_CONFIG = {
-  keep:    { label: "Keep", sub: "Strong return, significant weight", color: "emerald", icon: CheckCircle, badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25" },
-  monitor: { label: "Monitor", sub: "Good return, lower weight", color: "sky", icon: Target, badge: "bg-sky-500/15 text-sky-400 border-sky-500/25" },
-  review:  { label: "Review", sub: "Heavy weight, weak return", color: "amber", icon: AlertTriangle, badge: "bg-amber-500/15 text-amber-400 border-amber-500/25" },
-  exit:    { label: "Exit", sub: "Low weight + weak return", color: "red", icon: TrendingDown, badge: "bg-red-500/15 text-red-400 border-red-500/25" },
+const BUCKET_CONFIG = {
+  consolidate: { label: "Consolidate", sub: "Overlapping funds — merge into best performer", icon: Repeat,         color: "#A78BFA", border: "border-violet-500/25 bg-violet-500/5" },
+  tax:         { label: "Tax Watch",   sub: "Exit candidates with material STCG cost or close to LTCG", icon: Receipt, color: "#FB923C", border: "border-orange-500/25 bg-orange-500/5" },
+  review:      { label: "Review",      sub: "Heavy weight, weak return — evaluate alternatives", icon: AlertTriangle, color: "#F59E0B", border: "border-amber-500/25 bg-amber-500/5"  },
+  exit:        { label: "Exit",        sub: "Low weight + weak return — trim clutter",          icon: TrendingDown,  color: "#EF4444", border: "border-red-500/25 bg-red-500/5"     },
+  increase:    { label: "Increase",    sub: "Strong return, low weight — consider scaling up",  icon: Rocket,        color: "#38BDF8", border: "border-sky-500/25 bg-sky-500/5"     },
+  core:        { label: "Core / Add",  sub: "Strong return, significant weight — keep / add",   icon: CheckCircle,   color: "#10B981", border: "border-emerald-500/25 bg-emerald-500/5" },
 };
 
-const QUADRANT_BORDER = {
-  keep:    "border-emerald-500/20 bg-emerald-500/5",
-  monitor: "border-sky-500/20 bg-sky-500/5",
-  review:  "border-amber-500/20 bg-amber-500/5",
-  exit:    "border-red-500/20 bg-red-500/5",
+// Derive a short tax-status label + colour for an individual card row.
+// Returns null when the tax payload is missing or the card is in a neutral
+// state (already LTCG-eligible, or no buy_date). Never invents data.
+const taxBadge = (card) => {
+  const t = card?.tax;
+  if (!t) return null;
+  if (t.is_loss) return { text: "Loss", cls: "text-sky-400 bg-sky-500/10 border-sky-500/20" };
+  if (t.tier === "LIKELY_STCG" && t.days_to_ltcg > 0 && t.days_to_ltcg <= 60) {
+    return { text: `LTCG ${t.days_to_ltcg}d`, cls: "text-amber-400 bg-amber-500/10 border-amber-500/20" };
+  }
+  if (t.tier === "LIKELY_STCG" && (card.pct_return || 0) > 5) {
+    return { text: "STCG", cls: "text-red-400 bg-red-500/10 border-red-500/20" };
+  }
+  return null;
 };
 
-export const ActionMatrix = ({ perfCards }) => {
-  const { quadrants, medR, medW } = useMemo(() => {
+// Impact score: how much money sits in this row × how far it strays from peers.
+// Used to surface the highest-leverage rows inside each bucket.
+const impactScore = (card, medR) => {
+  const w = Math.max(0, card.weight || 0);
+  const gap = Math.abs((card.pct_return || 0) - medR);
+  return w * (gap + 1); // +1 keeps tie-broken by weight when at-median
+};
+
+const truncateName = (s, n = 26) => (s && s.length > n ? s.slice(0, n) + "…" : (s || ""));
+
+export const ActionMatrix = ({ perfCards, overlapMatrix, fundPerformance }) => {
+  // Map fund name → server-computed alternative payload. Populated only when
+  // fundPerformance has been fetched (lazy in InsightsView). Null-safe.
+  const altByName = useMemo(() => {
+    const m = new Map();
+    (fundPerformance?.fund_ratings || []).forEach(r => {
+      if (r.alternative) m.set(r.name, r.alternative);
+    });
+    return m;
+  }, [fundPerformance]);
+
+  const totalUplift = fundPerformance?.total_uplift_per_year_rs || 0;
+
+  const { buckets, medR, medW, totalValue } = useMemo(() => {
     const cards = (perfCards || []).filter(c => c.invested > 0);
-    if (!cards.length) return { quadrants: {}, medR: 0, medW: 0 };
+    if (!cards.length) return { buckets: {}, medR: 0, medW: 0, totalValue: 0 };
     const medR = median(cards.map(c => c.pct_return || 0));
     const medW = median(cards.map(c => c.weight || 0));
-    const q = { keep: [], monitor: [], review: [], exit: [] };
-    cards.forEach(c => {
-      const highReturn = (c.pct_return || 0) >= medR;
-      const highWeight = (c.weight || 0) >= medW;
-      if (highReturn && highWeight) q.keep.push(c);
-      else if (highReturn && !highWeight) q.monitor.push(c);
-      else if (!highReturn && highWeight) q.review.push(c);
-      else q.exit.push(c);
+    const totalValue = cards.reduce((s, c) => s + (c.current_value || 0), 0);
+
+    // Index funds by name so overlap pairs can map back to underlying invested ₹.
+    const byName = new Map();
+    cards.forEach(c => byName.set(c.name, c));
+
+    // Consolidate from real pairwise overlap (>= 40% is "high overlap" threshold
+    // used elsewhere in this codebase — see services/copilot_tools/portfolio.py).
+    const highPairs = (overlapMatrix || [])
+      .filter(p => (p.overlap_pct || 0) >= 40)
+      .slice(0, 12);
+    const consolidateFundNames = new Set();
+    let consolidateValue = 0;
+    highPairs.forEach(p => {
+      [p.fund_a, p.fund_b, p.fund1, p.fund2].forEach(n => {
+        if (!n || consolidateFundNames.has(n)) return;
+        consolidateFundNames.add(n);
+        const c = byName.get(n);
+        if (c) consolidateValue += (c.current_value || 0);
+      });
     });
-    return { quadrants: q, medR, medW };
-  }, [perfCards]);
+
+    const review = [], exit_ = [], increase = [], core = [];
+    cards.forEach(c => {
+      const r = c.pct_return || 0;
+      const w = c.weight || 0;
+      const highReturn = r >= medR;
+      const highWeight = w >= medW;
+      if (highReturn && highWeight) core.push(c);
+      else if (highReturn && !highWeight) increase.push(c);
+      else if (!highReturn && highWeight) review.push(c);
+      else exit_.push(c);
+    });
+
+    const sortByImpact = (arr) => [...arr].sort((a, b) => impactScore(b, medR) - impactScore(a, medR));
+
+    const bucketValue = (arr) => arr.reduce((s, c) => s + (c.current_value || 0), 0);
+
+    // Tax Watch — overlay across Exit/Review surfacing high-tax-leverage rows.
+    // Inclusion rule: holdings we'd otherwise tell the user to trim (in Exit
+    // or Review) where exiting *now* triggers real STCG, OR they are close
+    // enough to LTCG that waiting is materially cheaper.
+    // Sort: "approaching LTCG" first (smallest days_to_ltcg), then by ₹ gain.
+    const taxCandidates = [...exit_, ...review].filter(c => {
+      const t = c.tax;
+      if (!t || t.is_loss) return false;
+      if (t.tier !== "LIKELY_STCG") return false;
+      const gain = (c.current_value || 0) - (c.invested || 0);
+      const approachingLtcg = t.days_to_ltcg > 0 && t.days_to_ltcg <= 60;
+      const materialGain = gain > 5000 || (c.pct_return || 0) > 10;
+      return approachingLtcg || materialGain;
+    });
+    const taxSorted = taxCandidates.sort((a, b) => {
+      const da = a.tax?.days_to_ltcg ?? 99999;
+      const db = b.tax?.days_to_ltcg ?? 99999;
+      const aApproaching = da > 0 && da <= 60;
+      const bApproaching = db > 0 && db <= 60;
+      if (aApproaching !== bApproaching) return aApproaching ? -1 : 1;
+      if (aApproaching && bApproaching) return da - db;
+      // Otherwise rank by absolute ₹ gain
+      const ag = (a.current_value || 0) - (a.invested || 0);
+      const bg = (b.current_value || 0) - (b.invested || 0);
+      return bg - ag;
+    });
+
+    return {
+      buckets: {
+        consolidate: {
+          pairs: highPairs,
+          fund_count: consolidateFundNames.size,
+          value: consolidateValue,
+        },
+        tax:      { funds: taxSorted,              value: bucketValue(taxSorted) },
+        review:   { funds: sortByImpact(review),   value: bucketValue(review) },
+        exit:     { funds: sortByImpact(exit_),    value: bucketValue(exit_) },
+        increase: { funds: sortByImpact(increase), value: bucketValue(increase) },
+        core:     { funds: sortByImpact(core),     value: bucketValue(core) },
+      },
+      medR, medW, totalValue,
+    };
+  }, [perfCards, overlapMatrix]);
 
   const cards = (perfCards || []).filter(c => c.invested > 0);
   if (!cards.length) return <p className="text-sm text-slate-400 text-center py-8">No holdings data</p>;
 
+  const pctOfPortfolio = (v) => totalValue > 0 ? ` · ${((v / totalValue) * 100).toFixed(0)}%` : "";
+
+  // Only show tax badges + alternatives in buckets where exit/switch is a live recommendation.
+  const renderFundBucket = (key) => {
+    const cfg = BUCKET_CONFIG[key];
+    const b = buckets[key] || { funds: [], value: 0 };
+    const Icon = cfg.icon;
+    const withBadges = key === "exit" || key === "review";
+    const withAlts = key === "exit" || key === "review";
+    return (
+      <div key={key} className={`rounded-xl p-3 border ${cfg.border}`}>
+        <div className="flex items-center gap-1.5 mb-1">
+          <Icon className="w-3.5 h-3.5" style={{ color: cfg.color }} />
+          <span className="text-xs font-bold text-slate-900 dark:text-white">{cfg.label}</span>
+          <span className="ml-auto text-[10px] font-bold text-slate-400">{b.funds.length}</span>
+        </div>
+        <p className="text-[10px] font-bold mb-1" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+          {getFmtShort(b.value)}{pctOfPortfolio(b.value)}
+        </p>
+        <p className="text-[9px] text-slate-400 mb-2">{cfg.sub}</p>
+        <div className="space-y-1 max-h-[110px] overflow-y-auto">
+          {b.funds.slice(0, 5).map((f, i) => {
+            const badge = withBadges ? taxBadge(f) : null;
+            const alt = withAlts ? altByName.get(f.name) : null;
+            return (
+              <div key={i} className="flex flex-col gap-px">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">{truncateName(f.name, badge ? 18 : 24)}</p>
+                  {badge && (
+                    <span className={`text-[8px] font-semibold px-1 py-px rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
+                  )}
+                  <span className={`text-[9px] font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                    {f.pct_return >= 0 ? "+" : ""}{f.pct_return?.toFixed(0)}%
+                  </span>
+                </div>
+                {alt && (
+                  <div className="flex items-center gap-1 pl-2 -mt-px">
+                    <ArrowRight className="w-2.5 h-2.5 text-emerald-500/80 flex-shrink-0" />
+                    <p className="text-[8px] text-slate-500 dark:text-zinc-500 truncate flex-1" title={`${alt.name} · ${alt.confidence} confidence`}>
+                      {truncateName(alt.name, 22)}
+                    </p>
+                    <span className="text-[8px] font-bold text-emerald-500 flex-shrink-0">+{getFmtShort(alt.uplift_per_year_rs)}/yr</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {b.funds.length > 5 && (
+            <p className="text-[9px] text-slate-500 text-center">+{b.funds.length - 5} more</p>
+          )}
+          {b.funds.length === 0 && (
+            <p className="text-[9px] text-slate-500 text-center italic">None</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Tax Watch as a full-width priority row (only shown when candidates exist).
+  const renderTaxRow = () => {
+    const cfg = BUCKET_CONFIG.tax;
+    const b = buckets.tax || { funds: [], value: 0 };
+    if (!b.funds.length) return null;
+    const Icon = cfg.icon;
+    const approachingCount = b.funds.filter(f => {
+      const d = f.tax?.days_to_ltcg ?? 0;
+      return d > 0 && d <= 60;
+    }).length;
+    return (
+      <div className={`rounded-xl p-3 border ${cfg.border} mb-2`}>
+        <div className="flex items-center gap-1.5 mb-1">
+          <Icon className="w-3.5 h-3.5" style={{ color: cfg.color }} />
+          <span className="text-xs font-bold text-slate-900 dark:text-white">{cfg.label}</span>
+          <span className="ml-auto text-[10px] font-bold text-slate-400">
+            {b.funds.length} fund{b.funds.length === 1 ? "" : "s"}
+            {approachingCount > 0 && ` · ${approachingCount} ≤ 60d to LTCG`}
+          </span>
+        </div>
+        <p className="text-[10px] font-bold mb-1" style={{ color: cfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+          {getFmtShort(b.value)}{pctOfPortfolio(b.value)} · stagger exits or wait for LTCG
+        </p>
+        <p className="text-[9px] text-slate-400 mb-2">{cfg.sub}</p>
+        <div className="space-y-1 max-h-[80px] overflow-y-auto">
+          {b.funds.slice(0, 4).map((f, i) => {
+            const badge = taxBadge(f);
+            return (
+              <div key={i} className="flex items-center justify-between gap-1">
+                <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">{truncateName(f.name, 22)}</p>
+                {badge && (
+                  <span className={`text-[8px] font-semibold px-1 py-px rounded border ${badge.cls} flex-shrink-0`}>{badge.text}</span>
+                )}
+                <span className={`text-[9px] font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
+                  {f.pct_return >= 0 ? "+" : ""}{f.pct_return?.toFixed(0)}%
+                </span>
+              </div>
+            );
+          })}
+          {b.funds.length > 4 && (
+            <p className="text-[9px] text-slate-500 text-center">+{b.funds.length - 4} more</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const con = buckets.consolidate || { pairs: [], fund_count: 0, value: 0 };
+  const showConsolidate = con.pairs && con.pairs.length > 0;
+  const conCfg = BUCKET_CONFIG.consolidate;
+  const ConIcon = conCfg.icon;
+
   return (
     <div>
       <p className="text-[10px] text-slate-400 dark:text-zinc-500 mb-3">
-        Based on return vs portfolio weight. Median return: {medR?.toFixed(1)}% · Median weight: {medW?.toFixed(1)}%
+        Ranked by potential impact. Median return {medR?.toFixed(1)}% · median weight {medW?.toFixed(1)}%
+        {showConsolidate && ` · ${con.pairs.length} high-overlap pair${con.pairs.length === 1 ? "" : "s"}`}
       </p>
+
+      {/* Aggregate uplift banner — sum of in-portfolio switch opportunities */}
+      {totalUplift > 0 && (
+        <div className="rounded-xl p-3 border border-emerald-500/25 bg-emerald-500/5 mb-2 flex items-center gap-3">
+          <Rocket className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-slate-900 dark:text-white">Potential uplift</p>
+            <p className="text-[9px] text-slate-400">
+              If underperformers were re-allocated to better funds you already own (1Y category-rank basis)
+            </p>
+          </div>
+          <p className="text-sm font-bold text-emerald-400 flex-shrink-0" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+            +{getFmtShort(totalUplift)}/yr
+          </p>
+        </div>
+      )}
+
+      {/* Priority row: Consolidate (only shown when real overlap pairs exist) */}
+      {showConsolidate && (
+        <div className={`rounded-xl p-3 border ${conCfg.border} mb-2`}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <ConIcon className="w-3.5 h-3.5" style={{ color: conCfg.color }} />
+            <span className="text-xs font-bold text-slate-900 dark:text-white">{conCfg.label}</span>
+            <span className="ml-auto text-[10px] font-bold text-slate-400">
+              {con.pairs.length} pair{con.pairs.length === 1 ? "" : "s"} · {con.fund_count} fund{con.fund_count === 1 ? "" : "s"}
+            </span>
+          </div>
+          <p className="text-[10px] font-bold mb-1" style={{ color: conCfg.color, fontFamily: "'JetBrains Mono', monospace" }}>
+            {getFmtShort(con.value)}{pctOfPortfolio(con.value)} in overlapping funds
+          </p>
+          <p className="text-[9px] text-slate-400 mb-2">{conCfg.sub}</p>
+          <div className="space-y-1 max-h-[80px] overflow-y-auto">
+            {con.pairs.slice(0, 4).map((p, i) => {
+              const a = p.fund_a || p.fund1 || "Fund A";
+              const b = p.fund_b || p.fund2 || "Fund B";
+              const pct = p.overlap_pct ?? 0;
+              return (
+                <div key={i} className="flex items-center justify-between gap-1">
+                  <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">
+                    {truncateName(a, 18)} ↔ {truncateName(b, 18)}
+                  </p>
+                  <span className="text-[9px] font-bold flex-shrink-0 text-violet-400">
+                    {pct.toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
+            {con.pairs.length > 4 && (
+              <p className="text-[9px] text-slate-500 text-center">+{con.pairs.length - 4} more pairs</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Priority row 2: Tax Watch (only shown when STCG-cost candidates exist) */}
+      {renderTaxRow()}
+
+      {/* 2×2 grid: Review / Exit / Increase / Core */}
       <div className="grid grid-cols-2 gap-2">
-        {(["keep", "review", "monitor", "exit"]).map(key => {
-          const cfg = QUADRANT_CONFIG[key];
-          const funds = quadrants[key] || [];
-          const Icon = cfg.icon;
-          return (
-            <div key={key} className={`rounded-xl p-3 border ${QUADRANT_BORDER[key]}`}>
-              <div className="flex items-center gap-1.5 mb-2">
-                <Icon className="w-3.5 h-3.5" style={{ color: key === "keep" ? "#10B981" : key === "monitor" ? "#38BDF8" : key === "review" ? "#F59E0B" : "#EF4444" }} />
-                <span className="text-xs font-bold text-slate-900 dark:text-white">{cfg.label}</span>
-                <span className="ml-auto text-[10px] font-bold text-slate-400">{funds.length}</span>
-              </div>
-              <p className="text-[9px] text-slate-400 mb-2">{cfg.sub}</p>
-              <div className="space-y-1 max-h-[90px] overflow-y-auto">
-                {funds.slice(0, 5).map((f, i) => (
-                  <div key={i} className="flex items-center justify-between gap-1">
-                    <p className="text-[9px] text-slate-500 dark:text-zinc-400 truncate flex-1">{f.name.length > 22 ? f.name.slice(0, 22) + "…" : f.name}</p>
-                    <span className={`text-[9px] font-bold flex-shrink-0 ${f.pct_return >= 0 ? "text-emerald-500" : "text-red-400"}`}>
-                      {f.pct_return >= 0 ? "+" : ""}{f.pct_return?.toFixed(0)}%
-                    </span>
-                  </div>
-                ))}
-                {funds.length > 5 && (
-                  <p className="text-[9px] text-slate-500 text-center">+{funds.length - 5} more</p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="grid grid-cols-2 gap-0.5 mt-2 text-[8px] text-slate-500">
-        <span className="text-center">← High weight / Low weight →</span>
-        <span />
-        <span className="text-center">↑ High return</span>
-        <span />
+        {(["review", "exit", "increase", "core"]).map(renderFundBucket)}
       </div>
     </div>
   );
@@ -349,7 +590,7 @@ export const ContributionWaterfall = ({ perfCards, fmt }) => {
 // 5. PERFORMANCE ANALYTICS COCKPIT
 //    (Hero section for Performance & Benchmark tab)
 // ──────────────────────────────────────────────────────────
-export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfolioHealth, fmt }) => {
+export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfolioHealth, overlapMatrix, fmt }) => {
   const cards = (perfCards || []).filter(c => c.invested > 0);
   const dist = fundPerformance?.performance_distribution || {};
   const score = portfolioHealth?.health_score ?? null;
@@ -428,7 +669,7 @@ export const PerformanceAnalyticsCockpit = ({ perfCards, fundPerformance, portfo
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-1" style={{ fontFamily: "'Outfit', sans-serif" }}>
                   Action Matrix
                 </h3>
-                <ActionMatrix perfCards={cards} />
+                <ActionMatrix perfCards={cards} overlapMatrix={overlapMatrix} fundPerformance={fundPerformance} />
               </CardContent>
             </Card>
           </motion.div>

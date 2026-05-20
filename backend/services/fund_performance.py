@@ -237,6 +237,20 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "is_overlapping": data["count"] > 1,
         })
 
+    # ── In-portfolio alternative finder ────────────────────────────────
+    # For each underperforming holding, look up the best peer the user
+    # already owns in the same scheme_category. Honest framing:
+    #   - Only suggests funds the user already holds (no fabricated buys).
+    #   - Uplift = (peer_return_1y − holding_return_1y) × current_value × 1%.
+    #   - Confidence ladders down when return_1y is a fallback or peer alpha
+    #     is small.
+    # This contract is consumed by the dashboard Action Matrix (alternative
+    # arrow on Review/Exit rows + aggregate "potential uplift ₹/yr" banner).
+    enrich_with_alternatives(fund_ratings)
+    total_uplift_per_year_rs = round(sum(
+        (r.get("alternative") or {}).get("uplift_per_year_rs", 0) for r in fund_ratings
+    ), 0)
+
     return {
         "fund_ratings": fund_ratings,
         "performance_distribution": {
@@ -248,6 +262,7 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         "top_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in best[:5]],
         "bottom_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in worst[:5]],
         "category_overlap": category_overlap,
+        "total_uplift_per_year_rs": total_uplift_per_year_rs,
         "summary": {
             "total_mf": len(mf_holdings),
             "matched": len(scheme_data),
@@ -255,3 +270,66 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "category_averages": category_avg,
         },
     }
+
+
+# ── In-portfolio alternative finder ────────────────────────────────────
+def enrich_with_alternatives(fund_ratings: list) -> None:
+    """Mutates each rating in-place to attach an ``alternative`` dict when
+    a better-performing peer exists in the user's portfolio under the same
+    category. Pure logic — never raises; skips rows that lack the needed
+    fields. See ``fund_performance.compute_benchmark_ratings`` for context.
+    """
+    # Group by scheme_category → list of (rating, return_1y, alpha)
+    by_cat: dict = {}
+    for r in fund_ratings:
+        cat = r.get("scheme_category")
+        ret = r.get("return_1y")
+        if not cat or ret is None:
+            continue
+        by_cat.setdefault(cat, []).append(r)
+
+    # Sort each category descending by return_1y
+    for cat, peers in by_cat.items():
+        peers.sort(key=lambda x: x.get("return_1y", 0), reverse=True)
+
+    # Minimum alpha (peer − holding) to consider it a real improvement.
+    # Below this, returns are noise and the UI must not nudge the user.
+    MIN_ALPHA_PP = 1.0
+
+    for r in fund_ratings:
+        cat = r.get("scheme_category")
+        ret = r.get("return_1y")
+        if not cat or ret is None:
+            continue
+        peers = by_cat.get(cat, [])
+        # Best peer in same category that is NOT this holding itself.
+        best = next((p for p in peers if p.get("name") != r.get("name")), None)
+        if not best:
+            continue  # solo fund in this category
+        peer_ret = best.get("return_1y")
+        if peer_ret is None or peer_ret - ret < MIN_ALPHA_PP:
+            continue  # no meaningful uplift
+
+        current_val = r.get("current_value", 0) or 0
+        uplift = round((peer_ret - ret) * current_val / 100.0, 0)
+        if uplift <= 0:
+            continue
+
+        # Confidence ladder. HIGH only when both rows have category-grounded
+        # return_1y AND uplift is materially above noise.
+        if r.get("rating") in ("underperforming", "meeting") and best.get("rating") in ("overperforming", "meeting") and (peer_ret - ret) >= 3.0:
+            conf = "HIGH"
+        elif (peer_ret - ret) >= 1.5:
+            conf = "MEDIUM"
+        else:
+            conf = "LOW"
+
+        r["alternative"] = {
+            "name": best.get("name"),
+            "scheme_code": best.get("scheme_code"),
+            "peer_return_1y": round(peer_ret, 2),
+            "holding_return_1y": round(ret, 2),
+            "alpha_pp": round(peer_ret - ret, 2),
+            "uplift_per_year_rs": uplift,
+            "confidence": conf,
+        }
