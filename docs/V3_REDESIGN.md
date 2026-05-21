@@ -64,6 +64,34 @@ Every primitive is a thin React component with explicit props and zero coupling 
 
 Micro-vizzes are deliberately inline SVG (not recharts) — they preview real data and need to scale crisp at any size: `FundCountHistogram`, `OverlapDonut`, `PerformanceLine`, `GoalBars`, `TaxPyramid`, `HealthGauge`.
 
+## 4.5 · URL contract (nginx + SPA)
+
+There are two valid entry-point URLs for V3 — they resolve to the same screens:
+
+| URL typed | What happens | Final URL bar |
+|---|---|---|
+| `https://app/v3` | nginx 301 → `/v2/v3/` → SPA boots, V3Router runs first-run guard | `/v2/v3/home` (or `/v2/v3/onboarding`) |
+| `https://app/v3/portfolio?x=1` | nginx 301 → `/v2/v3/portfolio?x=1` (path + query preserved) | `/v2/v3/portfolio?x=1` |
+| `https://app/v2/v3/home` | direct hit, no redirect | `/v2/v3/home` |
+
+The nginx rules live in [deploy/nivesh-app/nginx.conf](../deploy/nivesh-app/nginx.conf):
+
+```nginx
+location = /v3       { return 301 /v2/v3/; }
+location = /v3/      { return 301 /v2/v3/; }
+location /v3/        { return 301 /v2$request_uri; }
+```
+
+Why a 301 and not an alias: the SPA build uses `PUBLIC_URL=/v2/`, so the JS/CSS bundles inside `index.html` are baked with `/v2/static/...` paths. Serving `index.html` under `/v3/` directly would 404 the bundle requests. The redirect is the safest contract.
+
+The client-side `<script>` guard in [public/index.html](../frontend/public/index.html) handles preview/dev environments where nginx isn't in front — it does the same `/v2`-prefix prepend at the document level. When nginx is in front, the 301 wins first and the guard is a no-op.
+
+When V3 becomes the primary experience (GA), the path forward is:
+1. Add a second build target with `PUBLIC_URL=/v3/`, or
+2. Make the React Router basename dynamic (read from `<base href>` set by nginx based on location).
+
+Either way, the URL contract above is the public-facing surface — no app code needs to change to flip the marketing entry point.
+
 ## 5 · Routing & layout
 
 [`v3/navigation/V3Router.jsx`](../frontend/src/v3/navigation/V3Router.jsx) is a single nested `<Routes>` with `ResponsiveLayout` as the layout route. Every screen is lazy-loaded; each gets a spec-color skeleton.
