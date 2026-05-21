@@ -2,6 +2,21 @@ import React, { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import ResponsiveLayout from "./ResponsiveLayout";
 
+// First-run guard: send users who haven't seen the 10-second flow to /onboarding.
+// Reads localStorage; safe outside a browser (returns true so SSR/tests don't loop).
+function hasOnboarded() {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem("v3.onboarded") === "1";
+  } catch {
+    return true;
+  }
+}
+
+function HomeOrOnboarding() {
+  return hasOnboarded() ? <Navigate to="home" replace /> : <Navigate to="onboarding" replace />;
+}
+
 // Lazy-load every screen — production-quality code-split.
 const CopilotHome = lazy(() => import("../screens/home/CopilotHome"));
 const CopilotChat = lazy(() => import("../screens/chat/CopilotChat"));
@@ -35,7 +50,7 @@ export default function V3Router() {
     <Suspense fallback={<ScreenSkeleton />}>
       <Routes>
         <Route element={<ResponsiveLayout />}>
-          <Route index element={<Navigate to="home" replace />} />
+          <Route index element={<HomeOrOnboarding />} />
           <Route path="home" element={<CopilotHome />} />
           <Route path="chat" element={<CopilotChat />} />
           <Route path="chat/:threadId" element={<CopilotChat />} />
