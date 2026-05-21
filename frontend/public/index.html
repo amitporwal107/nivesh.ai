@@ -29,12 +29,20 @@
         <title>nivesh.ai — AI-Powered Wealth Management</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script>
-        // V2 path-prefix guard: React Router uses basename="/v2".
-        // Production nginx redirects bare "/" -> "/v2/", but preview/dev environments
-        // don't. Redirect client-side so the SPA always mounts at the right base.
+        // Path-prefix guard for dev/preview environments where nginx isn't
+        // doing the "/" -> "/v2/" redirect.
+        //
+        // Allowed roots — pass through without rewriting:
+        //   /v2/*  V2 React SPA (basename="/v2")
+        //   /v3/*  V3 React SPA (basename="/v3" — see frontend/src/App.js
+        //          detectAppMode; the SPA picks the right basename at boot)
+        //   /api/* FastAPI proxy
+        //
+        // Everything else gets prefixed with /v2/ so old bookmarks and the
+        // bare root still land on the V2 home.
         (function () {
           var p = window.location.pathname;
-          if (p.indexOf("/v2") !== 0 && p.indexOf("/api") !== 0) {
+          if (p.indexOf("/v2") !== 0 && p.indexOf("/v3") !== 0 && p.indexOf("/api") !== 0) {
             var target = "/v2" + (p === "/" ? "/" : p) + window.location.search + window.location.hash;
             window.location.replace(target);
           }

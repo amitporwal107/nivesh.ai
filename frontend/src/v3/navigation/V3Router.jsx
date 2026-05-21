@@ -64,7 +64,10 @@ function V3Protected({ children }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="onboarding" replace />;
+  // "../onboarding" resolves correctly from any protected route (e.g. /v3/home →
+  // up one level → /v3/ → + onboarding → /v3/onboarding). Using "onboarding"
+  // (relative) would append to the current route match (/v3/home/onboarding).
+  if (!user) return <Navigate to="../onboarding" replace />;
   return children;
 }
 

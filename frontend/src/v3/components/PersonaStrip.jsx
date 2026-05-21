@@ -12,12 +12,14 @@ export default function PersonaStrip({
   onChange,
   variant = "default",
   changeLabel = "Change",
-  highlight = null, // optional override on tagline
+  highlight = null, // optional override on tagline highlight phrase
+  tagline = null,   // optional override on full tagline text — used by CopilotHome to inject real portfolio numbers
   style = {},
 }) {
   if (!persona) return null;
   const accent = persona.accent || "saffron";
   const accentVar = `var(--v3-${accent === "saffron" ? "saffron" : accent})`;
+  const effectiveTagline = tagline || persona.tagline;
 
   if (variant === "compact") {
     return (
@@ -33,7 +35,7 @@ export default function PersonaStrip({
     );
   }
 
-  const taglineNode = renderTagline(persona.tagline, highlight ?? persona.taglineHighlight, accentVar);
+  const taglineNode = renderTagline(effectiveTagline, highlight ?? persona.taglineHighlight, accentVar);
 
   return (
     <div

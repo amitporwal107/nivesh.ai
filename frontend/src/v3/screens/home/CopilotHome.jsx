@@ -79,7 +79,12 @@ export default function CopilotHome() {
           onRefresh={portfolioState.refetch}
         />
 
-        <PersonaStrip persona={persona} onChange={() => navigate("/profile")} />
+        <PersonaStrip
+          persona={persona}
+          onChange={() => navigate("/profile")}
+          tagline={composeTagline(persona.id, portfolio)}
+          highlight={composeHighlight(persona.id, portfolio)}
+        />
 
         <div className="v3-hscroll" style={{ display: "flex", gap: 6 }}>
           {CATEGORIES.map((c) => (
@@ -257,6 +262,76 @@ function pickCtaText(category) {
       return "Show me the projection →";
     default:
       return "Open analysis →";
+  }
+}
+
+// Compose the persona tagline using the user's REAL portfolio numbers.
+// Falls back to the static persona.tagline (via PersonaStrip default) only
+// when we don't have a personalised template for that persona id.
+function composeTagline(personaId, p) {
+  if (!p) return null;
+  const inr = (n) => {
+    if (n == null) return "—";
+    if (n >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+    if (n >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
+    return `₹${Math.round(n).toLocaleString("en-IN")}`;
+  };
+  switch (personaId) {
+    case "mf_focused":
+      if (p.funds?.count == null) return null;
+      return `You hold ${p.funds.count} funds across ${p.funds.amcCount} AMCs. We'll focus on overlap, fund quality, and expense-ratio leakage.`;
+    case "hni":
+      if (p.summary?.totalValue == null) return null;
+      return `${inr(p.summary.totalValue)} portfolio — multi-asset wealth with tax, estate, and alternative-asset overlays.`;
+    case "tax_conscious":
+      if (p.tax?.unrealizedLtcg == null) return null;
+      return `${inr(p.tax.unrealizedLtcg)} unrealized LTCG · Tax-impact lens on every recommendation, FY-aware harvesting.`;
+    case "direct_equity":
+      if (!p.topHoldings?.length) return null;
+      return `${p.topHoldings.length} positions on the watchlist. Valuation, fundamentals, sector views, and concentration discipline.`;
+    case "retirement_planner": {
+      const ret = p.goals?.find((g) => /retire/i.test(g.name || ""));
+      if (!ret) return null;
+      return `${ret.progress}% of the retirement corpus secured. Income, withdrawal, and inflation lens with downside emphasis.`;
+    }
+    case "parents_for_kids": {
+      const ed = p.goals?.find((g) => /child|edu/i.test(g.name || ""));
+      if (!ed) return null;
+      return `Child education goal: ${ed.progress}% funded. Goal-progress first, shortfall surfacing, insurance overlay.`;
+    }
+    case "active_trader":
+      if (p.performance?.ytd == null) return null;
+      return `YTD ${p.performance.ytd}% — realized P&L, momentum, sector rotation, position-level depth.`;
+    case "conservative":
+      if (!p.allocation?.length) return null;
+      const equityPct = p.allocation.find((a) => /equity/i.test(a.label))?.value ?? 0;
+      return `${equityPct}% in equity · Downside-first, FD-comparable framing, debt-and-hybrid focus.`;
+    default:
+      return null;
+  }
+}
+
+// Highlight phrase inside the dynamic tagline (the phrase rendered in the
+// persona accent colour). Must be a literal substring of composeTagline.
+function composeHighlight(personaId, p) {
+  if (!p) return null;
+  switch (personaId) {
+    case "mf_focused":
+      return p.funds?.count != null ? `${p.funds.count} funds across ${p.funds.amcCount} AMCs` : null;
+    case "hni":
+      return p.summary?.totalValue != null
+        ? (p.summary.totalValue >= 1e7
+            ? `₹${(p.summary.totalValue / 1e7).toFixed(2)} Cr`
+            : `₹${(p.summary.totalValue / 1e5).toFixed(2)} L`)
+        : null;
+    case "tax_conscious":
+      return p.tax?.unrealizedLtcg != null
+        ? (p.tax.unrealizedLtcg >= 1e5
+            ? `₹${(p.tax.unrealizedLtcg / 1e5).toFixed(2)} L`
+            : `₹${Math.round(p.tax.unrealizedLtcg).toLocaleString("en-IN")}`)
+        : null;
+    default:
+      return null;
   }
 }
 
