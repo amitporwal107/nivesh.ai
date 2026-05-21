@@ -81,6 +81,12 @@ MAILTO=""
 # its own 7-day skip so nightly invocation is cheap.
 50 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
 
+# ── V3 composite scoring (Quality + Health, persisted) ────────────
+# Runs AFTER mf_derived_refresh (23:50) and AFTER fundamental_engine (23:05)
+# + technical_indicator_engine (22:35). Writes Q+H per scheme/symbol to
+# nidp.v3_{mf,stock}_scores_daily; served by /v1/{mf,stocks}/scores/*.
+55 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh v3_scores_engine
+
 # ── AMC URL drift check (daily 08:00 IST) ─────────────────────────
 # Pings every AMC + AMFI listing-page candidate. Marks the JobRun
 # FAILED on first AMC with zero healthy candidates so the next-morning
