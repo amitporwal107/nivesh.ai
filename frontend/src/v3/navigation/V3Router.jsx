@@ -1,7 +1,29 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import ResponsiveLayout from "./ResponsiveLayout";
+
+// Catch-all redirect to V3 home, loop-safe.
+//
+// History: a previous version used <Route path="*" element={<Navigate to="home" />}>
+// which hit a React Router v6 gotcha — relative navigation from inside a
+// splat route uses the matched URL as the base, so `to="home"` APPENDED
+// instead of replaced. Hitting any unknown route (e.g. `/v3/app`) produced
+// /v3/app/home → /v3/app/home/home → /v3/app/home/home/home → ... ∞
+//
+// Fix: hard-navigate via window.location with an absolute URL computed from
+// the current location. Single navigation, no relative-resolution edge
+// cases, works for both basename modes (/v2 and /v3).
+function CatchAllRedirect() {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onCleanV3 = window.location.pathname.startsWith("/v3/") ||
+                       window.location.pathname === "/v3";
+    const target = onCleanV3 ? "/v3/home" : "/v2/v3/home";
+    window.location.replace(target + window.location.search + window.location.hash);
+  }, []);
+  return null;
+}
 
 // First-run guard: send users who haven't seen the 10-second flow to /onboarding.
 // Reads localStorage; safe outside a browser (returns true so SSR/tests don't loop).
@@ -103,7 +125,7 @@ export default function V3Router() {
           <Route path="goals" element={<V3Protected><Goals /></V3Protected>} />
           <Route path="plans" element={<V3Protected><PlanBoard /></V3Protected>} />
         </Route>
-        <Route path="*" element={<Navigate to="home" replace />} />
+        <Route path="*" element={<CatchAllRedirect />} />
       </Routes>
     </Suspense>
   );
