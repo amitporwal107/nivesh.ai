@@ -119,19 +119,71 @@ _URL_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
-# AMC portfolio listing pages — scraped first to auto-discover the
-# current xlsx link, then used in the warning message if discovery fails.
+# AMC portfolio listing pages — multiple candidates per AMC because
+# disclosure pages get reorganised every 6-12 months. Scraped in order;
+# first 200-OK with a month-matched xlsx link wins. When ALL candidates
+# fail for an AMC, the amc_urls_drift_check daily job alerts ops the
+# next morning so the gap is bounded by 24h, not 30 days.
+_PORTFOLIO_PAGE_CANDIDATES: dict[str, list[str]] = {
+    "sbi": [
+        "https://www.sbimf.com/portfolios",
+        "https://www.sbimf.com/downloads/portfolio-disclosure",
+        "https://www.sbimf.com/scheme-documents/portfolio-disclosure",
+    ],
+    "icici_pru": [
+        "https://www.icicipruamc.com/portfolio-disclosure",
+        "https://www.icicipruamc.com/downloads/portfolio-disclosure",
+        "https://www.icicipruamc.com/forms-and-downloads/portfolio-disclosure",
+    ],
+    "hdfc": [
+        "https://www.hdfcfund.com/downloads",
+        "https://www.hdfcfund.com/downloads/portfolio-disclosures",
+        "https://www.hdfcfund.com/our-funds/portfolio-disclosure",
+    ],
+    "nippon": [
+        "https://mf.nipponindiaim.com/InvestorCorner/Downloads",
+        "https://mf.nipponindiaim.com/downloads/portfolio-disclosure",
+        "https://mf.nipponindiaim.com/InvestorCorner/PortfolioDisclosure",
+    ],
+    "kotak": [
+        "https://www.kotakmf.com/portfolio-disclosure",
+        "https://www.kotakmf.com/downloads/portfolio-disclosure",
+        "https://www.kotakmf.com/investor-services/portfolio-disclosure",
+        "https://www.kotakmf.com/forms-and-downloads/portfolio-disclosure",
+    ],
+    "absl": [
+        "https://mutualfund.adityabirlacapital.com/portfolio-disclosure",
+        "https://mutualfund.adityabirlacapital.com/downloads/portfolio-disclosure",
+        "https://mutualfund.adityabirlacapital.com/investor-education/portfolio-disclosure",
+        "https://mutualfund.adityabirlacapital.com/forms-and-downloads/portfolio-disclosure",
+    ],
+    "uti": [
+        "https://www.utimf.com/portfolio-disclosure",
+        "https://www.utimf.com/downloads/portfolio-disclosure",
+        "https://www.utimf.com/forms-and-downloads/portfolio-disclosure",
+    ],
+    "axis": [
+        "https://www.axismf.com/downloads",
+        "https://www.axismf.com/downloads/portfolio-disclosure",
+        "https://www.axismf.com/investor-services/portfolio-disclosure",
+    ],
+    "tata": [
+        "https://www.tatamutualfund.com/portfolio-disclosure",
+        "https://www.tatamutualfund.com/downloads/portfolio-disclosure",
+        "https://www.tatamutualfund.com/our-funds/portfolio-disclosure",
+        "https://www.tatamutualfund.com/scheme-documents/portfolio-disclosure",
+    ],
+    "mirae": [
+        "https://www.miraeassetmf.co.in/downloads",
+        "https://www.miraeassetmf.co.in/downloads/portfolio-disclosure",
+        "https://www.miraeassetmf.co.in/forms-and-downloads/portfolio-disclosure",
+    ],
+}
+
+# Compat shim — code paths that imported `_PORTFOLIO_PAGE` see the first
+# candidate per AMC. Drift-check + new discovery logic prefer the list.
 _PORTFOLIO_PAGE: dict[str, str] = {
-    "sbi":       "https://www.sbimf.com/portfolios",
-    "icici_pru": "https://www.icicipruamc.com/portfolio-disclosure",
-    "hdfc":      "https://www.hdfcfund.com/downloads",
-    "nippon":    "https://mf.nipponindiaim.com/InvestorCorner/Downloads",
-    "kotak":     "https://www.kotakmf.com/portfolio-disclosure",
-    "absl":      "https://mutualfund.adityabirlacapital.com/portfolio-disclosure",
-    "uti":       "https://www.utimf.com/portfolio-disclosure",
-    "axis":      "https://www.axismf.com/downloads",
-    "tata":      "https://www.tatamutualfund.com/portfolio-disclosure",
-    "mirae":     "https://www.miraeassetmf.co.in/downloads",
+    k: v[0] for k, v in _PORTFOLIO_PAGE_CANDIDATES.items()
 }
 
 
@@ -148,28 +200,51 @@ def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:
 
     Match on month-name (full or abbreviated, case-insensitive) AND year.
     Returns the first match; AMCs typically list most-recent-first.
+
+    Also logs format-drift telemetry when only PDF/CSV links match the
+    target month — strong signal the AMC switched format. (No attempt to
+    download; downstream parser handles xlsx only.)
     """
     month_long  = m.strftime("%B").lower()
     month_short = m.strftime("%b").lower()
     year_full   = m.strftime("%Y")
     year_short  = m.strftime("%y")
 
-    soup = BeautifulSoup(html, "lxml")
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if not re.search(r"\.xlsx?($|\?)", href, re.IGNORECASE):
-            continue
-        token_source = (href + " " + a.get_text(" ", strip=True)).lower()
+    def _match(token_source: str) -> bool:
         has_month = month_long in token_source or month_short in token_source
         has_year  = year_full in token_source or year_short in token_source
-        if has_month and has_year:
-            if href.startswith("//"):
-                href = "https:" + href
-            elif href.startswith("/"):
-                href = base_url.rstrip("/") + href
-            elif not href.startswith("http"):
-                href = base_url.rstrip("/") + "/" + href.lstrip("/")
-            return href
+        return has_month and has_year
+
+    def _absolutise(href: str) -> str:
+        if href.startswith("//"):
+            return "https:" + href
+        if href.startswith("/"):
+            return base_url.rstrip("/") + href
+        if not href.startswith("http"):
+            return base_url.rstrip("/") + "/" + href.lstrip("/")
+        return href
+
+    soup = BeautifulSoup(html, "lxml")
+    alt_format_hits: list[str] = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        token_source = (href + " " + a.get_text(" ", strip=True)).lower()
+
+        if re.search(r"\.xlsx?($|\?)", href, re.IGNORECASE):
+            if _match(token_source):
+                return _absolutise(href)
+            continue
+
+        # Format-drift telemetry: PDF/CSV matching the target month.
+        if re.search(r"\.(pdf|csv)($|\?)", href, re.IGNORECASE) and _match(token_source):
+            alt_format_hits.append(href)
+
+    if alt_format_hits:
+        logger.info(
+            "mf_holdings: format-drift detected at %s — %d non-xlsx link(s) "
+            "match target month (first: %s). Add a parser to consume.",
+            base_url, len(alt_format_hits), _absolutise(alt_format_hits[0]),
+        )
     return None
 
 
@@ -178,21 +253,39 @@ async def _try_listing_page_discovery(
     http: aiohttp.ClientSession,
     as_of_month: date,
 ) -> Optional[str]:
-    page = _PORTFOLIO_PAGE.get(amc_id)
-    if not page:
+    """Walk the AMC's candidate listing-page URLs in order, stop at the
+    first 200-OK that yields a month-matched xlsx link."""
+    candidates = _PORTFOLIO_PAGE_CANDIDATES.get(amc_id) or []
+    if not candidates:
         return None
-    try:
-        async with http.get(page, allow_redirects=True) as resp:
-            if resp.status != 200:
-                logger.info("mf_holdings[%s]: listing page returned status=%d at %s",
-                            amc_id, resp.status, page)
-                return None
-            html = await resp.text(errors="replace")
-    except Exception as e:  # noqa: BLE001
-        logger.info("mf_holdings[%s]: listing page fetch error %s: %s",
-                    amc_id, type(e).__name__, e)
-        return None
-    return _discover_xlsx_link(html, page, as_of_month)
+    for page in candidates:
+        try:
+            async with http.get(page, allow_redirects=True) as resp:
+                if resp.status != 200:
+                    logger.debug(
+                        "mf_holdings[%s]: listing candidate %s → status=%d",
+                        amc_id, page, resp.status,
+                    )
+                    continue
+                html = await resp.text(errors="replace")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "mf_holdings[%s]: listing candidate %s → %s: %s",
+                amc_id, page, type(e).__name__, e,
+            )
+            continue
+        found = _discover_xlsx_link(html, page, as_of_month)
+        if found:
+            logger.info(
+                "mf_holdings[%s]: listing-page discovery worked at %s",
+                amc_id, page,
+            )
+            return found
+    logger.info(
+        "mf_holdings[%s]: no listing candidate yielded a match (%d tried)",
+        amc_id, len(candidates),
+    )
+    return None
 
 
 async def _try_download(

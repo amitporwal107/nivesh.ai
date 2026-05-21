@@ -26,8 +26,48 @@ logger = logging.getLogger(__name__)
 TER_PAGE_URL  = f"{AMFI_WWW}/research-information/other-data/ter"
 RISK_PAGE_URL = f"{AMFI_WWW}/research-information/other-data/risk-o-meter"
 
+# Fallback candidates for when AMFI reshuffles their site (every 1-2y).
+# Drift-check job pings these daily and alerts on red.
+_TER_PAGE_CANDIDATES: tuple[str, ...] = (
+    TER_PAGE_URL,
+    f"{AMFI_WWW}/other-data/ter",
+    f"{AMFI_WWW}/research-information/ter",
+    f"{AMFI_WWW}/other-data/expense-ratio",
+)
+_RISK_PAGE_CANDIDATES: tuple[str, ...] = (
+    RISK_PAGE_URL,
+    f"{AMFI_WWW}/other-data/risk-o-meter",
+    f"{AMFI_WWW}/research-information/risk-o-meter",
+    f"{AMFI_WWW}/other-data/riskometer",
+)
+
 _TER_CACHE:  Optional[dict[str, tuple[Optional[float], Optional[float]]]] = None
 _RISK_CACHE: Optional[dict[str, str]] = None
+
+
+async def _fetch_first_xlsx_url(
+    http: aiohttp.ClientSession, candidates: tuple[str, ...], label: str,
+) -> Optional[str]:
+    """Walk candidate landing pages in order; return first xlsx link found.
+
+    None when no candidate yields one — caller logs structured warning.
+    """
+    for page in candidates:
+        try:
+            async with http.get(page, allow_redirects=True) as resp:
+                if resp.status != 200:
+                    logger.debug("amfi_central[%s]: %s → status=%d", label, page, resp.status)
+                    continue
+                html = await resp.text(errors="replace")
+        except Exception as e:  # noqa: BLE001
+            logger.debug("amfi_central[%s]: %s → %s: %s", label, page, type(e).__name__, e)
+            continue
+        url = _latest_xlsx_link(html)
+        if url:
+            logger.info("amfi_central[%s]: discovered xlsx via %s → %s", label, page, url)
+            return url
+        logger.debug("amfi_central[%s]: %s loaded but no xlsx link found", label, page)
+    return None
 
 
 def _latest_xlsx_link(html: str) -> Optional[str]:
@@ -141,12 +181,13 @@ async def fetch_ter_all(
         return _TER_CACHE
 
     try:
-        async with http.get(TER_PAGE_URL) as resp:
-            resp.raise_for_status()
-            html = await resp.text(errors="replace")
-        url = _latest_xlsx_link(html)
+        url = await _fetch_first_xlsx_url(http, _TER_PAGE_CANDIDATES, "ter")
         if not url:
-            logger.warning("amfi_central: no TER xlsx link on %s", TER_PAGE_URL)
+            logger.warning(
+                "amfi_central: no TER xlsx link on any of %d candidates "
+                "(first: %s) — AMFI may have reorganised the page",
+                len(_TER_PAGE_CANDIDATES), _TER_PAGE_CANDIDATES[0],
+            )
             _TER_CACHE = {}
             return _TER_CACHE
         async with http.get(url) as resp:
@@ -167,12 +208,13 @@ async def fetch_risk_all(http: aiohttp.ClientSession) -> dict[str, str]:
         return _RISK_CACHE
 
     try:
-        async with http.get(RISK_PAGE_URL) as resp:
-            resp.raise_for_status()
-            html = await resp.text(errors="replace")
-        url = _latest_xlsx_link(html)
+        url = await _fetch_first_xlsx_url(http, _RISK_PAGE_CANDIDATES, "risk")
         if not url:
-            logger.warning("amfi_central: no risk xlsx link on %s", RISK_PAGE_URL)
+            logger.warning(
+                "amfi_central: no risk xlsx link on any of %d candidates "
+                "(first: %s) — AMFI may have reorganised the page",
+                len(_RISK_PAGE_CANDIDATES), _RISK_PAGE_CANDIDATES[0],
+            )
             _RISK_CACHE = {}
             return _RISK_CACHE
         async with http.get(url) as resp:

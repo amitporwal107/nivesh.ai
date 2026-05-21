@@ -201,6 +201,48 @@ def test_openapi_includes_v1_routes(client):
     assert must <= paths
 
 
+def test_openapi_includes_v3_score_routes(client):
+    """Migration 065 + v3_scores_engine → DaaS surface."""
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = set(r.json()["paths"].keys())
+    must = {
+        "/v1/mf/scores/{isin}",
+        "/v1/mf/scores/{isin}/history",
+        "/v1/mf/scores/bulk",
+        "/v1/mf/scores/",
+        "/v1/stocks/scores/{symbol}",
+        "/v1/stocks/scores/{symbol}/history",
+        "/v1/stocks/scores/bulk",
+        "/v1/stocks/scores/",
+    }
+    assert must <= paths, f"missing: {must - paths}"
+
+
+def test_v3_mf_score_404_when_missing(client):
+    r = client.get("/v1/mf/scores/INF179K01608", headers={"X-API-Key": "k"})
+    assert r.status_code == 404
+    assert "error" in r.json()
+
+
+def test_v3_stock_score_404_when_missing(client):
+    r = client.get("/v1/stocks/scores/HDFCBANK", headers={"X-API-Key": "k"})
+    assert r.status_code == 404
+    assert "error" in r.json()
+
+
+def test_v3_mf_score_bulk_empty_input(client):
+    r = client.post("/v1/mf/scores/bulk", headers={"X-API-Key": "k"}, json={"isins": []})
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"data": {}, "count": 0, "requested": 0}
+
+
+def test_v3_stock_score_bulk_validates_input(client):
+    r = client.post("/v1/stocks/scores/bulk", headers={"X-API-Key": "k"}, json={"symbols": "HDFCBANK"})
+    assert r.status_code == 400
+
+
 def test_404_uses_error_envelope(client):
     r = client.get("/v1/nope", headers={"X-API-Key": "k"})
     assert r.status_code == 404
