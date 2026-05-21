@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import ResponsiveLayout from "./ResponsiveLayout";
 
 // First-run guard: send users who haven't seen the 10-second flow to /onboarding.
@@ -15,6 +16,34 @@ function hasOnboarded() {
 
 function HomeOrOnboarding() {
   return hasOnboarded() ? <Navigate to="home" replace /> : <Navigate to="onboarding" replace />;
+}
+
+/**
+ * Internal auth gate — V3 itself is mounted publicly so unauthenticated users
+ * can see the onboarding welcome (which exposes Google sign-in). Once they
+ * leave onboarding, this gate kicks them back if they aren't authenticated.
+ */
+function V3Protected({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--v3-bg-0)", display: "grid", placeItems: "center" }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            border: "2px solid var(--v3-line-strong)",
+            borderTopColor: "var(--v3-saffron)",
+            animation: "v3-spin 0.9s linear infinite",
+          }}
+        />
+        <style>{`@keyframes v3-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="onboarding" replace />;
+  return children;
 }
 
 // Lazy-load every screen — production-quality code-split.
@@ -51,22 +80,24 @@ export default function V3Router() {
       <Routes>
         <Route element={<ResponsiveLayout />}>
           <Route index element={<HomeOrOnboarding />} />
-          <Route path="home" element={<CopilotHome />} />
-          <Route path="chat" element={<CopilotChat />} />
-          <Route path="chat/:threadId" element={<CopilotChat />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="portfolio" element={<Portfolio />} />
-          <Route path="portfolio/diversification" element={<Diversification />} />
-          <Route path="portfolio/concentration" element={<Concentration />} />
-          <Route path="risk" element={<RiskAnalysis />} />
-          <Route path="risk/stress" element={<StressTest />} />
-          <Route path="tax" element={<TaxAnalysis />} />
-          <Route path="performance" element={<Performance />} />
-          <Route path="advisor" element={<Advisor />} />
-          <Route path="market" element={<MarketDashboard />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="profile" element={<Profile />} />
+          {/* Onboarding is PUBLIC — exposes Google sign-in inside the flow. */}
           <Route path="onboarding" element={<Onboarding />} />
+          {/* Everything else requires auth via the internal V3Protected gate. */}
+          <Route path="home" element={<V3Protected><CopilotHome /></V3Protected>} />
+          <Route path="chat" element={<V3Protected><CopilotChat /></V3Protected>} />
+          <Route path="chat/:threadId" element={<V3Protected><CopilotChat /></V3Protected>} />
+          <Route path="dashboard" element={<V3Protected><Dashboard /></V3Protected>} />
+          <Route path="portfolio" element={<V3Protected><Portfolio /></V3Protected>} />
+          <Route path="portfolio/diversification" element={<V3Protected><Diversification /></V3Protected>} />
+          <Route path="portfolio/concentration" element={<V3Protected><Concentration /></V3Protected>} />
+          <Route path="risk" element={<V3Protected><RiskAnalysis /></V3Protected>} />
+          <Route path="risk/stress" element={<V3Protected><StressTest /></V3Protected>} />
+          <Route path="tax" element={<V3Protected><TaxAnalysis /></V3Protected>} />
+          <Route path="performance" element={<V3Protected><Performance /></V3Protected>} />
+          <Route path="advisor" element={<V3Protected><Advisor /></V3Protected>} />
+          <Route path="market" element={<V3Protected><MarketDashboard /></V3Protected>} />
+          <Route path="settings" element={<V3Protected><Settings /></V3Protected>} />
+          <Route path="profile" element={<V3Protected><Profile /></V3Protected>} />
         </Route>
         <Route path="*" element={<Navigate to="home" replace />} />
       </Routes>

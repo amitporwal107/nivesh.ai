@@ -17,6 +17,9 @@ import BrandMark from "../../components/BrandMark";
 import PersonaAvatar from "../../components/PersonaAvatar";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import { usePersona, PERSONAS, uploadPortfolioFile, pollUploadStatus } from "../../adapters";
+import { useAuth } from "@/context/AuthContext";
+import { GoogleLogin } from "@react-oauth/google";
+import { openConnectAndImport } from "../../adapters/connectImport";
 
 // 4-step state machine: welcome → pick → importing → reveal.
 const STEPS = ["welcome", "pick", "importing", "reveal"];
@@ -38,6 +41,7 @@ export default function Onboarding() {
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
   const { setPersona } = usePersona();
+  const { user, loginWithGoogle, authError, googleClientId } = useAuth();
 
   const [step, setStep] = useState(STEPS[0]);
   const [method, setMethod] = useState(null); // "cas" | "gmail" | "manual"
@@ -49,7 +53,6 @@ export default function Onboarding() {
   const [uploadStatusMsg, setUploadStatusMsg] = useState(null);
 
   const importTimers = useRef([]);
-  const fileInputRef = useRef(null);
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -87,6 +90,43 @@ export default function Onboarding() {
       setStep("reveal");
     };
 
+    // Real Connect SDK path — opens the same widget V2 uses (PDF upload,
+    // Gmail inbox CAS auto-fetch, CDSL OTP — all in-modal). Hint biases the
+    // widget toward the tab the user actually picked on screen 2.
+    const runConnect = async () => {
+      queueFinding("pan", "RM", 400);
+      const res = await openConnectAndImport({
+        method, // "cas" | "gmail"
+        onProgress: setUploadStatusMsg,
+      });
+      if (cancelled) return;
+      if (res.cancelled) {
+        setUploadStatusMsg("Cancelled — going back");
+        // Send the user back to the picker rather than dead-ending in import.
+        setStep("pick");
+        return;
+      }
+      if (!res.ok) {
+        setUploadStatusMsg(res.error?.message || "Import failed — showing demo data");
+        // Fall through to simulated path so the flow always completes.
+        runSimulated();
+        return;
+      }
+      const holdings = res.holdings || [];
+      const mf = holdings.filter((h) => (h.asset_type || "").includes("mutual")).length;
+      const eq = holdings.filter((h) => (h.asset_type || "") === "equity").length;
+      setFindings({
+        pan: { key: "pan", value: res.investor || "✓", done: true },
+        mf: { key: "mf", value: mf || res.count || 0, done: true },
+        equity: { key: "equity", value: eq, done: true },
+        sip: { key: "sip", value: holdings.length || res.count || 0, done: true },
+      });
+      finalizeWithPersona(inferPersonaFromCounts(mf, eq));
+    };
+
+    // Legacy direct-upload path — retained as a fallback only for the
+    // manually-attached <input type="file"> case. New flows go through
+    // runConnect() above.
     const runRealUpload = async () => {
       queueFinding("pan", "RM", 400);
       setUploadStatusMsg("Uploading file…");
@@ -94,11 +134,9 @@ export default function Onboarding() {
       if (cancelled) return;
       if (!r.ok) {
         setUploadStatusMsg(r.error?.message || "Upload failed — switching to demo data");
-        // Fall through to simulated path so user isn't dead-ended.
         runSimulated();
         return;
       }
-      // Synchronous path (CSV/Excel): r.holdings present immediately.
       if (Array.isArray(r.holdings) && !r.taskId) {
         const mf = r.holdings.filter((h) => (h.asset_type || "").includes("mutual")).length;
         const eq = r.holdings.filter((h) => (h.asset_type || "") === "equity").length;
@@ -109,7 +147,6 @@ export default function Onboarding() {
         importTimers.current.push(t);
         return;
       }
-      // Async (PDF) path: poll the task.
       setUploadStatusMsg("Parsing your statement…");
       const polled = await pollUploadStatus(r.taskId, {
         intervalMs: 1500,
@@ -117,7 +154,7 @@ export default function Onboarding() {
         onProgress: (p) => {
           if (cancelled) return;
           if (p.message) setUploadStatusMsg(p.message);
-          if (p.count != null && p.count > 0 && !findings.mf?.done) {
+          if (p.count != null && p.count > 0) {
             setFindings((prev) => ({ ...prev, mf: { key: "mf", value: p.count, done: true } }));
           }
         },
@@ -146,8 +183,12 @@ export default function Onboarding() {
       importTimers.current.push(t);
     };
 
-    if (method === "cas" && casFile) {
-      runRealUpload();
+    if (method === "cas" || method === "gmail") {
+      // Connect SDK requires an authenticated session — fall through to
+      // simulated import if the user somehow reached importing without one.
+      if (user) runConnect();
+      else if (method === "cas" && casFile) runRealUpload();
+      else runSimulated();
     } else {
       runSimulated();
     }
@@ -162,7 +203,7 @@ export default function Onboarding() {
     };
     // findings.mf is intentionally excluded — the polling callback reads the *latest* via setState fn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, method, casFile, setPersona]);
+  }, [step, method, casFile, user, setPersona]);
 
   const finish = () => {
     try {
@@ -181,20 +222,9 @@ export default function Onboarding() {
       setStep("reveal");
       return;
     }
-    if (m === "cas" && fileInputRef.current) {
-      // Trigger native file picker. If the user cancels we still proceed to the
-      // simulated import — they tapped CAS, they shouldn't be stuck.
-      fileInputRef.current.click();
-      return;
-    }
+    // For CAS + Gmail, advance to importing — the importing effect drives the
+    // Connect SDK which owns the entire upload / Gmail-OAuth UX in-modal.
     setStep("importing");
-  };
-
-  const onCasFileChosen = (e) => {
-    const f = e.target.files?.[0];
-    if (f) setCasFile(f);
-    setStep("importing");
-    e.target.value = ""; // allow re-pick
   };
 
   return (
@@ -225,7 +255,23 @@ export default function Onboarding() {
         >
           <TopRow stepIndex={stepIndex} onBack={() => stepIndex > 0 && setStep(STEPS[stepIndex - 1])} />
 
-          {step === "welcome" && <WelcomeStep onStart={() => setStep("pick")} isDesktop={isDesktop} />}
+          {step === "welcome" && (
+            <WelcomeStep
+              isDesktop={isDesktop}
+              user={user}
+              googleClientId={googleClientId}
+              authError={authError}
+              onGoogleSignIn={async (credential) => {
+                try {
+                  await loginWithGoogle(credential);
+                  setStep("pick");
+                } catch (e) {
+                  // authError is set by loginWithGoogle — surfaced in the Welcome UI.
+                }
+              }}
+              onStart={() => setStep("pick")}
+            />
+          )}
           {step === "pick" && <PickStep onPick={onPickMethod} isDesktop={isDesktop} />}
           {step === "importing" && (
             <ImportingStep
@@ -255,15 +301,6 @@ export default function Onboarding() {
           )}
         </div>
       </ScreenContainer>
-
-      {/* Hidden file picker used when method=CAS */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,.csv,.xlsx,.xls,application/pdf"
-        onChange={onCasFileChosen}
-        style={{ display: "none" }}
-      />
     </div>
   );
 }
@@ -323,7 +360,9 @@ function Pips({ active, total }) {
 
 /* ═════════════════════════ 1 · WELCOME ═════════════════════════ */
 
-function WelcomeStep({ onStart, isDesktop }) {
+function WelcomeStep({ onStart, isDesktop, user, googleClientId, authError, onGoogleSignIn }) {
+  const isSignedIn = !!user;
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingTop: 12 }}>
       <SpeedBadge />
@@ -355,27 +394,92 @@ function WelcomeStep({ onStart, isDesktop }) {
           color: "var(--v3-ink-2)",
           lineHeight: 1.55,
           maxWidth: 320,
-          marginBottom: 34,
+          marginBottom: 28,
         }}
       >
         Skip the spreadsheets. We read your CAS or Gmail and answer real questions about what you own.
       </p>
 
-      <PrimaryCTA label="Get started" onClick={onStart} />
-
-      <div style={{ textAlign: "center", marginTop: 14, fontSize: 13, color: "var(--v3-ink-3)" }}>
-        Already have an account?{" "}
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            onStart();
-          }}
-          style={{ color: "var(--v3-ink-1)", textDecoration: "underline", textUnderlineOffset: 3 }}
-        >
-          Sign in
-        </a>
-      </div>
+      {isSignedIn ? (
+        <>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 12px",
+              background: "var(--v3-moss-soft)",
+              color: "var(--v3-moss)",
+              borderRadius: 999,
+              alignSelf: "flex-start",
+              fontFamily: "var(--v3-font-mono)",
+              fontSize: 11,
+              letterSpacing: "0.1em",
+              marginBottom: 14,
+              textTransform: "uppercase",
+              fontWeight: 500,
+            }}
+          >
+            <Check size={12} strokeWidth={2.5} />
+            Signed in as {user.email || user.name}
+          </div>
+          <PrimaryCTA label="Get started" onClick={onStart} />
+        </>
+      ) : (
+        <>
+          <div style={{ alignSelf: "flex-start" }}>
+            {googleClientId ? (
+              <GoogleLogin
+                onSuccess={(resp) => onGoogleSignIn(resp.credential)}
+                onError={() => {}}
+                theme="filled_black"
+                size="large"
+                shape="pill"
+                text="continue_with"
+              />
+            ) : (
+              <button
+                type="button"
+                disabled
+                style={{
+                  padding: "14px 24px",
+                  borderRadius: 999,
+                  background: "var(--v3-bg-3)",
+                  color: "var(--v3-ink-3)",
+                  border: "1px solid var(--v3-line)",
+                  fontFamily: "var(--v3-font-sans)",
+                  fontSize: 14,
+                  cursor: "not-allowed",
+                }}
+              >
+                Loading Google sign-in…
+              </button>
+            )}
+          </div>
+          {authError && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "8px 12px",
+                background: "var(--v3-crimson-soft)",
+                border: "1px solid var(--v3-crimson-soft)",
+                borderRadius: 10,
+                color: "var(--v3-crimson)",
+                fontSize: 12.5,
+              }}
+            >
+              {authError}
+            </div>
+          )}
+          <div style={{ marginTop: 14, fontSize: 13, color: "var(--v3-ink-3)" }}>
+            By continuing you agree to the{" "}
+            <a href="/v2/privacy" style={{ color: "var(--v3-ink-1)", textDecoration: "underline", textUnderlineOffset: 3 }}>
+              privacy policy
+            </a>
+            . Read-only — we never trade on your behalf.
+          </div>
+        </>
+      )}
 
       <TrustStrip />
     </div>
