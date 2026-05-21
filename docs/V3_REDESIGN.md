@@ -98,11 +98,15 @@ Adapters now hit the same backend endpoints V2 uses, through a shared
 
 | Adapter hook | Endpoints called | Maps to |
 |---|---|---|
-| `usePortfolioSummary` | `GET /api/portfolio/analytics`<br>`GET /api/portfolio/holdings-enriched`<br>`GET /api/insights/v3-portfolio`<br>`GET /api/intelligence/portfolio`<br>`POST /api/copilot/widgets/portfolio_var`<br>`POST /api/copilot/widgets/tax_harvest` | `summary` · `allocation` · `topHoldings` · `funds` · `risk` · `tax` · `user` |
+| `usePortfolioSummary` | `GET /api/portfolio/analytics`<br>`GET /api/portfolio/holdings-enriched`<br>`GET /api/insights/v3-portfolio`<br>`GET /api/intelligence/portfolio`<br>`GET /api/user/profile`<br>`POST /api/copilot/widgets/portfolio_var`<br>`POST /api/copilot/widgets/tax_harvest` | `summary` · `allocation` · `topHoldings` · `funds` · `risk` · `tax` · `user` (name from profile) |
+| `useUserProfile` | `GET /api/user/profile` | `name` · `email` · `riskProfile` · `journeyType` · `features` |
 | `useStressTest(scenario)` | `POST /api/copilot/widgets/stress_test` | `dropPct` · `portfolioImpact` · `recoveryMonths` · `breakdown` |
 | `useMarketBrief` | `POST /api/copilot/widgets/market_brief` | `nifty` · `sensex` · `sectors` · `flows` · `narrative` |
 | `useRiskSuitability` | `POST /api/copilot/widgets/risk_suitability` | `equityActual/Target` · `debtActual/Target` · `suggestions` |
+| `useFundOverlap(schemeCodes?)` | `POST /api/copilot/widgets/overlap_reveal` | `funds` · `matrix[][]` · `maxPct` · `pairs` |
 | `useSuggestedPrompts(personaId)` | `GET /api/copilot/suggested-prompts?persona=…` | `{ primary, secondary, advanced }` — merged with local catalog |
+| `askCopilot({ question, history, model })` | `POST /api/copilot/ask` | `{ ok, text, chartCount, mode }` — used directly by Chat screen |
+| `uploadPortfolioFile(file)` + `pollUploadStatus(taskId)` | `POST /api/portfolio/upload`, `GET /api/portfolio/upload-status/{id}` | `{ ok, holdings, count }` — used by Onboarding's CAS upload path |
 
 Each adapter:
 

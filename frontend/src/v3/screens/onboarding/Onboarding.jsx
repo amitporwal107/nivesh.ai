@@ -16,7 +16,7 @@ import {
 import BrandMark from "../../components/BrandMark";
 import PersonaAvatar from "../../components/PersonaAvatar";
 import ScreenContainer from "../../components/layout/ScreenContainer";
-import { usePersona, PERSONAS } from "../../adapters";
+import { usePersona, PERSONAS, uploadPortfolioFile, pollUploadStatus } from "../../adapters";
 
 // 4-step state machine: welcome → pick → importing → reveal.
 const STEPS = ["welcome", "pick", "importing", "reveal"];
@@ -45,47 +45,124 @@ export default function Onboarding() {
   const [importPct, setImportPct] = useState(8);
   const [detectedPersona, setDetectedPersona] = useState("mf_focused");
   const [picking, setPicking] = useState(false);
+  const [casFile, setCasFile] = useState(null);
+  const [uploadStatusMsg, setUploadStatusMsg] = useState(null);
 
   const importTimers = useRef([]);
+  const fileInputRef = useRef(null);
 
   const stepIndex = STEPS.indexOf(step);
 
-  // ── Importing animation: stream findings in, advance progress, then auto-go to reveal.
+  // ── Importing: drive real CAS upload when a file is attached; otherwise run
+  // a simulated import that mirrors the same UX. Either path streams findings
+  // into the list and advances `importPct`.
   useEffect(() => {
     if (step !== "importing") return undefined;
+
     setFindings({});
     setImportPct(8);
-
+    setUploadStatusMsg(null);
+    let cancelled = false;
     importTimers.current = [];
-    FINDINGS_TIMELINE.forEach((f) => {
-      const t = window.setTimeout(() => {
-        setFindings((prev) => ({ ...prev, [f.key]: { ...f, done: true } }));
-      }, f.at);
-      importTimers.current.push(t);
-    });
 
-    const stop = window.setInterval(() => {
+    const queueFinding = (key, value, delay) => {
+      const t = window.setTimeout(() => {
+        if (cancelled) return;
+        setFindings((prev) => ({ ...prev, [key]: { key, value, done: true } }));
+      }, delay);
+      importTimers.current.push(t);
+    };
+
+    const tickInterval = window.setInterval(() => {
+      if (cancelled) return;
       setImportPct((p) => Math.min(p + 4 + Math.random() * 6, 96));
     }, 220);
-    importTimers.current.push(stop);
+    importTimers.current.push(tickInterval);
 
-    const done = window.setTimeout(() => {
+    const finalizeWithPersona = (id) => {
+      if (cancelled) return;
       setImportPct(100);
-      const persona = inferPersona(method);
-      setDetectedPersona(persona);
-      setPersona(persona);
+      setDetectedPersona(id);
+      setPersona(id);
       setStep("reveal");
-    }, IMPORT_DURATION);
-    importTimers.current.push(done);
+    };
+
+    const runRealUpload = async () => {
+      queueFinding("pan", "RM", 400);
+      setUploadStatusMsg("Uploading file…");
+      const r = await uploadPortfolioFile(casFile);
+      if (cancelled) return;
+      if (!r.ok) {
+        setUploadStatusMsg(r.error?.message || "Upload failed — switching to demo data");
+        // Fall through to simulated path so user isn't dead-ended.
+        runSimulated();
+        return;
+      }
+      // Synchronous path (CSV/Excel): r.holdings present immediately.
+      if (Array.isArray(r.holdings) && !r.taskId) {
+        const mf = r.holdings.filter((h) => (h.asset_type || "").includes("mutual")).length;
+        const eq = r.holdings.filter((h) => (h.asset_type || "") === "equity").length;
+        queueFinding("mf", mf || 0, 600);
+        queueFinding("equity", eq || 0, 1100);
+        queueFinding("sip", "—", 1600);
+        const t = window.setTimeout(() => finalizeWithPersona(inferPersonaFromCounts(mf, eq)), 2200);
+        importTimers.current.push(t);
+        return;
+      }
+      // Async (PDF) path: poll the task.
+      setUploadStatusMsg("Parsing your statement…");
+      const polled = await pollUploadStatus(r.taskId, {
+        intervalMs: 1500,
+        maxMs: 90000,
+        onProgress: (p) => {
+          if (cancelled) return;
+          if (p.message) setUploadStatusMsg(p.message);
+          if (p.count != null && p.count > 0 && !findings.mf?.done) {
+            setFindings((prev) => ({ ...prev, mf: { key: "mf", value: p.count, done: true } }));
+          }
+        },
+      });
+      if (cancelled) return;
+      if (!polled.ok) {
+        setUploadStatusMsg(polled.error?.message || "Parsing failed — using demo data");
+        runSimulated();
+        return;
+      }
+      const holdings = polled.holdings || [];
+      const mf = holdings.filter((h) => (h.asset_type || "").includes("mutual")).length;
+      const eq = holdings.filter((h) => (h.asset_type || "") === "equity").length;
+      setFindings({
+        pan: { key: "pan", value: "RM", done: true },
+        mf: { key: "mf", value: mf, done: true },
+        equity: { key: "equity", value: eq, done: true },
+        sip: { key: "sip", value: holdings.length, done: true },
+      });
+      finalizeWithPersona(inferPersonaFromCounts(mf, eq));
+    };
+
+    const runSimulated = () => {
+      FINDINGS_TIMELINE.forEach((f) => queueFinding(f.key, f.value, f.at));
+      const t = window.setTimeout(() => finalizeWithPersona(inferPersona(method)), IMPORT_DURATION);
+      importTimers.current.push(t);
+    };
+
+    if (method === "cas" && casFile) {
+      runRealUpload();
+    } else {
+      runSimulated();
+    }
 
     return () => {
+      cancelled = true;
       importTimers.current.forEach((t) => {
         window.clearTimeout(t);
         window.clearInterval(t);
       });
       importTimers.current = [];
     };
-  }, [step, method, setPersona]);
+    // findings.mf is intentionally excluded — the polling callback reads the *latest* via setState fn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, method, casFile, setPersona]);
 
   const finish = () => {
     try {
@@ -99,13 +176,25 @@ export default function Onboarding() {
   const onPickMethod = (m) => {
     setMethod(m);
     if (m === "manual") {
-      // Manual still hands off to Home (placeholder), but we don't fake an import.
       setDetectedPersona("universal");
       setPersona("universal");
       setStep("reveal");
       return;
     }
+    if (m === "cas" && fileInputRef.current) {
+      // Trigger native file picker. If the user cancels we still proceed to the
+      // simulated import — they tapped CAS, they shouldn't be stuck.
+      fileInputRef.current.click();
+      return;
+    }
     setStep("importing");
+  };
+
+  const onCasFileChosen = (e) => {
+    const f = e.target.files?.[0];
+    if (f) setCasFile(f);
+    setStep("importing");
+    e.target.value = ""; // allow re-pick
   };
 
   return (
@@ -144,6 +233,8 @@ export default function Onboarding() {
               findings={findings}
               importPct={importPct}
               isDesktop={isDesktop}
+              file={casFile}
+              statusMsg={uploadStatusMsg}
             />
           )}
           {step === "reveal" && (
@@ -164,6 +255,15 @@ export default function Onboarding() {
           )}
         </div>
       </ScreenContainer>
+
+      {/* Hidden file picker used when method=CAS */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.csv,.xlsx,.xls,application/pdf"
+        onChange={onCasFileChosen}
+        style={{ display: "none" }}
+      />
     </div>
   );
 }
@@ -633,14 +733,21 @@ function OrDivider() {
 
 /* ═════════════════════════ 3 · IMPORTING ═════════════════════════ */
 
-function ImportingStep({ method, findings, importPct, isDesktop }) {
-  const fileName =
-    method === "cas"
-      ? "CAS_NSDL_18MAY2026.pdf"
-      : method === "gmail"
-      ? "rohan@gmail.com"
-      : "Manual entries";
-  const fileMeta = method === "cas" ? "14 PAGES · 412 KB" : method === "gmail" ? "READING AMC EMAILS" : "—";
+function ImportingStep({ method, findings, importPct, isDesktop, file, statusMsg }) {
+  const fileName = file
+    ? file.name
+    : method === "cas"
+    ? "CAS_NSDL_18MAY2026.pdf"
+    : method === "gmail"
+    ? "Reading AMC emails"
+    : "Manual entries";
+  const fileMeta = file
+    ? `${formatBytes(file.size)} · ${file.type.includes("pdf") ? "PDF" : "DATA"}`
+    : method === "cas"
+    ? "14 PAGES · 412 KB"
+    : method === "gmail"
+    ? "READING AMC EMAILS"
+    : "—";
 
   const checks = FINDINGS_TIMELINE.map((f) => ({
     ...f,
@@ -839,10 +946,19 @@ function ImportingStep({ method, findings, importPct, isDesktop }) {
           zIndex: 1,
         }}
       >
-        processed locally · <span style={{ color: "var(--v3-moss)" }}>nothing stored yet</span>
+        {statusMsg
+          ? <span style={{ color: "var(--v3-saffron)" }}>{statusMsg}</span>
+          : <>processed locally · <span style={{ color: "var(--v3-moss)" }}>nothing stored yet</span></>}
       </div>
     </div>
   );
+}
+
+function formatBytes(n) {
+  if (!Number.isFinite(n)) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function FindingRow({ label, value, state, isLast }) {
@@ -1225,6 +1341,19 @@ function inferPersona(method) {
   // and route accordingly; for now, CAS users default to mf_focused, Gmail too,
   // manual defaults to universal until they pick.
   if (method === "manual") return "universal";
+  return "mf_focused";
+}
+
+/**
+ * Pick a persona from the actual parsed holdings.
+ *   - 5+ MFs and few stocks → mf_focused
+ *   - 6+ stocks and few MFs → direct_equity
+ *   - Otherwise → universal (the safest default for a Mixed portfolio)
+ */
+function inferPersonaFromCounts(mfCount, equityCount) {
+  if (mfCount >= 5 && equityCount <= 2) return "mf_focused";
+  if (equityCount >= 6 && mfCount <= 2) return "direct_equity";
+  if (mfCount === 0 && equityCount === 0) return "universal";
   return "mf_focused";
 }
 

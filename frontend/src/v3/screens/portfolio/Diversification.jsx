@@ -6,29 +6,32 @@ import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { OverlapDonut, FundCountHistogram } from "../../components/viz";
-import { usePortfolioSummary } from "../../adapters";
+import { usePortfolioSummary, useFundOverlap } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 
 export default function Diversification() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
-
-  // 6x6 fake heatmap data
-  const funds = ["PPFAS Flexi", "ICICI Bluechip", "Nippon SC", "HDFC MidCap", "Mirae ELSS", "DSP Small"];
-  const heat = funds.map((_, i) => funds.map((_, j) => (i === j ? 100 : Math.round(20 + Math.random() * 60))));
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
+  const overlapState = useFundOverlap();
+  const overlap = overlapState.data;
+  const funds = overlap?.funds || ["PPFAS Flexi", "ICICI Bluechip", "Nippon SC", "HDFC MidCap", "Mirae ELSS", "DSP Small"];
+  const heat = overlap?.matrix || funds.map((_, i) => funds.map((_, j) => (i === j ? 100 : 20 + ((i * 7 + j * 11) % 60))));
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Portfolio · Risk" title="Diversification" />
 
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={overlap?._source} error={overlapState.error} loading={overlapState.loading} onRefresh={overlapState.refetch} />
         <HeroCard
           layout={isDesktop ? "desktop" : "mobile"}
           category="risk"
           priorityLabel="Concentration"
-          title="3 fund pairs overlap above 65%"
-          description={isDesktop ? "The highest overlap is between PPFAS Flexi and HDFC MidCap — they share roughly 71% of underlying stocks. Consolidating to one will reduce concentration without losing diversification." : null}
+          title={`${overlap?.pairs ?? p.overlap.pairs} fund pairs overlap above 65%`}
+          description={isDesktop ? `The highest overlap pair shares roughly ${overlap?.maxPct ?? p.overlap.maxPct}% of underlying stocks. Consolidating to one will reduce concentration without losing diversification.` : null}
           viz={
             <div>
               <div className="v3-eyebrow" style={{ color: "var(--v3-ink-3)", marginBottom: 8 }}>Fund count vs ideal</div>

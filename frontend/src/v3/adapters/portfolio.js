@@ -219,18 +219,19 @@ function merge(...layers) {
 export function usePortfolioSummary() {
   return useAsync(
     async () => {
-    const [analytics, enriched, v3score, intel, varBlock, harvest] = await Promise.all([
+    const [analytics, enriched, v3score, intel, varBlock, harvest, profile] = await Promise.all([
       apiGet("/portfolio/analytics"),
       apiGet("/portfolio/holdings-enriched"),
       apiGet("/insights/v3-portfolio"),
       apiGet("/intelligence/portfolio", { narrate: "false" }),
       apiPost("/copilot/widgets/portfolio_var", {}),
       apiPost("/copilot/widgets/tax_harvest", {}),
+      apiGet("/user/profile"),
     ]);
 
     const mapped = merge(
       PLACEHOLDER,
-      { user: mapUser(intel.data) },
+      { user: mapUser(intel.data, profile.data) },
       mapAnalytics(analytics.data),
       mapEnriched(enriched.data),
       { v3: mapV3Score(v3score.data) },
@@ -239,7 +240,7 @@ export function usePortfolioSummary() {
     );
 
     // Mark whether we got any real backend hit so screens can show a soft banner.
-    const anyError = [analytics, enriched, v3score, intel, varBlock, harvest].every(
+    const anyError = [analytics, enriched, v3score, intel, varBlock, harvest, profile].every(
       (r) => r.error != null
     );
     return {
@@ -252,11 +253,20 @@ export function usePortfolioSummary() {
   );
 }
 
-function mapUser(intel) {
-  if (!intel) return null;
-  const name = intel.user_name || intel.name || intel.user?.name;
+function mapUser(intel, profile) {
+  // Prefer the explicit profile name; fall back to intel narration data.
+  const fromProfile = profile?.full_name || profile?.name || profile?.display_name || (profile?.email && profile.email.split("@")[0]);
+  const fromIntel = intel?.user_name || intel?.name || intel?.user?.name;
+  const name = fromProfile || fromIntel;
   if (!name) return null;
-  return { name, greeting: pickGreeting() };
+  // Capitalise common "rohan.mehta" → "Rohan Mehta" patterns.
+  const pretty = String(name)
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+  return { name: pretty, greeting: pickGreeting() };
 }
 
 function pickGreeting() {

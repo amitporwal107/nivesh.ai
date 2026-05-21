@@ -4,4 +4,8 @@ export { PROMPT_CATALOG, getCatalogFor, countsByCategory } from "./promptCatalog
 export { usePortfolioSummary, loadPortfolio } from "./portfolio";
 export { useStressTest, useMarketBrief, useRiskSuitability } from "./copilotWidgets";
 export { useSuggestedPrompts } from "./suggestedPrompts";
+export { useUserProfile } from "./userProfile";
+export { askCopilot } from "./copilotChat";
+export { useFundOverlap } from "./overlap";
+export { uploadPortfolioFile, pollUploadStatus } from "./casUpload";
 export { apiGet, apiPost, API_ROOT, BACKEND_URL } from "./apiClient";

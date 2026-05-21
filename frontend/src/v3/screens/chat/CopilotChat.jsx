@@ -1,9 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import IconButton from "../../components/IconButton";
 import CompactCard from "../../components/CompactCard";
-import HeroCard from "../../components/HeroCard";
 import Composer from "../../components/Composer";
 import TinyChip from "../../components/TinyChip";
 import SectionHead from "../../components/SectionHead";
@@ -11,7 +9,7 @@ import CategoryBadge from "../../components/CategoryBadge";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { OverlapDonut, FundCountHistogram } from "../../components/viz";
-import { usePersona, usePortfolioSummary, getCatalogFor } from "../../adapters";
+import { usePersona, usePortfolioSummary, getCatalogFor, askCopilot } from "../../adapters";
 
 export default function CopilotChat() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
@@ -23,17 +21,37 @@ export default function CopilotChat() {
   const catalog = getCatalogFor(persona.id);
 
   const initialQuery = useMemo(() => new URLSearchParams(location.search).get("q") || "", [location.search]);
+  const [messages, setMessages] = useState([]);
+  const [pending, setPending] = useState(false);
+  const submittedInitial = useRef(false);
 
-  const [messages, setMessages] = useState(() => (initialQuery ? [makeQuestion(initialQuery), makeAnswer(initialQuery, portfolio, catalog)] : []));
-
-  useEffect(() => {
-    if (!initialQuery) return;
-    setMessages([makeQuestion(initialQuery), makeAnswer(initialQuery, portfolio, catalog)]);
-  }, [initialQuery, portfolio, catalog]);
-
-  const handleSubmit = ({ text }) => {
-    setMessages((prev) => [...prev, makeQuestion(text), makeAnswer(text, portfolio, catalog)]);
+  // Send a question to the backend and append both the question and the answer.
+  const handleSubmit = async ({ text, model }) => {
+    if (!text) return;
+    const next = [...messages, makeQuestion(text)];
+    setMessages(next);
+    setPending(true);
+    const res = await askCopilot({
+      question: text,
+      history: next,
+      model: model || "gpt-4o",
+    });
+    setPending(false);
+    if (res.ok && res.text) {
+      setMessages((cur) => [...cur, makeAnswer(text, res.text, portfolio, catalog)]);
+    } else {
+      // Backend unreachable — fall back to a local stub so the UX never dead-ends.
+      setMessages((cur) => [...cur, makeFallbackAnswer(text, portfolio, catalog, res.error)]);
+    }
   };
+
+  // Fire the URL-query question once on mount.
+  useEffect(() => {
+    if (!initialQuery || submittedInitial.current) return;
+    submittedInitial.current = true;
+    handleSubmit({ text: initialQuery });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
@@ -66,7 +84,10 @@ export default function CopilotChat() {
             </div>
           </div>
         ) : (
-          messages.map((m, i) => <MessageRow key={i} message={m} isDesktop={isDesktop} onPick={handleSubmit} />)
+          <>
+            {messages.map((m, i) => <MessageRow key={i} message={m} isDesktop={isDesktop} onPick={handleSubmit} />)}
+            {pending && <TypingRow />}
+          </>
         )}
       </div>
 
@@ -76,22 +97,27 @@ export default function CopilotChat() {
 }
 
 function makeQuestion(text) {
-  return { kind: "q", text };
+  return { kind: "q", role: "user", text, content: text };
 }
 
-function makeAnswer(text, portfolio, catalog) {
-  const lower = text.toLowerCase();
-  let category = "health";
-  if (lower.includes("overlap") || lower.includes("risk") || lower.includes("diversif")) category = "risk";
-  else if (lower.includes("perform") || lower.includes("return") || lower.includes("benchmark")) category = "performance";
-  else if (lower.includes("tax") || lower.includes("harvest") || lower.includes("ltcg")) category = "tax";
-  else if (lower.includes("goal") || lower.includes("sip") || lower.includes("retirement")) category = "goal";
+function categoryFor(text) {
+  const lower = (text || "").toLowerCase();
+  if (lower.includes("overlap") || lower.includes("risk") || lower.includes("diversif")) return "risk";
+  if (lower.includes("perform") || lower.includes("return") || lower.includes("benchmark")) return "performance";
+  if (lower.includes("tax") || lower.includes("harvest") || lower.includes("ltcg")) return "tax";
+  if (lower.includes("goal") || lower.includes("sip") || lower.includes("retirement")) return "goal";
+  return "health";
+}
 
+function makeAnswer(text, responseText, portfolio, catalog) {
+  const category = categoryFor(text);
   return {
     kind: "a",
+    role: "assistant",
     category,
     title: text,
-    summary: pickAnswerSummary(category, portfolio),
+    summary: responseText,
+    content: responseText,
     viz: category === "risk"
       ? <OverlapDonut value={portfolio.overlap.maxPct} color="var(--v3-crimson)" size={64} />
       : category === "health"
@@ -99,6 +125,61 @@ function makeAnswer(text, portfolio, catalog) {
       : null,
     followups: catalog.advanced.slice(0, 4).map((p) => p.label),
   };
+}
+
+// Used only if the backend call fails — keeps the UI alive with a local stub.
+function makeFallbackAnswer(text, portfolio, catalog, error) {
+  const category = categoryFor(text);
+  const summary = pickAnswerSummary(category, portfolio);
+  return {
+    kind: "a",
+    role: "assistant",
+    category,
+    title: text,
+    summary: error
+      ? `${summary}\n\n(showing demo response — backend unreachable${error.status ? ` · ${error.status}` : ""})`
+      : summary,
+    content: summary,
+    viz: category === "risk"
+      ? <OverlapDonut value={portfolio.overlap.maxPct} color="var(--v3-crimson)" size={64} />
+      : category === "health"
+      ? <FundCountHistogram count={portfolio.funds.count} height={64} />
+      : null,
+    followups: catalog.advanced.slice(0, 4).map((p) => p.label),
+  };
+}
+
+function TypingRow() {
+  return (
+    <div
+      style={{
+        background: "var(--v3-bg-2)",
+        border: "1px solid var(--v3-line)",
+        borderRadius: 18,
+        padding: 14,
+        display: "inline-flex",
+        gap: 6,
+        alignItems: "center",
+        alignSelf: "flex-start",
+      }}
+    >
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          aria-hidden
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 999,
+            background: "var(--v3-ink-3)",
+            animation: `v3-typing 1s ${i * 0.15}s infinite`,
+          }}
+        />
+      ))}
+      <span className="v3-eyebrow" style={{ marginLeft: 6, color: "var(--v3-ink-3)" }}>thinking…</span>
+      <style>{`@keyframes v3-typing { 0%, 80%, 100% { opacity: 0.3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }`}</style>
+    </div>
+  );
 }
 
 function pickAnswerSummary(category, p) {
