@@ -9,6 +9,7 @@ import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { OverlapDonut, GoalBars, TaxPyramid } from "../../components/viz";
 import { usePortfolioSummary } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 import { inrCompact, pct } from "../../lib/format";
 
 const CATEGORIES = [
@@ -23,7 +24,8 @@ export default function Portfolio() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
   const [activeCat, setActiveCat] = useState("all");
 
   return (
@@ -31,6 +33,7 @@ export default function Portfolio() {
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Portfolio" title="Your holdings" />
 
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <HeroCard
           layout={isDesktop ? "desktop" : "mobile"}
           category="health"

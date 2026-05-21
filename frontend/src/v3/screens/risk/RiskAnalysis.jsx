@@ -7,19 +7,23 @@ import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { OverlapDonut, HealthGauge, PerformanceLine } from "../../components/viz";
-import { usePortfolioSummary } from "../../adapters";
+import { usePortfolioSummary, useRiskSuitability } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 import { inrCompact, pct } from "../../lib/format";
 
 export default function RiskAnalysis() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
+  const suit = useRiskSuitability();
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Risk" title="How much risk are you taking?" />
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <HeroCard
           layout={isDesktop ? "desktop" : "mobile"}
           category="risk"
@@ -47,10 +51,10 @@ export default function RiskAnalysis() {
 
         <SectionHead title="Suitability" count="vs your profile" />
         <div style={{ background: "var(--v3-bg-2)", border: "1px solid var(--v3-line)", borderRadius: 14, padding: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-          <SuitRow label="Equity allocation" current={64} target={60} band={10} />
-          <SuitRow label="Debt allocation" current={22} target={30} band={10} />
-          <SuitRow label="Gold allocation" current={8} target={5} band={5} />
-          <SuitRow label="International allocation" current={6} target={5} band={5} />
+          <SuitRow label="Equity allocation" current={suit.data?.equityActual ?? p.allocation[0]?.value ?? 64} target={suit.data?.equityTarget ?? 60} band={10} />
+          <SuitRow label="Debt allocation" current={suit.data?.debtActual ?? p.allocation[1]?.value ?? 22} target={suit.data?.debtTarget ?? 30} band={10} />
+          <SuitRow label="Gold allocation" current={p.allocation[2]?.value ?? 8} target={5} band={5} />
+          <SuitRow label="International allocation" current={p.allocation[3]?.value ?? 6} target={5} band={5} />
         </div>
       </div>
     </ScreenContainer>

@@ -10,6 +10,7 @@ import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { PerformanceLine, OverlapDonut, TaxPyramid, GoalBars, HealthGauge } from "../../components/viz";
 import { usePersona, usePortfolioSummary } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 import { inrCompact, pct, dateLabel } from "../../lib/format";
 
 export default function Dashboard() {
@@ -17,7 +18,8 @@ export default function Dashboard() {
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
   const { persona } = usePersona();
-  const { data: p } = usePortfolioSummary();
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
 
   const positiveDelta = p.summary.delta1d >= 0;
 
@@ -30,6 +32,7 @@ export default function Dashboard() {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <PersonaStrip persona={persona} onChange={() => navigate("/profile")} />
 
         <section>

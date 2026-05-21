@@ -8,8 +8,9 @@ import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { PerformanceLine, OverlapDonut } from "../../components/viz";
-import { usePortfolioSummary } from "../../adapters";
+import { usePortfolioSummary, useStressTest } from "../../adapters";
 import { inrCompact, pct } from "../../lib/format";
+import SourceBanner from "../../components/SourceBanner";
 
 const SCENARIOS = [
   { id: "drop10", label: "Drop 10%" },
@@ -25,16 +26,19 @@ export default function StressTest() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
   const [scenario, setScenario] = useState("drop20");
-  const delta = SCENARIO_DELTA[scenario];
-  const impactValue = p.summary.totalValue * (1 + delta / 100);
+  const stress = useStressTest(scenario === "drop10" ? "drop_10" : scenario === "drop20" ? "drop_20" : scenario === "drop30" ? "drop_30" : scenario === "covid" ? "covid_2020" : "gfc_2008");
+  const delta = stress.data?.dropPct ?? SCENARIO_DELTA[scenario];
+  const impactValue = stress.data?.portfolioImpact ?? p.summary.totalValue * (1 + delta / 100);
   const loss = p.summary.totalValue - impactValue;
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Risk · Stress test" title="What if markets fall?" />
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <div className="v3-hscroll" style={{ display: "flex", gap: 6 }}>
           {SCENARIOS.map((s) => (
             <CategoryChip

@@ -88,12 +88,55 @@ Add a screen by appending one entry there and one lazy import in `V3Router.jsx`.
 V3 screens never call APIs directly. They consume **adapter hooks** in [`v3/adapters/`](../frontend/src/v3/adapters/). Each hook returns a stable view-model:
 
 ```js
-const { data, loading, error } = usePortfolioSummary();
+const { data, loading, error, refetch } = usePortfolioSummary();
 ```
 
-Today these adapters return realistic placeholder data so screens render before backend wiring is finalized. When you integrate with the real backend, the adapter is the **only** place that changes — never the screen. Wire the existing `@/api/strategyBuilder.js` (or new endpoint) inside the adapter, map the response to the same view-model shape, ship.
+### Live wiring (current)
+
+Adapters now hit the same backend endpoints V2 uses, through a shared
+[apiClient](../frontend/src/v3/adapters/apiClient.js):
+
+| Adapter hook | Endpoints called | Maps to |
+|---|---|---|
+| `usePortfolioSummary` | `GET /api/portfolio/analytics`<br>`GET /api/portfolio/holdings-enriched`<br>`GET /api/insights/v3-portfolio`<br>`GET /api/intelligence/portfolio`<br>`POST /api/copilot/widgets/portfolio_var`<br>`POST /api/copilot/widgets/tax_harvest` | `summary` · `allocation` · `topHoldings` · `funds` · `risk` · `tax` · `user` |
+| `useStressTest(scenario)` | `POST /api/copilot/widgets/stress_test` | `dropPct` · `portfolioImpact` · `recoveryMonths` · `breakdown` |
+| `useMarketBrief` | `POST /api/copilot/widgets/market_brief` | `nifty` · `sensex` · `sectors` · `flows` · `narrative` |
+| `useRiskSuitability` | `POST /api/copilot/widgets/risk_suitability` | `equityActual/Target` · `debtActual/Target` · `suggestions` |
+| `useSuggestedPrompts(personaId)` | `GET /api/copilot/suggested-prompts?persona=…` | `{ primary, secondary, advanced }` — merged with local catalog |
+
+Each adapter:
+
+1. Returns a **placeholder view-model on mount** (`{ initialData }` on `useAsync`) so screens never flicker through null.
+2. Fires the real backend calls in parallel via `apiClient` (`withCredentials: true`).
+3. Merges live response into the same view-model shape (key for key).
+4. Sets `_source: "live"` on success, `"placeholder"` on error, so screens render a `SourceBanner` if any.
+5. Exposes a `refetch` callback wired to the banner's Retry button.
+
+Auth failures (401) and total backend outage degrade to the placeholder — never a crash, never a white screen.
 
 `adapters/personas.js` + `adapters/promptCatalog.js` are derived directly from [docs/COPILOT_PROMPT_CATALOG.md](./COPILOT_PROMPT_CATALOG.md) — keep them in sync.
+
+### Adding a new adapter
+
+```js
+// v3/adapters/myThing.js
+import { apiGet } from "./apiClient";
+import { useAsync } from "../hooks/useAsync";
+
+export function useMyThing(arg) {
+  return useAsync(
+    async () => {
+      const { data, error } = await apiGet("/my/endpoint", { arg });
+      if (error || !data) return { data: null, error };
+      return { data: { /* shape that screens expect */ }, error: null };
+    },
+    [arg],
+    { initialData: /* placeholder */ }
+  );
+}
+```
+
+Then export from `adapters/index.js`.
 
 ## 7 · Mobile vs Desktop strategy (spec §3)
 

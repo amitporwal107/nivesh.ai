@@ -9,6 +9,7 @@ import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { PerformanceLine } from "../../components/viz";
 import { usePortfolioSummary } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 import { pct } from "../../lib/format";
 
 const PERIODS = [
@@ -24,7 +25,8 @@ export default function Performance() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
   const [period, setPeriod] = useState("ytd");
 
   const value = period === "ytd" ? p.performance.ytd : period === "1y" ? p.performance.oneY : period === "3y" ? p.performance.threeY : 8.2;
@@ -35,6 +37,7 @@ export default function Performance() {
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Performance" title="Returns and benchmarking" />
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <div className="v3-hscroll" style={{ display: "flex", gap: 6 }}>
           {PERIODS.map((pr) => (
             <CategoryChip

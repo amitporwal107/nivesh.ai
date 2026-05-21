@@ -8,10 +8,12 @@ import CompactCard from "../../components/CompactCard";
 import MoreQuestions from "../../components/MoreQuestions";
 import Composer from "../../components/Composer";
 import SectionHead from "../../components/SectionHead";
+import SourceBanner from "../../components/SourceBanner";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { FundCountHistogram, OverlapDonut, PerformanceLine, GoalBars, TaxPyramid } from "../../components/viz";
-import { usePersona, usePortfolioSummary, getCatalogFor, countsByCategory } from "../../adapters";
+import { usePersona, usePortfolioSummary, useSuggestedPrompts, countsByCategory } from "../../adapters";
+import { loadPortfolio } from "../../adapters/portfolio";
 import { dateLabel } from "../../lib/format";
 
 const CATEGORIES = [
@@ -28,8 +30,13 @@ export default function CopilotHome() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const { persona } = usePersona();
-  const { data: portfolio } = usePortfolioSummary();
-  const catalog = getCatalogFor(persona.id);
+  const portfolioState = usePortfolioSummary();
+  const portfolio = portfolioState.data || loadPortfolio();
+  const { data: catalogData } = useSuggestedPrompts(persona.id);
+  const catalog = useMemo(
+    () => catalogData || { primary: null, secondary: [], advanced: [] },
+    [catalogData]
+  );
   const [activeCat, setActiveCat] = useState("all");
   const counts = useMemo(() => countsByCategory(catalog), [catalog]);
 
@@ -48,7 +55,7 @@ export default function CopilotHome() {
     return catalog.advanced.filter((p) => p.category === activeCat);
   }, [catalog, activeCat]);
 
-  const hero = catalog.primary;
+  const hero = catalog.primary || { label: persona.heroQuestion, category: persona.heroCategory || "health" };
   const heroViz = renderHeroViz(hero.category, portfolio, isDesktop);
   const heroDescription = pickHeroDescription(persona.id);
 
@@ -65,6 +72,13 @@ export default function CopilotHome() {
       )}
 
       <div style={{ padding: isDesktop ? 0 : 0, display: "flex", flexDirection: "column", gap: isDesktop ? 24 : 18 }}>
+        <SourceBanner
+          source={portfolio?._source}
+          error={portfolioState.error}
+          loading={portfolioState.loading}
+          onRefresh={portfolioState.refetch}
+        />
+
         <PersonaStrip persona={persona} onChange={() => navigate("/profile")} />
 
         <div className="v3-hscroll" style={{ display: "flex", gap: 6 }}>

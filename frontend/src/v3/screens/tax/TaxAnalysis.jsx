@@ -8,19 +8,35 @@ import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { TaxPyramid, GoalBars } from "../../components/viz";
 import { usePortfolioSummary } from "../../adapters";
+import SourceBanner from "../../components/SourceBanner";
 import { inrCompact } from "../../lib/format";
 
 export default function TaxAnalysis() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
-  const { data: p } = usePortfolioSummary();
-  const usedPct = (p.tax.ltcgUsed / (p.tax.ltcgUsed + p.tax.ltcgFree)) * 100;
+  const portfolioState = usePortfolioSummary();
+  const p = portfolioState.data;
+  const totalLtcg = (p.tax.ltcgUsed || 0) + (p.tax.ltcgFree || 0);
+  const usedPct = totalLtcg > 0 ? ((p.tax.ltcgUsed || 0) / totalLtcg) * 100 : 0;
+  const harvestCandidates = p.tax.candidates && p.tax.candidates.length
+    ? p.tax.candidates.slice(0, 3).map((c) => ({
+        name: c.name || c.fund_name,
+        units: Math.round(c.units || c.quantity || 0),
+        gain: Math.round(c.gain || c.unrealized_gain || 0),
+        hold: c.holding_period || c.hold || "—",
+      }))
+    : [
+        { name: "Nippon Small Cap", units: 412, gain: 42400, hold: "2y 4m" },
+        { name: "PPFAS Flexi Cap", units: 280, gain: 24800, hold: "3y 8m" },
+        { name: "Mirae ELSS", units: 192, gain: 10800, hold: "1y 2m" },
+      ];
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Tax" title="Capital gains, harvest and FY planning" />
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <SourceBanner source={p?._source} error={portfolioState.error} loading={portfolioState.loading} onRefresh={portfolioState.refetch} />
         <HeroCard
           layout={isDesktop ? "desktop" : "mobile"}
           category="tax"
@@ -46,13 +62,9 @@ export default function TaxAnalysis() {
           <CompactCard category="tax" label="FY exemption left" meta={inrCompact(p.tax.ltcgFree)} viz={<GoalBars />} />
         </div>
 
-        <SectionHead title="Harvest candidates" count="3 positions" />
+        <SectionHead title="Harvest candidates" count={`${harvestCandidates.length} positions`} />
         <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--v3-line)", border: "1px solid var(--v3-line)", borderRadius: 14, overflow: "hidden" }}>
-          {[
-            { name: "Nippon Small Cap", units: 412, gain: 42400, hold: "2y 4m" },
-            { name: "PPFAS Flexi Cap", units: 280, gain: 24800, hold: "3y 8m" },
-            { name: "Mirae ELSS", units: 192, gain: 10800, hold: "1y 2m" },
-          ].map((h, i) => (
+          {harvestCandidates.map((h, i) => (
             <div key={i} style={{ background: "var(--v3-bg-2)", padding: "14px 16px", display: "grid", gridTemplateColumns: isDesktop ? "2fr 1fr 1fr 1fr" : "2fr 1fr 1fr", gap: 12, alignItems: "center" }}>
               <div>
                 <div style={{ color: "var(--v3-ink-1)", fontSize: 14, fontWeight: 500 }}>{h.name}</div>
