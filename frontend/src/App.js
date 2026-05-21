@@ -44,14 +44,16 @@ function AppRouter() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
+      {/* V3 is mounted as a public route so the new 10-second onboarding
+          flow (welcome → pick method → live import → persona reveal) can
+          be the very first surface unauthenticated users see. V3Router
+          gates the rest of the screens internally based on useAuth(). */}
       <Route
         path="/v3/*"
         element={
-          <ProtectedRoute>
-            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
-              <V3App />
-            </Suspense>
-          </ProtectedRoute>
+          <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
+            <V3App />
+          </Suspense>
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />
