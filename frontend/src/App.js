@@ -31,19 +31,17 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Legacy /v2/v3/* → /v3/* redirect. Crosses the basename boundary so it
-// must be a hard navigation (window.location), not a React-Router <Navigate>.
-function LegacyV3Redirect() {
-  if (typeof window !== "undefined") {
-    const { pathname, search, hash } = window.location;
-    // pathname is e.g. /v2/v3/home — strip the /v2 prefix.
-    const cleaned = pathname.replace(/^\/v2/, "");
-    window.location.replace(cleaned + search + hash);
-  }
-  return null;
-}
-
 function V2Routes() {
+  // /v3/* under /v2 is kept as a *passive* mount so that legacy /v2/v3/*
+  // URLs (and any browser still hitting nginx 301 /v3 → /v2/v3 from before
+  // the new nginx.conf is rolled to the container) render the V3 SPA in
+  // place — same UX as today, no redirect bounce.
+  //
+  // Note: we deliberately do NOT redirect /v2/v3/* → /v3/* here. The earlier
+  // approach (window.location.replace) fought a still-deployed nginx 301
+  // in the other direction and produced an infinite loop. Once nginx ships
+  // the new config, /v3 is reached directly and detectAppMode() upstream
+  // picks basename="/v3" — no V2 path is involved at all.
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
@@ -56,8 +54,14 @@ function V2Routes() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
-      {/* Old /v2/v3/* bookmarks → clean /v3/* — must be a hard nav. */}
-      <Route path="/v3/*" element={<LegacyV3Redirect />} />
+      <Route
+        path="/v3/*"
+        element={
+          <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
+            <V3App />
+          </Suspense>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
