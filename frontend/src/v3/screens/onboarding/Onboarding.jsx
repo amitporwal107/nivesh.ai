@@ -16,13 +16,20 @@ import {
 import BrandMark from "../../components/BrandMark";
 import PersonaAvatar from "../../components/PersonaAvatar";
 import ScreenContainer from "../../components/layout/ScreenContainer";
-import { usePersona, PERSONAS, uploadPortfolioFile, pollUploadStatus } from "../../adapters";
+import { usePersona, PERSONAS, uploadPortfolioFile, pollUploadStatus, apiPatch, apiPost } from "../../adapters";
 import { useAuth } from "@/context/AuthContext";
 import { GoogleLogin } from "@react-oauth/google";
 import { openConnectAndImport } from "../../adapters/connectImport";
+import { Briefcase, User, Users } from "lucide-react";
 
-// 4-step state machine: welcome → pick → importing → reveal.
-const STEPS = ["welcome", "pick", "importing", "reveal"];
+// 5-step state machine for retail; 6-step branch for MFD:
+//   welcome → role → (pick → importing → reveal)            [individual]
+//   welcome → role → (mfd_setup → importing → reveal)       [mfd]
+//
+// `stepIndex` for the Pips bar is derived from STEPS_FOR_ROLE.
+const STEPS = ["welcome", "role", "pick", "mfd_setup", "importing", "reveal"];
+const STEPS_INDIVIDUAL = ["welcome", "role", "pick", "importing", "reveal"];
+const STEPS_MFD =        ["welcome", "role", "mfd_setup", "importing", "reveal"];
 
 // Findings stream timing (in ms from start of import).
 const FINDINGS_TIMELINE = [
@@ -44,6 +51,7 @@ export default function Onboarding() {
   const { user, loginWithGoogle, authError, googleClientId } = useAuth();
 
   const [step, setStep] = useState(STEPS[0]);
+  const [role, setRole] = useState(null); // "individual" | "mfd"
   const [method, setMethod] = useState(null); // "cas" | "gmail" | "manual"
   const [findings, setFindings] = useState({});
   const [importPct, setImportPct] = useState(8);
@@ -51,10 +59,12 @@ export default function Onboarding() {
   const [picking, setPicking] = useState(false);
   const [casFile, setCasFile] = useState(null);
   const [uploadStatusMsg, setUploadStatusMsg] = useState(null);
+  const [mfdFirstClient, setMfdFirstClient] = useState(null); // { profile_id, name }
 
   const importTimers = useRef([]);
 
-  const stepIndex = STEPS.indexOf(step);
+  const activeFlow = role === "mfd" ? STEPS_MFD : STEPS_INDIVIDUAL;
+  const stepIndex = Math.max(0, activeFlow.indexOf(step));
 
   // ── Importing: drive real CAS upload when a file is attached; otherwise run
   // a simulated import that mirrors the same UX. Either path streams findings
@@ -264,12 +274,31 @@ export default function Onboarding() {
               onGoogleSignIn={async (credential) => {
                 try {
                   await loginWithGoogle(credential);
-                  setStep("pick");
+                  setStep("role");
                 } catch (e) {
                   // authError is set by loginWithGoogle — surfaced in the Welcome UI.
                 }
               }}
-              onStart={() => setStep("pick")}
+              onStart={() => setStep("role")}
+            />
+          )}
+          {step === "role" && (
+            <RoleStep
+              isDesktop={isDesktop}
+              onPick={(r) => {
+                setRole(r);
+                setStep(r === "mfd" ? "mfd_setup" : "pick");
+              }}
+            />
+          )}
+          {step === "mfd_setup" && (
+            <MFDSetupStep
+              isDesktop={isDesktop}
+              onComplete={(firstClient) => {
+                setMfdFirstClient(firstClient);
+                setMethod("cas");
+                setStep("importing");
+              }}
             />
           )}
           {step === "pick" && <PickStep onPick={onPickMethod} isDesktop={isDesktop} />}
@@ -1513,4 +1542,233 @@ function pickFocusText(id) {
     default:
       return "diversification, drift, and the single best next action";
   }
+}
+
+/* ═════════════════════════ 2 · ROLE PICKER ═════════════════════════ */
+
+function RoleStep({ onPick, isDesktop }) {
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingTop: 12 }}>
+      <p className="v3-eyebrow" style={{ fontSize: 11, color: "var(--v3-saffron)", marginBottom: 8 }}>STEP 2 · YOU</p>
+      <h1 style={{ fontFamily: "var(--v3-font-display)", fontSize: isDesktop ? 36 : 28, fontWeight: 600, color: "var(--v3-ink-1)", margin: "0 0 8px", lineHeight: 1.15 }}>
+        Who are you investing for?
+      </h1>
+      <p style={{ color: "var(--v3-ink-3)", fontSize: 14, margin: "0 0 22px", lineHeight: 1.45 }}>
+        Pick the option that matches you. You can change this later in Settings.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "1fr 1fr" : "1fr", gap: 12 }}>
+        <RoleCard
+          icon={User}
+          label="Just for me"
+          desc="I'm an individual investor managing my own portfolio."
+          onClick={() => onPick("individual")}
+        />
+        <RoleCard
+          icon={Briefcase}
+          label="I'm an MFD / Advisor"
+          desc="I advise multiple clients and want a workspace to manage them."
+          onClick={() => onPick("mfd")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RoleCard({ icon: Icon, label, desc, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        textAlign: "left",
+        background: "var(--v3-bg-2)",
+        border: "1px solid var(--v3-line)",
+        borderRadius: 14,
+        padding: 18,
+        cursor: "pointer",
+        display: "flex",
+        gap: 14,
+        alignItems: "flex-start",
+        transition: "all 160ms ease",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--v3-saffron)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--v3-line)"; }}
+    >
+      <span style={{ width: 36, height: 36, borderRadius: 10, background: "var(--v3-saffron)15", display: "grid", placeItems: "center", color: "var(--v3-saffron)", flexShrink: 0 }}>
+        <Icon size={18} />
+      </span>
+      <span style={{ flex: 1 }}>
+        <span style={{ display: "block", fontSize: 15, fontWeight: 600, color: "var(--v3-ink-1)", marginBottom: 4 }}>{label}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--v3-ink-3)", lineHeight: 1.4 }}>{desc}</span>
+      </span>
+    </button>
+  );
+}
+
+/* ═════════════════════════ 3 · MFD SETUP ═════════════════════════ */
+//
+// One-step MFD bootstrap:
+//   1. Capture firm name + advisor name + ARN/RIA (PATCH /api/mfd/workspace → ADVISORY mode)
+//   2. Add first client (POST /api/mfd/profiles)
+//   3. Activate that client (POST /api/mfd/profiles/{id}/activate)
+//   4. Hand off to existing importing → reveal flow (which uploads CAS into
+//      that activated client's workspace).
+//
+// More clients can be added later from the Advisor screen — we only require
+// one here so the MFD has something to import a CAS into.
+
+function MFDSetupStep({ onComplete, isDesktop }) {
+  const [firmName, setFirmName] = React.useState("");
+  const [advisorName, setAdvisorName] = React.useState("");
+  const [arn, setArn] = React.useState("");
+  const [clientName, setClientName] = React.useState("");
+  const [clientEmail, setClientEmail] = React.useState("");
+  const [clientMobile, setClientMobile] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  const canSubmit = firmName.trim() && advisorName.trim() && arn.trim() && clientName.trim();
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      // 1. Workspace → ADVISORY
+      const ws = await apiPatch("/mfd/workspace", {
+        mode: "ADVISORY",
+        firm_name: firmName.trim(),
+        advisor_name: advisorName.trim(),
+        arn_or_ria: arn.trim(),
+        mfd_onboarding_completed: true,
+      });
+      if (ws.error) throw new Error(ws.error);
+
+      // 2. First client
+      const created = await apiPost("/mfd/profiles", {
+        name: clientName.trim(),
+        email: clientEmail.trim() || null,
+        mobile: clientMobile.trim() || null,
+      });
+      if (created.error || !created.data) throw new Error(created.error || "Couldn't create client");
+      const profileId = created.data.profile_id || created.data.id || created.data._id;
+      if (!profileId) throw new Error("Created client missing id");
+
+      // 3. Activate this client so subsequent CAS import lands in their workspace
+      await apiPost(`/mfd/profiles/${profileId}/activate`, {});
+
+      onComplete({ profile_id: profileId, name: clientName.trim() });
+    } catch (e) {
+      setErr(e.message || "Setup failed");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingTop: 12 }}>
+      <p className="v3-eyebrow" style={{ fontSize: 11, color: "var(--v3-saffron)", marginBottom: 8 }}>STEP 3 · ADVISOR SETUP</p>
+      <h1 style={{ fontFamily: "var(--v3-font-display)", fontSize: isDesktop ? 32 : 24, fontWeight: 600, color: "var(--v3-ink-1)", margin: "0 0 6px", lineHeight: 1.2 }}>
+        Set up your workspace
+      </h1>
+      <p style={{ color: "var(--v3-ink-3)", fontSize: 13, margin: "0 0 20px" }}>
+        Add your firm details and your first client. Their latest CAS will import next.
+      </p>
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <fieldset style={fieldsetStyle}>
+          <legend style={legendStyle}><Briefcase size={12} /> &nbsp;Firm</legend>
+          <FieldRow label="Firm name" value={firmName} setValue={setFirmName} placeholder="Acme Wealth Advisors" required />
+          <FieldRow label="Advisor name" value={advisorName} setValue={setAdvisorName} placeholder="Your full name" required />
+          <FieldRow label="ARN / RIA" value={arn} setValue={setArn} placeholder="ARN-12345 or INA-12345" required />
+        </fieldset>
+
+        <fieldset style={fieldsetStyle}>
+          <legend style={legendStyle}><Users size={12} /> &nbsp;First client</legend>
+          <FieldRow label="Client name" value={clientName} setValue={setClientName} placeholder="Client's full name" required />
+          <FieldRow label="Client email (optional)" value={clientEmail} setValue={setClientEmail} type="email" placeholder="name@example.com" />
+          <FieldRow label="Client mobile (optional)" value={clientMobile} setValue={setClientMobile} placeholder="+91 9xxxxxxxxx" />
+        </fieldset>
+
+        {err && (
+          <div style={{ padding: "10px 12px", background: "var(--v3-crimson-soft)", border: "1px solid var(--v3-crimson)40", borderRadius: 8, color: "var(--v3-crimson)", fontSize: 12 }}>
+            {err}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit || submitting}
+          style={{
+            padding: "12px 18px",
+            background: canSubmit ? "var(--v3-saffron)" : "var(--v3-bg-3)",
+            border: "none",
+            borderRadius: 999,
+            fontSize: 14,
+            fontWeight: 600,
+            color: canSubmit ? "#000" : "var(--v3-ink-4)",
+            cursor: canSubmit && !submitting ? "pointer" : "not-allowed",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+          }}
+        >
+          {submitting ? "Setting up…" : "Continue to CAS import"} <ChevronRight size={14} />
+        </button>
+        <p style={{ fontSize: 11, color: "var(--v3-ink-4)", textAlign: "center", margin: 0 }}>
+          You can add more clients from the Advisor screen after setup.
+        </p>
+      </form>
+    </div>
+  );
+}
+
+const fieldsetStyle = {
+  border: "1px solid var(--v3-line)",
+  borderRadius: 12,
+  padding: "12px 14px 14px",
+  background: "var(--v3-bg-2)",
+};
+
+const legendStyle = {
+  padding: "0 6px",
+  fontSize: 10,
+  fontFamily: "var(--v3-font-mono)",
+  fontWeight: 600,
+  color: "var(--v3-ink-3)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+function FieldRow({ label, value, setValue, placeholder, type = "text", required }) {
+  return (
+    <label style={{ display: "block", marginTop: 10 }}>
+      <span style={{ display: "block", fontSize: 11, color: "var(--v3-ink-3)", marginBottom: 4 }}>
+        {label} {required && <span style={{ color: "var(--v3-crimson)" }}>*</span>}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        style={{
+          width: "100%",
+          padding: "9px 12px",
+          background: "var(--v3-bg-1)",
+          border: "1px solid var(--v3-line)",
+          borderRadius: 8,
+          fontSize: 13,
+          color: "var(--v3-ink-1)",
+          outline: "none",
+        }}
+        onFocus={(e) => (e.target.style.borderColor = "var(--v3-saffron)")}
+        onBlur={(e) => (e.target.style.borderColor = "var(--v3-line)")}
+      />
+    </label>
+  );
 }
