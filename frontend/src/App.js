@@ -31,6 +31,18 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Legacy /v2/v3/* → /v3/* redirect. Crosses the basename boundary so it
+// must be a hard navigation (window.location), not a React-Router <Navigate>.
+function LegacyV3Redirect() {
+  if (typeof window !== "undefined") {
+    const { pathname, search, hash } = window.location;
+    // pathname is e.g. /v2/v3/home — strip the /v2 prefix.
+    const cleaned = pathname.replace(/^\/v2/, "");
+    window.location.replace(cleaned + search + hash);
+  }
+  return null;
+}
+
 function V2Routes() {
   return (
     <Routes>
@@ -44,6 +56,8 @@ function V2Routes() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
+      {/* Old /v2/v3/* bookmarks → clean /v3/* — must be a hard nav. */}
+      <Route path="/v3/*" element={<LegacyV3Redirect />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
