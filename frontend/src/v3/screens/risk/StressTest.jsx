@@ -1,0 +1,88 @@
+import React, { useState } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
+import HeroCard from "../../components/HeroCard";
+import HeroVizPanel from "../../components/HeroVizPanel";
+import CompactCard from "../../components/CompactCard";
+import CategoryChip from "../../components/CategoryChip";
+import SectionHead from "../../components/SectionHead";
+import ScreenContainer from "../../components/layout/ScreenContainer";
+import TopBar from "../../components/layout/TopBar";
+import { PerformanceLine, OverlapDonut } from "../../components/viz";
+import { usePortfolioSummary } from "../../adapters";
+import { inrCompact, pct } from "../../lib/format";
+
+const SCENARIOS = [
+  { id: "drop10", label: "Drop 10%" },
+  { id: "drop20", label: "Drop 20%" },
+  { id: "drop30", label: "Drop 30%" },
+  { id: "covid", label: "COVID '20" },
+  { id: "gfc", label: "GFC '08" },
+];
+
+const SCENARIO_DELTA = { drop10: -10, drop20: -20, drop30: -32, covid: -34, gfc: -54 };
+
+export default function StressTest() {
+  const { viewport } = useOutletContext() || { viewport: "mobile" };
+  const isDesktop = viewport === "desktop";
+  const navigate = useNavigate();
+  const { data: p } = usePortfolioSummary();
+  const [scenario, setScenario] = useState("drop20");
+  const delta = SCENARIO_DELTA[scenario];
+  const impactValue = p.summary.totalValue * (1 + delta / 100);
+  const loss = p.summary.totalValue - impactValue;
+
+  return (
+    <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
+      <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Risk · Stress test" title="What if markets fall?" />
+      <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
+        <div className="v3-hscroll" style={{ display: "flex", gap: 6 }}>
+          {SCENARIOS.map((s) => (
+            <CategoryChip
+              key={s.id}
+              category="risk"
+              label={s.label}
+              active={scenario === s.id}
+              onClick={() => setScenario(s.id)}
+            />
+          ))}
+        </div>
+
+        <HeroCard
+          layout={isDesktop ? "desktop" : "mobile"}
+          category="risk"
+          priorityLabel="Stress impact"
+          title={`Your portfolio drops to ${inrCompact(impactValue)}`}
+          description={isDesktop ? `Loss of ${inrCompact(loss)} (${pct(delta, 1)}). Recovery time at long-term equity CAGR of 12% is roughly ${Math.ceil(Math.log(p.summary.totalValue / impactValue) / Math.log(1.12) * 12)} months.` : null}
+          viz={
+            <HeroVizPanel eyebrow="Net change" value={pct(delta, 1)} unit={`(${inrCompact(loss)})`} size={isDesktop ? "desktop" : "mobile"}>
+              <PerformanceLine
+                points={[2, 8, 8, 12, 14, 16, 20, 22, 26, 26, 32, 30]}
+                benchmark={[2, 8, 8, 14, 14, 20, 20, 26, 26, 32, 32, 34]}
+                color="var(--v3-crimson)"
+                size={isDesktop ? 144 : 96}
+              />
+            </HeroVizPanel>
+          }
+          ctaText="Suggest mitigations →"
+          onClick={() => navigate("/chat?q=How%20do%20I%20reduce%20drawdown%20risk")}
+        />
+
+        <SectionHead title="Impact by asset class" count={`${p.allocation.length} buckets`} />
+        <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : "1fr 1fr", gap: 12 }}>
+          {p.allocation.map((a, i) => {
+            const assetImpact = delta * (a.label === "Equity" ? 1 : a.label === "Debt" ? 0.1 : a.label === "Gold" ? -0.4 : 0.7);
+            return (
+              <CompactCard
+                key={i}
+                category="risk"
+                label={`${a.label} · ${a.value}%`}
+                meta={`IMPACT ${pct(assetImpact, 1)}`}
+                viz={<OverlapDonut value={Math.min(Math.abs(assetImpact) * 4, 100)} color={a.color} />}
+              />
+            );
+          })}
+        </div>
+      </div>
+    </ScreenContainer>
+  );
+}

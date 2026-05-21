@@ -1,0 +1,13 @@
+/*
+ * Fonts are loaded via <link> tag in public/index.html (faster, browser-cached).
+ * This file holds @font-face fallbacks and font feature settings if we add them later.
+ * For now the Google Fonts <link> is sufficient and this file is a no-op stylesheet
+ * kept so any future @font-face declarations have a single home.
+ */
+
+.v3 {
+  font-feature-settings: "ss01", "ss02", "cv11"; /* Geist stylistic sets — gracefully ignored elsewhere */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
