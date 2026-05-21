@@ -73,6 +73,9 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
+    "build:v2": "rimraf build/v2 && REACT_APP_BUNDLE_TARGET=v2 PUBLIC_URL=/v2 BUILD_PATH=build/v2 craco build",
+    "build:v3": "rimraf build/v3 && REACT_APP_BUNDLE_TARGET=v3 PUBLIC_URL=/v3 BUILD_PATH=build/v3 craco build",
+    "build:all": "yarn build:v2 && yarn build:v3",
     "test": "craco test",
     "cap:sync": "craco build && cap sync",
     "cap:android": "craco build && cap sync android && cap open android",

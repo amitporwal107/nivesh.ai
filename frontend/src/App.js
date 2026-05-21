@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -15,8 +15,17 @@ import CasCallback from "@/pages/CasCallback";
 import CasConnect from "@/pages/CasConnect";
 import Privacy from "@/pages/Privacy";
 
-// V3 redesign — fully isolated under /v3, lazy-loaded so V2 bundle is unaffected.
-const V3App = React.lazy(() => import("@/v3"));
+// V3 lives in its own SPA bundle served at /v3/* by nginx. Legacy /v2/v3/*
+// links bounce the browser there with a hard redirect so the old bundle does
+// not try to render V3 at all.
+function V3LegacyRedirect() {
+  useEffect(() => {
+    const rest = window.location.pathname.replace(/^\/v2\/v3/, "") || "/";
+    const target = "/v3" + rest + window.location.search + window.location.hash;
+    window.location.replace(target);
+  }, []);
+  return <div style={{ minHeight: "100vh", background: "#0a0908" }} />;
+}
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -44,18 +53,10 @@ function AppRouter() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
-      {/* V3 is mounted as a public route so the new 10-second onboarding
-          flow (welcome → pick method → live import → persona reveal) can
-          be the very first surface unauthenticated users see. V3Router
-          gates the rest of the screens internally based on useAuth(). */}
-      <Route
-        path="/v3/*"
-        element={
-          <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
-            <V3App />
-          </Suspense>
-        }
-      />
+      {/* V3 is served by its own bundle at /v3/* (see src/index.v3.js +
+          nginx.conf). Anyone landing on the legacy /v2/v3/* path is hard-
+          redirected one-time so we never pull V3 code into this bundle. */}
+      <Route path="/v3/*" element={<V3LegacyRedirect />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

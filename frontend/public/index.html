@@ -29,15 +29,24 @@
         <title>nivesh.ai — AI-Powered Wealth Management</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script>
-        // V2 path-prefix guard: React Router uses basename="/v2".
-        // Production nginx redirects bare "/" -> "/v2/", but preview/dev environments
-        // don't. Redirect client-side so the SPA always mounts at the right base.
+        // Path-prefix guard. Each bundle is built with PUBLIC_URL=/v2 or =/v3,
+        // and React Router uses the matching basename. If a user lands on a
+        // path that doesn't start with this bundle's base, redirect them to
+        // the right base so the SPA always mounts cleanly.
+        //
+        // The V2 and V3 bundles are isolated, so a request that nginx routes
+        // to one of them only ever needs to handle its own prefix here.
         (function () {
+          var base = "%PUBLIC_URL%" || "/v2";
           var p = window.location.pathname;
-          if (p.indexOf("/v2") !== 0 && p.indexOf("/api") !== 0) {
-            var target = "/v2" + (p === "/" ? "/" : p) + window.location.search + window.location.hash;
-            window.location.replace(target);
-          }
+          // Already inside this bundle's prefix, or hitting the API — leave it alone.
+          if (p.indexOf(base) === 0 || p.indexOf("/api") === 0) return;
+          // V2 bundle should never redirect a /v3/* path (and vice versa) —
+          // that traffic belongs to the other SPA, served by nginx separately.
+          if (base === "/v2" && p.indexOf("/v3") === 0) return;
+          if (base === "/v3" && p.indexOf("/v2") === 0) return;
+          var target = base + (p === "/" ? "/" : p) + window.location.search + window.location.hash;
+          window.location.replace(target);
         })();
         </script>
     </head>
