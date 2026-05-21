@@ -1,0 +1,99 @@
+/*
+ * V3 design tokens — strict to nivesh_copilot_figma_spec.md §1.
+ * All variables live under the `.v3` class scope so V2 is untouched.
+ */
+
+.v3 {
+  /* ───────── Surfaces (warm paper-black, not blue-black) ───────── */
+  --v3-bg-0: #0a0908;
+  --v3-bg-1: #131210;
+  --v3-bg-2: #1c1a17;
+  --v3-bg-3: #26231f;
+  --v3-line: #2e2a25;
+  --v3-line-strong: #3d3832;
+
+  /* ───────── Ink ───────── */
+  --v3-ink-1: #f5efe6;
+  --v3-ink-2: #b8aea0;
+  --v3-ink-3: #7a7368;
+  --v3-ink-4: #4a443c;
+
+  /* ───────── Brand ───────── */
+  --v3-saffron: #ff8c42;
+  --v3-saffron-soft: #ff8c4226;
+  --v3-saffron-glow: #ff8c4214;
+  --v3-saffron-deep: #c95f1e;
+  --v3-saffron-ink: #2a1a0a;
+
+  --v3-indigo: #6b6cff;
+  --v3-indigo-soft: #6b6cff1f;
+
+  --v3-moss: #7ba05b;
+  --v3-moss-soft: #7ba05b1f;
+  --v3-moss-band: #7ba05b14;
+
+  --v3-gold: #d4af37;
+  --v3-gold-soft: #d4af3722;
+
+  --v3-crimson: #d94f4f;
+  --v3-crimson-soft: #d94f4f1f;
+
+  /* ───────── Category aliases ───────── */
+  --v3-cat-health: var(--v3-moss);
+  --v3-cat-health-soft: var(--v3-moss-soft);
+  --v3-cat-performance: var(--v3-gold);
+  --v3-cat-performance-soft: var(--v3-gold-soft);
+  --v3-cat-risk: var(--v3-crimson);
+  --v3-cat-risk-soft: var(--v3-crimson-soft);
+  --v3-cat-tax: var(--v3-indigo);
+  --v3-cat-tax-soft: var(--v3-indigo-soft);
+  --v3-cat-goal: var(--v3-saffron);
+  --v3-cat-goal-soft: var(--v3-saffron-soft);
+
+  /* ───────── Radii (spec §1) ───────── */
+  --v3-r-sm: 8px;
+  --v3-r-md: 14px;
+  --v3-r-lg: 20px;
+  --v3-r-xl: 22px;
+  --v3-r-pill: 999px;
+
+  /* ───────── Shadows ───────── */
+  --v3-shadow-card: 0 8px 24px -8px rgba(0, 0, 0, 0.3);
+  --v3-shadow-hero: 0 16px 40px -16px rgba(0, 0, 0, 0.4);
+  --v3-shadow-phone: 0 50px 80px -30px rgba(0, 0, 0, 0.8);
+
+  /* ───────── Spacing scale (4px base) ───────── */
+  --v3-sp-1: 4px;
+  --v3-sp-2: 6px;
+  --v3-sp-3: 8px;
+  --v3-sp-4: 10px;
+  --v3-sp-5: 12px;
+  --v3-sp-6: 14px;
+  --v3-sp-7: 16px;
+  --v3-sp-8: 18px;
+  --v3-sp-9: 20px;
+  --v3-sp-10: 24px;
+  --v3-sp-11: 28px;
+  --v3-sp-12: 36px;
+  --v3-sp-13: 48px;
+  --v3-sp-14: 64px;
+
+  /* ───────── Typography ───────── */
+  --v3-font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --v3-font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+  --v3-font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  /* ───────── Motion ───────── */
+  --v3-ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --v3-dur-fast: 120ms;
+  --v3-dur: 180ms;
+  --v3-dur-slow: 240ms;
+
+  /* ───────── Layout (spec §3) ───────── */
+  --v3-sidebar-w: 240px;
+  --v3-main-max-w: 1200px;
+  --v3-mobile-gutter: 20px;
+  --v3-desktop-gutter: 40px;
+  --v3-bottom-nav-h: 64px;
+  --v3-composer-h: 96px;
+}

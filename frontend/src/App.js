@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -14,6 +14,9 @@ import NiveshV2 from "@/pages/NiveshV2";
 import CasCallback from "@/pages/CasCallback";
 import CasConnect from "@/pages/CasConnect";
 import Privacy from "@/pages/Privacy";
+
+// V3 redesign — fully isolated under /v3, lazy-loaded so V2 bundle is unaffected.
+const V3App = React.lazy(() => import("@/v3"));
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -41,6 +44,16 @@ function AppRouter() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
+      <Route
+        path="/v3/*"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
+              <V3App />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
