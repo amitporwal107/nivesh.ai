@@ -39,6 +39,16 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                        CASE
                            WHEN s.isin IS NULL THEN NULL
                            WHEN COUNT(*) OVER (PARTITION BY s.isin) > 1 THEN NULL
+                           -- Cross-batch: another EXISTING row already holds this ISIN
+                           -- (under a different symbol or entity_type). The unique
+                           -- index ux_security_master_isin is on `isin` alone, so any
+                           -- ISIN that's already taken by another row will violate.
+                           -- Null it out here; the existing row keeps the ISIN.
+                           WHEN EXISTS (
+                               SELECT 1 FROM ref.security_master sm
+                                WHERE sm.isin = s.isin
+                                  AND NOT (sm.entity_type = 'EQUITY' AND sm.symbol = s.symbol)
+                           ) THEN NULL
                            ELSE s.isin
                        END AS isin
                   FROM per_symbol s

@@ -56,22 +56,30 @@ PG_DSN = (
 # discovery (table_name = dataset_name and prefer `as_of_date`/`target_date`/
 # `nav_date`/`observation_date` if present).
 _DATASET_MAP: Dict[str, Tuple[str, str]] = {
-    "amfi_nav":                   ("nidp.amfi_nav",            "as_of_date"),
-    "fii_dii":                    ("nidp.fii_dii",             "as_of_date"),
-    "fii_dii_flows":              ("nidp.fii_dii",             "as_of_date"),
-    "bhavcopy":                   ("nidp.bhavcopy",            "as_of_date"),
+    # Dataset name → (physical table, date column). Both must match what
+    # exists in nidp schema today. Logical feed names (e.g. "amfi_nav",
+    # "bhavcopy") are kept as alias keys for backwards-compat with
+    # dq.expectations_active rows; they all resolve to the same physical
+    # tables as the canonical entries below.
+    "amfi_nav":                   ("nidp.mf_nav_daily",        "nav_date"),
+    "amfi_nav_history":           ("nidp.mf_nav_daily",        "nav_date"),
+    "mf_nav_daily":               ("nidp.mf_nav_daily",        "nav_date"),
+    "fii_dii":                    ("nidp.fii_dii_flows",       "as_of_date"),
+    "fii_dii_flows":              ("nidp.fii_dii_flows",       "as_of_date"),
+    "bhavcopy":                   ("nidp.prices_eod",          "as_of_date"),
     "prices_eod":                 ("nidp.prices_eod",          "as_of_date"),
     "prices_eod_adjusted":        ("nidp.prices_eod_adjusted", "as_of_date"),
-    "delivery":                   ("nidp.delivery",            "as_of_date"),
-    "index_close":                ("nidp.index_close",         "as_of_date"),
+    "delivery":                   ("nidp.delivery_data",       "as_of_date"),
+    "delivery_data":              ("nidp.delivery_data",       "as_of_date"),
+    "index_close":                ("nidp.index_eod",           "as_of_date"),
+    "index_eod":                  ("nidp.index_eod",           "as_of_date"),
     "fno_bhavcopy":               ("nidp.fno_bhavcopy",        "as_of_date"),
     "bulk_deals":                 ("nidp.bulk_deals",          "as_of_date"),
     "block_deals":                ("nidp.block_deals",         "as_of_date"),
     "rbi_yields":                 ("nidp.rbi_yields",          "as_of_date"),
-    "fred_macro":                 ("nidp.fred_macro",          "observation_date"),
-    "mf_nav_daily":               ("nidp.mf_nav_daily",        "nav_date"),
-    "amfi_nav_history":           ("nidp.mf_nav_daily",        "nav_date"),
-    "mf_holdings":                ("nidp.mf_holdings",         "snapshot_date"),
+    "fred_macro":                 ("nidp.fred_macro",          "as_of_date"),
+    "mf_holdings":                ("nidp.mf_holdings_monthly", "as_of_month"),
+    "mf_holdings_monthly":        ("nidp.mf_holdings_monthly", "as_of_month"),
     "mf_disclosure_snapshot":     ("nidp.mf_scheme_disclosure_snapshot", "snapshot_date"),
 }
 
@@ -282,6 +290,14 @@ async def run_active_rules(
     """
     conn = await asyncpg.connect(PG_DSN)
     try:
+        # DQ expressions often reference tables without a schema prefix
+        # (e.g. `EXISTS (SELECT 1 FROM corporate_actions WHERE ...)`).
+        # The default search_path is "$user", public — which can't see
+        # nidp/dq/etc. Set it explicitly so unqualified table names in
+        # rule expressions resolve to the right schema.
+        await conn.execute(
+            "SET search_path TO nidp, dq, features, analytics, events, graph, ref, public"
+        )
         # Bail early if the schema isn't there yet (migration 043
         # not applied) — equivalent to "no rules registered".
         try:

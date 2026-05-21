@@ -99,8 +99,15 @@ async def bump_market_session(target_date: date, market: str = "NSE_EQ") -> None
                 ON CONFLICT (market) DO UPDATE SET
                     last_close_date        = GREATEST(market_session_state.last_close_date,
                                                       EXCLUDED.last_close_date),
+                    -- STRICTLY > here (not >=). When bhavcopy successfully runs for
+                    -- the SAME date that's already stored (re-run or stuck loop), we
+                    -- must NOT refresh observed_at — otherwise v_market_session keeps
+                    -- returning the stored value indefinitely and bhavcopy never
+                    -- advances. Letting observed_at go >24h stale forces the view to
+                    -- fall through to compute_last_trading_day_ist() which advances
+                    -- to the actual current trading day.
                     last_close_observed_at = CASE
-                        WHEN EXCLUDED.last_close_date >= market_session_state.last_close_date
+                        WHEN EXCLUDED.last_close_date > market_session_state.last_close_date
                             THEN NOW()
                         ELSE market_session_state.last_close_observed_at
                     END,

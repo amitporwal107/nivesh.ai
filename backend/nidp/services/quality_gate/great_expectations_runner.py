@@ -44,23 +44,25 @@ PG_DSN = (
 # feed has tens of millions of rows (bhavcopy is ~3500/day, but a
 # whole-history sweep should still cap somewhere).
 FEED_QUERIES = {
+    # Keys are logical feed names matching dq.expectations_active entries.
+    # Physical table + column list is what GE actually reads.
     "amfi_nav": {
-        "table":   "nidp.amfi_nav",
-        "columns": "scheme_code, scheme_name, nav, isin_payout, isin_reinvest, as_of_date",
+        "table":   "nidp.mf_nav_daily",
+        "columns": "scheme_code, nav, nav_date AS as_of_date",
         "limit":   200_000,
     },
     "fii_dii": {
-        "table":   "nidp.fii_dii",
-        "columns": "category, as_of_date, buy_value, sell_value, net_value",
+        "table":   "nidp.fii_dii_flows",
+        "columns": "category, as_of_date, buy_value_cr, sell_value_cr, net_value_cr",
         "limit":   100_000,
     },
     "bhavcopy": {
-        "table":   "nidp.bhavcopy",
+        "table":   "nidp.prices_eod",
         "columns": "symbol, series, as_of_date, open_price, high_price, low_price, close_price, volume, isin",
         "limit":   200_000,
     },
     "index_close": {
-        "table":   "nidp.index_close",
+        "table":   "nidp.index_eod",
         "columns": "index_name, as_of_date, open_price, high_price, low_price, close_price",
         "limit":   50_000,
     },
