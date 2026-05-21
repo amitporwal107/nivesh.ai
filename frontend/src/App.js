@@ -31,7 +31,7 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-function AppRouter() {
+function V2Routes() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
@@ -44,52 +44,59 @@ function AppRouter() {
       <Route path="/nidp" element={<ProtectedRoute><NidpConsole /></ProtectedRoute>} />
       <Route path="/app" element={<ProtectedRoute><NiveshV2 /></ProtectedRoute>} />
       <Route path="/v2" element={<Navigate to="/app" replace />} />
-      {/* V3 is mounted as a public route so the new 10-second onboarding
-          flow (welcome → pick method → live import → persona reveal) can
-          be the very first surface unauthenticated users see. V3Router
-          gates the rest of the screens internally based on useAuth(). */}
-      <Route
-        path="/v3/*"
-        element={
-          <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
-            <V3App />
-          </Suspense>
-        }
-      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
 
-function AppInner() {
+function AppInner({ isV3 }) {
   const { googleClientId } = useAuth();
+  // V3 mounts the V3 SPA directly (it has its own <Routes>); V2 keeps its
+  // current route table. The choice of basename happens one level up,
+  // so each path tree is independent and URLs stay clean.
+  const tree = isV3 ? (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#0a0908" }} />}>
+      <V3App />
+    </Suspense>
+  ) : (
+    <V2Routes />
+  );
 
-  // Wrap in GoogleOAuthProvider once we have the client ID
   if (googleClientId) {
     return (
       <GoogleOAuthProvider clientId={googleClientId}>
-        <AppRouter />
+        {tree}
         <Toaster position="top-right" richColors />
       </GoogleOAuthProvider>
     );
   }
-
-  // Render without Google provider while loading client ID
   return (
     <>
-      <AppRouter />
+      {tree}
       <Toaster position="top-right" richColors />
     </>
   );
 }
 
+// Single-time URL sniff at module load. We deliberately do NOT subscribe to
+// route changes here — switching between V2 and V3 means a full page reload
+// (different bundles of providers, different basename). React Router never
+// crosses the basename boundary on its own, so a hard reload is correct.
+function detectAppMode() {
+  if (typeof window === "undefined") return "v2";
+  return window.location.pathname.startsWith("/v3") ? "v3" : "v2";
+}
+
 function App() {
+  const mode = detectAppMode();
+  const basename = mode === "v3" ? "/v3" : "/v2";
+
   return (
-    <BrowserRouter basename="/v2">
+    <BrowserRouter basename={basename}>
       <ThemeProvider>
         <NumberFormatProvider>
           <AuthProvider>
-            <AppInner />
+            <AppInner isV3={mode === "v3"} />
           </AuthProvider>
         </NumberFormatProvider>
       </ThemeProvider>
