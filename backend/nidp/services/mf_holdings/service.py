@@ -112,11 +112,26 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             run.metadata["findings_count"] = validation.findings_count
             run.metadata["has_block"] = validation.has_block
 
-            partial = adapters_missing > 0 or adapters_failed > 0 or validation.has_block
-            final = "PARTIAL" if partial else "OK"
+            # Status decision (2026-05-21 reclassification):
+            #   OK       — every adapter delivered AND validation green
+            #   PARTIAL  — some adapters delivered, some failed/missing
+            #   FAILED   — zero rows produced. Reflects reality instead of
+            #              silently saying "PARTIAL/PASSED" while writing 0 rows
+            #              (the AMC-URL-rot loophole that hid mf_holdings being
+            #              empty for weeks — see project_amc_scrapers_broken.md).
+            total_adapters = len(MF_AMC_TOP10)
+            no_data = len(all_rows) == 0 or n == 0
+            if no_data:
+                final = "FAILED"
+            elif adapters_missing > 0 or adapters_failed > 0 or validation.has_block:
+                final = "PARTIAL"
+            else:
+                final = "OK"
             await run.finalize(final, error_message=(
-                f"missing={adapters_missing} failed={adapters_failed} "
-                f"validation={validation.status}" if partial else None
+                f"missing={adapters_missing}/{total_adapters} "
+                f"failed={adapters_failed} rows={len(all_rows)} "
+                f"validation={validation.status}"
+                if final != "OK" else None
             ))
             INGESTER_RUNS.labels(service=SERVICE_NAME, status=final).inc()
             return run.run_id

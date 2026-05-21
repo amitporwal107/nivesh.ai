@@ -85,10 +85,24 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(len(all_rows))
             INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(n_rows)
 
-            partial = adapters_missing > 0 or adapters_failed > 0
-            final = "PARTIAL" if partial else "OK"
+            # Status decision (2026-05-21 reclassification):
+            #   OK       — every adapter delivered
+            #   PARTIAL  — some adapters delivered, some failed/missing
+            #   FAILED   — zero rows produced. See mf_holdings/service.py for
+            #              the full rationale (project_amc_scrapers_broken.md).
+            total_adapters = len(MF_AMC_TOP10)
+            no_data = len(all_rows) == 0 or n_rows == 0
+            if no_data:
+                final = "FAILED"
+            elif adapters_missing > 0 or adapters_failed > 0:
+                final = "PARTIAL"
+            else:
+                final = "OK"
             await run.finalize(final, error_message=(
-                f"missing={adapters_missing} failed={adapters_failed}" if partial else None
+                f"missing={adapters_missing}/{total_adapters} "
+                f"failed={adapters_failed} rows={len(all_rows)} "
+                f"events={n_events}"
+                if final != "OK" else None
             ))
             INGESTER_RUNS.labels(service=SERVICE_NAME, status=final).inc()
             return run.run_id
