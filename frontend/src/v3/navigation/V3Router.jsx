@@ -62,6 +62,8 @@ const Advisor = lazy(() => import("../screens/advisor/Advisor"));
 const MarketDashboard = lazy(() => import("../screens/market/MarketDashboard"));
 const Settings = lazy(() => import("../screens/settings/Settings"));
 const Profile = lazy(() => import("../screens/profile/Profile"));
+const Goals = lazy(() => import("../screens/goals/Goals"));
+const PlanBoard = lazy(() => import("../screens/plans/PlanBoard"));
 
 function ScreenSkeleton() {
   return (
@@ -98,6 +100,8 @@ export default function V3Router() {
           <Route path="market" element={<V3Protected><MarketDashboard /></V3Protected>} />
           <Route path="settings" element={<V3Protected><Settings /></V3Protected>} />
           <Route path="profile" element={<V3Protected><Profile /></V3Protected>} />
+          <Route path="goals" element={<V3Protected><Goals /></V3Protected>} />
+          <Route path="plans" element={<V3Protected><PlanBoard /></V3Protected>} />
         </Route>
         <Route path="*" element={<Navigate to="home" replace />} />
       </Routes>

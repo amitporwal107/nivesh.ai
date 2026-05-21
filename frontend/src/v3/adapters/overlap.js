@@ -1,61 +1,71 @@
-// Overlap reveal adapter — calls POST /api/copilot/widgets/overlap_reveal and
-// shapes the response into a heatmap-ready matrix used by the Diversification
-// screen.
+// Fund overlap matrix adapter.
+//
+// Calls GET /api/portfolio/fund-overlap/matrix (new backend route).
+// Response is a real, pairwise stock-level overlap computed from
+// fund_holdings_cache — no pseudo-random fallback.
+//
+// Backend shape:
+//   { funds: [{id, name, amc, category, value_rs}],
+//     matrix: number[][],
+//     pairs: [{a, b, a_name, b_name, overlap_pct, shared_count}],
+//     max_pct, high_pairs, coverage_pct, empty }
+//
+// Screen-friendly shape (what useFundOverlap returns):
+//   { funds: string[],       // abbreviated names for axis labels
+//     fundsMeta: [{id, name, amc, category}],
+//     matrix: number[][],    // n×n, symmetric, diagonal = 100
+//     pairs: number,         // count of high-overlap pairs (>=65)
+//     maxPct: number,
+//     coverage_pct: number,
+//     topPairs: [{a_name, b_name, overlap_pct, shared_count}],
+//     empty: boolean,
+//     _source: "live" | "empty" | "placeholder" }
 
-import { apiPost } from "./apiClient";
+import { apiGet } from "./apiClient";
 import { useAsync } from "../hooks/useAsync";
 
 const PLACEHOLDER = {
-  funds: ["PPFAS Flexi", "ICICI Bluechip", "Nippon SC", "HDFC MidCap", "Mirae ELSS", "DSP Small"],
-  matrix: null, // computed lazily so screens always render
-  pairs: 3,
-  maxPct: 71,
+  funds: [],
+  fundsMeta: [],
+  matrix: [],
+  pairs: 0,
+  maxPct: 0,
+  coverage_pct: 0,
+  topPairs: [],
+  empty: true,
   _source: "placeholder",
 };
 
-function abbreviateName(n, max = 14) {
+function abbreviate(n, max = 14) {
   if (!n) return "—";
   return n.length <= max ? n : `${n.slice(0, max - 1)}…`;
 }
 
-function buildMatrix(funds) {
-  // Random-but-stable placeholder when backend doesn't return a precomputed matrix.
-  // Backend response shape is keyed pairwise; we don't need to invent if it's there.
-  return funds.map((_, i) => funds.map((_, j) => (i === j ? 100 : 20 + ((i * 7 + j * 11) % 60))));
-}
-
 function mapResponse(raw) {
   if (!raw) return null;
-  const funds = (raw.funds || raw.fund_names || []).map((f) => (typeof f === "string" ? f : f.name || f.scheme_name || "Fund"));
-  const pairs = raw.high_overlap_pairs || raw.pairs || [];
-  const maxPct = raw.max_overlap_pct ?? raw.overlap_pct ?? Math.max(0, ...pairs.map((p) => p.pct || p.overlap || 0));
-
-  let matrix = raw.matrix;
-  if (!matrix && funds.length) matrix = buildMatrix(funds);
-
+  const fundsMeta = raw.funds || [];
   return {
-    funds: funds.map((n) => abbreviateName(n, 14)),
-    matrix,
-    pairs: pairs.length || (maxPct >= 65 ? 1 : 0),
-    maxPct,
+    funds: fundsMeta.map((f) => abbreviate(f.name || f.scheme_name || "Fund", 14)),
+    fundsMeta,
+    matrix: raw.matrix || [],
+    pairs: raw.high_pairs ?? 0,
+    maxPct: raw.max_pct ?? 0,
+    coverage_pct: raw.coverage_pct ?? 0,
+    topPairs: raw.pairs || [],
+    empty: !!raw.empty,
     _source: "live",
   };
 }
 
-export function useFundOverlap(schemeCodes = null) {
+export function useFundOverlap() {
   return useAsync(
     async () => {
-      const body = schemeCodes ? { scheme_codes: schemeCodes } : {};
-      const { data, error } = await apiPost("/copilot/widgets/overlap_reveal", body);
-      if (error || !data) {
-        return {
-          data: { ...PLACEHOLDER, matrix: buildMatrix(PLACEHOLDER.funds) },
-          error,
-        };
-      }
+      const { data, error } = await apiGet("/portfolio/fund-overlap/matrix");
+      if (error) return { data: PLACEHOLDER, error };
+      if (!data || data.empty) return { data: { ...PLACEHOLDER, _source: "empty" }, error: null };
       return { data: mapResponse(data), error: null };
     },
-    [Array.isArray(schemeCodes) ? schemeCodes.join("|") : ""],
-    { initialData: { ...PLACEHOLDER, matrix: buildMatrix(PLACEHOLDER.funds) } }
+    [],
+    { initialData: PLACEHOLDER }
   );
 }
