@@ -3,12 +3,13 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import { AlertTriangle, RefreshCw, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import HeroCard from "../../components/HeroCard";
 import CompactCard from "../../components/CompactCard";
+import CardStrip from "../../components/CardStrip";
 import CategoryChip from "../../components/CategoryChip";
 import TinyChip from "../../components/TinyChip";
 import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
-import { usePerformance } from "../../adapters/performance";
+import { usePerformance, interpretationText, benchmarkBeatCount } from "../../adapters/performance";
 import { pct, inrCompact } from "../../lib/format";
 
 const PERIODS = ["1M", "3M", "6M", "YTD", "1Y", "3Y", "ALL"];
@@ -78,18 +79,29 @@ export default function Performance() {
   const healthGrade = health.grade ?? null;
   const portfolioReturn = data?.portfolioReturn;
   const benchmarks = data?.benchmarks || {};
-  const beating = Object.values(benchmarks).filter((b) => b != null && portfolioReturn != null && portfolioReturn > b).length;
-  const totalBenchmarks = Object.values(benchmarks).filter((b) => b != null).length;
+  const bb = benchmarkBeatCount(portfolioReturn, benchmarks);
+  const interpretation = interpretationText({
+    portfolioReturn,
+    benchmarks,
+    topContrib: data?.topContrib,
+    worstDrag: data?.worstDrag,
+  });
 
   const heroTitle = loading
     ? "Loading performance data…"
     : data?.empty
     ? "Upload your portfolio to see performance"
+    : portfolioReturn != null
+    ? `${pct(portfolioReturn)} return`
     : healthScore != null
     ? `Portfolio health ${healthScore}/100${healthGrade ? ` · Grade ${healthGrade}` : ""}`
-    : portfolioReturn != null
-    ? `Portfolio return ${pct(portfolioReturn)} · Beating ${beating} of ${totalBenchmarks} indices`
     : "Your portfolio performance";
+
+  const heroEyebrow = loading
+    ? "Loading…"
+    : bb
+    ? `Beating ${bb.beat} of ${bb.total} indices`
+    : "Portfolio return";
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
@@ -101,23 +113,22 @@ export default function Performance() {
           <HeroCard
             layout={isDesktop ? "desktop" : "mobile"}
             category="performance"
-            priorityLabel={loading ? "Loading…" : "Portfolio health"}
+            priorityLabel={heroEyebrow}
             title={heroTitle}
-            description={isDesktop && health.components ? `${health.components.diversification ?? "—"}% div · ${health.components.risk ?? "—"}% risk · ${health.components.cost ?? "—"}% cost · ${health.components.performance ?? "—"}% perf` : null}
+            description={isDesktop ? interpretation : null}
             viz={
               loading ? (
                 <div style={{ width: "100%", height: 80, background: "var(--v3-bg-3)", borderRadius: 10 }} />
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                  {healthScore != null && (
-                    <span style={{ fontFamily: "var(--v3-font-display)", fontSize: isDesktop ? 56 : 44, fontWeight: 600, color: "var(--v3-gold)", lineHeight: 1 }}>
-                      {healthScore}
+                  {portfolioReturn != null && (
+                    <span style={{ fontFamily: "var(--v3-font-display)", fontSize: isDesktop ? 56 : 44, fontWeight: 600, color: portfolioReturn > 0 ? "var(--v3-moss)" : "var(--v3-crimson)", lineHeight: 1 }}>
+                      {pct(portfolioReturn)}
                     </span>
                   )}
-                  {healthGrade && <span className="v3-eyebrow" style={{ color: "var(--v3-ink-3)", fontSize: 10 }}>GRADE {healthGrade}</span>}
-                  {portfolioReturn != null && (
-                    <span className="v3-data" style={{ fontSize: 15, color: portfolioReturn > 0 ? "var(--v3-moss)" : "var(--v3-crimson)", marginTop: 4 }}>
-                      {pct(portfolioReturn)} return
+                  {healthScore != null && (
+                    <span className="v3-eyebrow" style={{ color: "var(--v3-ink-3)", fontSize: 10 }}>
+                      HEALTH {healthScore}/100{healthGrade ? ` · ${healthGrade}` : ""}
                     </span>
                   )}
                 </div>
@@ -135,13 +146,14 @@ export default function Performance() {
 
           {!data?.empty && data?.cards?.length > 0 && (
             <section>
-              <SectionHead title="Snapshot" count="4 metrics" />
-              <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : "1fr 1fr", gap: 12 }}>
+              <SectionHead title="Snapshot" count="5 metrics" />
+              <CardStrip ariaLabel="Performance snapshot" desktopColumns={4}>
+                <CompactCard category="performance" label="XIRR" meta={portfolioReturn != null ? pct(portfolioReturn) : "—"} />
                 <CompactCard category="performance" label="Positive returns" meta={`${data.cards.filter((c) => (c.return_1y ?? 0) > 0).length} of ${data.cards.length} funds`} />
                 <CompactCard category="performance" label="Beating Nifty 50" meta={benchmarks.nifty50 != null ? `Index: ${pct(benchmarks.nifty50)}` : "—"} />
                 <CompactCard category="performance" label="Needs review" meta={`${data.bottomPerformers.length} underperforming`} />
                 <CompactCard category="performance" label="vs Nifty 50 delta" meta={portfolioReturn != null && benchmarks.nifty50 != null ? `${pct(portfolioReturn - benchmarks.nifty50)} alpha` : "—"} />
-              </div>
+              </CardStrip>
             </section>
           )}
 
@@ -196,6 +208,7 @@ export default function Performance() {
             <TinyChip onClick={() => navigate("/v3/chat?q=Which+funds+should+I+switch")}>Which funds to switch?</TinyChip>
             <TinyChip onClick={() => navigate("/v3/chat?q=Compare+my+portfolio+to+Nifty+500")}>Compare vs Nifty 500</TinyChip>
             <TinyChip onClick={() => navigate("/v3/chat?q=Show+3Y+annualized+returns")}>3Y returns</TinyChip>
+            <TinyChip onClick={() => navigate("/v3/chat?q=Why+is+XIRR+lower+than+YTD")}>Why is XIRR lower than YTD?</TinyChip>
           </div>
         </div>
       )}

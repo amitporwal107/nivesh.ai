@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
+import { AlertCircle, Target as TargetIcon } from "lucide-react";
 import PersonaStrip from "../../components/PersonaStrip";
 import CategoryChip from "../../components/CategoryChip";
+import CardStrip from "../../components/CardStrip";
 import HeroCard from "../../components/HeroCard";
 import HeroVizPanel from "../../components/HeroVizPanel";
 import CompactCard from "../../components/CompactCard";
@@ -12,9 +14,9 @@ import SourceBanner from "../../components/SourceBanner";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { FundCountHistogram, OverlapDonut, PerformanceLine, GoalBars, TaxPyramid } from "../../components/viz";
-import { usePersona, usePortfolioSummary, useSuggestedPrompts, countsByCategory } from "../../adapters";
+import { usePersona, usePortfolioSummary, usePortfolioTrend, useSuggestedPrompts, countsByCategory, useInsights, topActions, intelligenceFeed, useGoals } from "../../adapters";
 import { loadPortfolio } from "../../adapters/portfolio";
-import { dateLabel } from "../../lib/format";
+import { dateLabel, inrCompact } from "../../lib/format";
 
 const CATEGORIES = [
   { id: "all", label: "All" },
@@ -39,6 +41,20 @@ export default function CopilotHome() {
   );
   const [activeCat, setActiveCat] = useState("all");
   const counts = useMemo(() => countsByCategory(catalog), [catalog]);
+  const insightsState = useInsights();
+  const insights = useMemo(() => insightsState.data?.insights || [], [insightsState.data]);
+  const topActionList = useMemo(() => topActions(insights), [insights]);
+  const feedList = useMemo(() => intelligenceFeed(insights), [insights]);
+  const goalsState = useGoals();
+  const goals = goalsState.data?.goals || [];
+  const primaryGoal = goals[0] || null;
+  const trendState = usePortfolioTrend(30);
+  const trendPoints = trendState.data?.points || [];
+  const benchmarkPoints = trendState.data?.benchmark || [];
+  const taxFilled = portfolio.tax?.unrealizedLtcg && portfolio.tax?.harvestable
+    ? Math.min(1, portfolio.tax.harvestable / Math.max(1, portfolio.tax.unrealizedLtcg))
+    : null;
+  const taxWarn = (portfolio.tax?.stcg ?? 0) > (portfolio.tax?.unrealizedLtcg ?? 0);
 
   const onPromptSubmit = ({ text }) => {
     const params = new URLSearchParams({ q: text });
@@ -56,7 +72,9 @@ export default function CopilotHome() {
   }, [catalog, activeCat]);
 
   const hero = catalog.primary || { label: persona.heroQuestion, category: persona.heroCategory || "health" };
-  const heroViz = renderHeroViz(hero.category, portfolio, isDesktop);
+  const heroViz = renderHeroViz(hero.category, portfolio, isDesktop, {
+    trendPoints, benchmarkPoints, primaryGoal, taxFilled, taxWarn,
+  });
   const heroDescription = pickHeroDescription(persona.id);
 
   return (
@@ -113,6 +131,25 @@ export default function CopilotHome() {
           />
         </section>
 
+        {topActionList.length > 0 && (
+          <section>
+            <SectionHead title="Top actions" count={`${topActionList.length} priorities`} />
+            <CardStrip ariaLabel="Top actions" desktopColumns={3}>
+              {topActionList.map((ins, i) => (
+                <CompactCard
+                  key={ins.insight_id || i}
+                  category={mapInsightCategory(ins.category)}
+                  label={ins.title || ins.action || "Action"}
+                  meta={ins.current_value && ins.target_value
+                    ? `${ins.current_value} → ${ins.target_value}`
+                    : (ins.action || ins.impact || "").toString().toUpperCase()}
+                  onClick={() => onPromptSubmit({ text: ins.action || ins.title || "Tell me more" })}
+                />
+              ))}
+            </CardStrip>
+          </section>
+        )}
+
         <section>
           <SectionHead title="Quick analyses" count={`${filteredSecondary.length} cards`} />
           <div
@@ -128,12 +165,45 @@ export default function CopilotHome() {
                 category={p.category}
                 label={p.label}
                 meta={pickMeta(p.category, portfolio)}
-                viz={renderCompactViz(p.category, portfolio)}
+                viz={renderCompactViz(p.category, portfolio, { trendPoints, benchmarkPoints, primaryGoal, taxFilled, taxWarn })}
                 onClick={() => onPromptSubmit({ text: p.label })}
               />
             ))}
           </div>
         </section>
+
+        {feedList.length > 0 && (
+          <section>
+            <SectionHead title="Intelligence feed" count={`${feedList.length} insights`} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {feedList.map((ins, i) => (
+                <FeedRow
+                  key={ins.insight_id || i}
+                  insight={ins}
+                  onClick={() => onPromptSubmit({ text: ins.action || ins.title || "Tell me more" })}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {goals.length > 0 && (
+          <section>
+            <SectionHead title="Goals progress" count={`${goals.length} goal${goals.length === 1 ? "" : "s"}`} />
+            <div style={{ background: "var(--v3-bg-2)", border: "1px solid var(--v3-line)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              {goals.slice(0, 4).map((g, i) => (
+                <GoalRow key={g.id || i} goal={g} onClick={() => navigate("/goals")} />
+              ))}
+              <button
+                type="button"
+                onClick={() => navigate("/goals")}
+                style={{ marginTop: 4, fontSize: 12, color: "var(--v3-saffron)", background: "none", border: "none", cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
+              >
+                Open Goals →
+              </button>
+            </div>
+          </section>
+        )}
 
         <section>
           <MoreQuestions
@@ -153,7 +223,8 @@ export default function CopilotHome() {
   );
 }
 
-function renderHeroViz(category, portfolio, isDesktop) {
+function renderHeroViz(category, portfolio, isDesktop, vizData = {}) {
+  const { trendPoints = [], benchmarkPoints = [], primaryGoal = null, taxFilled = null, taxWarn = false } = vizData;
   switch (category) {
     case "health":
       return (
@@ -184,7 +255,11 @@ function renderHeroViz(category, portfolio, isDesktop) {
     case "performance":
       return (
         <HeroVizPanel eyebrow="YTD return" value={portfolio.performance.ytd != null ? `${portfolio.performance.ytd}%` : "—"} size={isDesktop ? "desktop" : "mobile"}>
-          <PerformanceLine size={isDesktop ? 144 : 96} />
+          <PerformanceLine
+            points={trendPoints.length ? trendPoints : undefined}
+            benchmark={benchmarkPoints.length ? benchmarkPoints : undefined}
+            size={isDesktop ? 144 : 96}
+          />
         </HeroVizPanel>
       );
     case "tax":
@@ -195,7 +270,7 @@ function renderHeroViz(category, portfolio, isDesktop) {
           size={isDesktop ? "desktop" : "mobile"}
         >
           <div style={{ display: "flex", justifyContent: "center", padding: 8 }}>
-            <TaxPyramid size={isDesktop ? 96 : 64} />
+            <TaxPyramid filled={taxFilled} warn={taxWarn} size={isDesktop ? 96 : 64} />
           </div>
         </HeroVizPanel>
       );
@@ -206,7 +281,7 @@ function renderHeroViz(category, portfolio, isDesktop) {
           value={portfolio.goals.length ? `${portfolio.goals[0].progress}%` : "—"}
           size={isDesktop ? "desktop" : "mobile"}
         >
-          <GoalBars size={isDesktop ? 96 : 64} />
+          <GoalBars goal={primaryGoal} size={isDesktop ? 96 : 64} />
         </HeroVizPanel>
       );
     default:
@@ -214,16 +289,20 @@ function renderHeroViz(category, portfolio, isDesktop) {
   }
 }
 
-function renderCompactViz(category, portfolio) {
+function renderCompactViz(category, portfolio, vizData = {}) {
+  const { trendPoints = [], benchmarkPoints = [], primaryGoal = null, taxFilled = null, taxWarn = false } = vizData;
   switch (category) {
     case "risk":
       return <OverlapDonut value={portfolio.overlap.maxPct ?? 0} color="var(--v3-crimson)" />;
     case "performance":
-      return <PerformanceLine />;
+      return <PerformanceLine
+        points={trendPoints.length ? trendPoints : undefined}
+        benchmark={benchmarkPoints.length ? benchmarkPoints : undefined}
+      />;
     case "goal":
-      return <GoalBars />;
+      return <GoalBars goal={primaryGoal} />;
     case "tax":
-      return <TaxPyramid />;
+      return <TaxPyramid filled={taxFilled} warn={taxWarn} />;
     case "health":
       return <OverlapDonut value={portfolio.risk.score ?? 0} color="var(--v3-moss)" />;
     default:
@@ -333,6 +412,97 @@ function composeHighlight(personaId, p) {
     default:
       return null;
   }
+}
+
+// Map backend `insight.category` strings (risk / tax / performance / goal /
+// cost / health) into V3's CompactCard category palette.
+function mapInsightCategory(c) {
+  const k = (c || "").toLowerCase();
+  if (["risk", "tax", "goal", "performance", "health"].includes(k)) return k;
+  if (k === "cost") return "tax";
+  return "health";
+}
+
+function FeedRow({ insight, onClick }) {
+  const impact = (insight.impact || "").toLowerCase();
+  const tone = impact === "high"   ? { bg: "var(--v3-crimson-soft)", color: "var(--v3-crimson)" }
+             : impact === "medium" ? { bg: "#D4AF3726",              color: "var(--v3-gold)" }
+             :                       { bg: "var(--v3-bg-3)",         color: "var(--v3-ink-3)" };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: "var(--v3-bg-2)",
+        border: "1px solid var(--v3-line)",
+        borderRadius: 10,
+        padding: "12px 14px",
+        textAlign: "left",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
+        cursor: "pointer",
+        width: "100%",
+        fontFamily: "inherit",
+      }}
+    >
+      <span style={{ width: 28, height: 28, borderRadius: 8, background: tone.bg, color: tone.color, display: "grid", placeItems: "center", flexShrink: 0 }}>
+        <AlertCircle size={14} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: "var(--v3-ink-1)", fontWeight: 500, lineHeight: 1.3 }}>
+          {insight.title || "—"}
+        </div>
+        {insight.description && (
+          <div style={{ fontSize: 11, color: "var(--v3-ink-4)", marginTop: 4, lineHeight: 1.4 }}>
+            {insight.description.length > 140 ? `${insight.description.slice(0, 140)}…` : insight.description}
+          </div>
+        )}
+      </div>
+      {insight.impact && (
+        <span className="v3-data" style={{ padding: "2px 7px", borderRadius: 999, background: tone.bg, color: tone.color, fontSize: 9, fontWeight: 600, letterSpacing: "0.05em", whiteSpace: "nowrap", flexShrink: 0 }}>
+          {insight.impact.toUpperCase()}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function GoalRow({ goal, onClick }) {
+  const target = Number(goal.target_amount_rs ?? goal.target_amount ?? 0);
+  const current = Number(goal.current_amount_rs ?? goal.current_amount ?? 0);
+  const pctOn = goal.on_track_pct ?? goal.progress ?? (target > 0 ? Math.round((current / target) * 100) : null);
+  const accent = pctOn == null ? "var(--v3-ink-3)"
+    : pctOn >= 80 ? "var(--v3-moss)"
+    : pctOn >= 50 ? "var(--v3-gold)"
+    : "var(--v3-crimson)";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ background: "transparent", border: "none", padding: 0, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--v3-bg-3)", display: "grid", placeItems: "center", color: accent, flexShrink: 0 }}>
+          <TargetIcon size={12} />
+        </span>
+        <span style={{ flex: 1, fontSize: 13, color: "var(--v3-ink-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {goal.goal_name || goal.name || "Goal"}
+        </span>
+        <span className="v3-data" style={{ fontSize: 12, color: accent, fontWeight: 600 }}>
+          {pctOn != null ? `${pctOn}%` : "—"}
+        </span>
+      </div>
+      <div style={{ height: 5, background: "var(--v3-bg-3)", borderRadius: 3, overflow: "hidden" }}>
+        <div style={{ width: `${Math.max(0, Math.min(100, pctOn ?? 0))}%`, height: "100%", background: accent, borderRadius: 3 }} />
+      </div>
+      {target > 0 && (
+        <div style={{ fontSize: 10, color: "var(--v3-ink-4)", marginTop: 4 }}>
+          {inrCompact(current)} of {inrCompact(target)}
+        </div>
+      )}
+    </button>
+  );
 }
 
 function pickHeroDescription(personaId) {

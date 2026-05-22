@@ -13,6 +13,7 @@ import {
   Compass,
   Target,
   ListChecks,
+  Layers,
 } from "lucide-react";
 
 /**
@@ -26,8 +27,7 @@ export const ROUTES = [
   { path: "home",      title: "Today",         icon: Sparkles,      group: "workspace", bottomNav: true, bottomLabel: "Today" },
   { path: "dashboard", title: "Dashboard",     icon: LayoutGrid,    group: "workspace", bottomNav: true, bottomLabel: "Home" },
   { path: "portfolio", title: "Portfolio",     icon: PieChart,      group: "workspace", bottomNav: true, bottomLabel: "Portfolio" },
-  { path: "portfolio/diversification", title: "Diversification", group: "analytics" },
-  { path: "portfolio/concentration",   title: "Concentration",   group: "analytics" },
+  { path: "portfolio/exposure",        title: "Exposure",        icon: Layers,        group: "analytics" },
   { path: "performance", title: "Performance", icon: TrendingUp,    group: "analytics" },
   { path: "risk",        title: "Risk & Stress", icon: Shield,      group: "analytics" },
   { path: "risk/stress", title: "Stress Test", group: "analytics" },

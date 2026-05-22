@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Staging — CAS Upload Test</title>
+  <style>
+    body { font: 14px/1.5 system-ui, -apple-system, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; color: #1f2933; }
+    h1 { font-size: 18px; margin-bottom: 4px; }
+    .muted { color: #7b8794; font-size: 12px; }
+    fieldset { border: 1px solid #d0d5db; border-radius: 6px; padding: 16px 20px; margin: 16px 0; }
+    legend { padding: 0 6px; font-weight: 600; }
+    label { display: block; margin: 10px 0 4px; font-weight: 500; }
+    input[type=text], input[type=password], input[type=file] {
+      width: 100%; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 4px;
+      font: inherit; box-sizing: border-box;
+    }
+    button { padding: 10px 18px; background: #2563eb; color: #fff; border: 0; border-radius: 4px; cursor: pointer; font: inherit; }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    button.secondary { background: #6b7280; }
+    .hidden { display: none; }
+    pre { background: #f5f7fa; padding: 12px; border-radius: 4px; overflow: auto; font-size: 12px; }
+    .ok { color: #059669; }
+    .err { color: #b91c1c; }
+    .step { margin: 6px 0; font-size: 13px; }
+    .step::before { content: "○ "; }
+    .step.done::before { content: "✔ "; color: #059669; }
+    .step.fail::before { content: "✖ "; color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>Staging — CAS Upload Test</h1>
+  <p class="muted">
+    Internal test page. Runs a real CAS PDF end-to-end through the staging
+    ingestion service. Gated by the admin token.
+  </p>
+
+  <!-- ── Step 1: Admin gate ─────────────────────────────────────────── -->
+  <fieldset id="gate-section">
+    <legend>1 · Admin token</legend>
+    <label for="admin-token">PI_ADMIN_TOKEN</label>
+    <input type="password" id="admin-token" autocomplete="off" />
+    <p style="margin-top: 10px;">
+      <button id="unlock-btn">Unlock</button>
+      <span id="gate-status" class="muted"></span>
+    </p>
+  </fieldset>
+
+  <!-- ── Step 2: Identify + launch widget (hidden until unlocked) ───── -->
+  <fieldset id="upload-section" class="hidden">
+    <legend>2 · Launch CAS Connect widget</legend>
+
+    <label for="external-id">X-User-External-Id <span class="muted">(any unique string; identifies the user in our DB)</span></label>
+    <input type="text" id="external-id" placeholder="e.g. test-priya-20260522" />
+
+    <p class="muted" style="margin: 14px 0;">
+      The CAS Connect widget opens in its own popup and handles the PDF
+      picker + password itself. We don't see the file — CASParser parses it
+      in your browser and only the parsed JSON comes back to us.
+    </p>
+
+    <p style="margin-top: 14px;">
+      <button id="ingest-btn">Open widget</button>
+      <button id="refresh-btn" class="secondary hidden">Reload portfolio</button>
+    </p>
+
+    <div id="progress" style="margin-top: 14px;"></div>
+  </fieldset>
+
+  <!-- ── Step 3: Results ───────────────────────────────────────────── -->
+  <fieldset id="result-section" class="hidden">
+    <legend>3 · Result</legend>
+    <h3>SDK callback response</h3>
+    <pre id="callback-response"></pre>
+    <h3>GET /api/portfolio/me</h3>
+    <pre id="portfolio-response"></pre>
+  </fieldset>
+
+<script type="module">
+  const API = "/api";
+  let ADMIN_TOKEN = null;
+
+  const $ = (id) => document.getElementById(id);
+  const show = (el) => el.classList.remove("hidden");
+  const hide = (el) => el.classList.add("hidden");
+
+  function addStep(text) {
+    const div = document.createElement("div");
+    div.className = "step";
+    div.textContent = text;
+    $("progress").appendChild(div);
+    return div;
+  }
+  const markDone = (s) => { s.className = "step done"; };
+  const markFail = (s, msg) => {
+    s.className = "step fail";
+    if (msg) s.textContent += " — " + msg;
+  };
+
+  // ── 1. Admin unlock ───────────────────────────────────────────────
+  $("unlock-btn").addEventListener("click", async () => {
+    const tok = $("admin-token").value.trim();
+    if (!tok) return;
+    $("gate-status").textContent = "checking…";
+    $("gate-status").className = "muted";
+    try {
+      const r = await fetch(API + "/admin/verify", {
+        headers: { "X-Admin-Token": tok },
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      ADMIN_TOKEN = tok;
+      $("gate-status").textContent = "unlocked";
+      $("gate-status").className = "ok";
+      hide($("gate-section"));
+      show($("upload-section"));
+    } catch (err) {
+      $("gate-status").textContent = "invalid token (" + err.message + ")";
+      $("gate-status").className = "err";
+    }
+  });
+
+  // ── 2. Full ingest flow ───────────────────────────────────────────
+  $("ingest-btn").addEventListener("click", async () => {
+    $("progress").innerHTML = "";
+    hide($("result-section"));
+
+    const externalId = $("external-id").value.trim();
+    if (!externalId) return alert("External ID required");
+
+    $("ingest-btn").disabled = true;
+
+    try {
+      // 2a. Mint a CASParser access token
+      const stepToken = addStep("Minting CASParser access token");
+      const tokenRes = await fetch(API + "/casparser/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-External-Id": externalId,
+        },
+      });
+      if (!tokenRes.ok) throw new Error("token mint failed: " + tokenRes.status);
+      const tokenBody = await tokenRes.json();
+      markDone(stepToken);
+      addStep("Token: " + tokenBody.access_token.slice(0, 12) + "… (stub=" + tokenBody.stub + ")").className = "step done";
+
+      if (tokenBody.stub) {
+        addStep("⚠ Token is a stub — PI_CASPARSER_API_KEY isn't set on staging. SDK will reject.").className = "step fail";
+        throw new Error("PI_CASPARSER_API_KEY not configured on staging");
+      }
+
+      // 2b. Open the CASParser widget via ESM CDN. Pin the same major as
+      // the existing prod frontend (@cas-parser/connect ^1.4.0).
+      const stepSdk = addStep("Loading @cas-parser/connect@1.4.0 SDK");
+      const mod = await import("https://esm.sh/@cas-parser/connect@1.4.0");
+      console.log("CAS SDK module exports:", Object.keys(mod), mod);
+      const sdkExportsStep = addStep("SDK exports: " + Object.keys(mod).join(", "));
+      sdkExportsStep.className = "step done";
+      const openWidget =
+        mod.open ||
+        mod.openWidget ||
+        mod.PortfolioConnect?.open ||
+        mod.default?.open ||
+        mod.default;
+      if (typeof openWidget !== "function") {
+        throw new Error("SDK did not expose an open() function. Available: " + Object.keys(mod).join(", "));
+      }
+      markDone(stepSdk);
+
+      const stepWidget = addStep("Opening widget — pick the PDF + enter the password inside the widget");
+      let widgetResult;
+      try {
+        widgetResult = await openWidget({
+          accessToken: tokenBody.access_token,
+          config: { enableGenerator: true, enableCdslFetch: true, enableInbox: false },
+        });
+      } catch (widgetErr) {
+        markFail(stepWidget, "widget threw: " + (widgetErr.message || widgetErr));
+        console.error("CAS widget error:", widgetErr);
+        throw widgetErr;
+      }
+
+      // Surface the raw widget result so we can debug any unexpected shape.
+      console.log("CAS widget returned:", widgetResult);
+      const rawStep = addStep("Raw widget result:");
+      rawStep.className = "step done";
+      const rawPre = document.createElement("pre");
+      rawPre.style.marginTop = "4px";
+      rawPre.textContent = JSON.stringify(
+        widgetResult,
+        (_k, v) => (typeof v === "string" && v.length > 200 ? v.slice(0, 200) + "…[truncated]" : v),
+        2,
+      );
+      $("progress").appendChild(rawPre);
+
+      // Try the documented field, then a few common aliases.
+      const parsed =
+        widgetResult?.data ||
+        widgetResult?.parsedData ||
+        widgetResult?.parsed_data ||
+        widgetResult?.cas ||
+        widgetResult?.payload?.data;
+      const metadata =
+        widgetResult?.metadata || widgetResult?.meta || widgetResult?.payload?.metadata || {};
+      if (!parsed) {
+        markFail(stepWidget, "no parsed data in widget result — see raw output above");
+        throw new Error("widget returned no data (raw shape logged above)");
+      }
+      markDone(stepWidget);
+
+      // 2c. POST parsed JSON to /api/cas/sdk-callback
+      // Checksum is derived from the parsed payload (deterministic): the
+      // browser never gets to see the PDF bytes since the SDK uploads
+      // directly to casparser.in.
+      const stepCallback = addStep("POST /api/cas/sdk-callback");
+      const checksum = await sha256Hex(new TextEncoder().encode(JSON.stringify(parsed)));
+      const body = {
+        checksum: checksum,
+        source_type: metadata.source_type || guessSourceType(parsed),
+        metadata: { method: metadata.method || "upload", cas_type: metadata.cas_type || null },
+        data: parsed,
+      };
+      const cbRes = await fetch(API + "/cas/sdk-callback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-External-Id": externalId,
+        },
+        body: JSON.stringify(body),
+      });
+      const cbBody = await cbRes.json();
+      $("callback-response").textContent = JSON.stringify(cbBody, null, 2);
+      if (!cbRes.ok) {
+        markFail(stepCallback, "HTTP " + cbRes.status);
+        show($("result-section"));
+        throw new Error("sdk-callback failed: " + (cbBody.detail || cbRes.status));
+      }
+      markDone(stepCallback);
+
+      // 2d. GET /api/portfolio/me
+      const stepPortfolio = addStep("GET /api/portfolio/me");
+      const pRes = await fetch(API + "/portfolio/me", {
+        headers: { "X-User-External-Id": externalId },
+      });
+      const pBody = await pRes.json();
+      $("portfolio-response").textContent = JSON.stringify(pBody, null, 2);
+      if (!pRes.ok) markFail(stepPortfolio, "HTTP " + pRes.status);
+      else markDone(stepPortfolio);
+
+      show($("result-section"));
+      show($("refresh-btn"));
+    } catch (err) {
+      const s = addStep("ERROR");
+      markFail(s, err.message || String(err));
+    } finally {
+      $("ingest-btn").disabled = false;
+    }
+  });
+
+  $("refresh-btn").addEventListener("click", async () => {
+    const externalId = $("external-id").value.trim();
+    const r = await fetch(API + "/portfolio/me", { headers: { "X-User-External-Id": externalId } });
+    $("portfolio-response").textContent = JSON.stringify(await r.json(), null, 2);
+  });
+
+  // ── Helpers ──────────────────────────────────────────────────────
+  async function sha256Hex(buf) {
+    const h = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function guessSourceType(parsed) {
+    if (parsed?.demat_accounts?.length) {
+      const dp = String(parsed.demat_accounts[0]?.dp_id || "").toUpperCase();
+      if (dp.startsWith("IN3")) return "ECAS_CDSL";
+      if (dp.startsWith("IN5")) return "ECAS_NSDL";
+    }
+    return "ECAS_CDSL";
+  }
+</script>
+</body>
+</html>
