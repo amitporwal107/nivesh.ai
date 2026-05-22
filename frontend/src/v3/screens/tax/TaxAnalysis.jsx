@@ -19,18 +19,12 @@ export default function TaxAnalysis() {
   const p = portfolioState.data;
   const totalLtcg = (p.tax.ltcgUsed || 0) + (p.tax.ltcgFree || 0);
   const usedPct = totalLtcg > 0 ? ((p.tax.ltcgUsed || 0) / totalLtcg) * 100 : 0;
-  const harvestCandidates = p.tax.candidates && p.tax.candidates.length
-    ? p.tax.candidates.slice(0, 3).map((c) => ({
-        name: c.name || c.fund_name,
-        units: Math.round(c.units || c.quantity || 0),
-        gain: Math.round(c.gain || c.unrealized_gain || 0),
-        hold: c.holding_period || c.hold || "—",
-      }))
-    : [
-        { name: "Nippon Small Cap", units: 412, gain: 42400, hold: "2y 4m" },
-        { name: "PPFAS Flexi Cap", units: 280, gain: 24800, hold: "3y 8m" },
-        { name: "Mirae ELSS", units: 192, gain: 10800, hold: "1y 2m" },
-      ];
+  const harvestCandidates = (p.tax.candidates || []).slice(0, 3).map((c) => ({
+    name: c.name || c.fund_name,
+    units: Math.round(c.units || c.quantity || 0),
+    gain: Math.round(c.gain || c.unrealized_gain || 0),
+    hold: c.holding_period || c.hold || "—",
+  }));
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
@@ -57,41 +51,57 @@ export default function TaxAnalysis() {
         <SectionHead title="Tax breakdown" count="4 cards" />
         <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : "1fr 1fr", gap: 12 }}>
           <CompactCard category="tax" label="LTCG unrealized" meta={inrCompact(p.tax.unrealizedLtcg)} viz={<TaxPyramid />} />
-          <CompactCard category="tax" label="STCG unrealized" meta="₹28,400" viz={<TaxPyramid />} />
+          <CompactCard category="tax" label="STCG unrealized" meta={p.tax.stcg != null ? inrCompact(p.tax.stcg) : "—"} viz={<TaxPyramid />} />
           <CompactCard category="tax" label="Harvest opportunity" meta={inrCompact(p.tax.harvestable)} viz={<TaxPyramid />} />
           <CompactCard category="tax" label="FY exemption left" meta={inrCompact(p.tax.ltcgFree)} viz={<GoalBars />} />
         </div>
 
-        <SectionHead title="Harvest candidates" count={`${harvestCandidates.length} positions`} />
-        <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--v3-line)", border: "1px solid var(--v3-line)", borderRadius: 14, overflow: "hidden" }}>
-          {harvestCandidates.map((h, i) => (
-            <div key={i} style={{ background: "var(--v3-bg-2)", padding: "14px 16px", display: "grid", gridTemplateColumns: isDesktop ? "2fr 1fr 1fr 1fr" : "2fr 1fr 1fr", gap: 12, alignItems: "center" }}>
-              <div>
-                <div style={{ color: "var(--v3-ink-1)", fontSize: 14, fontWeight: 500 }}>{h.name}</div>
-                <div className="v3-eyebrow" style={{ color: "var(--v3-ink-3)", marginTop: 3 }}>HELD {h.hold}</div>
+        <SectionHead title="Harvest candidates" count={harvestCandidates.length ? `${harvestCandidates.length} positions` : "none yet"} />
+        {harvestCandidates.length === 0 ? (
+          <div
+            style={{
+              padding: "28px 20px",
+              background: "var(--v3-bg-2)",
+              border: "1px solid var(--v3-line)",
+              borderRadius: 14,
+              textAlign: "center",
+              color: "var(--v3-ink-3)",
+              fontSize: 13,
+            }}
+          >
+            No harvest candidates — ask Copilot to analyse your LTCG exposure.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--v3-line)", border: "1px solid var(--v3-line)", borderRadius: 14, overflow: "hidden" }}>
+            {harvestCandidates.map((h, i) => (
+              <div key={i} style={{ background: "var(--v3-bg-2)", padding: "14px 16px", display: "grid", gridTemplateColumns: isDesktop ? "2fr 1fr 1fr 1fr" : "2fr 1fr 1fr", gap: 12, alignItems: "center" }}>
+                <div>
+                  <div style={{ color: "var(--v3-ink-1)", fontSize: 14, fontWeight: 500 }}>{h.name}</div>
+                  <div className="v3-eyebrow" style={{ color: "var(--v3-ink-3)", marginTop: 3 }}>HELD {h.hold}</div>
+                </div>
+                {isDesktop && <div className="v3-data" style={{ color: "var(--v3-ink-3)", fontSize: 12, textAlign: "right" }}>{h.units} units</div>}
+                <div className="v3-data" style={{ color: "var(--v3-ink-1)", fontSize: 13, textAlign: "right" }}>{inrCompact(h.gain)}</div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/chat?q=${encodeURIComponent(`Should I harvest ${h.name}?`)}`)}
+                  style={{
+                    justifySelf: "end",
+                    padding: "8px 14px",
+                    borderRadius: 999,
+                    background: "var(--v3-saffron)",
+                    color: "var(--v3-saffron-ink)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  Harvest now →
+                </button>
               </div>
-              {isDesktop && <div className="v3-data" style={{ color: "var(--v3-ink-3)", fontSize: 12, textAlign: "right" }}>{h.units} units</div>}
-              <div className="v3-data" style={{ color: "var(--v3-ink-1)", fontSize: 13, textAlign: "right" }}>{inrCompact(h.gain)}</div>
-              <button
-                type="button"
-                onClick={() => navigate(`/chat?q=${encodeURIComponent(`Should I harvest ${h.name}?`)}`)}
-                style={{
-                  justifySelf: "end",
-                  padding: "8px 14px",
-                  borderRadius: 999,
-                  background: "var(--v3-saffron)",
-                  color: "var(--v3-saffron-ink)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Harvest now →
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </ScreenContainer>
   );

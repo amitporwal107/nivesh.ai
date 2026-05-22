@@ -72,10 +72,10 @@ export default function Profile() {
 
         <SectionHead title="Account stats" count="4 cards" />
         <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : "1fr 1fr", gap: 12 }}>
-          <CompactCard category="health" label="Net worth" meta={inrCompact(p.summary.totalValue)} viz={<HealthGauge score={72} />} />
-          <CompactCard category="performance" label="XIRR · inception" meta={`${p.summary.xirr}%`} viz={<HealthGauge score={Math.min(p.summary.xirr * 4, 100)} />} />
-          <CompactCard category="goal" label="Goals on track" meta="2 / 3" viz={<HealthGauge score={66} />} />
-          <CompactCard category="risk" label="Risk score" meta={`${p.risk.score} · ${p.risk.level}`} viz={<OverlapDonut value={p.risk.score} color="var(--v3-saffron)" />} />
+          <CompactCard category="health" label="Net worth" meta={inrCompact(p.summary.totalValue)} viz={<HealthGauge score={p.v3?.portfolioScore ?? 0} />} />
+          <CompactCard category="performance" label="XIRR · inception" meta={p.summary.xirr ? `${p.summary.xirr}%` : "—"} viz={<HealthGauge score={p.summary.xirr ? Math.min(p.summary.xirr * 4, 100) : 0} />} />
+          <CompactCard category="goal" label="Goals on track" meta={p.goals?.length ? `— / ${p.goals.length}` : "—"} viz={<HealthGauge score={0} />} />
+          <CompactCard category="risk" label="Risk score" meta={p.risk.score != null ? `${p.risk.score} · ${p.risk.level}` : "—"} viz={<OverlapDonut value={p.risk.score ?? 0} color="var(--v3-saffron)" />} />
         </div>
 
         <SectionHead title="Quick actions" count="3" />
