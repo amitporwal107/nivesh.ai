@@ -39,9 +39,8 @@ async def fresh_user():
     panh = _hash(pan)
     pool = await pg_pool.get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM portfolio_ingestion.audit_log WHERE pan_hash = $1", panh
-        )
+        # audit_log rows are immutable (trigger blocks DELETE) — they accumulate
+        # in staging and are cleaned up by the 7-year retention policy.
         await conn.execute(
             "DELETE FROM portfolio_ingestion.holdings WHERE pan_hash=$1", panh
         )
