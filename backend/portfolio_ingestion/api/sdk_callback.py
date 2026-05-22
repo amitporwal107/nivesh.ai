@@ -75,6 +75,7 @@ async def sdk_callback(
             )
             raise HTTPException(status_code=403, detail=str(e)) from e
 
+        is_cdsl_fetch = payload.metadata.method == "cdsl_fetch"
         job_id, is_new = await jobs_repo.upsert(
             conn,
             user_id=user_id,
@@ -83,6 +84,7 @@ async def sdk_callback(
             method=payload.metadata.method,
             checksum=payload.checksum,
             status="received",
+            pdf_status="unavailable" if is_cdsl_fetch else None,
         )
 
         if is_new:
@@ -174,6 +176,7 @@ async def sdk_callback(
         is_new=True,
         is_active=decision.is_active,
         status="activated" if decision.is_active else "stored_inactive",
+        raw_pdf_available=payload.metadata.raw_pdf_available,
         portfolio=portfolio,
     )
 
@@ -227,5 +230,6 @@ async def _existing_response(
         is_new=False,
         is_active=snap_row["is_active"],
         status="activated" if snap_row["is_active"] else "stored_inactive",
+        raw_pdf_available=payload.metadata.raw_pdf_available,
         portfolio=assemble(cheap_holdings),
     )
