@@ -150,21 +150,63 @@
         throw new Error("PI_CASPARSER_API_KEY not configured on staging");
       }
 
-      // 2b. Open the CASParser widget via ESM CDN
-      const stepSdk = addStep("Loading @cas-parser/connect SDK");
-      const mod = await import("https://esm.sh/@cas-parser/connect");
-      const openWidget = mod.open || mod.PortfolioConnect?.open || mod.default?.open;
-      if (typeof openWidget !== "function") throw new Error("SDK did not expose .open()");
+      // 2b. Open the CASParser widget via ESM CDN. Pin the same major as
+      // the existing prod frontend (@cas-parser/connect ^1.4.0).
+      const stepSdk = addStep("Loading @cas-parser/connect@1.4.0 SDK");
+      const mod = await import("https://esm.sh/@cas-parser/connect@1.4.0");
+      console.log("CAS SDK module exports:", Object.keys(mod), mod);
+      const sdkExportsStep = addStep("SDK exports: " + Object.keys(mod).join(", "));
+      sdkExportsStep.className = "step done";
+      const openWidget =
+        mod.open ||
+        mod.openWidget ||
+        mod.PortfolioConnect?.open ||
+        mod.default?.open ||
+        mod.default;
+      if (typeof openWidget !== "function") {
+        throw new Error("SDK did not expose an open() function. Available: " + Object.keys(mod).join(", "));
+      }
       markDone(stepSdk);
 
       const stepWidget = addStep("Opening widget — pick the PDF + enter the password inside the widget");
-      const widgetResult = await openWidget({
-        accessToken: tokenBody.access_token,
-        config: { enableGenerator: true, enableCdslFetch: true, enableInbox: false },
-      });
-      const parsed = widgetResult?.data;
-      const metadata = widgetResult?.metadata || {};
-      if (!parsed) throw new Error("widget returned no data (user cancelled?)");
+      let widgetResult;
+      try {
+        widgetResult = await openWidget({
+          accessToken: tokenBody.access_token,
+          config: { enableGenerator: true, enableCdslFetch: true, enableInbox: false },
+        });
+      } catch (widgetErr) {
+        markFail(stepWidget, "widget threw: " + (widgetErr.message || widgetErr));
+        console.error("CAS widget error:", widgetErr);
+        throw widgetErr;
+      }
+
+      // Surface the raw widget result so we can debug any unexpected shape.
+      console.log("CAS widget returned:", widgetResult);
+      const rawStep = addStep("Raw widget result:");
+      rawStep.className = "step done";
+      const rawPre = document.createElement("pre");
+      rawPre.style.marginTop = "4px";
+      rawPre.textContent = JSON.stringify(
+        widgetResult,
+        (_k, v) => (typeof v === "string" && v.length > 200 ? v.slice(0, 200) + "…[truncated]" : v),
+        2,
+      );
+      $("progress").appendChild(rawPre);
+
+      // Try the documented field, then a few common aliases.
+      const parsed =
+        widgetResult?.data ||
+        widgetResult?.parsedData ||
+        widgetResult?.parsed_data ||
+        widgetResult?.cas ||
+        widgetResult?.payload?.data;
+      const metadata =
+        widgetResult?.metadata || widgetResult?.meta || widgetResult?.payload?.metadata || {};
+      if (!parsed) {
+        markFail(stepWidget, "no parsed data in widget result — see raw output above");
+        throw new Error("widget returned no data (raw shape logged above)");
+      }
       markDone(stepWidget);
 
       // 2c. POST parsed JSON to /api/cas/sdk-callback
