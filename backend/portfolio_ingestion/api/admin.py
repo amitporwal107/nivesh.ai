@@ -19,6 +19,16 @@ from ..db.pool import get_pool
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+@router.get("/verify")
+async def verify(
+    x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
+) -> dict:
+    """Confirm an admin token is valid — used by the staging test UI to gate
+    access before exposing the upload form. No side effects."""
+    _check_admin(x_admin_token)
+    return {"status": "ok"}
+
+
 def _check_admin(token: str | None) -> None:
     expected = os.environ.get("PI_ADMIN_TOKEN")
     if not expected:
