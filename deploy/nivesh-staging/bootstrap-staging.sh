@@ -61,22 +61,8 @@ EOF
     log "Wrote ${ENV_FILE} (mode 600)."
 fi
 
-# Conflict checks: each host port must be free on its intended bind.
-check_port_free() {
-    local bind="$1" port="$2"
-    if ss -ltn "src ${bind}:${port}" 2>/dev/null | grep -q LISTEN; then
-        fail "Port ${bind}:${port} is already in use; cannot bring up staging."
-    fi
-}
-# Re-read the bind from the env file (in case the operator changed it)
-# shellcheck disable=SC1090
-source "${ENV_FILE}"
-PI_NGINX_BIND_ADDR="${PI_NGINX_BIND_ADDR:-127.0.0.1}"
-PI_NGINX_PORT="${PI_NGINX_PORT:-8443}"
-
-check_port_free "127.0.0.1" 5532
-check_port_free "127.0.0.1" 27117
-check_port_free "127.0.0.1" 6479
-check_port_free "${PI_NGINX_BIND_ADDR}" "${PI_NGINX_PORT}"
+# Port conflict checks intentionally omitted: docker compose surfaces real
+# host-process collisions on `up` with a clear message, and the previous run
+# of this same stack will (correctly) be holding the ports until `down`.
 
 log "Bootstrap OK. Next: run redeploy-staging.sh to build + start the stack."
