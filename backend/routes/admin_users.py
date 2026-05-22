@@ -641,6 +641,47 @@ async def reset_onboarding_by_email(request: Request) -> Dict[str, Any]:
     return {"ok": True, "user_id": user_id, "email": email}
 
 
+@router.post("/mark-onboarded")
+async def mark_onboarded_by_email(request: Request) -> Dict[str, Any]:
+    """Flip onboarding_completed=True for a user by email — the inverse of
+    /reset-onboarding. Used to repair accounts whose CAS import landed
+    before the import-connect endpoint was fixed to set the flag.
+
+    curl -X POST https://niveshcopilot.com/api/admin/mark-onboarded \\
+         -H 'Content-Type: application/json' \\
+         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -d '{"email": "user@example.com"}'
+    """
+    key = request.headers.get("X-Admin-Key", "")
+    if key != "niv3sh-reset-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found: {email}")
+
+    user_id = user["user_id"]
+    now = datetime.now(timezone.utc)
+    await db.user_profiles.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "onboarding_completed": True,
+                "journey_type": "existing_investor",
+                "updated_at": now,
+            },
+            "$setOnInsert": {"user_id": user_id, "created_at": now},
+        },
+        upsert=True,
+    )
+    return {"ok": True, "user_id": user_id, "email": email}
+
+
 @router.post("/gmail-scan")
 async def admin_gmail_scan(request: Request) -> Dict[str, Any]:
     """Scan Gmail for CAS emails using stored tokens for a user.
