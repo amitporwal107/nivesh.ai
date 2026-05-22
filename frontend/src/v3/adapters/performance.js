@@ -64,3 +64,45 @@ export function usePerformance() {
   useEffect(() => { run(); }, [run]);
   return { ...state, refetch: run };
 }
+
+/**
+ * Count how many of the 4 reference benchmarks the portfolio beat.
+ * benchmarks values are decimals (0.12 = 12%); portfolioReturn matches the
+ * same scale when it comes from index returns, but `deep-analytics` returns
+ * XIRR as a percentage (e.g. 18.4) — normalise both to fractional first.
+ */
+export function benchmarkBeatCount(portfolioReturn, benchmarks) {
+  if (portfolioReturn == null || !benchmarks) return null;
+  const pr = Math.abs(portfolioReturn) > 1 ? portfolioReturn / 100 : portfolioReturn;
+  const vals = [benchmarks.nifty50, benchmarks.nifty500, benchmarks.sensex, benchmarks.midcap100]
+    .filter((v) => v != null);
+  if (vals.length === 0) return null;
+  const beat = vals.filter((b) => pr > b).length;
+  return { beat, total: vals.length };
+}
+
+/**
+ * Build a one-sentence narrative explaining the headline return vs the
+ * benchmarks. Deterministic, no LLM — same approach as V2's text block.
+ */
+export function interpretationText({ portfolioReturn, benchmarks, topContrib, worstDrag }) {
+  if (portfolioReturn == null) return null;
+  const bb = benchmarkBeatCount(portfolioReturn, benchmarks);
+  const parts = [];
+  if (bb) {
+    if (bb.beat === bb.total) {
+      parts.push(`Beating all ${bb.total} reference indices.`);
+    } else if (bb.beat === 0) {
+      parts.push(`Trailing all ${bb.total} reference indices.`);
+    } else {
+      parts.push(`Beating ${bb.beat} of ${bb.total} reference indices.`);
+    }
+  }
+  if (topContrib?.name) {
+    parts.push(`${topContrib.name} is your top contributor.`);
+  }
+  if (worstDrag?.name && worstDrag.name !== topContrib?.name) {
+    parts.push(`${worstDrag.name} is the biggest drag.`);
+  }
+  return parts.join(" ") || null;
+}

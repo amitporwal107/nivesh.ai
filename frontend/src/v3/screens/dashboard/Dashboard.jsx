@@ -4,12 +4,14 @@ import { TrendingUp, TrendingDown } from "lucide-react";
 import HeroCard from "../../components/HeroCard";
 import HeroVizPanel from "../../components/HeroVizPanel";
 import CompactCard from "../../components/CompactCard";
+import CardStrip from "../../components/CardStrip";
 import SectionHead from "../../components/SectionHead";
 import PersonaStrip from "../../components/PersonaStrip";
+import TinyChip from "../../components/TinyChip";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { PerformanceLine, OverlapDonut, TaxPyramid, GoalBars, HealthGauge } from "../../components/viz";
-import { usePersona, usePortfolioSummary } from "../../adapters";
+import { usePersona, usePortfolioSummary, usePortfolioTrend, useGoals } from "../../adapters";
 import SourceBanner from "../../components/SourceBanner";
 import { inrCompact, pct, dateLabel } from "../../lib/format";
 
@@ -20,6 +22,15 @@ export default function Dashboard() {
   const { persona } = usePersona();
   const portfolioState = usePortfolioSummary();
   const p = portfolioState.data;
+  const trendState = usePortfolioTrend(30);
+  const trendPoints = trendState.data?.points || [];
+  const benchmarkPoints = trendState.data?.benchmark || [];
+  const goalsState = useGoals();
+  const primaryGoal = goalsState.data?.goals?.[0] || null;
+  const taxFilled = p.tax.unrealizedLtcg && p.tax.harvestable
+    ? Math.min(1, p.tax.harvestable / Math.max(1, p.tax.unrealizedLtcg))
+    : null;
+  const taxWarn = (p.tax.stcg ?? 0) > (p.tax.unrealizedLtcg ?? 0);
 
   const positiveDelta = p.summary.delta1d >= 0;
 
@@ -55,7 +66,11 @@ export default function Dashboard() {
                 unit={`(${inrCompact(p.summary.delta1d)})`}
                 size={isDesktop ? "desktop" : "mobile"}
               >
-                <PerformanceLine size={isDesktop ? 144 : 96} />
+                <PerformanceLine
+                  points={trendPoints.length ? trendPoints : undefined}
+                  benchmark={benchmarkPoints.length ? benchmarkPoints : undefined}
+                  size={isDesktop ? 144 : 96}
+                />
               </HeroVizPanel>
             }
             ctaText="Open portfolio detail →"
@@ -65,13 +80,7 @@ export default function Dashboard() {
 
         <section>
           <SectionHead title="Today's analyses" count="6 cards" />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : "1fr 1fr",
-              gap: isDesktop ? 14 : 10,
-            }}
-          >
+          <CardStrip ariaLabel="Today's analyses" desktopColumns={3}>
             <CompactCard
               category="health"
               label="Portfolio health score"
@@ -84,27 +93,30 @@ export default function Dashboard() {
               label="Fund overlap"
               meta={p.overlap.maxPct != null ? `${p.overlap.pairs} PAIRS · MAX ${p.overlap.maxPct}%` : "—"}
               viz={<OverlapDonut value={p.overlap.maxPct ?? 0} color="var(--v3-crimson)" />}
-              onClick={() => navigate("/portfolio/diversification")}
+              onClick={() => navigate("/portfolio/exposure?tab=diversification")}
             />
             <CompactCard
               category="performance"
               label="YTD vs benchmark"
               meta={p.performance.ytd != null ? `+${(p.performance.ytd - p.performance.benchmarkYtd).toFixed(1)}% ALPHA` : "—"}
-              viz={<PerformanceLine />}
+              viz={<PerformanceLine
+                points={trendPoints.length ? trendPoints : undefined}
+                benchmark={benchmarkPoints.length ? benchmarkPoints : undefined}
+              />}
               onClick={() => navigate("/performance")}
             />
             <CompactCard
               category="goal"
               label="Retirement progress"
               meta={p.goals.length ? `${p.goals[0].progress}% · ${inrCompact(p.goals[0].current)}` : "No goals set"}
-              viz={<GoalBars />}
-              onClick={() => navigate("/portfolio")}
+              viz={<GoalBars goal={primaryGoal} />}
+              onClick={() => navigate("/goals")}
             />
             <CompactCard
               category="tax"
               label="Unrealized LTCG"
               meta={p.tax.harvestable != null ? `HARVEST ${inrCompact(p.tax.harvestable)}` : "—"}
-              viz={<TaxPyramid />}
+              viz={<TaxPyramid filled={taxFilled} warn={taxWarn} />}
               onClick={() => navigate("/tax")}
             />
             <CompactCard
@@ -114,7 +126,7 @@ export default function Dashboard() {
               viz={<OverlapDonut value={p.risk.drawdown != null ? Math.abs(p.risk.drawdown) * 4 : 0} color="var(--v3-crimson)" />}
               onClick={() => navigate("/risk")}
             />
-          </div>
+          </CardStrip>
         </section>
 
         <section>
@@ -167,6 +179,12 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <TinyChip onClick={() => navigate("/chat?q=What%27s+my+best+fund%3F")}>What's my best fund?</TinyChip>
+          <TinyChip onClick={() => navigate("/chat?q=What+changed+today%3F")}>What changed today?</TinyChip>
+          <TinyChip onClick={() => navigate("/chat?q=Where+am+I+overexposed%3F")}>Where am I overexposed?</TinyChip>
+        </div>
       </div>
     </ScreenContainer>
   );

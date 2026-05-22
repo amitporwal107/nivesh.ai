@@ -77,6 +77,7 @@ const CopilotChat = lazy(() => import("../screens/chat/CopilotChat"));
 const Onboarding = lazy(() => import("../screens/onboarding/Onboarding"));
 const Dashboard = lazy(() => import("../screens/dashboard/Dashboard"));
 const Portfolio = lazy(() => import("../screens/portfolio/Portfolio"));
+const Exposure = lazy(() => import("../screens/portfolio/Exposure"));
 const Diversification = lazy(() => import("../screens/portfolio/Diversification"));
 const Concentration = lazy(() => import("../screens/portfolio/Concentration"));
 const RiskAnalysis = lazy(() => import("../screens/risk/RiskAnalysis"));
@@ -115,6 +116,7 @@ export default function V3Router() {
           <Route path="chat/:threadId" element={<V3Protected><CopilotChat /></V3Protected>} />
           <Route path="dashboard" element={<V3Protected><Dashboard /></V3Protected>} />
           <Route path="portfolio" element={<V3Protected><Portfolio /></V3Protected>} />
+          <Route path="portfolio/exposure" element={<V3Protected><Exposure /></V3Protected>} />
           <Route path="portfolio/diversification" element={<V3Protected><Diversification /></V3Protected>} />
           <Route path="portfolio/concentration" element={<V3Protected><Concentration /></V3Protected>} />
           <Route path="risk" element={<V3Protected><RiskAnalysis /></V3Protected>} />
