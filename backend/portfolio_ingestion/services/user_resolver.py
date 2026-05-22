@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     import asyncpg
 
 from ..config import get_settings
+from . import audit as audit_svc
 
 
 class PanMismatchError(Exception):
@@ -63,7 +64,7 @@ async def resolve(
     if pan is None:
         # No plaintext — insert without encrypted PAN. Backfilled on next
         # callback that supplies it.
-        return await conn.fetchval(
+        user_id = await conn.fetchval(
             """
             INSERT INTO portfolio_ingestion.users (external_id, pan_hash)
             VALUES ($1, $2)
@@ -73,11 +74,16 @@ async def resolve(
             """,
             external_id, pan_hash,
         )
+        await audit_svc.user_created(
+            conn, user_id=user_id, pan_hash=pan_hash,
+            external_id=external_id, has_enc=False,
+        )
+        return user_id
 
     # With plaintext — encrypt server-side via SQL helper.
     async with conn.transaction():
         await _set_pan_key(conn)
-        return await conn.fetchval(
+        user_id = await conn.fetchval(
             """
             INSERT INTO portfolio_ingestion.users (external_id, pan_hash, pan_enc)
             VALUES ($1, $2, portfolio_ingestion.pi_encrypt_pan($3))
@@ -87,3 +93,8 @@ async def resolve(
             """,
             external_id, pan_hash, pan,
         )
+        await audit_svc.user_created(
+            conn, user_id=user_id, pan_hash=pan_hash,
+            external_id=external_id, has_enc=True,
+        )
+        return user_id
