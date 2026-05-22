@@ -353,6 +353,25 @@ async def portfolio_import_from_connect(request: Request):
         portfolio_id=portfolio_id,
     )
 
+    # Mirror the Gmail-import behaviour: once we've persisted holdings the
+    # user has effectively finished onboarding. Without this, the V2 gate
+    # at NiveshV2.jsx:343 keeps routing them back to the onboarding wizard
+    # on every reload, and the V3 router has no server-side flag to read.
+    if saved:
+        now = datetime.now(timezone.utc)
+        await db.user_profiles.update_one(
+            {"user_id": user["user_id"]},
+            {
+                "$set": {
+                    "onboarding_completed": True,
+                    "journey_type": "existing_investor",
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
+            },
+            upsert=True,
+        )
+
     # Extract transactions + detect SIP patterns
     sip_summary: Dict[str, int] = {}
     try:
