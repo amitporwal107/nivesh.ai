@@ -22,6 +22,11 @@ from .db.migrations.runner import apply_pending as _run_migrations
 from .logging_setup import configure as configure_logging
 from .middleware import RequestMetricsMiddleware
 
+# Imports below are used inside create_app() for the 422 handler.
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -33,6 +38,21 @@ def create_app() -> FastAPI:
         version=settings.version,
     )
     app.add_middleware(RequestMetricsMiddleware)
+
+    @app.exception_handler(RequestValidationError)
+    async def _on_validation_error(request: Request, exc: RequestValidationError):
+        body = (await request.body())[:8000].decode("utf-8", errors="replace")
+        logging.getLogger("portfolio_ingestion.validation").warning(
+            "request validation failed",
+            extra={
+                "eventType": "REQUEST_VALIDATION_FAIL",
+                "path": request.url.path,
+                "method": request.method,
+                "errors": exc.errors(),
+                "body_prefix": body,
+            },
+        )
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     @app.on_event("startup")
     async def _startup() -> None:
