@@ -339,3 +339,42 @@ async def complete_onboarding(request: Request):
         upsert=True
     )
     return {"status": "ok", "onboarding_completed": True}
+
+
+_DEFAULT_PREFS = {
+    "notifications": {"push": True, "email": False},
+}
+
+
+@router.get("/user/preferences")
+async def get_user_preferences(request: Request):
+    user = await get_current_user(request)
+    profile = await db.user_profiles.find_one(
+        {"user_id": user["user_id"]}, {"_id": 0, "preferences": 1}
+    ) or {}
+    prefs = profile.get("preferences") or {}
+    merged = {**_DEFAULT_PREFS, **prefs}
+    merged["notifications"] = {**_DEFAULT_PREFS["notifications"], **(prefs.get("notifications") or {})}
+    return merged
+
+
+@router.patch("/user/preferences")
+async def update_user_preferences(request: Request):
+    user = await get_current_user(request)
+    body = await request.json() or {}
+    set_fields = {}
+    if "notifications" in body and isinstance(body["notifications"], dict):
+        n = body["notifications"]
+        if "push" in n:
+            set_fields["preferences.notifications.push"] = bool(n["push"])
+        if "email" in n:
+            set_fields["preferences.notifications.email"] = bool(n["email"])
+    if not set_fields:
+        return await get_user_preferences(request)
+    set_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.user_profiles.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": set_fields, "$setOnInsert": {"user_id": user["user_id"]}},
+        upsert=True,
+    )
+    return await get_user_preferences(request)

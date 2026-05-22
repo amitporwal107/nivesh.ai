@@ -214,8 +214,15 @@ async def test_prompt(name: str, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Unknown prompt: {name}")
 
     try:
-        from helpers import secrets as _secrets
-        key = _secrets.get("OPENAI_API_KEY")
+        key = ""
+        try:
+            from helpers import gsm as _gsm
+            key = _gsm.get("OPENAI_API_KEY") or ""
+        except Exception:  # noqa: BLE001
+            pass
+        if not key:
+            from helpers import secrets as _secrets
+            key = _secrets.get("OPENAI_API_KEY")
         if not key:
             return {"system": system[:2000], "user": user_text,
                     "response": None, "error": "OPENAI_API_KEY not configured"}

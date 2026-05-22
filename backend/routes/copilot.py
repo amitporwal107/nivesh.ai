@@ -30,7 +30,28 @@ from services.copilot_charts import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/copilot", tags=["copilot"])
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+def _get_openai_key() -> str:
+    """Resolve OPENAI_API_KEY at call time. Order:
+       1. Google Secret Manager (prod source of truth — rotates without restart)
+       2. DB-backed admin override (helpers.secrets)
+       3. Env var (local dev)
+    """
+    try:
+        from helpers import gsm as _gsm
+        key = _gsm.get("OPENAI_API_KEY")
+        if key:
+            return key
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from helpers import secrets as _secrets
+        key = _secrets.get("OPENAI_API_KEY")
+        if key:
+            return key
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("OPENAI_API_KEY", "")
+
 
 MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
     "gpt-4o": {
@@ -132,11 +153,12 @@ async def _llm_call(
     model_key: str, system: str, user_prompt: str, session_id: str,
 ) -> str:
     """Single-shot chat completion via OpenAI SDK."""
-    if not OPENAI_API_KEY:
+    key = _get_openai_key()
+    if not key:
         raise HTTPException(500, "OPENAI_API_KEY is not configured")
     meta = MODEL_REGISTRY.get(model_key) or MODEL_REGISTRY[DEFAULT_MODEL_KEY]
     import openai
-    client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+    client = openai.AsyncOpenAI(api_key=key)
     try:
         completion = await client.chat.completions.create(
             model=meta["model"],

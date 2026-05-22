@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useOutletContext, useNavigate } from "react-router-dom";
 import { ChevronRight, Bell, Lock, Smartphone, FileText, HelpCircle, LogOut } from "lucide-react";
 import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
 import { useAuth } from "@/context/AuthContext";
+import { apiGet, apiPatch } from "../../adapters/apiClient";
 
 export default function Settings() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
@@ -13,30 +14,52 @@ export default function Settings() {
   const { logout } = useAuth() || {};
   const [pushOn, setPushOn] = useState(true);
   const [emailOn, setEmailOn] = useState(false);
+  const [savingPref, setSavingPref] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    apiGet("/user/preferences").then(({ data }) => {
+      if (!alive || !data?.notifications) return;
+      setPushOn(!!data.notifications.push);
+      setEmailOn(!!data.notifications.email);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  async function patchNotif(next) {
+    setSavingPref(true);
+    await apiPatch("/user/preferences", { notifications: next });
+    setSavingPref(false);
+  }
+  function onPushChange(v) { setPushOn(v); patchNotif({ push: v, email: emailOn }); }
+  function onEmailChange(v) { setEmailOn(v); patchNotif({ push: pushOn, email: v }); }
+
+  const askInChat = (q) => navigate(`/chat?q=${encodeURIComponent(q)}`);
+  const openExternal = (url) => window.open(url, "_blank", "noopener,noreferrer");
 
   return (
     <ScreenContainer variant={isDesktop ? "desktop" : "mobile"}>
       <TopBar variant={isDesktop ? "desktop" : "mobile"} eyebrow="Settings" title="Preferences" />
       <div style={{ display: "flex", flexDirection: "column", gap: isDesktop ? 26 : 18, paddingBottom: 40 }}>
         <SettingsGroup title="Notifications">
-          <ToggleRow icon={Bell} label="Push notifications" sub="Daily brief + alerts" value={pushOn} onChange={setPushOn} />
-          <ToggleRow icon={Bell} label="Email summaries" sub="Weekly portfolio email" value={emailOn} onChange={setEmailOn} />
+          <ToggleRow icon={Bell} label="Push notifications" sub={savingPref ? "Saving…" : "Daily brief + alerts"} value={pushOn} onChange={onPushChange} />
+          <ToggleRow icon={Bell} label="Email summaries" sub={savingPref ? "Saving…" : "Weekly portfolio email"} value={emailOn} onChange={onEmailChange} />
         </SettingsGroup>
 
         <SettingsGroup title="Account">
-          <LinkRow icon={Lock} label="Security" sub="2FA · sessions · passkeys" onClick={() => {}} />
-          <LinkRow icon={Smartphone} label="Connected accounts" sub="CAS · brokerage · bank" onClick={() => {}} />
-          <LinkRow icon={FileText} label="Documents & reports" sub="Statements · tax · KYC" onClick={() => {}} />
+          <LinkRow icon={Lock} label="Security" sub="2FA · sessions · passkeys" onClick={() => askInChat("Help me review my account security settings")} />
+          <LinkRow icon={Smartphone} label="Connected accounts" sub="CAS · brokerage · bank" onClick={() => navigate("/onboarding")} />
+          <LinkRow icon={FileText} label="Documents & reports" sub="Statements · tax · KYC" onClick={() => navigate("/tax")} />
         </SettingsGroup>
 
         <SettingsGroup title="Persona & data">
           <LinkRow icon={Bell} label="Switch persona" sub="Change how we frame answers" onClick={() => navigate("/profile")} />
-          <LinkRow icon={FileText} label="Data privacy" sub="What we store and why" onClick={() => {}} />
+          <LinkRow icon={FileText} label="Data privacy" sub="What we store and why" onClick={() => askInChat("What data does Nivesh store about me and how is it used?")} />
         </SettingsGroup>
 
         <SettingsGroup title="Support">
-          <LinkRow icon={HelpCircle} label="Help center" onClick={() => {}} />
-          <LinkRow icon={FileText} label="Terms & disclosures" onClick={() => {}} />
+          <LinkRow icon={HelpCircle} label="Help center" onClick={() => askInChat("I need help using Nivesh Copilot")} />
+          <LinkRow icon={FileText} label="Terms & disclosures" onClick={() => openExternal("https://niveshcopilot.com/terms")} />
           <LinkRow icon={LogOut} label="Sign out" danger onClick={logout || (() => { window.location.href = "/"; })} />
         </SettingsGroup>
       </div>
