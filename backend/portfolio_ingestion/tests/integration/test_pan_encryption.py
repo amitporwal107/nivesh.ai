@@ -72,9 +72,15 @@ async def test_sdk_callback_writes_encrypted_pan(fresh_user) -> None:
         )
         assert r.status_code == 200, r.text
 
+    from portfolio_ingestion.config import get_settings
     from portfolio_ingestion.services.checksum import pan_hash as _hash
     pool = await pg_pool.get_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        # Same session key the app used when writing
+        await conn.execute(
+            "SELECT set_config('portfolio_ingestion.pan_encryption_key', $1, true)",
+            get_settings().pan_encryption_key or "pi-placeholder-rotate-me",
+        )
         row = await conn.fetchrow(
             "SELECT pan_enc IS NOT NULL AS has_enc, length(pan_enc) AS enc_len, "
             "       portfolio_ingestion.pi_decrypt_pan(pan_enc) AS plain "
