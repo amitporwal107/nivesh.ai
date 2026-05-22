@@ -160,14 +160,14 @@ export default function RiskAnalysis() {
             <section>
               <SectionHead title="Asset allocation" count="Mix" />
               <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : "1fr 1fr", gap: 12 }}>
-                <CompactCard category="risk" label="Equity"  meta={`${data.equity_pct.toFixed(1)}%`}  viz={<OverlapDonut value={data.equity_pct} color="var(--v3-saffron)" />} />
-                <CompactCard category="risk" label="Debt"    meta={`${data.debt_pct.toFixed(1)}%`}    viz={<OverlapDonut value={data.debt_pct} color="var(--v3-indigo)" />} />
-                <CompactCard category="risk" label="Gold"    meta={`${data.gold_pct.toFixed(1)}%`}    viz={<OverlapDonut value={data.gold_pct} color="var(--v3-gold)" />} />
-                <CompactCard category="risk" label="Other"   meta={`${data.other_pct.toFixed(1)}%`}   viz={<OverlapDonut value={data.other_pct} color="var(--v3-ink-3)" />} />
+                <CompactCard category="risk" label="Equity"  meta={`${(data.equity_pct ?? 0).toFixed(1)}%`}  viz={<OverlapDonut value={data.equity_pct ?? 0} color="var(--v3-saffron)" />} />
+                <CompactCard category="risk" label="Debt"    meta={`${(data.debt_pct ?? 0).toFixed(1)}%`}    viz={<OverlapDonut value={data.debt_pct ?? 0} color="var(--v3-indigo)" />} />
+                <CompactCard category="risk" label="Gold"    meta={`${(data.gold_pct ?? 0).toFixed(1)}%`}    viz={<OverlapDonut value={data.gold_pct ?? 0} color="var(--v3-gold)" />} />
+                <CompactCard category="risk" label="Other"   meta={`${(data.other_pct ?? 0).toFixed(1)}%`}   viz={<OverlapDonut value={data.other_pct ?? 0} color="var(--v3-ink-3)" />} />
               </div>
             </section>
 
-            {data.risk_drivers.length > 0 && (
+            {(data.risk_drivers?.length ?? 0) > 0 && (
               <section>
                 <SectionHead title="Risk drivers" count={`${data.risk_drivers.length} flagged`} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -176,7 +176,7 @@ export default function RiskAnalysis() {
               </section>
             )}
 
-            {data.top_contributors.length > 0 && (
+            {(data.top_contributors?.length ?? 0) > 0 && (
               <section>
                 <SectionHead title="Top volatility contributors" count={`${data.top_contributors.length} holdings`} />
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -184,8 +184,10 @@ export default function RiskAnalysis() {
                     <div key={i} style={{ background: "var(--v3-bg-2)", border: "1px solid var(--v3-line)", borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
                       <BarChart3 size={16} color="var(--v3-ink-3)" />
                       <span style={{ flex: 1, fontSize: 13, color: "var(--v3-ink-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                      <span className="v3-data" style={{ fontSize: 11, color: "var(--v3-ink-3)" }}>{c.weight_pct.toFixed(1)}%</span>
-                      <span className="v3-data" style={{ fontSize: 11, color: "var(--v3-crimson)" }}>σ {(c.volatility_1y * 100).toFixed(1)}%</span>
+                      <span className="v3-data" style={{ fontSize: 11, color: "var(--v3-ink-3)" }}>{(c.weight_pct ?? 0).toFixed(1)}%</span>
+                      {c.volatility_1y != null && (
+                        <span className="v3-data" style={{ fontSize: 11, color: "var(--v3-crimson)" }}>σ {(c.volatility_1y * 100).toFixed(1)}%</span>
+                      )}
                     </div>
                   ))}
                 </div>

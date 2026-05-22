@@ -10,12 +10,17 @@ import logging
 from fastapi import FastAPI
 
 from . import __service_name__, __version__
+from .api.admin import router as admin_router
 from .api.health import router as health_router
 from .api.portfolio import router as portfolio_router
 from .api.sdk_callback import router as sdk_callback_router
 from .api.token import router as token_router
+from .api.uploads import router as uploads_router
+from .api.webhooks import router as webhooks_router
 from .config import get_settings
+from .db.migrations.runner import apply_pending as _run_migrations
 from .logging_setup import configure as configure_logging
+from .middleware import RequestMetricsMiddleware
 
 
 def create_app() -> FastAPI:
@@ -27,10 +32,12 @@ def create_app() -> FastAPI:
         description="CAS ingestion, snapshot engine and portfolio read APIs.",
         version=settings.version,
     )
+    app.add_middleware(RequestMetricsMiddleware)
 
     @app.on_event("startup")
     async def _startup() -> None:
-        logging.getLogger(__name__).info(
+        log = logging.getLogger(__name__)
+        log.info(
             "portfolio_ingestion starting",
             extra={
                 "eventType": "SERVICE_START",
@@ -39,9 +46,16 @@ def create_app() -> FastAPI:
                 "env": settings.app_env,
             },
         )
+        # Run pending DB migrations on every boot. Idempotent — already-applied
+        # migrations are skipped in < 1 ms; new ones run exactly once.
+        if settings.postgres_url:
+            await _run_migrations()
 
     app.include_router(health_router)
+    app.include_router(admin_router)
     app.include_router(sdk_callback_router)
+    app.include_router(uploads_router)
+    app.include_router(webhooks_router)
     app.include_router(token_router)
     app.include_router(portfolio_router)
     return app

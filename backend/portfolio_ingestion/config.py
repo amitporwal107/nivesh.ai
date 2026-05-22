@@ -27,6 +27,13 @@ class Settings:
     redis_url: str | None
     nidp_daas_base_url: str | None
     pan_encryption_key: str | None
+    gcs_bucket: str | None
+    gcs_sa_key_path: str | None
+    casparser_base_url: str
+    casparser_api_key: str | None
+    webhook_secret: str | None
+    webhook_enabled: bool
+    admin_token: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -42,6 +49,13 @@ class Settings:
             redis_url=_env("PI_REDIS_URL"),
             nidp_daas_base_url=_env("NIDP_DAAS_BASE_URL"),
             pan_encryption_key=_env("PI_PAN_ENCRYPTION_KEY"),
+            gcs_bucket=_env("PI_GCS_BUCKET"),
+            gcs_sa_key_path=_env("PI_GCS_SA_KEY_PATH"),
+            casparser_base_url=_env("PI_CASPARSER_BASE_URL", "https://api.casparser.in") or "https://api.casparser.in",
+            casparser_api_key=_env("PI_CASPARSER_API_KEY"),
+            webhook_secret=_env("PI_WEBHOOK_SECRET"),
+            webhook_enabled=(_env("PI_WEBHOOK_ENABLED", "false") or "false").lower() in ("1", "true", "yes"),
+            admin_token=_env("PI_ADMIN_TOKEN"),
         )
 
 

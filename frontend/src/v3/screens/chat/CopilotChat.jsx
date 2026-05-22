@@ -119,9 +119,9 @@ function makeAnswer(text, responseText, portfolio, catalog) {
     summary: responseText,
     content: responseText,
     viz: category === "risk"
-      ? <OverlapDonut value={portfolio.overlap.maxPct} color="var(--v3-crimson)" size={64} />
+      ? <OverlapDonut value={portfolio.overlap.maxPct ?? 0} color="var(--v3-crimson)" size={64} />
       : category === "health"
-      ? <FundCountHistogram count={portfolio.funds.count} height={64} />
+      ? <FundCountHistogram count={portfolio.funds.count ?? 0} height={64} />
       : null,
     followups: catalog.advanced.slice(0, 4).map((p) => p.label),
   };
@@ -141,9 +141,9 @@ function makeFallbackAnswer(text, portfolio, catalog, error) {
       : summary,
     content: summary,
     viz: category === "risk"
-      ? <OverlapDonut value={portfolio.overlap.maxPct} color="var(--v3-crimson)" size={64} />
+      ? <OverlapDonut value={portfolio.overlap.maxPct ?? 0} color="var(--v3-crimson)" size={64} />
       : category === "health"
-      ? <FundCountHistogram count={portfolio.funds.count} height={64} />
+      ? <FundCountHistogram count={portfolio.funds.count ?? 0} height={64} />
       : null,
     followups: catalog.advanced.slice(0, 4).map((p) => p.label),
   };
@@ -185,15 +185,25 @@ function TypingRow() {
 function pickAnswerSummary(category, p) {
   switch (category) {
     case "risk":
-      return `Your portfolio shows ${p.overlap.pairs} fund pairs with overlap above 65%. The highest overlapping pair shares ${p.overlap.maxPct}% of the same underlying stocks — that's real concentration risk dressed up as diversification.`;
+      return p.overlap.maxPct != null
+        ? `Your portfolio shows ${p.overlap.pairs} fund pairs with overlap above 65%. The highest overlapping pair shares ${p.overlap.maxPct}% of the same underlying stocks — that's real concentration risk dressed up as diversification.`
+        : "Ask Copilot to analyse your fund overlap — connect your portfolio first.";
     case "performance":
-      return `YTD return is ${p.performance.ytd}% against a benchmark of ${p.performance.benchmarkYtd}%. 2 of your 11 funds are dragging — a small-cap and a sectoral fund. The other 9 are at or above category median.`;
+      return p.performance.ytd != null
+        ? `YTD return is ${p.performance.ytd}% against a benchmark of ${p.performance.benchmarkYtd}%.`
+        : "YTD performance data is loading — ask Copilot for a detailed breakdown.";
     case "tax":
-      return `You have ₹${p.tax.unrealizedLtcg.toLocaleString("en-IN")} of unrealized LTCG. ₹${p.tax.ltcgFree.toLocaleString("en-IN")} of your ₹1.25L FY exemption is still unused — there's room to harvest before March 31.`;
+      return p.tax.unrealizedLtcg != null
+        ? `You have ₹${p.tax.unrealizedLtcg.toLocaleString("en-IN")} of unrealized LTCG. ${p.tax.ltcgFree != null ? `₹${p.tax.ltcgFree.toLocaleString("en-IN")} of your ₹1.25L FY exemption is still unused.` : ""}`
+        : "Ask Copilot for your LTCG breakdown and harvest opportunities.";
     case "goal":
-      return `Your retirement goal is ${p.goals[0].progress}% funded. At current SIPs you'll reach ${(p.goals[0].progress + 32)}% of target by year 10. Closing the gap needs an extra ₹${(p.sip.gap / 1000).toFixed(0)}k / month.`;
+      return p.goals.length
+        ? `Your retirement goal is ${p.goals[0].progress}% funded. Closing the gap needs an extra ₹${p.sip.gap ? (p.sip.gap / 1000).toFixed(0) + "k" : "—"} / month.`
+        : "No goals linked yet — ask Copilot to set up a goal-based plan.";
     default:
-      return `Your portfolio holds ${p.funds.count} funds across ${p.funds.amcCount} AMCs — the ideal range is ${p.funds.idealMin}–${p.funds.idealMax}. Consolidating to ~7 funds without losing exposure is the single highest-impact action this quarter.`;
+      return p.funds.count != null
+        ? `Your portfolio holds ${p.funds.count} funds across ${p.funds.amcCount} AMCs — the ideal range is ${p.funds.idealMin}–${p.funds.idealMax}.`
+        : "Connect your portfolio to get a personalised analysis.";
   }
 }
 

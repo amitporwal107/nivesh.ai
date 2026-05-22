@@ -15,7 +15,7 @@ STAGING_ROOT="/opt/nivesh-staging"
 REPO_DIR="${STAGING_ROOT}/repo"
 COMPOSE_FILE="${REPO_DIR}/deploy/nivesh-staging/docker-compose.staging.yml"
 ENV_FILE="${STAGING_ROOT}/.env.staging"
-BRANCH="${1:-hotfix/v3-catchall-loop}"   # current working branch; override with arg
+BRANCH="${1:-feat/portfolio-ingestion-staging}"   # staging tracks this branch; override with arg
 
 log() { echo "[redeploy-staging] $*"; }
 fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
@@ -51,9 +51,12 @@ done
 [[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null)" == "healthy" ]] \
     || fail "nivesh-staging-ingestion did not become healthy."
 
-log "Smoke check via nginx on ${PI_NGINX_BIND_ADDR:-127.0.0.1}:${PI_NGINX_PORT:-8443}..."
-curl -k -fsS --resolve "staging.niveshcopilot.com:${PI_NGINX_PORT:-8443}:${PI_NGINX_BIND_ADDR:-127.0.0.1}" \
-    "https://staging.niveshcopilot.com:${PI_NGINX_PORT:-8443}/api/healthz" | head -200 \
+# Smoke check always probes via the loopback interface — the bind address
+# (0.0.0.0 once we go public) is not a valid connect target.
+SMOKE_PORT="${PI_NGINX_PORT:-8443}"
+log "Smoke check via nginx on 127.0.0.1:${SMOKE_PORT}..."
+curl -k -fsS --resolve "staging.niveshcopilot.com:${SMOKE_PORT}:127.0.0.1" \
+    "https://staging.niveshcopilot.com:${SMOKE_PORT}/api/healthz" | head -200 \
     || fail "Healthz check via nginx failed."
 
 log "Done. Running services:"

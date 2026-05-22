@@ -175,15 +175,15 @@ function renderHeroViz(category, portfolio, isDesktop) {
       );
     case "risk":
       return (
-        <HeroVizPanel eyebrow="Risk score" value={portfolio.risk.score} unit="/ 100" size={isDesktop ? "desktop" : "mobile"}>
+        <HeroVizPanel eyebrow="Risk score" value={portfolio.risk.score ?? "—"} unit="/ 100" size={isDesktop ? "desktop" : "mobile"}>
           <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
-            <OverlapDonut value={portfolio.risk.score} color="var(--v3-saffron)" size={isDesktop ? 96 : 72} label="Risk gauge" />
+            <OverlapDonut value={portfolio.risk.score ?? 0} color="var(--v3-saffron)" size={isDesktop ? 96 : 72} label="Risk gauge" />
           </div>
         </HeroVizPanel>
       );
     case "performance":
       return (
-        <HeroVizPanel eyebrow="YTD return" value={`${portfolio.performance.ytd}%`} size={isDesktop ? "desktop" : "mobile"}>
+        <HeroVizPanel eyebrow="YTD return" value={portfolio.performance.ytd != null ? `${portfolio.performance.ytd}%` : "—"} size={isDesktop ? "desktop" : "mobile"}>
           <PerformanceLine size={isDesktop ? 144 : 96} />
         </HeroVizPanel>
       );
@@ -191,7 +191,7 @@ function renderHeroViz(category, portfolio, isDesktop) {
       return (
         <HeroVizPanel
           eyebrow="Unrealized LTCG"
-          value={`₹${(portfolio.tax.unrealizedLtcg / 1000).toFixed(0)}k`}
+          value={portfolio.tax.unrealizedLtcg != null ? `₹${(portfolio.tax.unrealizedLtcg / 1000).toFixed(0)}k` : "—"}
           size={isDesktop ? "desktop" : "mobile"}
         >
           <div style={{ display: "flex", justifyContent: "center", padding: 8 }}>
@@ -203,7 +203,7 @@ function renderHeroViz(category, portfolio, isDesktop) {
       return (
         <HeroVizPanel
           eyebrow="Retirement progress"
-          value={`${portfolio.goals[0].progress}%`}
+          value={portfolio.goals.length ? `${portfolio.goals[0].progress}%` : "—"}
           size={isDesktop ? "desktop" : "mobile"}
         >
           <GoalBars size={isDesktop ? 96 : 64} />
@@ -217,7 +217,7 @@ function renderHeroViz(category, portfolio, isDesktop) {
 function renderCompactViz(category, portfolio) {
   switch (category) {
     case "risk":
-      return <OverlapDonut value={portfolio.overlap.maxPct} color="var(--v3-crimson)" />;
+      return <OverlapDonut value={portfolio.overlap.maxPct ?? 0} color="var(--v3-crimson)" />;
     case "performance":
       return <PerformanceLine />;
     case "goal":
@@ -225,7 +225,7 @@ function renderCompactViz(category, portfolio) {
     case "tax":
       return <TaxPyramid />;
     case "health":
-      return <OverlapDonut value={portfolio.risk.score} color="var(--v3-moss)" />;
+      return <OverlapDonut value={portfolio.risk.score ?? 0} color="var(--v3-moss)" />;
     default:
       return null;
   }
@@ -234,15 +234,15 @@ function renderCompactViz(category, portfolio) {
 function pickMeta(category, p) {
   switch (category) {
     case "risk":
-      return `${p.overlap.pairs} PAIRS · MAX ${p.overlap.maxPct}%`;
+      return p.overlap.maxPct != null ? `${p.overlap.pairs} PAIRS · MAX ${p.overlap.maxPct}%` : "—";
     case "performance":
-      return `YTD ${p.performance.ytd}% · BENCH ${p.performance.benchmarkYtd}%`;
+      return p.performance.ytd != null ? `YTD ${p.performance.ytd}% · BENCH ${p.performance.benchmarkYtd}%` : "—";
     case "goal":
-      return `₹${(p.sip.monthly / 1000).toFixed(0)}K/MO · GAP ₹${(p.sip.gap / 1000).toFixed(0)}K`;
+      return p.sip.monthly ? `₹${(p.sip.monthly / 1000).toFixed(0)}K/MO · GAP ₹${(p.sip.gap / 1000).toFixed(0)}K` : "—";
     case "tax":
-      return `HARVEST ₹${(p.tax.harvestable / 1000).toFixed(0)}K`;
+      return p.tax.harvestable != null ? `HARVEST ₹${(p.tax.harvestable / 1000).toFixed(0)}K` : "—";
     case "health":
-      return `SCORE ${p.risk.score}/100`;
+      return p.risk.score != null ? `SCORE ${p.risk.score}/100` : "—";
     default:
       return null;
   }

@@ -23,6 +23,7 @@ from uuid import UUID
 
 from ..db.pool import get_pool
 from ..schemas.snapshot import ActivationDecision, ActivationRequest
+from . import audit as audit_svc
 from .source_priority import (
     Method,
     SnapshotKey,
@@ -192,6 +193,29 @@ async def _activate_on_conn(
             await conn.execute(
                 "DELETE FROM portfolio_ingestion.holdings WHERE pan_hash = $1",
                 req.pan_hash,
+            )
+
+        # Audit: emit one entry per deactivated snapshot.
+        for did in deactivated_ids:
+            await audit_svc.snapshot_deactivated(
+                conn,
+                snapshot_id=did,
+                pan_hash=req.pan_hash,
+                superseded_by=new_snapshot_id,
+                reason=decision_reason,
+            )
+
+        # Audit: emit one entry for the incoming snapshot.
+        if incoming_active:
+            await audit_svc.snapshot_activated(
+                conn,
+                snapshot_id=new_snapshot_id,
+                pan_hash=req.pan_hash,
+                source_type=req.source_type,
+                method=req.method,
+                reason=decision_reason,
+                holdings_written=holdings_written,
+                statement_to=req.statement_to.isoformat(),
             )
 
         log.info(

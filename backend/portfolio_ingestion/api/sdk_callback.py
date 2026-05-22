@@ -20,6 +20,7 @@ from ..db.repositories import jobs as jobs_repo
 from ..schemas.parsed_data import SdkCallbackPayload
 from ..schemas.portfolio import SdkCallbackResponse
 from ..schemas.snapshot import ActivationRequest
+from ..services import audit as audit_svc
 from ..services import parsed_data_archive
 from ..services.checksum import pan_hash as pan_hash_fn
 from ..services.portfolio_builder import build_holdings
@@ -74,6 +75,7 @@ async def sdk_callback(
             )
             raise HTTPException(status_code=403, detail=str(e)) from e
 
+        is_cdsl_fetch = payload.metadata.method == "cdsl_fetch"
         job_id, is_new = await jobs_repo.upsert(
             conn,
             user_id=user_id,
@@ -82,7 +84,16 @@ async def sdk_callback(
             method=payload.metadata.method,
             checksum=payload.checksum,
             status="received",
+            pdf_status="unavailable" if is_cdsl_fetch else None,
         )
+
+        if is_new:
+            await audit_svc.job_status(
+                conn,
+                job_id=job_id, pan_hash=pan_hash,
+                old_status=None, new_status="received",
+                source_type=payload.source_type, method=payload.metadata.method,
+            )
 
         # If this is a duplicate request, short-circuit: load the snapshot &
         # holdings already attached to this job and return them.
@@ -113,6 +124,12 @@ async def sdk_callback(
         # Mark parsing first so anyone watching the jobs table sees progress
         await jobs_repo.mark(conn, job_id, status="parsing",
                              raw_data_ref=raw_data_ref)
+        await audit_svc.job_status(
+            conn,
+            job_id=job_id, pan_hash=pan_hash,
+            old_status="received", new_status="parsing",
+            source_type=payload.source_type, method=payload.metadata.method,
+        )
 
         activation_req = ActivationRequest(
             job_id=job_id,
@@ -129,9 +146,22 @@ async def sdk_callback(
         try:
             decision = await _activate_on_conn(conn, activation_req)
             await jobs_repo.mark(conn, job_id, status="activated")
+            await audit_svc.job_status(
+                conn,
+                job_id=job_id, pan_hash=pan_hash,
+                old_status="parsing", new_status="activated",
+                source_type=payload.source_type, method=payload.metadata.method,
+            )
         except Exception as e:
             await jobs_repo.mark(conn, job_id, status="failed",
                                  failure_reason=str(e)[:1024])
+            await audit_svc.job_status(
+                conn,
+                job_id=job_id, pan_hash=pan_hash,
+                old_status="parsing", new_status="failed",
+                source_type=payload.source_type, method=payload.metadata.method,
+                failure_reason=str(e)[:1024],
+            )
             log.exception("snapshot activation failed",
                           extra={"eventType": "SNAPSHOT_ACTIVATION_FAILED",
                                  "job_id": str(job_id)})
@@ -146,6 +176,7 @@ async def sdk_callback(
         is_new=True,
         is_active=decision.is_active,
         status="activated" if decision.is_active else "stored_inactive",
+        raw_pdf_available=payload.metadata.raw_pdf_available,
         portfolio=portfolio,
     )
 
@@ -199,5 +230,6 @@ async def _existing_response(
         is_new=False,
         is_active=snap_row["is_active"],
         status="activated" if snap_row["is_active"] else "stored_inactive",
+        raw_pdf_available=payload.metadata.raw_pdf_available,
         portfolio=assemble(cheap_holdings),
     )

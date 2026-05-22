@@ -38,4 +38,5 @@ class SdkCallbackResponse(BaseModel):
     is_new: bool
     is_active: bool
     status: Literal["activated", "stored_inactive"]
+    raw_pdf_available: bool = True   # False for cdsl_fetch OTP path
     portfolio: PortfolioResponse
