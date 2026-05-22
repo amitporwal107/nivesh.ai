@@ -47,21 +47,21 @@
     </p>
   </fieldset>
 
-  <!-- ── Step 2: Upload form (hidden until unlocked) ────────────────── -->
+  <!-- ── Step 2: Identify + launch widget (hidden until unlocked) ───── -->
   <fieldset id="upload-section" class="hidden">
-    <legend>2 · CAS PDF</legend>
+    <legend>2 · Launch CAS Connect widget</legend>
 
-    <label for="external-id">X-User-External-Id <span class="muted">(any unique string; identifies the user)</span></label>
+    <label for="external-id">X-User-External-Id <span class="muted">(any unique string; identifies the user in our DB)</span></label>
     <input type="text" id="external-id" placeholder="e.g. test-priya-20260522" />
 
-    <label for="cas-file">CAS PDF</label>
-    <input type="file" id="cas-file" accept="application/pdf" />
-
-    <label for="cas-password">PDF password</label>
-    <input type="password" id="cas-password" autocomplete="off" />
+    <p class="muted" style="margin: 14px 0;">
+      The CAS Connect widget opens in its own popup and handles the PDF
+      picker + password itself. We don't see the file — CASParser parses it
+      in your browser and only the parsed JSON comes back to us.
+    </p>
 
     <p style="margin-top: 14px;">
-      <button id="ingest-btn">Run end-to-end</button>
+      <button id="ingest-btn">Open widget</button>
       <button id="refresh-btn" class="secondary hidden">Reload portfolio</button>
     </p>
 
@@ -126,12 +126,7 @@
     hide($("result-section"));
 
     const externalId = $("external-id").value.trim();
-    const file = $("cas-file").files[0];
-    const password = $("cas-password").value;
-
     if (!externalId) return alert("External ID required");
-    if (!file) return alert("PDF required");
-    if (!password) return alert("PDF password required");
 
     $("ingest-btn").disabled = true;
 
@@ -162,9 +157,7 @@
       if (typeof openWidget !== "function") throw new Error("SDK did not expose .open()");
       markDone(stepSdk);
 
-      const stepWidget = addStep("Opening widget — pick the file you already selected + paste the password");
-      // Note: the widget renders its own file picker. We can't pre-populate
-      // file inputs across origins. The user re-selects the same PDF here.
+      const stepWidget = addStep("Opening widget — pick the PDF + enter the password inside the widget");
       const widgetResult = await openWidget({
         accessToken: tokenBody.access_token,
         config: { enableGenerator: true, enableCdslFetch: true, enableInbox: false },
@@ -175,8 +168,11 @@
       markDone(stepWidget);
 
       // 2c. POST parsed JSON to /api/cas/sdk-callback
+      // Checksum is derived from the parsed payload (deterministic): the
+      // browser never gets to see the PDF bytes since the SDK uploads
+      // directly to casparser.in.
       const stepCallback = addStep("POST /api/cas/sdk-callback");
-      const checksum = await sha256Hex(await file.arrayBuffer());
+      const checksum = await sha256Hex(new TextEncoder().encode(JSON.stringify(parsed)));
       const body = {
         checksum: checksum,
         source_type: metadata.source_type || guessSourceType(parsed),
