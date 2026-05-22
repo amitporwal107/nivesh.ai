@@ -43,6 +43,10 @@ _YF_TICKERS: Dict[str, List[str]] = {
                               "NIFTYIETF.NS"],
     "NIFTY_500":             ["NIFTY500.NS", "NIFTYBEES500.NS",
                               "0P0001BAYL.BO"],
+    # BSE Sensex — requested by V3 performance screen
+    "SENSEX":                ["^BSESN"],
+    # Nifty Midcap 100 — V3 performance screen; ETF proxy
+    "NIFTY_MIDCAP_100":      ["MIDCAP100.NS", "MID150.NS"],
     # Additional indices used by the action engine
     "NIFTY_LARGEMIDCAP_250": ["LARGEMID250.NS", "NIFTY500.NS"],
     "NIFTY_BANK":            ["^NSEBANK"],
@@ -414,6 +418,8 @@ _CORE_INDICES = (
     "NIFTY_MIDCAP_150",
     "NIFTY_SMALLCAP_250",
     "NIFTY_500",
+    "SENSEX",
+    "NIFTY_MIDCAP_100",
 )
 
 

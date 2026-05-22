@@ -30,35 +30,27 @@ from services.copilot_charts import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/copilot", tags=["copilot"])
 
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-# Model registry — `key` is what the frontend sends; `provider/model` is
-# what emergentintegrations expects. Price/quality metadata is surfaced
-# to the UI so the MFD can pick informed defaults.
 MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
-    "gemini": {
-        "provider": "gemini",
-        "model": "gemini-2.5-flash",
-        "label": "Gemini 2.5 Flash",
+    "gpt-4o": {
+        "model": "gpt-4o",
+        "label": "GPT-4o",
+        "tier": "Best · recommended",
+        "price_hint": "~₹0.40 / call",
+    },
+    "gpt-4o-mini": {
+        "model": "gpt-4o-mini",
+        "label": "GPT-4o Mini",
         "tier": "Cheapest · fast",
-        "price_hint": "~₹0.10 / call",
+        "price_hint": "~₹0.04 / call",
     },
-    "claude": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929",
-        "label": "Claude Sonnet 4.5",
-        "tier": "Best writing",
-        "price_hint": "~₹0.50 / call",
-    },
-    "gpt": {
-        "provider": "openai",
-        "model": "gpt-5.2",
-        "label": "GPT-5.2",
-        "tier": "Best reasoning",
-        "price_hint": "~₹0.45 / call",
-    },
+    # Legacy aliases so existing callers sending "gemini"/"claude"/"gpt" still work
+    "gemini": {"model": "gpt-4o-mini", "label": "GPT-4o Mini", "tier": "Fast", "price_hint": "~₹0.04 / call"},
+    "claude": {"model": "gpt-4o",      "label": "GPT-4o",      "tier": "Best", "price_hint": "~₹0.40 / call"},
+    "gpt":    {"model": "gpt-4o",      "label": "GPT-4o",      "tier": "Best", "price_hint": "~₹0.40 / call"},
 }
-DEFAULT_MODEL_KEY = "gemini"
+DEFAULT_MODEL_KEY = "gpt-4o"
 
 
 # ── Caching helpers ────────────────────────────────────────────────────
@@ -139,20 +131,23 @@ def _portfolio_context_block(ctx: Dict[str, Any]) -> str:
 async def _llm_call(
     model_key: str, system: str, user_prompt: str, session_id: str,
 ) -> str:
-    """Single-shot chat call via emergentintegrations. Non-streaming for
-    simplicity in Pass 1 — we can add streaming to the /ask endpoint later
-    when we wire the right-side panel."""
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(500, "EMERGENT_LLM_KEY is not configured")
+    """Single-shot chat completion via OpenAI SDK."""
+    if not OPENAI_API_KEY:
+        raise HTTPException(500, "OPENAI_API_KEY is not configured")
     meta = MODEL_REGISTRY.get(model_key) or MODEL_REGISTRY[DEFAULT_MODEL_KEY]
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = (
-        LlmChat(api_key=EMERGENT_LLM_KEY, session_id=session_id, system_message=system)
-        .with_model(meta["provider"], meta["model"])
-    )
+    import openai
+    client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
     try:
-        resp = await chat.send_message(UserMessage(text=user_prompt))
-        return (resp or "").strip()
+        completion = await client.chat.completions.create(
+            model=meta["model"],
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=600,
+        )
+        return (completion.choices[0].message.content or "").strip()
     except Exception as exc:  # noqa: BLE001
         logger.exception("copilot llm call failed: model=%s", model_key)
         raise HTTPException(502, f"Copilot ({meta['label']}) failed: {exc}") from exc

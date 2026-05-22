@@ -215,39 +215,26 @@ async def test_prompt(name: str, request: Request) -> Dict[str, Any]:
 
     try:
         from helpers import secrets as _secrets
-        key = _secrets.get("OPENAI_API_KEY") or _secrets.get("EMERGENT_LLM_KEY")
+        key = _secrets.get("OPENAI_API_KEY")
         if not key:
             return {"system": system[:2000], "user": user_text,
-                    "response": None, "error": "No LLM key configured"}
+                    "response": None, "error": "OPENAI_API_KEY not configured"}
         from openai import AsyncOpenAI
         import asyncio
-        client = AsyncOpenAI(api_key=key) if _secrets.get("OPENAI_API_KEY") else None
-        if client is None:
-            # Emergent key route — use emergentintegrations
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
-            chat = LlmChat(api_key=key, session_id=f"admin-test-{name}",
-                           system_message=system).with_model("openai", "gpt-4o-mini")
-            try:
-                resp = await asyncio.wait_for(chat.send_message(UserMessage(text=user_text)), timeout=20)
-            except asyncio.TimeoutError:
-                return {"system": system[:2000], "user": user_text,
-                        "response": None, "error": "LLM timeout after 20s"}
-            return {"system": system[:2000], "user": user_text,
-                    "response": str(resp)[:4000], "error": None}
-        else:
-            resp = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user_text},
-                    ],
-                    max_tokens=500,
-                    temperature=0.7,
-                ), timeout=20,
-            )
-            return {"system": system[:2000], "user": user_text,
-                    "response": resp.choices[0].message.content, "error": None}
+        client = AsyncOpenAI(api_key=key)
+        resp = await asyncio.wait_for(
+            client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_text},
+                ],
+                max_tokens=500,
+                temperature=0.7,
+            ), timeout=20,
+        )
+        return {"system": system[:2000], "user": user_text,
+                "response": resp.choices[0].message.content, "error": None}
     except Exception as e:  # noqa: BLE001
         logger.warning("prompt test failed: %s", e)
         return {"system": system[:2000], "user": user_text, "response": None, "error": str(e)}
