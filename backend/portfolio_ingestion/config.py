@@ -33,6 +33,7 @@ class Settings:
     casparser_api_key: str | None
     webhook_secret: str | None
     webhook_enabled: bool
+    admin_token: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -54,6 +55,7 @@ class Settings:
             casparser_api_key=_env("PI_CASPARSER_API_KEY"),
             webhook_secret=_env("PI_WEBHOOK_SECRET"),
             webhook_enabled=(_env("PI_WEBHOOK_ENABLED", "false") or "false").lower() in ("1", "true", "yes"),
+            admin_token=_env("PI_ADMIN_TOKEN"),
         )
 
 

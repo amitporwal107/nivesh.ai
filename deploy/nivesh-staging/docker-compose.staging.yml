@@ -97,6 +97,14 @@ services:
       # T2.3 PAN encryption key — set per-env; staging falls back to a
       # placeholder if unset (see migration 002_pgcrypto_pan.sql).
       PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
+      # T3.1 GCS upload — stub mode in staging until bucket + ADC are wired.
+      PI_GCS_STUB:       ${PI_GCS_STUB:-true}
+      PI_GCS_BUCKET:     ${PI_GCS_BUCKET:-}
+      # T3.3 inbound-email webhook — feature-flagged off by default.
+      PI_WEBHOOK_ENABLED: ${PI_WEBHOOK_ENABLED:-false}
+      PI_WEBHOOK_SECRET:  ${PI_WEBHOOK_SECRET:-}
+      # T4.3 operator endpoints — required for /api/admin/jobs/*.
+      PI_ADMIN_TOKEN:    ${PI_ADMIN_TOKEN:-}
     depends_on:
       postgres: { condition: service_healthy }
       mongo:    { condition: service_healthy }
