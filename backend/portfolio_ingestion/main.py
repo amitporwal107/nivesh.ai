@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from . import __service_name__, __version__
 from .api.health import router as health_router
+from .api.sdk_callback import router as sdk_callback_router
 from .config import get_settings
 from .logging_setup import configure as configure_logging
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(health_router)
+    app.include_router(sdk_callback_router)
     return app
 
 
