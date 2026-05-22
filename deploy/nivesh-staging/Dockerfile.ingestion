@@ -30,7 +30,9 @@ RUN pip install \
         "pydantic==2.12.5" \
         "asyncpg==0.31.0" \
         "motor==3.3.1" \
-        "httpx==0.28.1"
+        "httpx==0.28.1" \
+        "pytest==9.0.3" \
+        "pytest-asyncio==0.24.0"
 
 EXPOSE 8002
 
