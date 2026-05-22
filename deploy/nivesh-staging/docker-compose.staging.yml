@@ -1,0 +1,134 @@
+# Staging stack for the portfolio_ingestion service.
+#
+# Runs on nivesh-app-vm alongside the production stack, fully isolated:
+#   - Separate docker network        (nivesh-staging)
+#   - Separate container names       (nivesh-staging-*)
+#   - Separate persistent volumes    (/opt/nivesh-staging/data/...)
+#   - Separate ports on 127.0.0.1    (no public bind until firewall + DNS done)
+#
+# Brought up by deploy/nivesh-staging/redeploy-staging.sh. Do not run manually
+# without reading that script first.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ── Data stores (fresh, isolated from prod) ──────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nivesh-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${PI_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${PI_POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5532:5432"
+    volumes:
+      - /opt/nivesh-staging/data/postgres:/var/lib/postgresql/data
+    networks: [nivesh-staging]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PI_POSTGRES_USER} -d ${PI_POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: nivesh-staging-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE:      ${PI_MONGO_DB}
+    ports:
+      - "127.0.0.1:27117:27017"
+    volumes:
+      - /opt/nivesh-staging/data/mongo:/data/db
+    networks: [nivesh-staging]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nivesh-staging-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${PI_REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6479:6379"
+    volumes:
+      - /opt/nivesh-staging/data/redis:/data
+    networks: [nivesh-staging]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PI_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Portfolio ingestion service ──────────────────────────────────────────
+
+  ingestion:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-staging/Dockerfile.ingestion
+    image: nivesh/portfolio-ingestion:staging
+    container_name: nivesh-staging-ingestion
+    restart: unless-stopped
+    env_file: /opt/nivesh-staging/.env.staging
+    environment:
+      PI_POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      PI_MONGO_URL:    mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      PI_REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      APP_ENV:         staging
+      LOG_LEVEL:       INFO
+      # Outbound to PROD shared services (per user direction):
+      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
+      # T2.3 PAN encryption key — set per-env; staging falls back to a
+      # placeholder if unset (see migration 002_pgcrypto_pan.sql).
+      PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    networks: [nivesh-staging]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/api/healthz', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Edge nginx for the staging vhost ─────────────────────────────────────
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nivesh-staging-nginx
+    restart: unless-stopped
+    # Bind to 127.0.0.1 until firewall + DNS are wired; flip to 0.0.0.0:8443
+    # once `gcloud compute firewall-rules create allow-staging-https` is in.
+    ports:
+      - "${PI_NGINX_BIND_ADDR:-127.0.0.1}:${PI_NGINX_PORT:-8443}:8443"
+    volumes:
+      - ./nginx-staging.conf:/etc/nginx/conf.d/staging.conf:ro
+      - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
+    depends_on:
+      ingestion: { condition: service_healthy }
+    networks: [nivesh-staging]
+    logging: *default-logging
+
+networks:
+  nivesh-staging:
+    name: nivesh-staging
+    driver: bridge

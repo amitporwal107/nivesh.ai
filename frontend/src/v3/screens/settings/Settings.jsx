@@ -4,11 +4,13 @@ import { ChevronRight, Bell, Lock, Smartphone, FileText, HelpCircle, LogOut } fr
 import SectionHead from "../../components/SectionHead";
 import ScreenContainer from "../../components/layout/ScreenContainer";
 import TopBar from "../../components/layout/TopBar";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Settings() {
   const { viewport } = useOutletContext() || { viewport: "mobile" };
   const isDesktop = viewport === "desktop";
   const navigate = useNavigate();
+  const { logout } = useAuth() || {};
   const [pushOn, setPushOn] = useState(true);
   const [emailOn, setEmailOn] = useState(false);
 
@@ -35,7 +37,7 @@ export default function Settings() {
         <SettingsGroup title="Support">
           <LinkRow icon={HelpCircle} label="Help center" onClick={() => {}} />
           <LinkRow icon={FileText} label="Terms & disclosures" onClick={() => {}} />
-          <LinkRow icon={LogOut} label="Sign out" danger onClick={() => {}} />
+          <LinkRow icon={LogOut} label="Sign out" danger onClick={logout || (() => { window.location.href = "/"; })} />
         </SettingsGroup>
       </div>
     </ScreenContainer>

@@ -489,3 +489,4 @@ credentials.json
 frontend/node_modules/.cache/default-development/2.pack_
 frontend/node_modules/.cache/default-development/3.pack_
 frontend/node_modules/.cache/default-development/37.pack
+.client-token

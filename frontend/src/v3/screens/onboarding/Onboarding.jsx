@@ -319,6 +319,7 @@ export default function Onboarding() {
               method={method}
               isDesktop={isDesktop}
               picking={picking}
+              user={user}
               onTogglePick={() => setPicking((v) => !v)}
               onChoosePersona={(id) => {
                 setDetectedPersona(id);
@@ -1173,14 +1174,10 @@ function FindingRow({ label, value, state, isLast }) {
 
 /* ═════════════════════════ 4 · PERSONA REVEAL ═════════════════════════ */
 
-function RevealStep({ personaId, findings, method, isDesktop, picking, onTogglePick, onChoosePersona, onFinish }) {
+function RevealStep({ personaId, findings, method, isDesktop, picking, user, onTogglePick, onChoosePersona, onFinish }) {
   const persona = PERSONAS.find((p) => p.id === personaId) || PERSONAS[0];
-  const userName = "Rohan"; // future: pull from intel.user_name
-
-  const fundCount = findings.mf?.value ?? 11;
-  const amcCount = 4;
-  const invested = "₹18.4";
-  const investedSuffix = "L";
+  const rawName = user?.given_name || user?.name || user?.email?.split("@")[0] || "Investor";
+  const userName = String(rawName).split(/[\s.]/)[0];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", paddingTop: 4, position: "relative" }}>
@@ -1280,9 +1277,9 @@ function RevealStep({ personaId, findings, method, isDesktop, picking, onToggleP
             overflow: "hidden",
           }}
         >
-          <SnapshotStat num={fundCount} label="Funds" />
-          <SnapshotStat num={amcCount} label="AMCs" />
-          <SnapshotStat num={invested} suffix={investedSuffix} label="Invested" />
+          <SnapshotStat num={findings.mf?.value ?? "—"} label="Funds" />
+          <SnapshotStat num={findings.equity?.value ?? "—"} label="Stocks" />
+          <SnapshotStat num={findings.sip?.value ?? "—"} label="Holdings" />
         </div>
       </div>
 
