@@ -14,7 +14,9 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;        -- idempotent
 
-SET search_path TO portfolio_ingestion;
+-- Important: pgcrypto installs into ``public``. Keep both schemas on the
+-- search path so unqualified calls resolve cleanly.
+SET search_path TO portfolio_ingestion, public;
 
 -- Resolve the session-scoped key; falls back to a placeholder so the SQL
 -- compiles in environments that haven't wired the key yet. The placeholder
@@ -39,11 +41,12 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 CREATE OR REPLACE FUNCTION pi_encrypt_pan(plain_pan TEXT) RETURNS BYTEA AS $$
-    SELECT pgp_sym_encrypt(plain_pan, pi_pan_key());
+    -- Fully qualify so the function resolves regardless of caller search_path
+    SELECT public.pgp_sym_encrypt(plain_pan, pi_pan_key());
 $$ LANGUAGE SQL VOLATILE;
 
 CREATE OR REPLACE FUNCTION pi_decrypt_pan(cipher BYTEA) RETURNS TEXT AS $$
-    SELECT pgp_sym_decrypt(cipher, pi_pan_key());
+    SELECT public.pgp_sym_decrypt(cipher, pi_pan_key());
 $$ LANGUAGE SQL VOLATILE;
 
 COMMENT ON FUNCTION pi_encrypt_pan(TEXT) IS
