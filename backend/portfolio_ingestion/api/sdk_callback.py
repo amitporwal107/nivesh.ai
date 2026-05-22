@@ -48,7 +48,10 @@ async def sdk_callback(
             status_code=422,
             detail="data.investor.pan is required",
         )
-    pan_hash = pan_hash_fn(investor_pan)
+    try:
+        pan_hash = pan_hash_fn(investor_pan)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     statement_to = payload.statement_to or dt.date.today()
     statement_from = payload.statement_from or statement_to.replace(day=1)
