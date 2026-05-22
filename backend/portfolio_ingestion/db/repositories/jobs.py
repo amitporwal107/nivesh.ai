@@ -37,7 +37,7 @@ class JobRow:
     completed_at: dt.datetime | None
 
 
-VALID_STATUSES = frozenset({"received", "parsing", "activated", "failed"})
+VALID_STATUSES = frozenset({"pending_upload", "received", "parsing", "activated", "failed"})
 
 
 def _row_to_jobrow(row: "asyncpg.Record") -> JobRow:
@@ -120,6 +120,27 @@ async def upsert(
         pan_hash, checksum,
     )
     return existing_id, False
+
+
+async def insert_pending_upload(
+    conn: "asyncpg.Connection",
+    *,
+    user_id: UUID,
+    pan_hash: str,
+    source_type: str,
+    pdf_gcs_key: str,
+) -> UUID:
+    """Create a job in ``pending_upload`` state for the signed-URL flow."""
+    return await conn.fetchval(
+        """
+        INSERT INTO portfolio_ingestion.ingestion_jobs
+            (user_id, pan_hash, source_type, method,
+             checksum, pdf_gcs_key, pdf_status, status)
+        VALUES ($1, $2, $3, 'upload', NULL, $4, 'pending', 'pending_upload')
+        RETURNING id
+        """,
+        user_id, pan_hash, source_type, pdf_gcs_key,
+    )
 
 
 async def get(conn: "asyncpg.Connection", job_id: UUID) -> JobRow | None:

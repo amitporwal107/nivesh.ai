@@ -122,6 +122,7 @@ class SdkMetadata(BaseModel):
     method: str = "upload"          # upload | inbox | generator | cdsl_fetch
     cas_type: str | None = None     # cdsl | nsdl | cams_kfintech
     processing_time_ms: int | None = None
+    raw_pdf_available: bool = True  # False for cdsl_fetch (OTP path — no PDF)
 
 
 class SdkCallbackPayload(BaseModel):
