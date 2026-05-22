@@ -26,6 +26,7 @@ class Settings:
     mongo_url: str | None
     redis_url: str | None
     nidp_daas_base_url: str | None
+    pan_encryption_key: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -40,6 +41,7 @@ class Settings:
             mongo_url=_env("PI_MONGO_URL"),
             redis_url=_env("PI_REDIS_URL"),
             nidp_daas_base_url=_env("NIDP_DAAS_BASE_URL"),
+            pan_encryption_key=_env("PI_PAN_ENCRYPTION_KEY"),
         )
 
 

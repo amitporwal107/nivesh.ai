@@ -94,6 +94,9 @@ services:
       LOG_LEVEL:       INFO
       # Outbound to PROD shared services (per user direction):
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
+      # T2.3 PAN encryption key — set per-env; staging falls back to a
+      # placeholder if unset (see migration 002_pgcrypto_pan.sql).
+      PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
     depends_on:
       postgres: { condition: service_healthy }
       mongo:    { condition: service_healthy }

@@ -64,6 +64,7 @@ async def sdk_callback(
         try:
             user_id = await resolve_user(
                 conn, external_id=x_user_external_id, pan_hash=pan_hash,
+                pan=investor_pan,
             )
         except PanMismatchError as e:
             log.warning(
