@@ -60,7 +60,7 @@ function mapResponse(raw) {
 export function useFundOverlap() {
   return useAsync(
     async () => {
-      const { data, error } = await apiGet("/portfolio/fund-overlap/matrix");
+      const { data, error } = await apiGet("/portfolio/exposure/fund-overlap/matrix");
       if (error) return { data: PLACEHOLDER, error };
       if (!data || data.empty) return { data: { ...PLACEHOLDER, _source: "empty" }, error: null };
       return { data: mapResponse(data), error: null };
