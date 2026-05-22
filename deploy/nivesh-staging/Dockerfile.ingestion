@@ -34,9 +34,10 @@ RUN pip install \
 
 EXPOSE 8002
 
-# Run uvicorn directly; logs go to stdout in JSON via core.logging_config.
+# Run uvicorn directly; logs go to stdout in JSON via core.logging_config
+# (which configure_logging() re-applies at app startup, overriding uvicorn's
+# default formatters).
 CMD ["uvicorn", "portfolio_ingestion.main:app", \
      "--host", "0.0.0.0", "--port", "8002", \
      "--app-dir", "/app/backend", \
-     "--no-access-log", \
-     "--log-config", "/dev/null"]
+     "--no-access-log"]
