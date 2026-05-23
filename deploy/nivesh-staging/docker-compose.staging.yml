@@ -149,7 +149,11 @@ services:
     volumes:
       - /opt/nivesh-staging/repo/backend:/app/backend
       - /opt/nivesh-staging/data/app:/app/data
-    networks: [nivesh-staging]
+    # The frontend image's baked nginx.conf hardcodes `upstream backend`
+    # (prod service key). Add a network alias so it resolves the same name.
+    networks:
+      nivesh-staging:
+        aliases: [backend]
     logging: *default-logging
     depends_on:
       postgres: { condition: service_healthy }
