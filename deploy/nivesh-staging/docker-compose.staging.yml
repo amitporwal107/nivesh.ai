@@ -144,6 +144,11 @@ services:
       COOKIE_SAMESITE: "lax"
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
+    # Source mounted at runtime — image only carries OS + Python deps, code
+    # is the freshly-pulled repo. Mirrors the prod backend mount pattern.
+    volumes:
+      - /opt/nivesh-staging/repo/backend:/app/backend
+      - /opt/nivesh-staging/data/app:/app/data
     networks: [nivesh-staging]
     logging: *default-logging
     depends_on:
@@ -184,6 +189,8 @@ services:
     env_file: /opt/nivesh-staging/.env.staging
     environment:
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+    volumes:
+      - /opt/nivesh-staging/repo/backend:/app/backend
     command: >
       bash -c "
         echo 'Running PostgreSQL migrations against staging...' &&
