@@ -1,0 +1,739 @@
+import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { GoogleLogin } from "@react-oauth/google";
+import { useAuth } from "@/context/AuthContext";
+import {
+  runCasIngestion,
+  getActivePortfolio,
+  resetCurrentUser,
+} from "../../api/portfolioIngestion";
+
+/**
+ * V4 Onboarding — 3-mode CAS ingestion entry point.
+ *
+ * Flow:
+ *   1. Auth gate: if user isn't signed in, render a Google sign-in card.
+ *   2. Mode pick: user clicks CAS-PDF / Gmail / CDSL card.
+ *   3. runCasIngestion(mode) — opens the @cas-parser/connect widget, lazy-
+ *      loaded; the V4 service mints a CASParser token + posts the SDK output
+ *      to /api/cas/sdk-callback under the hood.
+ *   4. Success: show the imported portfolio summary + CTA into the app.
+ *
+ * Status states: idle | importing | done | error
+ * On cancel (widget closed) we fall back to idle silently.
+ */
+
+const MODES = [
+  {
+    id: "gmail",
+    title: "Import CAS from Gmail",
+    body:
+      "Nivesh finds your CAS statement email and reads it — no file, no password.",
+    badge: "Fastest",
+    footer: "Read-only · scans only CAS emails · revoke anytime.",
+    accent: "var(--v4-saffron)",
+  },
+  {
+    id: "cas",
+    title: "Upload CAS statement",
+    body:
+      "Already have the CAS PDF from CAMS, KFintech, NSDL or CDSL? Drop it in.",
+    badge: null,
+    footer: "Encrypted in transit. PDF password collected by the widget.",
+    accent: "var(--v4-indigo)",
+  },
+  {
+    id: "cdsl",
+    title: "Fetch from CDSL (OTP)",
+    body:
+      "Get the latest demat position straight from CDSL — verify with an OTP.",
+    badge: null,
+    footer: "OTP sent to your CDSL-registered mobile · no PDF download.",
+    accent: "var(--v4-moss)",
+  },
+];
+
+export default function Onboarding() {
+  const { user, loading: authLoading, loginWithGoogle, setAuthError, googleClientId } =
+    useAuth();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState("idle"); // idle | importing | done | error
+  const [statusMessage, setStatusMessage] = useState(null);
+  const [result, setResult] = useState(null);
+  const [activePortfolio, setActivePortfolio] = useState(null);
+  const [error, setError] = useState(null);
+
+  // After a successful ingest, fetch the active portfolio for the summary card.
+  useEffect(() => {
+    if (status !== "done") return;
+    let cancelled = false;
+    getActivePortfolio()
+      .then((data) => {
+        if (!cancelled) setActivePortfolio(data);
+      })
+      .catch(() => {
+        /* non-fatal — the result card from sdk-callback is enough to render */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  const handleConnect = useCallback(async (mode) => {
+    setStatus("importing");
+    setStatusMessage(null);
+    setError(null);
+    setResult(null);
+
+    const out = await runCasIngestion({
+      mode,
+      onStatus: setStatusMessage,
+    });
+
+    if (out.cancelled) {
+      setStatus("idle");
+      setStatusMessage(null);
+      return;
+    }
+    if (!out.ok) {
+      setStatus("error");
+      setError(out.error?.message || "Something went wrong. Please retry.");
+      return;
+    }
+
+    setResult(out.response);
+    setStatus("done");
+  }, []);
+
+  const handleGoogleSuccess = useCallback(
+    async (credentialResponse) => {
+      try {
+        await loginWithGoogle(credentialResponse.credential);
+        resetCurrentUser(); // adapter cache: pick up the new user_id on next call
+      } catch {
+        /* authError surfaced inside loginWithGoogle */
+      }
+    },
+    [loginWithGoogle],
+  );
+
+  // ───────────────────────────── Render ─────────────────────────────
+
+  if (authLoading) {
+    return <Centered>Loading…</Centered>;
+  }
+
+  if (!user) {
+    return (
+      <Shell>
+        <Header />
+        <main style={mainCenteredStyle}>
+          <div style={authCardStyle}>
+            <div style={eyebrowStyle}>STEP 1 OF 2</div>
+            <h1 style={authHeroStyle}>
+              Sign in to bring<br />
+              <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>
+                your portfolio
+              </em>{" "}
+              in.
+            </h1>
+            <p style={authSubStyle}>
+              We use Google sign-in so you never set another password. Your
+              account is keyed to the email you sign in with.
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+              {googleClientId ? (
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() =>
+                    setAuthError("Google sign-in was cancelled or failed.")
+                  }
+                  size="large"
+                  shape="pill"
+                  theme="filled_black"
+                  text="signin_with"
+                />
+              ) : (
+                <div style={{ color: "var(--v4-ink-mute)", fontSize: 13 }}>
+                  Loading sign-in…
+                </div>
+              )}
+            </div>
+            <div style={complianceStyle}>Bank-grade encryption · SEBI-aware</div>
+          </div>
+        </main>
+      </Shell>
+    );
+  }
+
+  // Authenticated.
+  return (
+    <Shell>
+      <Header email={user.email} />
+      <main style={mainStyle}>
+        <div style={eyebrowStyle}>BRING YOUR PORTFOLIO IN</div>
+        <h1 style={heroStyle}>
+          Pick the path<br />
+          that's <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>fastest</em>{" "}
+          for you.
+        </h1>
+        <p style={subStyle}>
+          We read your CAS once. Everything you see after that — health, risk,
+          actions — is grounded in what you actually own.
+        </p>
+
+        {status === "error" && (
+          <ErrorBanner message={error} onDismiss={() => setStatus("idle")} />
+        )}
+
+        {status === "done" && result ? (
+          <SuccessCard
+            result={result}
+            activePortfolio={activePortfolio}
+            onContinue={() => navigate("/")}
+            onRetry={() => {
+              setStatus("idle");
+              setResult(null);
+              setActivePortfolio(null);
+            }}
+          />
+        ) : (
+          <ModeGrid
+            disabled={status === "importing"}
+            onPick={handleConnect}
+          />
+        )}
+
+        {status === "importing" && (
+          <ImportingOverlay message={statusMessage || "Working…"} />
+        )}
+
+        <div style={footerStrapStyle}>
+          🔒 Bank-grade encryption · 🛡️ Read-only · ⚖️ SEBI-aware
+        </div>
+      </main>
+    </Shell>
+  );
+}
+
+/* ───────── Sub-components ───────── */
+
+function Shell({ children }) {
+  return <div style={pageStyle}>{children}</div>;
+}
+
+function Header({ email }) {
+  return (
+    <header style={navStyle}>
+      <div style={brandStyle}>
+        <div style={markStyle}>न</div>
+        <div>
+          <div
+            style={{
+              fontFamily: "var(--v4-display)",
+              fontWeight: 600,
+              fontSize: 17,
+              color: "var(--v4-ink)",
+            }}
+          >
+            Nivesh
+          </div>
+          <div
+            style={{
+              fontFamily: "var(--v4-mono)",
+              fontSize: 9,
+              letterSpacing: 1.4,
+              color: "var(--v4-ink-faint)",
+            }}
+          >
+            AI COPILOT
+          </div>
+        </div>
+      </div>
+      {email ? (
+        <div style={signedInPillStyle}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--v4-moss)" }} />
+          Signed in as <span style={{ color: "var(--v4-ink)" }}>{email}</span>
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+function ModeGrid({ disabled, onPick }) {
+  return (
+    <section style={gridStyle}>
+      {MODES.map((m) => (
+        <button
+          key={m.id}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(m.id)}
+          style={{
+            ...modeCardStyle,
+            opacity: disabled ? 0.5 : 1,
+            cursor: disabled ? "not-allowed" : "pointer",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div
+              style={{
+                ...modeIconStyle,
+                background: m.accent,
+                color: "#160e07",
+              }}
+            >
+              {m.id === "gmail" ? "✉" : m.id === "cas" ? "📄" : "🔐"}
+            </div>
+            {m.badge ? <span style={badgeStyle}>{m.badge}</span> : null}
+          </div>
+          <div style={{ fontFamily: "var(--v4-display)", fontSize: 19, color: "var(--v4-ink)", marginTop: 16 }}>
+            {m.title}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--v4-ink-mute)", lineHeight: 1.55, marginTop: 8 }}>
+            {m.body}
+          </div>
+          <div
+            style={{
+              fontFamily: "var(--v4-mono)",
+              fontSize: 9,
+              letterSpacing: 1.1,
+              color: "var(--v4-ink-faint)",
+              textTransform: "uppercase",
+              marginTop: 18,
+            }}
+          >
+            {m.footer}
+          </div>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+function ImportingOverlay({ message }) {
+  return (
+    <div style={overlayStyle}>
+      <div style={overlayCardStyle}>
+        <div style={spinnerStyle} />
+        <div style={overlayMsgStyle}>{message}</div>
+      </div>
+      <style>{`@keyframes v4-spin-o { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+function ErrorBanner({ message, onDismiss }) {
+  return (
+    <div style={errorBannerStyle}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <span style={{ fontSize: 18 }}>⚠️</span>
+        <div>
+          <div style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)", marginBottom: 4 }}>
+            Couldn't bring that one in
+          </div>
+          <div style={{ fontSize: 13, color: "var(--v4-ink-dim)", lineHeight: 1.5 }}>
+            {message}
+          </div>
+        </div>
+        <button onClick={onDismiss} style={dismissBtnStyle}>
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SuccessCard({ result, activePortfolio, onContinue, onRetry }) {
+  const period = result?.period || activePortfolio?.snapshot?.period;
+  const holdingsCount = activePortfolio?.portfolio?.holdings_count;
+  const totalValue =
+    activePortfolio?.portfolio?.total_value ?? activePortfolio?.snapshot?.total_value;
+  const allocation = activePortfolio?.portfolio?.allocation;
+  const isActive = result?.is_active !== false;
+
+  return (
+    <section style={successCardStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--v4-moss)" }} />
+        <span style={{ fontFamily: "var(--v4-mono)", fontSize: 10, letterSpacing: 1.2, color: "var(--v4-moss)" }}>
+          {isActive ? "ACTIVE SNAPSHOT" : "STORED — INACTIVE"}
+        </span>
+      </div>
+      <div style={{ fontFamily: "var(--v4-display)", fontSize: 28, color: "var(--v4-ink)", marginBottom: 8 }}>
+        We've got it.
+      </div>
+      <div style={{ fontSize: 14, color: "var(--v4-ink-dim)", marginBottom: 24 }}>
+        {period ? `Your latest CAS — ${period} — is in.` : "Your portfolio is in."}
+      </div>
+
+      <div style={statRowStyle}>
+        <Stat label="Period" value={period || "—"} />
+        <Stat label="Holdings" value={holdingsCount != null ? String(holdingsCount) : "—"} />
+        <Stat label="Total value" value={formatInr(totalValue)} />
+      </div>
+
+      {allocation ? (
+        <div style={{ marginTop: 24 }}>
+          <div style={eyebrowStyle}>ALLOCATION</div>
+          <AllocationStrip allocation={allocation} />
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
+        <button style={ctaPrimaryStyle} onClick={onContinue}>
+          Take me to the cockpit →
+        </button>
+        <button style={ctaGhostStyle} onClick={onRetry}>
+          Import another statement
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div style={statBoxStyle}>
+      <div
+        style={{
+          fontFamily: "var(--v4-mono)",
+          fontSize: 9,
+          letterSpacing: 1.1,
+          color: "var(--v4-ink-faint)",
+          textTransform: "uppercase",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontFamily: "var(--v4-display)", fontSize: 22, color: "var(--v4-ink)" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function AllocationStrip({ allocation }) {
+  if (!allocation || typeof allocation !== "object") return null;
+  const rows = Object.entries(allocation)
+    .filter(([, v]) => typeof v === "number" && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  if (!rows.length) return null;
+  const total = rows.reduce((s, [, v]) => s + v, 0);
+  return (
+    <div>
+      <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", marginTop: 10 }}>
+        {rows.map(([k, v], i) => (
+          <div
+            key={k}
+            style={{
+              width: `${(v / total) * 100}%`,
+              background: ALLOC_COLOURS[i % ALLOC_COLOURS.length],
+            }}
+            title={`${k}: ${((v / total) * 100).toFixed(1)}%`}
+          />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12 }}>
+        {rows.map(([k, v], i) => (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: ALLOC_COLOURS[i % ALLOC_COLOURS.length] }} />
+            <div style={{ fontSize: 12, color: "var(--v4-ink-dim)" }}>
+              <span style={{ textTransform: "capitalize" }}>{k.replace(/_/g, " ")}</span>{" "}
+              <span style={{ color: "var(--v4-ink-mute)" }}>{((v / total) * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const ALLOC_COLOURS = ["#ff9248", "#88ab66", "#d9b64a", "#7d7eff", "#df5d5d", "#c2b8a8"];
+
+function Centered({ children }) {
+  return (
+    <Shell>
+      <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "var(--v4-ink-mute)" }}>
+        {children}
+      </div>
+    </Shell>
+  );
+}
+
+function formatInr(n) {
+  if (n == null || isNaN(Number(n))) return "—";
+  const v = Number(n);
+  if (v >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
+  if (v >= 1e5) return `₹${(v / 1e5).toFixed(2)} L`;
+  return `₹${Math.round(v).toLocaleString("en-IN")}`;
+}
+
+/* ───────── Styles (inline to keep the file self-contained) ───────── */
+
+const pageStyle = {
+  minHeight: "100vh",
+  background: "var(--v4-bg)",
+  color: "var(--v4-ink)",
+};
+
+const navStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "18px 32px",
+  borderBottom: "1px solid var(--v4-line)",
+  position: "sticky",
+  top: 0,
+  background: "rgba(11,10,8,0.92)",
+  backdropFilter: "blur(10px)",
+  zIndex: 20,
+};
+
+const brandStyle = { display: "flex", alignItems: "center", gap: 12 };
+
+const markStyle = {
+  width: 36,
+  height: 36,
+  borderRadius: 9,
+  background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-lo))",
+  display: "grid",
+  placeItems: "center",
+  fontFamily: "var(--v4-display)",
+  fontWeight: 600,
+  color: "#2a1605",
+  fontSize: 19,
+};
+
+const signedInPillStyle = {
+  fontFamily: "var(--v4-mono)",
+  fontSize: 10,
+  letterSpacing: 0.6,
+  color: "var(--v4-ink-mute)",
+  background: "var(--v4-s2)",
+  border: "1px solid var(--v4-line)",
+  padding: "6px 12px",
+  borderRadius: 999,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  textTransform: "uppercase",
+};
+
+const mainStyle = {
+  maxWidth: 1080,
+  margin: "0 auto",
+  padding: "60px 32px 80px",
+  position: "relative",
+};
+
+const mainCenteredStyle = {
+  maxWidth: 560,
+  margin: "0 auto",
+  padding: "100px 32px",
+  textAlign: "center",
+};
+
+const authCardStyle = {
+  background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))",
+  border: "1px solid var(--v4-line-strong)",
+  borderRadius: "var(--v4-r-xl)",
+  padding: "44px 36px",
+};
+
+const authHeroStyle = {
+  fontFamily: "var(--v4-display)",
+  fontWeight: 500,
+  fontSize: "clamp(28px, 4.5vw, 44px)",
+  lineHeight: 1.1,
+  marginBottom: 18,
+};
+
+const authSubStyle = {
+  fontSize: 15,
+  color: "var(--v4-ink-dim)",
+  lineHeight: 1.55,
+  maxWidth: 440,
+  margin: "0 auto",
+};
+
+const heroStyle = {
+  fontFamily: "var(--v4-display)",
+  fontWeight: 500,
+  fontSize: "clamp(32px, 5vw, 52px)",
+  lineHeight: 1.1,
+  marginTop: 14,
+  marginBottom: 16,
+};
+
+const subStyle = {
+  fontSize: 16,
+  color: "var(--v4-ink-dim)",
+  lineHeight: 1.55,
+  maxWidth: 600,
+  marginBottom: 48,
+};
+
+const eyebrowStyle = {
+  fontFamily: "var(--v4-mono)",
+  fontSize: 9,
+  letterSpacing: 1.8,
+  color: "var(--v4-saffron)",
+  textTransform: "uppercase",
+  marginBottom: 16,
+};
+
+const gridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: 18,
+  marginBottom: 36,
+};
+
+const modeCardStyle = {
+  background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))",
+  border: "1px solid var(--v4-line)",
+  borderRadius: "var(--v4-r-lg)",
+  padding: "24px 22px",
+  textAlign: "left",
+  color: "inherit",
+  transition: "border-color .15s var(--v4-ease), transform .15s var(--v4-ease)",
+};
+
+const modeIconStyle = {
+  width: 38,
+  height: 38,
+  borderRadius: 9,
+  display: "grid",
+  placeItems: "center",
+  fontSize: 17,
+};
+
+const badgeStyle = {
+  marginLeft: "auto",
+  fontFamily: "var(--v4-mono)",
+  fontSize: 9,
+  letterSpacing: 1.2,
+  color: "var(--v4-saffron)",
+  background: "rgba(255,146,72,0.12)",
+  border: "1px solid rgba(255,146,72,0.32)",
+  padding: "4px 9px",
+  borderRadius: 6,
+  textTransform: "uppercase",
+};
+
+const footerStrapStyle = {
+  fontFamily: "var(--v4-mono)",
+  fontSize: 10,
+  letterSpacing: 1.2,
+  color: "var(--v4-ink-faint)",
+  textTransform: "uppercase",
+  textAlign: "center",
+  marginTop: 32,
+};
+
+const complianceStyle = {
+  fontFamily: "var(--v4-mono)",
+  fontSize: 10,
+  letterSpacing: 1.2,
+  color: "var(--v4-ink-faint)",
+  textTransform: "uppercase",
+  marginTop: 24,
+};
+
+const overlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(11,10,8,0.78)",
+  display: "grid",
+  placeItems: "center",
+  zIndex: 50,
+  backdropFilter: "blur(6px)",
+};
+
+const overlayCardStyle = {
+  background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))",
+  border: "1px solid var(--v4-line-strong)",
+  borderRadius: "var(--v4-r-lg)",
+  padding: "32px 36px",
+  display: "grid",
+  placeItems: "center",
+  gap: 18,
+  minWidth: 320,
+};
+
+const spinnerStyle = {
+  width: 28,
+  height: 28,
+  borderRadius: "50%",
+  border: "2px solid var(--v4-line-strong)",
+  borderTopColor: "var(--v4-saffron)",
+  animation: "v4-spin-o 0.9s linear infinite",
+};
+
+const overlayMsgStyle = {
+  fontSize: 14,
+  color: "var(--v4-ink-dim)",
+  textAlign: "center",
+};
+
+const errorBannerStyle = {
+  background: "rgba(223,93,93,0.08)",
+  border: "1px solid rgba(223,93,93,0.32)",
+  borderRadius: "var(--v4-r-md)",
+  padding: "16px 20px",
+  marginBottom: 24,
+};
+
+const dismissBtnStyle = {
+  marginLeft: "auto",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "var(--v4-rust)",
+  background: "transparent",
+  border: "1px solid var(--v4-rust)",
+  padding: "7px 14px",
+  borderRadius: 8,
+};
+
+const successCardStyle = {
+  background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))",
+  border: "1px solid var(--v4-line-strong)",
+  borderRadius: "var(--v4-r-xl)",
+  padding: "32px 30px",
+};
+
+const statRowStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: 14,
+  marginTop: 10,
+};
+
+const statBoxStyle = {
+  background: "var(--v4-s2)",
+  border: "1px solid var(--v4-line)",
+  borderRadius: "var(--v4-r-md)",
+  padding: "16px 16px",
+};
+
+const ctaPrimaryStyle = {
+  fontSize: 14,
+  fontWeight: 600,
+  background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-dk))",
+  color: "#2a1605",
+  padding: "13px 22px",
+  borderRadius: 10,
+};
+
+const ctaGhostStyle = {
+  fontSize: 14,
+  fontWeight: 500,
+  background: "var(--v4-s2)",
+  color: "var(--v4-ink-dim)",
+  border: "1px solid var(--v4-line)",
+  padding: "13px 22px",
+  borderRadius: 10,
+};

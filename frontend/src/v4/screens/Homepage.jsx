@@ -77,7 +77,7 @@ export default function Homepage() {
           />
         </section>
 
-        <SampleScoreTeaser onClick={() => navigate("/landing")} />
+        <SampleScoreTeaser onClick={() => navigate("/onboarding")} />
       </main>
 
       <footer style={footerStyle}>
