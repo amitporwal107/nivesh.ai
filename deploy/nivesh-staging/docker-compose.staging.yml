@@ -237,7 +237,6 @@ services:
       - "${PI_NGINX_BIND_ADDR:-127.0.0.1}:${PI_NGINX_PORT:-8443}:8443"
     volumes:
       - ./nginx-staging.conf:/etc/nginx/conf.d/staging.conf:ro
-      - ./static:/usr/share/nginx/html/test:ro       # internal test pages (upload.html)
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
     depends_on:
       ingestion:    { condition: service_healthy }
