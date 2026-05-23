@@ -202,13 +202,21 @@ services:
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
     volumes:
       - /opt/nivesh-staging/repo/backend/migrations:/migrations:ro
+      - /opt/nivesh-staging/repo/backend/nidp/migrations:/nidp-migrations:ro
     command: >
       sh -c "
         set -e;
-        echo 'Running PostgreSQL migrations against staging...';
+        echo 'Running main-app PostgreSQL migrations against staging...';
         for f in /migrations/*.sql; do
           echo \"Applying $$f\";
           psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done;
+        echo 'Running nidp/* migrations that target the main app public schema...';
+        for f in /nidp-migrations/*.sql; do
+          if head -20 \"$$f\" | grep -q 'SET search_path TO public;'; then
+            echo \"Applying nidp-public migration $$f\";
+            psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+          fi;
         done;
         echo 'Migrations done.'
       "
