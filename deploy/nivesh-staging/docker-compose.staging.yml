@@ -46,11 +46,12 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD}
-      MONGO_INITDB_DATABASE:      ${PI_MONGO_DB}
+      MONGO_INITDB_DATABASE:      ${MONGO_DB:-nivesh_staging}
     ports:
       - "127.0.0.1:27117:27017"
     volumes:
       - /opt/nivesh-staging/data/mongo:/data/db
+      - ../nivesh-app/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
     networks: [nivesh-staging]
     logging: *default-logging
     healthcheck:
@@ -131,12 +132,13 @@ services:
     env_file: /opt/nivesh-staging/.env.staging
     environment:
       APP_ENV: staging
-      # Bind the main app's var names to the same staging containers the
-      # ingestion service uses. One set of dbs, two services on top.
-      MONGO_URL:    mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      # Main app connects as the 'nivesh' user (created by mongo-init.js,
+      # the same one prod uses — directive: apply original scripts unchanged).
+      # Database is nivesh_staging (parallel to prod's nivesh_prod).
+      MONGO_URL:    mongodb://nivesh:Niv3shApp2026!@mongo:27017/nivesh_staging?authSource=nivesh_staging
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
       REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
-      DB_NAME:      ${PI_MONGO_DB}
+      DB_NAME:      nivesh_staging
       CORS_ORIGINS: "https://staging.niveshcopilot.com"
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: "lax"
