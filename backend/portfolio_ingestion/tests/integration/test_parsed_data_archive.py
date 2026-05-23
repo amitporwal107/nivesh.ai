@@ -100,6 +100,10 @@ async def test_archive_handles_decimal_serialisation(mongo_db) -> None:
     )
     doc = await archive_mod.fetch(job_id)
     h = doc["parsed_data"]["demat_accounts"][0]["holdings"][0]
-    # JSON-normalised strings (Pydantic serialises Decimal as a number via mode=json)
-    assert str(h["quantity"]) in {"1.23456", "1.234560000000000"}
+    # JSON-normalised strings (Pydantic serialises Decimal as a number via mode=json).
+    # Canonical field name is now `units` (matching the real SDK shape); the
+    # input above uses `quantity` via the populate-by-name alias, but the
+    # serialised archive always carries the canonical name.
+    units_val = h.get("units", h.get("quantity"))
+    assert str(units_val) in {"1.23456", "1.234560000000000"}
     assert str(h["value"]).startswith("99999.99")
