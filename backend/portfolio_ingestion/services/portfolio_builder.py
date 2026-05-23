@@ -51,12 +51,14 @@ def build_holdings(
         },
     }
 
-    # ── Demat side (equity / etf / bond / sgb / aif) ──────────────────────
+    # ── Demat side: equities / demat_mutual_funds / corporate_bonds /
+    #               aifs / government_securities (per the SDK's bucketed shape),
+    #               plus any legacy flat `holdings` list. DematAccount.iter_lines()
+    #               normalises both into (asset_class, DematHolding) tuples.
     for account in payload.demat_accounts:
-        for h in account.holdings:
-            asset_class = (h.instrument_type or "equity").lower()
+        for asset_class, h in account.iter_lines():
             if h.isin:
-                key = (h.isin, str(h.quantity))
+                key = (h.isin, str(h.units))
                 if key in seen_equity:
                     dropped += 1
                     continue
@@ -75,7 +77,7 @@ def build_holdings(
                 scheme_code=None,
                 amc=None,
                 name=h.name,
-                quantity=h.quantity,
+                quantity=h.units,
                 value=h.value,
                 source_trace=trace,
             ))

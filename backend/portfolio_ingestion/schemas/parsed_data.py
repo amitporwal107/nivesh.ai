@@ -17,26 +17,83 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Demat side (CDSL / NSDL) ──────────────────────────────────────────────
+#
+# Real CASParser SDK output splits demat positions into typed buckets per
+# account: equities, demat_mutual_funds, corporate_bonds, aifs,
+# government_securities. The earlier schema modelled this as a single flat
+# `holdings` list with an `instrument_type` field — that's still supported
+# below as a legacy/fixture compatibility shim, but the canonical shape is
+# the bucketed one.
 
 
 class DematHolding(BaseModel):
-    """One line in a demat account: an equity, ETF, bond, SGB or AIF unit."""
-    model_config = ConfigDict(extra="ignore")
+    """One line within a demat-account bucket (equity, ETF, MF unit, bond …).
+
+    The SDK uses ``units`` everywhere; the older synthetic shape used
+    ``quantity``. We accept either via the populate-by-name alias config so
+    fixtures predating the SDK output still parse.
+    """
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     isin: str | None = None
     name: str
-    quantity: Decimal
+    units: Decimal = Field(..., alias="quantity")  # accept both wire names
     value: Decimal
-    instrument_type: str = Field(
-        default="equity", description="equity | etf | bond | sgb | aif"
-    )
+    # Optional — only present when we synthesise a row from the legacy
+    # `holdings` list. With the SDK's bucketed shape we infer asset_class
+    # from the parent key (equities → equity, demat_mutual_funds → mf, …).
+    instrument_type: str | None = None
 
 
 class DematAccount(BaseModel):
+    """An aggregated demat account.
+
+    The real SDK shape (proven against an NSDL e-CAS dump) is bucketed:
+
+        { equities: [...], demat_mutual_funds: [...], corporate_bonds: [...],
+          aifs: [...], government_securities: [...] }
+
+    The older synthetic shape used a single flat ``holdings`` list. Both are
+    accepted; ``ParsedData.demat_lines()`` yields a uniform iterator over
+    (bucket_name, DematHolding) tuples regardless of which one was supplied.
+    """
     model_config = ConfigDict(extra="ignore")
+
     dp_id: str | None = None
     client_id: str | None = None
+
+    # SDK's bucketed shape
+    equities:              list[DematHolding] = Field(default_factory=list)
+    demat_mutual_funds:    list[DematHolding] = Field(default_factory=list)
+    corporate_bonds:       list[DematHolding] = Field(default_factory=list)
+    aifs:                  list[DematHolding] = Field(default_factory=list)
+    government_securities: list[DematHolding] = Field(default_factory=list)
+
+    # Legacy flat shape (kept so prior unit-test fixtures still parse).
     holdings: list[DematHolding] = Field(default_factory=list)
+
+    def iter_lines(self) -> "list[tuple[str, DematHolding]]":
+        """Yield (asset_class, holding) tuples across both shapes.
+
+        Bucket → asset_class mapping is fixed here so portfolio_builder
+        doesn't have to repeat it.
+        """
+        BUCKET_TO_ASSET = {
+            "equities":              "equity",
+            "demat_mutual_funds":    "mutual_fund",
+            "corporate_bonds":       "bond",
+            "aifs":                  "aif",
+            "government_securities": "g_sec",
+        }
+        out: list[tuple[str, DematHolding]] = []
+        for bucket_name, asset_class in BUCKET_TO_ASSET.items():
+            for h in getattr(self, bucket_name):
+                out.append((asset_class, h))
+        # Legacy flat holdings — read instrument_type if present, else equity.
+        for h in self.holdings:
+            asset_class = (h.instrument_type or "equity").lower()
+            out.append((asset_class, h))
+        return out
 
 
 # ── Mutual funds (CAMS / KFin or via eCAS) ────────────────────────────────
@@ -108,7 +165,8 @@ class ParsedData(BaseModel):
         """Sum of every line we can read a value out of."""
         total = Decimal("0")
         for da in self.demat_accounts:
-            total += sum((h.value for h in da.holdings), Decimal("0"))
+            for _asset_class, h in da.iter_lines():
+                total += h.value
         for amc in self.mutual_funds:
             for fol in amc.folios:
                 total += sum((s.value for s in fol.schemes), Decimal("0"))
