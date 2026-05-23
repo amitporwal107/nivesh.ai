@@ -15,7 +15,7 @@ STAGING_ROOT="/opt/nivesh-staging"
 REPO_DIR="${STAGING_ROOT}/repo"
 COMPOSE_FILE="${REPO_DIR}/deploy/nivesh-staging/docker-compose.staging.yml"
 ENV_FILE="${STAGING_ROOT}/.env.staging"
-BRANCH="${1:-feat/portfolio-ingestion-staging}"   # staging tracks this branch; override with arg
+BRANCH="${1:-dev}"   # staging tracks this branch; override with arg
 
 log() { echo "[redeploy-staging] $*"; }
 fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }

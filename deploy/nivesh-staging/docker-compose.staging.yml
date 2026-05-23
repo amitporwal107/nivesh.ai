@@ -118,6 +118,84 @@ services:
       retries: 5
       start_period: 30s
 
+  # ── Main app backend (mirror of prod nivesh-backend) ─────────────────────
+  # Same code as prod, points at the staging Postgres/Mongo/Redis containers.
+
+  app-backend:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
+    image: nivesh/backend:staging
+    container_name: nivesh-staging-app-backend
+    restart: unless-stopped
+    env_file: /opt/nivesh-staging/.env.staging
+    environment:
+      APP_ENV: staging
+      # Bind the main app's var names to the same staging containers the
+      # ingestion service uses. One set of dbs, two services on top.
+      MONGO_URL:    mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      DB_NAME:      ${PI_MONGO_DB}
+      CORS_ORIGINS: "https://staging.niveshcopilot.com"
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: "lax"
+      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
+      GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
+    networks: [nivesh-staging]
+    logging: *default-logging
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Main app frontend (React build baked with staging backend URL) ───────
+
+  app-frontend:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend.prod
+      args:
+        REACT_APP_BACKEND_URL: https://staging.niveshcopilot.com
+        PUBLIC_URL: /v2
+    image: nivesh/frontend:staging
+    container_name: nivesh-staging-app-frontend
+    restart: unless-stopped
+    # No port binding — edge nginx (port 8443) proxies to this container.
+    networks: [nivesh-staging]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── One-shot Postgres migrations for the main app schema ─────────────────
+
+  app-migrate:
+    image: nivesh/backend:staging
+    container_name: nivesh-staging-app-migrate
+    restart: "no"
+    env_file: /opt/nivesh-staging/.env.staging
+    environment:
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+    command: >
+      bash -c "
+        echo 'Running PostgreSQL migrations against staging...' &&
+        for f in /app/backend/migrations/*.sql; do
+          echo \"Applying $$f\" &&
+          psql \"$$POSTGRES_URL\" -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done &&
+        echo 'Migrations done.'
+      "
+    networks: [nivesh-staging]
+    depends_on:
+      postgres: { condition: service_healthy }
+    profiles: ["migrate"]
+
   # ── Edge nginx for the staging vhost ─────────────────────────────────────
 
   nginx:
