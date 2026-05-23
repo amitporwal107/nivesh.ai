@@ -179,6 +179,12 @@ services:
     container_name: nivesh-staging-app-frontend
     restart: unless-stopped
     # No port binding — edge nginx (port 8443) proxies to this container.
+    # Override the prod nginx.conf baked into the image with a staging
+    # HTTP-only static-server config (no TLS, no /api/ proxy — edge nginx
+    # handles all that). The prod config does an HTTP→HTTPS 308 redirect
+    # which would loop through the edge.
+    volumes:
+      - ./app-frontend-nginx.conf:/etc/nginx/conf.d/app.conf:ro
     networks: [nivesh-staging]
     logging: *default-logging
     depends_on:
@@ -226,7 +232,9 @@ services:
       - ./static:/usr/share/nginx/html/test:ro       # internal test pages (upload.html)
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
     depends_on:
-      ingestion: { condition: service_healthy }
+      ingestion:    { condition: service_healthy }
+      app-backend:  { condition: service_healthy }
+      app-frontend: { condition: service_started }
     networks: [nivesh-staging]
     logging: *default-logging
 
