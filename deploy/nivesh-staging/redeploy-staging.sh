@@ -51,6 +51,20 @@ done
 [[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null)" == "healthy" ]] \
     || fail "nivesh-staging-ingestion did not become healthy."
 
+# Reload the edge nginx so any nginx-staging.conf change lands and stale
+# upstream resolutions are cleared. (The config also uses dynamic DNS via
+# 127.0.0.11 resolver so even without this, fresh container IPs are picked
+# up within ~10s — but reload is cheap and avoids the 502 race window.)
+if docker ps --format '{{.Names}}' | grep -q '^nivesh-staging-nginx$'; then
+    log "Reloading edge nginx..."
+    # If the new config is syntactically broken, recreate the container
+    # (which will fail fast with a clear error) instead of leaving us in a
+    # half-state where nginx kept the old config.
+    docker exec nivesh-staging-nginx nginx -t > /dev/null 2>&1 \
+        && docker exec nivesh-staging-nginx nginx -s reload \
+        || docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --force-recreate nginx
+fi
+
 # Smoke check always probes via the loopback interface — the bind address
 # (0.0.0.0 once we go public) is not a valid connect target.
 SMOKE_PORT="${PI_NGINX_PORT:-8443}"
