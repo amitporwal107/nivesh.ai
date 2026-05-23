@@ -39,4 +39,5 @@ class SdkCallbackResponse(BaseModel):
     is_active: bool
     status: Literal["activated", "stored_inactive"]
     raw_pdf_available: bool = True   # False for cdsl_fetch OTP path
+    period: str | None = None        # "Feb/2026" — derived from statement_to
     portfolio: PortfolioResponse
