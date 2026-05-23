@@ -58,6 +58,7 @@ class SnapshotItem(BaseModel):
     source_type: str
     statement_from: str          # ISO date
     statement_to: str
+    period: str                  # "Feb/2026" — MMM/YYYY derived from statement_to
     generated_at: str            # ISO datetime
     is_active: bool
     total_value: Decimal | None
@@ -83,6 +84,7 @@ def _to_item(s) -> SnapshotItem:
         id=s.id, source_type=s.source_type,
         statement_from=s.statement_from.isoformat(),
         statement_to=s.statement_to.isoformat(),
+        period=s.statement_to.strftime("%b/%Y"),
         generated_at=s.generated_at.isoformat(),
         is_active=s.is_active, total_value=s.total_value,
         holdings_count=s.holdings_count,

@@ -179,6 +179,7 @@ async def sdk_callback(
         is_active=decision.is_active,
         status="activated" if decision.is_active else "stored_inactive",
         raw_pdf_available=payload.metadata.raw_pdf_available,
+        period=_format_period(statement_to),
         portfolio=portfolio,
     )
 
@@ -189,7 +190,7 @@ async def _existing_response(
     """Build a 200 response for an idempotent duplicate POST."""
     snap_row = await conn.fetchrow(
         """
-        SELECT id, is_active FROM portfolio_ingestion.snapshots
+        SELECT id, is_active, statement_to FROM portfolio_ingestion.snapshots
          WHERE ingestion_job_id = $1
          ORDER BY created_at DESC LIMIT 1
         """,
@@ -233,8 +234,16 @@ async def _existing_response(
         is_active=snap_row["is_active"],
         status="activated" if snap_row["is_active"] else "stored_inactive",
         raw_pdf_available=payload.metadata.raw_pdf_available,
+        period=_format_period(snap_row["statement_to"]),
         portfolio=assemble(cheap_holdings),
     )
+
+
+def _format_period(d: "dt.date | None") -> str | None:
+    """Return MMM/YYYY (e.g. 'Feb/2026') from a date column. None-safe."""
+    if d is None:
+        return None
+    return d.strftime("%b/%Y")
 
 
 # ── Statement-date resolution ────────────────────────────────────────────
