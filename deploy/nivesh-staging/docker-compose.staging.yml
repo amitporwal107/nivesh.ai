@@ -144,6 +144,9 @@ services:
       COOKIE_SAMESITE: "lax"
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
+      # /api/portfolio/import-connect shadow-writes the same parsed payload
+      # to the V3 portfolio_ingestion service so both schemas stay in lockstep.
+      V3_INGESTION_BASE_URL: http://ingestion:8002
     # Source mounted at runtime — image only carries OS + Python deps, code
     # is the freshly-pulled repo. Mirrors the prod backend mount pattern.
     volumes:

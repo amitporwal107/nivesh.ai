@@ -2,6 +2,9 @@
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from datetime import datetime, timezone
 from typing import Dict
+import hashlib
+import json
+import os
 import uuid
 import asyncio
 import logging
@@ -389,6 +392,13 @@ async def portfolio_import_from_connect(request: Request):
         f"cas_type={cas_type} investor={investor_name} "
         f"txns={sip_summary.get('transactions', 0)} sips={sip_summary.get('sips', 0)}"
     )
+
+    # ── V3 shadow-write — best-effort, never blocks the V2 response ──────
+    # The new portfolio_ingestion service receives the same parsed payload
+    # so its tables fill in alongside V2's. Env-gated so prod (where the V3
+    # service may not be reachable) silently skips.
+    v3_status = await _v3_shadow_write(user, parsed_data, body or {})
+
     return {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
         "count": len(saved),
@@ -397,7 +407,91 @@ async def portfolio_import_from_connect(request: Request):
         "investor": investor_name,
         "transactions": sip_summary.get("transactions", 0),
         "sips_detected": sip_summary.get("sips", 0),
+        "v3_ingestion": v3_status,    # useful for staging smoke tests
     }
+
+
+def _infer_v3_source_type(parsed_data: dict) -> str:
+    """Map the SDK's parsed_data shape to one of the V3 enum values."""
+    meta = parsed_data.get("meta") or {}
+    cas_type = (meta.get("cas_type") or "").lower()
+    if "nsdl" in cas_type:
+        return "ECAS_NSDL"
+    if "cdsl" in cas_type:
+        return "ECAS_CDSL"
+    if "kfin" in cas_type or "karvy" in cas_type:
+        return "MF_KFIN"
+    if "cams" in cas_type:
+        return "MF_CAMS"
+    # If only MF section is populated, lean MF; else default to demat-side.
+    has_demat = bool(parsed_data.get("demat_accounts"))
+    has_mf = bool(parsed_data.get("mutual_funds"))
+    if has_mf and not has_demat:
+        return "MF_CAMS"
+    return "ECAS_CDSL"
+
+
+async def _v3_shadow_write(user: dict, parsed_data: dict, body: dict) -> dict:
+    """POST the same parsed payload to portfolio_ingestion's /api/cas/sdk-callback.
+
+    Never raises — V2 already succeeded by the time we get here.
+    Returns a small status dict that's safe to surface in the response.
+    """
+    base = os.environ.get("V3_INGESTION_BASE_URL")
+    if not base:
+        return {"enabled": False, "reason": "V3_INGESTION_BASE_URL unset"}
+
+    try:
+        import httpx
+        # Deterministic checksum so re-uploads of the same CAS are idempotent
+        # on (pan_hash, checksum) in the V3 ingestion_jobs table.
+        canon = json.dumps(parsed_data, sort_keys=True, default=str).encode()
+        checksum = hashlib.sha256(canon).hexdigest()
+        metadata = body.get("metadata") or {}
+        payload = {
+            "checksum": checksum,
+            "source_type": _infer_v3_source_type(parsed_data),
+            "metadata": {
+                "method": metadata.get("method", "upload"),
+                "cas_type": (parsed_data.get("meta") or {}).get("cas_type"),
+            },
+            "data": parsed_data,
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{base.rstrip('/')}/api/cas/sdk-callback",
+                headers={"X-User-External-Id": str(user["user_id"])},
+                json=payload,
+            )
+        body_json = {}
+        try:
+            body_json = resp.json()
+        except Exception:
+            pass
+        if resp.status_code < 400:
+            logger.info(
+                "V3 shadow-write OK user=%s job_id=%s status=%s period=%s",
+                user["user_id"],
+                body_json.get("job_id"),
+                body_json.get("status"),
+                body_json.get("period"),
+            )
+            return {
+                "enabled": True,
+                "ok": True,
+                "job_id": body_json.get("job_id"),
+                "snapshot_id": body_json.get("snapshot_id"),
+                "status": body_json.get("status"),
+                "period": body_json.get("period"),
+            }
+        logger.warning(
+            "V3 shadow-write returned %d for user=%s: %s",
+            resp.status_code, user["user_id"], (resp.text or "")[:300],
+        )
+        return {"enabled": True, "ok": False, "status_code": resp.status_code}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("V3 shadow-write failed (V2 already succeeded): %s", e)
+        return {"enabled": True, "ok": False, "error": str(e)[:200]}
 
 
 # CAS PDF background processor removed — all PDF parsing now happens
