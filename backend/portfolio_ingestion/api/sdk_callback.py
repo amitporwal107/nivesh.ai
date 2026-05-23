@@ -54,9 +54,11 @@ async def sdk_callback(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
-    statement_to = payload.statement_to or dt.date.today()
-    statement_from = payload.statement_from or statement_to.replace(day=1)
-    generated_at = payload.generated_at or dt.datetime.now(dt.timezone.utc)
+    # Statement period — prefer the SDK's top-level fields, then look inside
+    # ParsedData.meta/summary for the CASParser SDK's standard shape. Falling
+    # back to "today" is a last resort and breaks source priority, so we try
+    # hard to find the real date.
+    statement_from, statement_to, generated_at = _resolve_statement_dates(payload)
 
     pool = await get_pool()
 
@@ -233,3 +235,99 @@ async def _existing_response(
         raw_pdf_available=payload.metadata.raw_pdf_available,
         portfolio=assemble(cheap_holdings),
     )
+
+
+# ── Statement-date resolution ────────────────────────────────────────────
+# The CASParser SDK does not consistently echo the statement period at the
+# top level of its callback. Real-world payloads put the dates in any of:
+#   data.meta.statement_period.{from,to}
+#   data.summary.statement_period.{from,to}
+#   data.statement_period.{from,to}
+#   data.meta.{from_date,to_date}
+#   data.meta.{period_from,period_to}
+# We accept all of them, parse robustly, and fall back to a today/month-default
+# only if absolutely nothing was found.
+
+_DATE_FORMATS = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y")
+
+
+def _parse_date_loose(value: object) -> "dt.date | None":
+    if value is None or value == "":
+        return None
+    if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
+        return value
+    if isinstance(value, dt.datetime):
+        return value.date()
+    s = str(value).strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return dt.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    # ISO-8601 with timezone
+    try:
+        return dt.datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
+def _resolve_statement_dates(payload) -> tuple["dt.date", "dt.date", "dt.datetime"]:
+    """Pick the best statement_from / statement_to / generated_at we can find."""
+    meta = (payload.data.meta or {}) if hasattr(payload.data, "meta") else {}
+    summary = (payload.data.summary or {}) if hasattr(payload.data, "summary") else {}
+    # Top-level on ParsedData itself (some SDK versions hoist these up).
+    root = {}
+    try:
+        root = payload.data.model_dump(exclude_none=True)
+    except Exception:
+        pass
+
+    def _from_any(*paths: tuple) -> dt.date | None:
+        for src, keys in paths:
+            cur = src
+            for k in keys:
+                if not isinstance(cur, dict):
+                    cur = None
+                    break
+                cur = cur.get(k)
+            d = _parse_date_loose(cur)
+            if d is not None:
+                return d
+        return None
+
+    statement_to = payload.statement_to or _from_any(
+        (meta, ("statement_period", "to")),
+        (summary, ("statement_period", "to")),
+        (root, ("statement_period", "to")),
+        (meta, ("to_date",)),
+        (meta, ("period_to",)),
+        (meta, ("statement_to",)),
+    ) or dt.date.today()
+
+    statement_from = payload.statement_from or _from_any(
+        (meta, ("statement_period", "from")),
+        (summary, ("statement_period", "from")),
+        (root, ("statement_period", "from")),
+        (meta, ("from_date",)),
+        (meta, ("period_from",)),
+        (meta, ("statement_from",)),
+    ) or statement_to.replace(day=1)
+
+    # generated_at: SDK's parse time, not statement boundary.
+    gen_raw = (
+        payload.generated_at
+        or meta.get("generated_at")
+        or meta.get("parsed_at")
+        or meta.get("timestamp")
+    )
+    if isinstance(gen_raw, dt.datetime):
+        generated_at = gen_raw
+    elif isinstance(gen_raw, str):
+        try:
+            generated_at = dt.datetime.fromisoformat(gen_raw.replace("Z", "+00:00"))
+        except ValueError:
+            generated_at = dt.datetime.now(dt.timezone.utc)
+    else:
+        generated_at = dt.datetime.now(dt.timezone.utc)
+
+    return statement_from, statement_to, generated_at
