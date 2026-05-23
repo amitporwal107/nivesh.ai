@@ -183,21 +183,23 @@ services:
   # ── One-shot Postgres migrations for the main app schema ─────────────────
 
   app-migrate:
-    image: nivesh/backend:staging
+    # Use postgres:16-alpine (has psql) — the backend image is dependency-only
+    # for the Python app and doesn't include the psql client.
+    image: postgres:16-alpine
     container_name: nivesh-staging-app-migrate
     restart: "no"
-    env_file: /opt/nivesh-staging/.env.staging
     environment:
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
     volumes:
-      - /opt/nivesh-staging/repo/backend:/app/backend
+      - /opt/nivesh-staging/repo/backend/migrations:/migrations:ro
     command: >
-      bash -c "
-        echo 'Running PostgreSQL migrations against staging...' &&
-        for f in /app/backend/migrations/*.sql; do
-          echo \"Applying $$f\" &&
-          psql \"$$POSTGRES_URL\" -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
-        done &&
+      sh -c "
+        set -e;
+        echo 'Running PostgreSQL migrations against staging...';
+        for f in /migrations/*.sql; do
+          echo \"Applying $$f\";
+          psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done;
         echo 'Migrations done.'
       "
     networks: [nivesh-staging]
