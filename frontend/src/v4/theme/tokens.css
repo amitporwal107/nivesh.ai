@@ -1,0 +1,54 @@
+/*
+ * V4 design tokens — sourced from the V4 mockup (nivesh_app.html / nivesh_mobile.html).
+ * All variables live under the `.v4` class scope so V2 and V3 are untouched.
+ */
+
+.v4 {
+  /* ───────── Surfaces (warm paper-black) ───────── */
+  --v4-bg: #0b0a08;
+  --v4-s0: #100e0c;
+  --v4-s1: #161310;
+  --v4-s2: #1d1a16;
+  --v4-s3: #252119;
+  --v4-hero-a: #221e18;
+  --v4-hero-b: #161310;
+  --v4-line: #2a2620;
+  --v4-line-strong: #393229;
+
+  /* ───────── Ink ───────── */
+  --v4-ink: #f6f1e7;
+  --v4-ink-dim: #c2b8a8;
+  --v4-ink-mute: #8c8273;
+  --v4-ink-faint: #564e42;
+
+  /* ───────── Brand ───────── */
+  --v4-saffron: #ff9248;
+  --v4-saffron-lo: #ffb37e;
+  --v4-saffron-dk: #e07730;
+
+  /* ───────── Domain accents ───────── */
+  --v4-moss: #88ab66;
+  --v4-gold: #d9b64a;
+  --v4-rust: #df5d5d;
+  --v4-indigo: #7d7eff;
+
+  /* ───────── Type ───────── */
+  --v4-display: "Fraunces", Georgia, serif;
+  --v4-sans: "Inter Tight", system-ui, sans-serif;
+  --v4-mono: "IBM Plex Mono", monospace;
+
+  /* ───────── Motion ───────── */
+  --v4-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* ───────── Radii ───────── */
+  --v4-r-sm: 7px;
+  --v4-r-md: 9px;
+  --v4-r-lg: 13px;
+  --v4-r-xl: 16px;
+
+  background: var(--v4-bg);
+  color: var(--v4-ink);
+  font-family: var(--v4-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}

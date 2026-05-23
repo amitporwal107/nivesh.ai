@@ -1,0 +1,40 @@
+/* V4 reset — minimal, scoped to .v4 so V2/V3 are untouched. */
+.v4 *,
+.v4 *::before,
+.v4 *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.v4 ::selection {
+  background: rgba(255, 146, 72, 0.26);
+  color: #fff;
+}
+
+.v4 ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.v4 ::-webkit-scrollbar-thumb {
+  background: var(--v4-line-strong);
+  border-radius: 5px;
+}
+
+.v4 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.v4 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.v4 button {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
