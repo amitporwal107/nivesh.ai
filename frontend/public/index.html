@@ -36,13 +36,14 @@
         //   /v2/*  V2 React SPA (basename="/v2")
         //   /v3/*  V3 React SPA (basename="/v3" — see frontend/src/App.js
         //          detectAppMode; the SPA picks the right basename at boot)
+        //   /v4/*  V4 React SPA (basename="/v4" — same detectAppMode branch)
         //   /api/* FastAPI proxy
         //
         // Everything else gets prefixed with /v2/ so old bookmarks and the
         // bare root still land on the V2 home.
         (function () {
           var p = window.location.pathname;
-          if (p.indexOf("/v2") !== 0 && p.indexOf("/v3") !== 0 && p.indexOf("/api") !== 0) {
+          if (p.indexOf("/v2") !== 0 && p.indexOf("/v3") !== 0 && p.indexOf("/v4") !== 0 && p.indexOf("/api") !== 0) {
             var target = "/v2" + (p === "/" ? "/" : p) + window.location.search + window.location.hash;
             window.location.replace(target);
           }
