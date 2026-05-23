@@ -48,9 +48,16 @@ def test_empty_payload_yields_no_rows() -> None:
 
 
 @pytest.mark.parametrize(
+    # The new bucketed schema (which matches the real CASParser SDK output)
+    # collapses instrument-type granularity into the SDK's five buckets:
+    #   equity, etf  → bucket `equities`              → asset_class "equity"
+    #   bond         → bucket `corporate_bonds`       → asset_class "bond"
+    #   sgb          → bucket `government_securities` → asset_class "g_sec"
+    #   aif          → bucket `aifs`                  → asset_class "aif"
+    # The legacy flat-list shape is normalised through this map at parse time.
     "instrument_type,expected_class",
-    [("equity", "equity"), ("etf", "etf"), ("bond", "bond"),
-     ("sgb", "sgb"), ("aif", "aif")],
+    [("equity", "equity"), ("etf", "equity"), ("bond", "bond"),
+     ("sgb", "g_sec"), ("aif", "aif")],
 )
 def test_demat_instrument_type_drives_asset_class(
     instrument_type: str, expected_class: str

@@ -1,0 +1,45 @@
+{
+  "meta": {"cas_type": "NSDL"},
+  "investor": {"pan": "ABCDE1234F", "name": "TEST INVESTOR"},
+  "summary": {},
+  "demat_accounts": [
+    {
+      "holdings": {
+        "aifs": [],
+        "corporate_bonds": [],
+        "demat_mutual_funds": [
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF109KC1NT3", "name": "ICICI PRUDENTIAL MUTUAL FUND GOLD EXCHANGE TRADED FUND OPEN ENDED--", "transactions": [{"additional_info": {"credit": 48, "debit": 0, "order_no": "81000061064751", "stamp_duty": 0}, "amount": 6137.84, "balance": 5147, "date": "2026-04-24", "description": "By CM ICICI SECURITIES LIMITED, T+1 NORMAL / 2026075", "dividend_rate": null, "nav": 127.87, "type": "PURCHASE", "units": 48}], "units": 5147, "value": 658155.12},
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF109KC19U5", "name": "ICICI PRUDENTIAL NIFTY 100 LOW VOLATILITY 30 ETF--", "transactions": [], "units": 260, "value": 5610.77},
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF879O01019", "name": "PARAG PARIKH FLEXICAP FUND - REGULAR PLAN - GROWTH", "transactions": [], "units": 2985.899, "value": 248877.36},
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF200K01305", "name": "SBI LARGE & MIDCAP FUND REGULAR PLAN GROWTH", "transactions": [], "units": 58.044, "value": 36276.4}
+        ],
+        "equities": [
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "TRADING SUSPENDED"}, "isin": "INE701B01021", "name": "PUNJ LLOYD LIMITED", "transactions": [], "units": 500, "value": 1115}
+        ],
+        "government_securities": []
+      }
+    },
+    {
+      "holdings": {
+        "aifs": [],
+        "corporate_bonds": [],
+        "demat_mutual_funds": [
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF732E01037", "name": "NIPPON INDIA ETF LIQUID BeES", "transactions": [{"additional_info": {"credit": 0.001, "debit": 0, "order_no": "1511729900", "stamp_duty": 0}, "amount": 1, "balance": 0.704, "date": "2026-04-01", "description": "By Incme Distrbn-cum-Cap Wthdrwl- Reinvt", "dividend_rate": null, "nav": 1000, "type": "PURCHASE", "units": 0.001}], "units": 0.708, "value": 708},
+          {"additional_info": {"close_units": null, "open_units": null}, "isin": "INF0R8F01034", "name": "ZERODHA NIFTY ID RATE LIQUID ETF-- DIRECT GROWTH", "transactions": [], "units": 51, "value": 5804.94}
+        ],
+        "equities": [
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "BHARTIARTL.NSE"}, "isin": "INE397D01024", "name": "BHARTI AIRTEL LIMITED", "transactions": [], "units": 15, "value": 28302},
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "HDFCBANK.NSE"}, "isin": "INE040A01034", "name": "HDFC BANK LIMITED", "transactions": [], "units": 71, "value": 54790.7},
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "RELIANCE.NSE"}, "isin": "INE002A01018", "name": "RELIANCE INDUSTRIES LIMITED", "transactions": [], "units": 22, "value": 31477.6},
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "NETWEB.NSE"}, "isin": "INE0NT901020", "name": "NETWEB TECHNOLOGIES INDIA, LIMITED", "transactions": [], "units": 40, "value": 162592},
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "NTPCGREEN.NSE"}, "isin": "INE0ONG01011", "name": "NTPC GREEN ENERGY LIMITED", "transactions": [], "units": 1000, "value": 109850},
+          {"additional_info": {"close_units": null, "open_units": null, "stock_symbol": "JIOFIN.NSE"}, "isin": "INE758E01017", "name": "JIO FINANCIAL SERVICES, LIMITED", "transactions": [], "units": 940, "value": 231587.8}
+        ],
+        "government_securities": []
+      }
+    }
+  ],
+  "mutual_funds": [],
+  "insurance": {"life_insurance_policies": []},
+  "nps": []
+}

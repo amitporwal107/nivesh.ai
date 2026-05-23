@@ -13,86 +13,121 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ── Demat side (CDSL / NSDL) ──────────────────────────────────────────────
 #
-# Real CASParser SDK output splits demat positions into typed buckets per
-# account: equities, demat_mutual_funds, corporate_bonds, aifs,
-# government_securities. The earlier schema modelled this as a single flat
-# `holdings` list with an `instrument_type` field — that's still supported
-# below as a legacy/fixture compatibility shim, but the canonical shape is
-# the bucketed one.
+# Real CASParser SDK output (proven against an actual NSDL e-CAS payload —
+# see tests/fixtures/sdk_real_nsdl_demat.json):
+#
+#     demat_accounts: [
+#       {
+#         "holdings": {                  ← bucket OBJECT, not a list
+#             "equities":              [DematHolding, …],
+#             "demat_mutual_funds":    [DematHolding, …],
+#             "corporate_bonds":       [DematHolding, …],
+#             "aifs":                  [DematHolding, …],
+#             "government_securities": [DematHolding, …]
+#         }
+#       }, ...
+#     ]
+#
+# An older synthetic shape used the same key (`holdings`) but as a FLAT LIST
+# with an `instrument_type` field. We accept both via a model_validator at
+# parse time, normalising the input into a single canonical bucket object.
 
 
 class DematHolding(BaseModel):
-    """One line within a demat-account bucket (equity, ETF, MF unit, bond …).
-
-    The SDK uses ``units`` everywhere; the older synthetic shape used
-    ``quantity``. We accept either via the populate-by-name alias config so
-    fixtures predating the SDK output still parse.
-    """
+    """One line within a demat-account bucket (equity, ETF, MF unit, bond, …)."""
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     isin: str | None = None
     name: str
-    units: Decimal = Field(..., alias="quantity")  # accept both wire names
+    units: Decimal = Field(..., alias="quantity")   # accept both `units` (SDK) and `quantity` (legacy)
     value: Decimal
-    # Optional — only present when we synthesise a row from the legacy
-    # `holdings` list. With the SDK's bucketed shape we infer asset_class
-    # from the parent key (equities → equity, demat_mutual_funds → mf, …).
+    # Optional — only carries a value when we accept the legacy flat list,
+    # used by the legacy-shape normaliser to bucket each item. With the SDK
+    # bucketed shape, asset_class is inferred from the parent bucket name.
     instrument_type: str | None = None
 
 
-class DematAccount(BaseModel):
-    """An aggregated demat account.
+# ── Bucket → asset_class map. Defined once, used by both the parser and the
+# portfolio builder via iter_lines() below.
+_BUCKET_TO_ASSET: dict[str, str] = {
+    "equities":              "equity",
+    "demat_mutual_funds":    "mutual_fund",
+    "corporate_bonds":       "bond",
+    "aifs":                  "aif",
+    "government_securities": "g_sec",
+}
 
-    The real SDK shape (proven against an NSDL e-CAS dump) is bucketed:
+# legacy instrument_type → bucket name (when bucketising a flat list).
+_LEGACY_TYPE_TO_BUCKET: dict[str, str] = {
+    "equity":      "equities",
+    "etf":         "equities",   # ETFs hold in demat side as equities
+    "mf":          "demat_mutual_funds",
+    "mutual_fund": "demat_mutual_funds",
+    "bond":        "corporate_bonds",
+    "sgb":         "government_securities",
+    "aif":         "aifs",
+}
 
-        { equities: [...], demat_mutual_funds: [...], corporate_bonds: [...],
-          aifs: [...], government_securities: [...] }
 
-    The older synthetic shape used a single flat ``holdings`` list. Both are
-    accepted; ``ParsedData.demat_lines()`` yields a uniform iterator over
-    (bucket_name, DematHolding) tuples regardless of which one was supplied.
-    """
+class DematHoldingsBuckets(BaseModel):
+    """The bucket object that lives under ``demat_accounts[].holdings``."""
     model_config = ConfigDict(extra="ignore")
-
-    dp_id: str | None = None
-    client_id: str | None = None
-
-    # SDK's bucketed shape
     equities:              list[DematHolding] = Field(default_factory=list)
     demat_mutual_funds:    list[DematHolding] = Field(default_factory=list)
     corporate_bonds:       list[DematHolding] = Field(default_factory=list)
     aifs:                  list[DematHolding] = Field(default_factory=list)
     government_securities: list[DematHolding] = Field(default_factory=list)
 
-    # Legacy flat shape (kept so prior unit-test fixtures still parse).
-    holdings: list[DematHolding] = Field(default_factory=list)
+
+class DematAccount(BaseModel):
+    """An aggregated demat account.
+
+    The SDK sends:
+        { dp_id?, client_id?, holdings: { equities: […], … } }
+
+    The legacy synthetic shape sent:
+        { dp_id?, client_id?, holdings: [DematHolding, …] }   # flat list
+
+    Both are normalised below into the canonical bucket object so the
+    iterator + builder code below only ever sees one shape.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    dp_id: str | None = None
+    client_id: str | None = None
+    holdings: DematHoldingsBuckets = Field(default_factory=DematHoldingsBuckets)
+
+    @field_validator("holdings", mode="before")
+    @classmethod
+    def _accept_legacy_flat_list(cls, v):
+        """Normalise an incoming flat list of holdings into a bucket object."""
+        if v is None:
+            return {}
+        if isinstance(v, list):
+            buckets: dict[str, list] = {k: [] for k in _BUCKET_TO_ASSET}
+            for h in v:
+                # Tolerate dict or BaseModel-shaped items.
+                instrument = None
+                if isinstance(h, dict):
+                    instrument = (h.get("instrument_type") or "equity").lower()
+                else:
+                    instrument = (getattr(h, "instrument_type", None) or "equity").lower()
+                bucket_name = _LEGACY_TYPE_TO_BUCKET.get(instrument, "equities")
+                buckets[bucket_name].append(h)
+            return buckets
+        return v   # dict or DematHoldingsBuckets — pass through
 
     def iter_lines(self) -> "list[tuple[str, DematHolding]]":
-        """Yield (asset_class, holding) tuples across both shapes.
-
-        Bucket → asset_class mapping is fixed here so portfolio_builder
-        doesn't have to repeat it.
-        """
-        BUCKET_TO_ASSET = {
-            "equities":              "equity",
-            "demat_mutual_funds":    "mutual_fund",
-            "corporate_bonds":       "bond",
-            "aifs":                  "aif",
-            "government_securities": "g_sec",
-        }
+        """Yield (asset_class, holding) tuples across all five buckets."""
         out: list[tuple[str, DematHolding]] = []
-        for bucket_name, asset_class in BUCKET_TO_ASSET.items():
-            for h in getattr(self, bucket_name):
+        for bucket_name, asset_class in _BUCKET_TO_ASSET.items():
+            for h in getattr(self.holdings, bucket_name):
                 out.append((asset_class, h))
-        # Legacy flat holdings — read instrument_type if present, else equity.
-        for h in self.holdings:
-            asset_class = (h.instrument_type or "equity").lower()
-            out.append((asset_class, h))
         return out
 
 
