@@ -4,8 +4,8 @@ import { useAuth } from "@/context/AuthContext";
 import api, { ApiError } from "../api/client";
 import {
   getActivePortfolio,
-  resetCurrentUser,
 } from "../api/portfolioIngestion";
+import { DashboardShell } from "../components/DashboardShell";
 
 /**
  * V4 AI Copilot Landing — the post-onboarding home screen.
@@ -41,7 +41,7 @@ const SEVERITY_TONE = {
 
 export default function CopilotLanding() {
   const navigate = useNavigate();
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
   const [intelligence, setIntelligence] = useState(null);
@@ -79,9 +79,8 @@ export default function CopilotLanding() {
     };
   }, [user]);
 
-  if (authLoading) return <Centered>Loading…</Centered>;
+  if (authLoading) return null;
   if (!user) {
-    // Not signed in — bounce to onboarding which has the Google sign-in card.
     navigate("/onboarding", { replace: true });
     return null;
   }
@@ -107,13 +106,7 @@ export default function CopilotLanding() {
     portfolio?.portfolio?.top_holdings || portfolio?.top_holdings || [];
 
   return (
-    <Shell>
-      <TopBar email={user.email} onSignOut={() => {
-        logout().then(() => {
-          resetCurrentUser();
-          navigate("/", { replace: true });
-        });
-      }} />
+    <DashboardShell>
       <main style={mainStyle}>
         <HeroScore
           loading={loading}
@@ -155,74 +148,11 @@ export default function CopilotLanding() {
           🔒 Bank-grade encryption · 🛡️ Read-only · ⚖️ SEBI-aware
         </div>
       </main>
-    </Shell>
+    </DashboardShell>
   );
 }
 
 /* ───────── Sub-components ───────── */
-
-function Shell({ children }) {
-  return <div style={pageStyle}>{children}</div>;
-}
-
-function Centered({ children }) {
-  return (
-    <Shell>
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          placeItems: "center",
-          color: "var(--v4-ink-mute)",
-          fontFamily: "var(--v4-sans)",
-        }}
-      >
-        {children}
-      </div>
-    </Shell>
-  );
-}
-
-function TopBar({ email, onSignOut }) {
-  return (
-    <header style={navStyle}>
-      <div style={brandStyle}>
-        <div style={markStyle}>न</div>
-        <div>
-          <div
-            style={{
-              fontFamily: "var(--v4-display)",
-              fontWeight: 600,
-              fontSize: 17,
-              color: "var(--v4-ink)",
-            }}
-          >
-            Nivesh
-          </div>
-          <div
-            style={{
-              fontFamily: "var(--v4-mono)",
-              fontSize: 9,
-              letterSpacing: 1.4,
-              color: "var(--v4-ink-faint)",
-            }}
-          >
-            AI COPILOT
-          </div>
-        </div>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={signedInPillStyle}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--v4-moss)" }} />
-          {email}
-        </div>
-        <button onClick={onSignOut} style={signOutBtnStyle} type="button">
-          Sign out
-        </button>
-      </div>
-    </header>
-  );
-}
 
 function SectionHeader({ children }) {
   return (
@@ -552,67 +482,6 @@ function formatInr(n) {
 }
 
 /* ───────── Styles ───────── */
-
-const pageStyle = {
-  minHeight: "100vh",
-  background: "var(--v4-bg)",
-  color: "var(--v4-ink)",
-};
-
-const navStyle = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  padding: "18px 32px",
-  borderBottom: "1px solid var(--v4-line)",
-  position: "sticky",
-  top: 0,
-  background: "rgba(11,10,8,0.92)",
-  backdropFilter: "blur(10px)",
-  zIndex: 20,
-};
-
-const brandStyle = { display: "flex", alignItems: "center", gap: 12 };
-
-const markStyle = {
-  width: 36,
-  height: 36,
-  borderRadius: 9,
-  background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-lo))",
-  display: "grid",
-  placeItems: "center",
-  fontFamily: "var(--v4-display)",
-  fontWeight: 600,
-  color: "#2a1605",
-  fontSize: 19,
-};
-
-const signedInPillStyle = {
-  fontFamily: "var(--v4-mono)",
-  fontSize: 10,
-  letterSpacing: 0.6,
-  color: "var(--v4-ink-mute)",
-  background: "var(--v4-s2)",
-  border: "1px solid var(--v4-line)",
-  padding: "6px 12px",
-  borderRadius: 999,
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  textTransform: "uppercase",
-};
-
-const signOutBtnStyle = {
-  fontFamily: "var(--v4-mono)",
-  fontSize: 10,
-  letterSpacing: 1,
-  color: "var(--v4-ink-mute)",
-  background: "transparent",
-  border: "1px solid var(--v4-line)",
-  padding: "8px 12px",
-  borderRadius: 8,
-  textTransform: "uppercase",
-};
 
 const mainStyle = {
   maxWidth: 1080,
