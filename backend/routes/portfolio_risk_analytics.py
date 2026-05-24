@@ -54,14 +54,15 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    holdings: list[dict] = []
-    async for h in db.holdings.find(
+    holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "sector": 1, "amc_name": 1,
          "category": 1, "instrument_id": 1},
-    ):
-        holdings.append(h)
+    ).to_list(1000)
+    if not holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        holdings = await pi_holdings_for_user(user_id)
 
     if not holdings:
         return {

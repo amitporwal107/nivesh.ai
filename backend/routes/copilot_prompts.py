@@ -357,6 +357,9 @@ async def _build_context(user_id: str) -> Dict[str, Any]:
     # If intelligence didn't give allocation, fall back to holdings-based calc
     if ctx["total_value"] <= 0:
         holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        if not holdings:
+            from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+            holdings = await pi_holdings_for_user(user_id)
         total = 0.0
         equity = 0.0
         debt = 0.0

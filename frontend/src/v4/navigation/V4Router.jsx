@@ -18,6 +18,11 @@ const Homepage = lazy(() => import("../screens/Homepage"));
 const Onboarding = lazy(() => import("../screens/onboarding/Onboarding"));
 const CasCallback = lazy(() => import("../screens/CasCallback"));
 const CopilotLanding = lazy(() => import("../screens/CopilotLanding"));
+const Concentration = lazy(() => import("../screens/Concentration"));
+const Diversification = lazy(() => import("../screens/Diversification"));
+const Risk = lazy(() => import("../screens/Risk"));
+const ActionPlan = lazy(() => import("../screens/ActionPlan"));
+const Goals = lazy(() => import("../screens/Goals"));
 
 function ScreenSkeleton() {
   return (
@@ -53,7 +58,11 @@ export default function V4Router() {
         <Route path="onboarding" element={<Onboarding />} />
         <Route path="cas-callback" element={<CasCallback />} />
         <Route path="landing" element={<CopilotLanding />} />
-        {/* M4-M6 screens land here as they're built */}
+        <Route path="concentration" element={<Concentration />} />
+        <Route path="diversification" element={<Diversification />} />
+        <Route path="risk" element={<Risk />} />
+        <Route path="plan" element={<ActionPlan />} />
+        <Route path="goals" element={<Goals />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

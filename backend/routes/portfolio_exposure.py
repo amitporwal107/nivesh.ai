@@ -55,13 +55,14 @@ async def get_concentration(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    holdings: list[dict] = []
-    async for h in db.holdings.find(
+    holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "sector": 1},
-    ):
-        holdings.append(h)
+    ).to_list(1000)
+    if not holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        holdings = await pi_holdings_for_user(user_id)
 
     if not holdings:
         empty_sec = {"items": [], "all_items_count": 0, "hhi": 0,
@@ -146,16 +147,19 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     user_id = user["user_id"]
 
-    # 1. Load user's MF/ETF holdings
-    mf_holdings: list[dict] = []
-    async for h in db.holdings.find(
+    # 1. Load user's MF/ETF holdings — with V3 Postgres fallback for V4 users
+    _all_holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
          "quantity": 1, "current_price": 1, "amc_name": 1, "category": 1},
-    ):
-        atype = (h.get("asset_type") or "").lower()
-        if atype in {"mutual_fund", "etf"} and h.get("ticker"):
-            mf_holdings.append(h)
+    ).to_list(1000)
+    if not _all_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _all_holdings = await pi_holdings_for_user(user_id)
+    mf_holdings: list[dict] = [
+        h for h in _all_holdings
+        if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"}
+    ]
 
     if len(mf_holdings) < 2:
         return {
