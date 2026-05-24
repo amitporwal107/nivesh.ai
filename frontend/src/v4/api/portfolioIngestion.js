@@ -211,6 +211,14 @@ export async function runCasIngestion({ mode = "cas", onStatus } = {}) {
       },
       { headers: { "X-User-External-Id": String(externalId) } },
     );
+
+    // Dual-write to V2 backend so the scoring / intelligence / plans
+    // endpoints (/api/insights/v3-portfolio, /api/intelligence/portfolio,
+    // /api/plans/active) have holdings data to work from.
+    // V2 uses cookie auth — no extra header needed. Fire-and-forget;
+    // the V3 write is the canonical one.
+    api.post("/api/portfolio/import-connect", { data: parsed }).catch(() => {});
+
     tell("Done.");
     return { ok: true, response };
   } catch (err) {

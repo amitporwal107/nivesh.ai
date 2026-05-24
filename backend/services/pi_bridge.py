@@ -21,11 +21,36 @@ so no other code changes are needed downstream.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
-from services.pg_client import get_pool
+import asyncpg
 
 log = logging.getLogger(__name__)
+
+_pi_pool: "asyncpg.Pool | None" = None
+
+
+async def _get_pi_pool() -> "asyncpg.Pool | None":
+    """Return (and lazily create) an asyncpg pool for V3 Postgres (PI_POSTGRES_URL)."""
+    global _pi_pool
+    if _pi_pool is not None:
+        return _pi_pool
+    url = os.environ.get("PI_POSTGRES_URL")
+    if not url:
+        log.warning("pi_bridge: PI_POSTGRES_URL not set — bridge disabled")
+        return None
+    try:
+        _pi_pool = await asyncpg.create_pool(
+            url, min_size=1, max_size=3, command_timeout=10,
+            statement_cache_size=0,
+        )
+        log.info("pi_bridge: V3 Postgres pool opened")
+        return _pi_pool
+    except Exception as exc:  # noqa: BLE001
+        log.warning("pi_bridge: failed to open V3 Postgres pool: %s", exc)
+        return None
+
 
 # V3 asset_class → V2 asset_type
 _CLASS_MAP: dict[str, str] = {
@@ -45,7 +70,7 @@ async def pi_holdings_for_user(user_id: str) -> list[dict[str, Any]]:
 
     Returns [] on any error so callers can treat absence as a soft fallback.
     """
-    pool = await get_pool()
+    pool = await _get_pi_pool()
     if pool is None:
         return []
     try:
