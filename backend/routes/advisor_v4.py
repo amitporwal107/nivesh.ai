@@ -480,6 +480,106 @@ def _score_tone_str(score: Optional[float]) -> str:
     return "rust"
 
 
+# ── B.4 POST /api/mfd/profiles/{id}/review-pack/generate ─────────────────────
+
+from pydantic import BaseModel as _PydanticBaseModel  # noqa: E402
+
+
+class ReviewPackRequest(_PydanticBaseModel):
+    format: Optional[str] = "pdf"   # "pdf" | "xlsx"
+    sections: Optional[List[str]] = None  # ["portfolio","goals","risk","performance"]
+
+
+@mfd_v4_router.post("/profiles/{profile_id}/review-pack/generate", status_code=202)
+async def generate_review_pack(
+    profile_id: str = Path(...),
+    request: Request = None,
+    body: ReviewPackRequest = ReviewPackRequest(),
+) -> Dict[str, Any]:
+    """Queue a review-pack generation task for a client.
+
+    Screen 16 Client 360 — "Prepare Review Pack" CTA.
+
+    This is an async scaffold — actual PDF/XLSX generation is handled by a
+    background worker; this endpoint only enqueues the task.
+
+    Body (all optional):
+      format   — "pdf" (default) | "xlsx"
+      sections — list subset of ["portfolio","goals","risk","performance"]
+                 (default: all four)
+
+    Returns: { task_id, status: "queued", poll_url }
+    """
+    user = await get_current_user(request)
+    session_uid = _session_user_id(user)
+
+    prof = await mfd_workspace.get_profile(profile_id)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    ws = await db.workspaces.find_one({"workspace_id": prof["workspace_id"]}, {"_id": 0})
+    if not ws or ws.get("owner_user_id") != session_uid:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    _VALID_FORMATS = {"pdf", "xlsx"}
+    _ALL_SECTIONS = ["portfolio", "goals", "risk", "performance"]
+    fmt = body.format if body.format in _VALID_FORMATS else "pdf"
+    sections = body.sections if body.sections else _ALL_SECTIONS
+
+    task_id = f"rp_{uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "task_id": task_id,
+        "profile_id": profile_id,
+        "user_id": session_uid,
+        "status": "queued",
+        "format": fmt,
+        "sections": sections,
+        "created_at": now,
+        "result_url": None,
+    }
+    await db.review_pack_tasks.insert_one({**doc, "_id": task_id})
+
+    return {
+        "task_id": task_id,
+        "status": "queued",
+        "poll_url": f"/api/mfd/profiles/{profile_id}/review-pack/{task_id}",
+    }
+
+
+# ── B.4 GET /api/mfd/profiles/{id}/review-pack/{task_id} ─────────────────────
+
+@mfd_v4_router.get("/profiles/{profile_id}/review-pack/{task_id}")
+async def get_review_pack_status(
+    profile_id: str = Path(...),
+    task_id: str = Path(...),
+    request: Request = None,
+) -> Dict[str, Any]:
+    """Poll the status of a queued review-pack task.
+
+    Screen 16 Client 360 — polling after "Prepare Review Pack".
+
+    Returns the task document (status, result_url, created_at, …).
+    404 if not found or does not belong to this profile.
+    """
+    user = await get_current_user(request)
+    session_uid = _session_user_id(user)
+
+    prof = await mfd_workspace.get_profile(profile_id)
+    if not prof:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    ws = await db.workspaces.find_one({"workspace_id": prof["workspace_id"]}, {"_id": 0})
+    if not ws or ws.get("owner_user_id") != session_uid:
+        raise HTTPException(status_code=403, detail="Not your profile")
+
+    task = await db.review_pack_tasks.find_one(
+        {"task_id": task_id, "profile_id": profile_id}, {"_id": 0}
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return task
+
+
 def _derive_domain_scores(
     actions: list[Dict[str, Any]],
     overall: Optional[float],

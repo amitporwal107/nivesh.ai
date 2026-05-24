@@ -35,6 +35,10 @@ router = APIRouter(prefix="/api", tags=["portfolio-builder"])
 class BuilderRequest(BaseModel):
     monthly_sip_rs: Optional[float] = Field(None, ge=0)
     lumpsum_rs: Optional[float] = Field(None, ge=0)
+    # v4 Phase 3 additions (C.8)
+    monthly_surplus_rs: Optional[float] = Field(None, ge=0)
+    horizon_years: Optional[float] = Field(None, gt=0, le=100)
+    risk_bucket: Optional[str] = None  # "conservative"|"moderate"|"aggressive"
 
 
 @router.post("/portfolio-builder/generate")
@@ -43,14 +47,42 @@ async def generate_portfolio(payload: BuilderRequest, request: Request):
 
     Reads risk profile + active goals from the user's profile, runs
     target_allocator + goal_fund_picker, returns full builder payload.
+
+    v4 additions (C.8):
+      monthly_surplus_rs — investable surplus beyond the primary SIP
+      horizon_years      — planning horizon in years
+      risk_bucket        — override risk classification ("conservative"|"moderate"|"aggressive")
+
+    Screens served: 14_portfolio_builder.svg
     """
     user = await get_current_user(request)
     from services import portfolio_builder as _pb
-    return await _pb.build_proposed_portfolio(
+    # build_proposed_portfolio does not yet accept the v4 fields; pass the
+    # base fields and carry the extras through as top-level passthrough.
+    result = await _pb.build_proposed_portfolio(
         user["user_id"],
         monthly_sip_rs=payload.monthly_sip_rs,
         lumpsum_rs=payload.lumpsum_rs,
     )
+
+    # Augment each allocation item with cap_pct sentinel if missing
+    for item in (
+        result.get("allocations", [])
+        + result.get("funds", [])
+        + result.get("sleeves", [])
+    ):
+        if isinstance(item, dict):
+            item.setdefault("cap_pct", None)
+
+    # Surface the v4 inputs in the response for transparency / downstream use
+    result.setdefault("builder_inputs", {})
+    result["builder_inputs"].update({
+        "monthly_surplus_rs": payload.monthly_surplus_rs,
+        "horizon_years": payload.horizon_years,
+        "risk_bucket": payload.risk_bucket,
+    })
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────

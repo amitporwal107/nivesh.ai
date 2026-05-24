@@ -530,8 +530,28 @@ async def refresh_nav(request: Request):
 
 
 @router.get("/portfolio/fund-performance")
-async def get_fund_performance(request: Request, portfolio_id: str = "", force: str = ""):
-    """Get MF benchmark ratings. Cached for 2 hours."""
+async def get_fund_performance(
+    request: Request,
+    portfolio_id: str = "",
+    force: str = "",
+    period: str = "1y",
+    benchmark: str = "peer",
+):
+    """Get MF benchmark ratings. Cached for 2 hours.
+
+    Query params:
+      period    — lookback window: "1y" | "3y" | "5y" (default "1y")
+      benchmark — comparison basis: "peer" | "index" (default "peer")
+
+    Screens served: 10_performance.svg (mobile + webapp)
+    """
+    _VALID_PERIODS = {"1y", "3y", "5y"}
+    _VALID_BENCHMARKS = {"peer", "index"}
+    if period not in _VALID_PERIODS:
+        period = "1y"
+    if benchmark not in _VALID_BENCHMARKS:
+        benchmark = "peer"
+
     user = await get_current_user(request)
     user_id = user["user_id"]
 
@@ -554,10 +574,29 @@ async def get_fund_performance(request: Request, portfolio_id: str = "", force: 
     holdings = await db.holdings.find(query, {"_id": 0}).to_list(2000)
 
     if not holdings:
-        return {"fund_ratings": [], "performance_distribution": {}, "category_overlap": [], "summary": {}}
+        return {
+            "fund_ratings": [],
+            "performance_distribution": {},
+            "category_overlap": [],
+            "summary": {},
+            "period": period,
+            "benchmark": benchmark,
+        }
 
     nav_cache = await fetch_nav_data()
+    # compute_benchmark_ratings does not accept period/benchmark yet — augment after
     result = await compute_benchmark_ratings(holdings, nav_cache)
+
+    # Augment each fund rating item with v4 benchmark fields
+    benchmark_index_label = "NIFTY 50" if benchmark == "index" else "Category Average"
+    for item in result.get("fund_ratings", []):
+        if isinstance(item, dict):
+            item.setdefault("alpha_3y_benchmark_pp", None)
+            item.setdefault("benchmark_index", benchmark_index_label)
+
+    # Attach top-level period + benchmark to response
+    result["period"] = period
+    result["benchmark"] = benchmark
 
     await db.fund_performance_cache.update_one(
         {"user_id": user_id},
