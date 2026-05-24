@@ -2,11 +2,42 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAuth } from "@/context/AuthContext";
+import api from "../../api/client";
 import {
   runCasIngestion,
   getActivePortfolio,
   resetCurrentUser,
 } from "../../api/portfolioIngestion";
+
+/**
+ * COCKPIT_PATH — where "Take me to the cockpit" sends a fresh-snapshot user.
+ * V4 Copilot Landing (M3) lands at /v4/landing later; until then, ship to V2.
+ */
+const COCKPIT_PATH = "/v2/app";
+
+/**
+ * Snapshot is "stale" when today's calendar month is strictly after the
+ * statement's calendar month. CAS statements are monthly, so once a new month
+ * begins there is likely a newer CAS available — we prompt the user to refresh.
+ */
+function isSnapshotStale(snapshot) {
+  if (!snapshot || !snapshot.statement_to) return false;
+  const iso =
+    snapshot.statement_to.length === 10
+      ? `${snapshot.statement_to}T00:00:00Z`
+      : snapshot.statement_to;
+  const stmt = new Date(iso);
+  if (Number.isNaN(stmt.getTime())) return false;
+  const now = new Date();
+  const stmtYM = stmt.getUTCFullYear() * 12 + stmt.getUTCMonth();
+  const nowYM = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  return nowYM > stmtYM;
+}
+
+function hasMeaningfulAllocation(alloc) {
+  if (!alloc || typeof alloc !== "object") return false;
+  return Object.values(alloc).some((v) => typeof v === "number" && v > 0);
+}
 
 /**
  * V4 Onboarding — 3-mode CAS ingestion entry point.
@@ -54,30 +85,66 @@ const MODES = [
 ];
 
 export default function Onboarding() {
-  const { user, loading: authLoading, loginWithGoogle, setAuthError, googleClientId } =
-    useAuth();
+  const {
+    user,
+    loading: authLoading,
+    loginWithGoogle,
+    setAuthError,
+    googleClientId,
+    checkAuth,
+  } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState("idle"); // idle | importing | done | error
   const [statusMessage, setStatusMessage] = useState(null);
   const [result, setResult] = useState(null);
   const [activePortfolio, setActivePortfolio] = useState(null);
+  const [loadingPortfolio, setLoadingPortfolio] = useState(false);
+  const [forceReimport, setForceReimport] = useState(false);
   const [error, setError] = useState(null);
 
-  // After a successful ingest, fetch the active portfolio for the summary card.
+  // On mount (once signed in) AND after every successful ingest, fetch the
+  // active portfolio. This drives the "already set up" vs "show import cards"
+  // routing AND the stale-snapshot banner.
   useEffect(() => {
-    if (status !== "done") return;
+    if (!user) return;
     let cancelled = false;
+    setLoadingPortfolio(true);
     getActivePortfolio()
       .then((data) => {
         if (!cancelled) setActivePortfolio(data);
       })
       .catch(() => {
-        /* non-fatal — the result card from sdk-callback is enough to render */
+        if (!cancelled) setActivePortfolio(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPortfolio(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [status]);
+    // Re-fetch when the user signs in or status flips to done.
+  }, [user, status]);
+
+  // On first successful ingest, flip the V2 onboarding_completed flag so the
+  // user is no longer routed back here on subsequent visits. Best-effort — if
+  // the call fails we still show the success card, since the snapshot is in.
+  useEffect(() => {
+    if (status !== "done") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await api.post("/api/user/complete-onboarding", undefined);
+        if (!cancelled && typeof checkAuth === "function") {
+          await checkAuth();
+        }
+      } catch {
+        /* non-fatal — the snapshot is already active server-side */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, checkAuth]);
 
   const handleConnect = useCallback(async (mode) => {
     setStatus("importing");
@@ -166,46 +233,111 @@ export default function Onboarding() {
     );
   }
 
-  // Authenticated.
+  // Authenticated. Decide what to show:
+  //   1. status === "done"   → success card (just finished an import)
+  //   2. has fresh portfolio + not forcing re-import → "already set up" card
+  //   3. has stale portfolio → stale banner above 3 mode cards
+  //   4. no portfolio (first-time / not onboarded) → just 3 mode cards
+  const snapshot = activePortfolio?.snapshot;
+  const hasActivePortfolio = !!(snapshot && snapshot.is_active !== false);
+  const stale = hasActivePortfolio && isSnapshotStale(snapshot);
+  const showAlreadySetUp =
+    status === "idle" && hasActivePortfolio && !stale && !forceReimport;
+
   return (
     <Shell>
       <Header email={user.email} />
       <main style={mainStyle}>
-        <div style={eyebrowStyle}>BRING YOUR PORTFOLIO IN</div>
-        <h1 style={heroStyle}>
-          Pick the path<br />
-          that's <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>fastest</em>{" "}
-          for you.
-        </h1>
-        <p style={subStyle}>
-          We read your CAS once. Everything you see after that — health, risk,
-          actions — is grounded in what you actually own.
-        </p>
-
-        {status === "error" && (
-          <ErrorBanner message={error} onDismiss={() => setStatus("idle")} />
-        )}
-
-        {status === "done" && result ? (
-          <SuccessCard
-            result={result}
-            activePortfolio={activePortfolio}
-            onContinue={() => navigate("/")}
-            onRetry={() => {
-              setStatus("idle");
-              setResult(null);
-              setActivePortfolio(null);
-            }}
-          />
+        {showAlreadySetUp ? (
+          <>
+            <div style={eyebrowStyle}>YOU'RE SET UP</div>
+            <h1 style={heroStyle}>
+              Your portfolio<br />
+              is <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>ready</em>.
+            </h1>
+            <p style={subStyle}>
+              Latest CAS — {snapshot.period || "current"} — is live in your
+              account. Jump into the cockpit, or import a newer statement.
+            </p>
+            <AlreadySetUpCard
+              snapshot={snapshot}
+              portfolio={activePortfolio?.portfolio}
+              onContinue={() => (window.location.href = COCKPIT_PATH)}
+              onReimport={() => setForceReimport(true)}
+            />
+          </>
         ) : (
-          <ModeGrid
-            disabled={status === "importing"}
-            onPick={handleConnect}
-          />
-        )}
+          <>
+            <div style={eyebrowStyle}>
+              {stale ? "REFRESH YOUR CAS" : "BRING YOUR PORTFOLIO IN"}
+            </div>
+            <h1 style={heroStyle}>
+              {stale ? (
+                <>
+                  Your CAS is from<br />
+                  <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>
+                    {snapshot.period}
+                  </em>{" "}— time to refresh.
+                </>
+              ) : (
+                <>
+                  Pick the path<br />
+                  that's{" "}
+                  <em style={{ color: "var(--v4-saffron)", fontStyle: "italic" }}>fastest</em>{" "}
+                  for you.
+                </>
+              )}
+            </h1>
+            <p style={subStyle}>
+              {stale
+                ? `A newer CAS is likely available now that ${monthYearLabel(new Date())} has started. Import the latest one to keep your insights accurate.`
+                : "We read your CAS once. Everything you see after that — health, risk, actions — is grounded in what you actually own."}
+            </p>
 
-        {status === "importing" && (
-          <ImportingOverlay message={statusMessage || "Working…"} />
+            {stale && (
+              <StaleSnapshotBanner
+                period={snapshot.period}
+                onSkip={() => (window.location.href = COCKPIT_PATH)}
+              />
+            )}
+
+            {status === "error" && (
+              <ErrorBanner message={error} onDismiss={() => setStatus("idle")} />
+            )}
+
+            {status === "done" && result ? (
+              <SuccessCard
+                result={result}
+                activePortfolio={activePortfolio}
+                onContinue={() => (window.location.href = COCKPIT_PATH)}
+                onRetry={() => {
+                  setStatus("idle");
+                  setResult(null);
+                }}
+              />
+            ) : (
+              <ModeGrid
+                disabled={status === "importing"}
+                onPick={handleConnect}
+              />
+            )}
+
+            {status === "importing" && (
+              <ImportingOverlay message={statusMessage || "Working…"} />
+            )}
+
+            {forceReimport && status === "idle" && (
+              <div style={{ marginTop: 16, textAlign: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setForceReimport(false)}
+                  style={inlineLinkStyle}
+                >
+                  ← Back to your current portfolio
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         <div style={footerStrapStyle}>
@@ -214,6 +346,10 @@ export default function Onboarding() {
       </main>
     </Shell>
   );
+}
+
+function monthYearLabel(d) {
+  return d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 }
 
 /* ───────── Sub-components ───────── */
@@ -344,6 +480,86 @@ function ErrorBanner({ message, onDismiss }) {
   );
 }
 
+/**
+ * Shown when the user already has a fresh active portfolio and lands on the
+ * onboarding URL. Default action is "Open the cockpit" — they can still
+ * trigger a re-import via the secondary CTA, which flips forceReimport and
+ * reveals the 3 mode cards.
+ */
+function AlreadySetUpCard({ snapshot, portfolio, onContinue, onReimport }) {
+  const period = snapshot?.period;
+  const holdingsCount = portfolio?.holdings_count;
+  const totalValue = portfolio?.total_value ?? snapshot?.total_value;
+  const allocation = portfolio?.allocation;
+  return (
+    <section style={successCardStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--v4-moss)" }} />
+        <span style={{ fontFamily: "var(--v4-mono)", fontSize: 10, letterSpacing: 1.2, color: "var(--v4-moss)" }}>
+          ACTIVE SNAPSHOT
+        </span>
+      </div>
+      <div style={{ fontFamily: "var(--v4-display)", fontSize: 26, color: "var(--v4-ink)", marginBottom: 8 }}>
+        Latest CAS — {period || "current"}
+      </div>
+      <div style={{ fontSize: 14, color: "var(--v4-ink-dim)", marginBottom: 24 }}>
+        Your portfolio is live in Nivesh. Open the cockpit to see your health
+        score, actions, and goals.
+      </div>
+
+      <div style={statRowStyle}>
+        <Stat label="Period" value={period || "—"} />
+        <Stat label="Holdings" value={holdingsCount != null ? String(holdingsCount) : "—"} />
+        <Stat label="Total value" value={formatInr(totalValue)} />
+      </div>
+
+      {hasMeaningfulAllocation(allocation) ? (
+        <div style={{ marginTop: 24 }}>
+          <div style={eyebrowStyle}>ALLOCATION</div>
+          <AllocationStrip allocation={allocation} />
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
+        <button style={ctaPrimaryStyle} onClick={onContinue}>
+          Open the cockpit →
+        </button>
+        <button style={ctaGhostStyle} onClick={onReimport}>
+          Import a newer CAS
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Amber soft-warning banner shown above the 3 mode cards when the active
+ * snapshot's calendar month is older than the current month — likely a newer
+ * CAS is available.
+ */
+function StaleSnapshotBanner({ period, onSkip }) {
+  return (
+    <div style={staleBannerStyle}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <span style={{ fontSize: 18 }}>🟡</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)", marginBottom: 4 }}>
+            Your snapshot is from {period}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--v4-ink-dim)", lineHeight: 1.5 }}>
+            Insights are still computed off this snapshot — but a newer monthly
+            CAS is almost certainly available. Import it now so your numbers
+            reflect today's portfolio.
+          </div>
+        </div>
+        <button onClick={onSkip} style={dismissBtnStyle}>
+          Skip for now
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SuccessCard({ result, activePortfolio, onContinue, onRetry }) {
   const period = result?.period || activePortfolio?.snapshot?.period;
   const holdingsCount = activePortfolio?.portfolio?.holdings_count;
@@ -373,7 +589,7 @@ function SuccessCard({ result, activePortfolio, onContinue, onRetry }) {
         <Stat label="Total value" value={formatInr(totalValue)} />
       </div>
 
-      {allocation ? (
+      {hasMeaningfulAllocation(allocation) ? (
         <div style={{ marginTop: 24 }}>
           <div style={eyebrowStyle}>ALLOCATION</div>
           <AllocationStrip allocation={allocation} />
@@ -736,4 +952,23 @@ const ctaGhostStyle = {
   border: "1px solid var(--v4-line)",
   padding: "13px 22px",
   borderRadius: 10,
+};
+
+const staleBannerStyle = {
+  background: "rgba(217,182,74,0.08)",
+  border: "1px solid rgba(217,182,74,0.32)",
+  borderRadius: "var(--v4-r-md)",
+  padding: "16px 20px",
+  marginBottom: 24,
+};
+
+const inlineLinkStyle = {
+  fontFamily: "var(--v4-mono)",
+  fontSize: 11,
+  letterSpacing: 1,
+  color: "var(--v4-ink-mute)",
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  textTransform: "uppercase",
 };

@@ -1,16 +1,25 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 /**
  * V4 Homepage — public marketing landing. No API calls; auth lives downstream.
  * Faithful to the V4 mockup (nivesh_app.html `s-home` screen).
  *
- * CTAs route to onboarding (sign-in flow) / a "how it works" anchor.
- * The Google OAuth widget itself is rendered by V2's AuthProvider — V4 reuses
- * the existing useAuth() hook for sign-in once the user clicks through.
+ * Behaviour:
+ *  - Signed-out visitors see "Sign in" / "Check my portfolio free" → /onboarding
+ *    (which exposes the Google sign-in card).
+ *  - Signed-in visitors see "Open app" / "Open my portfolio" → /onboarding
+ *    (which detects the active snapshot and routes to the cockpit, or shows
+ *    a refresh prompt if the snapshot is stale).
  */
 export default function Homepage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSignedIn = !!user;
+
+  const primaryCtaLabel = isSignedIn ? "Open my portfolio →" : "Check my portfolio free →";
+  const navCtaLabel = isSignedIn ? "Open app" : "Sign in";
 
   return (
     <div style={pageStyle}>
@@ -30,7 +39,7 @@ export default function Homepage() {
           <a href="#product" style={navLinkStyle}>Product</a>
           <a href="#advisors" style={navLinkStyle}>For advisors</a>
           <button style={signInBtnStyle} onClick={() => navigate("/onboarding")}>
-            Sign in
+            {navCtaLabel}
           </button>
         </nav>
       </header>
@@ -48,7 +57,7 @@ export default function Homepage() {
 
         <div style={ctaRowStyle}>
           <button style={ctaPrimaryStyle} onClick={() => navigate("/onboarding")}>
-            Check my portfolio free →
+            {primaryCtaLabel}
           </button>
           <button style={ctaGhostStyle} onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}>
             See how it works
