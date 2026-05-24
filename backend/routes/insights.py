@@ -1653,11 +1653,21 @@ async def v3_portfolio_summary(request: Request):
             "error": str(e),
         }
 
-    return {
-        "engine_version": v3_scoring.ENGINE_VERSION,
-        "coverage_pct": coverage_pct,
-        "portfolio": portfolio,
-        "funds": funds_out,
-        "flagged": flagged,
-        "health": health_payload,
-    }
+    # ETag: sha1 of score + grade — lets dashboards detect score-shift after
+    # an action is accepted (per docs/api-changes.md Decision 5, C.2).
+    _score_str = f"{health_payload.get('health_score')}:{health_payload.get('grade')}"
+    etag = "sha1:" + hashlib.sha1(_score_str.encode()).hexdigest()[:16]
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={
+            "engine_version": v3_scoring.ENGINE_VERSION,
+            "coverage_pct": coverage_pct,
+            "portfolio": portfolio,
+            "funds": funds_out,
+            "flagged": flagged,
+            "health": health_payload,
+            "etag": etag,
+        },
+        headers={"ETag": f'"{etag}"'},
+    )

@@ -789,7 +789,7 @@ async def tax_harvest(request: Request, payload: Optional[_LayoutOnlyRequest] = 
     # Pull existing LTCG used from capital_gains summary if stored
     cg_doc = await db.capital_gains_summary.find_one({"user_id": user_id}) or {}
     ltcg_used = float(cg_doc.get("ltcg_booked_rs") or 0)
-    ltcg_limit = 100_000.0
+    ltcg_limit = 125_000.0  # Jul-2024 amendment — raised from ₹1L to ₹1.25L
     ltcg_remaining = max(0.0, ltcg_limit - ltcg_used)
 
     candidates: list[TaxHarvestCandidate] = []
@@ -1659,44 +1659,6 @@ async def fd_comparison_widget(request: Request):
     )
     return env.model_dump()
 
-
-@router.post("/tax_timing")
-async def tax_timing_widget(request: Request):
-    """Identify LTCG flip opportunities and tax-optimal sell timing.
-
-    Used for: 'When should I sell?', 'Am I close to LTCG?'
-    """
-    user = await get_current_user(request)
-    user_id = user.get("user_id") or str(user.get("_id") or user.get("id") or "")
-
-    try:
-        from services.copilot_tools.portfolio import get_tax_timing_advice
-        result = await get_tax_timing_advice(user_id)
-    except Exception as exc:
-        logger.warning("tax_timing widget error: %s", exc)
-        return WidgetEnvelope(
-            kind="tax_timing",
-            title="Tax Timing",
-            freshness=FreshnessChip(state="stale", last_updated=_iso_now(), source=[]),
-            agent=AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=0),
-            data={"error": str(exc)},
-        ).model_dump()
-
-    env = WidgetEnvelope(
-        kind="tax_timing",
-        title="Tax Timing Optimiser",
-        freshness=FreshnessChip(
-            state="live" if result.ok else "stale",
-            last_updated=_iso_now(),
-            source=["portfolio_holdings"],
-        ),
-        agent=AgentInfo(id="tax_agent", label="Tax Agent", version="v1", confidence=85),
-        data={**result.data, "rows": result.rows},
-        primary_cta={"label": "Show full tax report", "action": "full_tax_report"},
-        suggestions=[
-            "Which holdings should I harvest losses on?",
-            "Show my LTCG vs STCG breakdown",
-            "How much LTCG exemption is left?",
-        ],
-    )
-    return env.model_dump()
+# Duplicate /tax_timing registration removed — the canonical handler lives
+# above (line ~1507). FastAPI uses the first matching route; the dead copy
+# below caused confusing double-registration warnings in startup logs.

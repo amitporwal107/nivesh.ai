@@ -81,6 +81,13 @@ from routes.portfolio_exposure import router as portfolio_exposure_router  # Div
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_tax import router as portfolio_tax_router  # v4 Tax dashboard (GET /api/portfolio/tax-summary) per api-changes.md B.12
 from routes.funds import router as funds_router  # v4 user-scope fund v3-score (GET /api/funds/{isin}/v3-score) per api-changes.md C.4
+from routes.dashboards import router as dashboards_router  # v4 dashboard composite (GET /api/dashboards/{type}) per api-changes.md B.1
+from routes.recommendations import router as recommendations_router  # v4 stock+fund recommendations (GET /api/recommendations/*) per api-changes.md B.13, B.14
+from routes.advisor_v4 import (                    # v4 advisor aggregates per api-changes.md B.2, B.3, B.5, B.6, B.7, B.8, B.9
+    advisor_router as advisor_v4_router,
+    mfd_v4_router,
+    intel_router as intel_v4_router,
+)
 from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primitives_router  # NIDP stock primitives completeness check
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
@@ -162,6 +169,11 @@ app.include_router(portfolio_exposure_router)      # Diversification & Concentra
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_tax_router)            # v4 Tax dashboard (/api/portfolio/tax-summary)
 app.include_router(funds_router)                    # v4 user-scope fund v3-score (/api/funds/{isin}/v3-score)
+app.include_router(dashboards_router)               # v4 dashboard composite (/api/dashboards/{type}) — screens 05-10
+app.include_router(recommendations_router)          # v4 stock+fund recommendations (/api/recommendations/*) — screen 13
+app.include_router(advisor_v4_router)               # v4 advisor aggregates (/api/advisor/summary|sip-board) — screens 15, 17
+app.include_router(mfd_v4_router)                   # v4 mfd profile extras (/api/mfd/profiles/{id}/needs-attention|call-log|sip-nudge) — screen 16
+app.include_router(intel_v4_router)                 # v4 client 360 (/api/intelligence/portfolio/360) — screen 16
 app.include_router(admin_nidp_stock_primitives_router)  # NIDP stock primitives completeness (/api/admin/nidp/stock-primitives/completeness)
 app.include_router(copilot_agents_router)          # Copilot agent + model picker
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
