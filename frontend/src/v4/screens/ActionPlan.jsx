@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "../api/client";
 import {
-  DashboardShell, EmptyState, Skeleton, formatInr,
+  DashboardShell, EmptyState, Skeleton, HlBar, formatInr,
 } from "../components/DashboardShell";
 
 const ACTION_META = {
@@ -41,7 +41,16 @@ export default function ActionPlan() {
   if (!user) { navigate("/onboarding", { replace: true }); return null; }
 
   const actions = plan?.plan?.actions || [];
-  const planScore = plan?.plan?.portfolio_score ?? plan?.portfolio_score ?? null;
+  /* Health projection — prefer explicit before/after, else infer from improvements dict. */
+  const baseScore =
+    plan?.health_before ??
+    plan?.plan?.health_score_before ??
+    plan?.portfolio_score ??
+    null;
+  const projectedScore =
+    plan?.health_after ??
+    plan?.plan?.health_score_after ??
+    (baseScore != null ? baseScore + (plan?.plan?.improvements?.health_delta || 0) : null);
 
   /* partition: local state wins over API status */
   const todoList    = actions.filter(a => {
@@ -63,10 +72,6 @@ export default function ActionPlan() {
   const totalActions = todoList.length + doneList.length;
   const doneCount    = doneList.length;
   const progressPct  = totalActions > 0 ? (doneCount / totalActions) * 100 : 0;
-
-  /* ring */
-  const CIRCUMFERENCE = 2 * Math.PI * 30; // r=30
-  const dashArray = `${(progressPct / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`;
 
   const markDone = (id) => {
     setDone(s => new Set([...s, id]));
@@ -95,44 +100,44 @@ export default function ActionPlan() {
 
       {!loading && plan?.plan && (
         <>
-          {/* Progress hero card */}
+          {/* Hero — projected health score (matches prototype "lifts health to 94") */}
           <div style={heroCardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-              <svg viewBox="0 0 80 80" width={76} height={76} style={{ flexShrink: 0 }}>
-                <circle cx="40" cy="40" r="30" fill="none" stroke="var(--v4-line-strong)" strokeWidth="8" />
+              <svg viewBox="0 0 92 92" width={92} height={92} style={{ flexShrink: 0 }}>
+                <circle cx="46" cy="46" r="34" fill="none" stroke="var(--v4-line-strong)" strokeWidth="9" />
                 <circle
-                  cx="40" cy="40" r="30" fill="none"
-                  stroke={doneCount === totalActions && totalActions > 0 ? "var(--v4-moss)" : "var(--v4-saffron)"}
-                  strokeWidth="8"
-                  strokeDasharray={dashArray}
+                  cx="46" cy="46" r="34" fill="none"
+                  stroke="var(--v4-moss)"
+                  strokeWidth="9"
+                  strokeDasharray={`${(progressPct / 100) * 2 * Math.PI * 34} ${2 * Math.PI * 34}`}
                   strokeLinecap="round"
-                  transform="rotate(-90 40 40)"
-                  style={{ transition: "stroke-dasharray .6s var(--v4-ease)" }}
+                  transform="rotate(-90 46 46)"
+                  style={{ transition: "stroke-dasharray .7s var(--v4-ease)" }}
                 />
-                <text x="40" y="37" textAnchor="middle" fontFamily="var(--v4-display)" fontSize="14" fontWeight="600" fill="var(--v4-ink)">
-                  {doneCount}/{totalActions}
+                <text x="46" y="42" textAnchor="middle" fontFamily="var(--v4-display)" fontSize="22" fontWeight="600" fill="var(--v4-ink)">
+                  {projectedScore != null ? Math.round(projectedScore) : baseScore != null ? Math.round(baseScore) : "—"}
                 </text>
-                <text x="40" y="51" textAnchor="middle" fontFamily="monospace" fontSize="6" letterSpacing="1" fill="var(--v4-ink-faint)">
-                  DONE
+                <text x="46" y="58" textAnchor="middle" fontFamily="monospace" fontSize="7" letterSpacing="1" fill="var(--v4-ink-faint)">
+                  PROJECTED
                 </text>
               </svg>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "var(--v4-display)", fontSize: 18, fontWeight: 600, color: "var(--v4-ink)", marginBottom: 5 }}>
-                  {doneCount === 0
-                    ? `${totalActions} action${totalActions !== 1 ? "s" : ""} ready to execute`
-                    : doneCount === totalActions
-                      ? "All actions complete"
-                      : `${totalActions - doneCount} remaining · ${doneCount} done`}
+                <div style={{ fontFamily: "var(--v4-display)", fontSize: 19, fontWeight: 600, letterSpacing: "-.02em", color: "var(--v4-ink)", marginBottom: 5 }}>
+                  {projectedScore != null && baseScore != null && projectedScore > baseScore
+                    ? <>Your plan lifts health to <span style={{ color: "var(--v4-moss)" }}>{Math.round(projectedScore)}</span></>
+                    : totalActions === 0
+                      ? "No actions in this plan"
+                      : doneCount === totalActions
+                        ? "All actions complete"
+                        : `${totalActions} actions to lift your portfolio`}
                 </div>
-                {/* Progress bar */}
-                <div style={{ height: 5, borderRadius: 3, background: "var(--v4-line-strong)", overflow: "hidden", maxWidth: 220 }}>
-                  <div style={{ height: "100%", width: `${progressPct}%`, background: doneCount === totalActions ? "var(--v4-moss)" : "var(--v4-saffron)", borderRadius: 3, transition: "width .5s var(--v4-ease)" }} />
+                <p style={{ fontSize: 12, color: "var(--v4-ink-dim)", margin: "0 0 9px", lineHeight: 1.5 }}>
+                  {doneCount} of {totalActions} actions done · gathered across dashboards.
+                </p>
+                {/* Progress bar (gradient gold→saffron per prototype) */}
+                <div style={{ height: 7, borderRadius: 4, background: "var(--v4-s3)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${progressPct}%`, background: "linear-gradient(90deg, var(--v4-gold), var(--v4-saffron))", borderRadius: 4, transition: "width .5s var(--v4-ease)" }} />
                 </div>
-                {planScore != null && (
-                  <div style={{ fontFamily: "var(--v4-mono)", fontSize: 10, color: "var(--v4-ink-mute)", marginTop: 5 }}>
-                    Portfolio score: <span style={{ color: "var(--v4-saffron)" }}>{planScore}</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -180,10 +185,7 @@ export default function ActionPlan() {
 function Group({ label, count, labelTone, actions, markDone, markSkip, undoDone, showActions, showDoneUndo }) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={groupHeaderStyle}>
-        <span style={{ color: labelTone, fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1.4, textTransform: "uppercase" }}>{label}</span>
-        <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1, color: "var(--v4-ink-faint)" }}>· {count}</span>
-      </div>
+      <HlBar tone={labelTone}>{label} · {count}</HlBar>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {actions.map(action => {
           const id = action.action_id || action.id;
@@ -236,7 +238,6 @@ function PlanActionCard({ action, onDone, onSkip, onUndo }) {
 }
 
 const heroCardStyle = { background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))", border: "1px solid var(--v4-line-strong)", borderRadius: 16, padding: "16px 18px", marginBottom: 20 };
-const groupHeaderStyle = { display: "flex", gap: 6, alignItems: "center", marginBottom: 8, paddingLeft: 2 };
 const planCardStyle = (tone) => ({ background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderLeft: `3px solid ${tone}`, borderRadius: "var(--v4-r-md)", padding: "14px 16px" });
 const iconStyle = (tone) => ({ width: 30, height: 30, borderRadius: 7, background: `${tone}18`, border: `1px solid ${tone}40`, display: "grid", placeItems: "center", flexShrink: 0, color: tone, fontSize: 13 });
 const btnDone = { fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "6px 14px", borderRadius: 999, cursor: "pointer", background: "rgba(99,190,123,.12)", border: "1px solid rgba(99,190,123,.35)", color: "var(--v4-moss)" };

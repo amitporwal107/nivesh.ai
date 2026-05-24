@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "../api/client";
 import {
   DashboardShell, StatTile, EmptyState, Skeleton,
-  RecommendationCard, ApplyCard, formatInr,
+  RecommendationCard, ApplyCard, HlBar, formatInr,
 } from "../components/DashboardShell";
 
 const TRACK_TONE = (pct) => {
@@ -141,7 +141,7 @@ export default function Goals() {
           {/* ② Recommendations */}
           {recs.length > 0 && (
             <>
-              <div style={hlStyle}>② Recommendations · ranked by priority</div>
+              <HlBar>② Recommendations · ranked by priority</HlBar>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {recs.map(action => (
                   <RecommendationCard
@@ -256,5 +256,4 @@ const snapCardStyle  = { background: "linear-gradient(165deg, var(--v4-s2), var(
 const cardHeaderStyle = { padding: "11px 16px 8px", borderBottom: "1px solid var(--v4-line)" };
 const monoLabelStyle  = { fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1.1, color: "var(--v4-ink-mute)", textTransform: "uppercase" };
 const statsRowStyle  = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px,1fr))", gap: 10, marginBottom: 14 };
-const hlStyle        = { fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: "var(--v4-ink-faint)", textTransform: "uppercase", marginBottom: 9, display: "flex", alignItems: "center", gap: 8 };
 const goalCardStyle  = { background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderRadius: "var(--v4-r-lg)", padding: "16px 18px" };

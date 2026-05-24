@@ -10,7 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "../api/client";
 import {
   DashboardShell, StatTile, EmptyState, Skeleton,
-  RecommendationCard, ApplyCard, formatInr,
+  RecommendationCard, ApplyCard, HlBar, formatInr,
 } from "../components/DashboardShell";
 
 const RISK_TONE = {
@@ -177,7 +177,7 @@ export default function Risk() {
           {/* ② Recommendations */}
           {recs.length > 0 && (
             <>
-              <div style={hlStyle}>② Recommendations · ranked by priority</div>
+              <HlBar>② Recommendations · ranked by priority</HlBar>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {recs.map(action => (
                   <RecommendationCard
@@ -228,4 +228,3 @@ const driversCardStyle = { background: "linear-gradient(165deg, var(--v4-s2), va
 const cardHeaderStyle  = { padding: "11px 16px 8px", borderBottom: "1px solid var(--v4-line)" };
 const monoLabelStyle   = { fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1.1, color: "var(--v4-ink-mute)", textTransform: "uppercase" };
 const driverRowStyle   = { display: "flex", gap: 12, alignItems: "flex-start" };
-const hlStyle          = { fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: "var(--v4-ink-faint)", textTransform: "uppercase", marginBottom: 9, display: "flex", alignItems: "center", gap: 8 };

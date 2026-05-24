@@ -10,7 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "../api/client";
 import {
   DashboardShell, SectionHeader, StatTile, EmptyState, Skeleton,
-  RecommendationCard, ApplyCard, formatInr,
+  RecommendationCard, ApplyCard, HlBar, formatInr,
 } from "../components/DashboardShell";
 
 const DIV_CODES = new Set([
@@ -115,7 +115,7 @@ export default function Diversification() {
           {/* ② Recommendations */}
           {recs.length > 0 && (
             <>
-              <div style={hlStyle}>② Recommendations · ranked by priority</div>
+              <HlBar>② Recommendations · ranked by priority</HlBar>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {recs.map(action => (
                   <RecommendationCard
@@ -181,4 +181,3 @@ const insightCardStyle = { background: "linear-gradient(168deg, var(--v4-hero-a)
 const statRowStyle   = { display: "flex", gap: 7 };
 const overlapCardStyle = { background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderRadius: "var(--v4-r-lg)", overflow: "hidden", marginBottom: 18 };
 const overlapHeaderStyle = { padding: "11px 16px 8px", borderBottom: "1px solid var(--v4-line)" };
-const hlStyle        = { fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: "var(--v4-ink-faint)", textTransform: "uppercase", marginBottom: 9, display: "flex", alignItems: "center", gap: 8 };

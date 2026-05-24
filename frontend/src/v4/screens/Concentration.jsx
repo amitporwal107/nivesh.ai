@@ -10,7 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 import api from "../api/client";
 import {
   DashboardShell, SectionHeader, StatTile, EmptyState, Skeleton,
-  RecommendationCard, ApplyCard, formatInr,
+  RecommendationCard, ApplyCard, HlBar, formatInr,
 } from "../components/DashboardShell";
 
 const CONC_CODES = new Set([
@@ -95,11 +95,32 @@ export default function Concentration() {
           {/* ① Insight */}
           <div style={eyebrowStyle}>① Insight</div>
 
-          {/* Stats row */}
-          <div style={statsRowStyle}>
-            <StatTile label="Top 5 weight"   value={data.amc?.items?.slice(0,5).reduce((s,i)=>s+(i.pct||0),0).toFixed(1)+"%" ?? "—"} />
-            <StatTile label="HHI (sector)"   value={data.sector?.hhi != null ? data.sector.hhi.toFixed(3) : "—"} sub={HHI_META(data.sector?.hhi).label} tone={HHI_META(data.sector?.hhi).tone} />
-            <StatTile label="Effective N"     value={data.sector?.effective_n != null ? Number(data.sector.effective_n).toFixed(1) : "—"} />
+          {/* Insight card — narrative headline + inline stats (matches prototype) */}
+          <div style={insightCardStyle}>
+            {active.hero?.headline ? (
+              <>
+                <div style={{ fontFamily: "var(--v4-display)", fontSize: 21, fontWeight: 600, letterSpacing: "-.02em", color: "var(--v4-ink)" }}>
+                  {active.hero.headline}
+                </div>
+                {active.hero.detail && (
+                  <p style={{ fontSize: 12, color: "var(--v4-ink-dim)", margin: "4px 0 11px", lineHeight: 1.5 }}>{active.hero.detail}</p>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ fontFamily: "var(--v4-display)", fontSize: 21, fontWeight: 600, letterSpacing: "-.02em", color: "var(--v4-ink)" }}>
+                  Concentration analysis ready
+                </div>
+                <p style={{ fontSize: 12, color: "var(--v4-ink-dim)", margin: "4px 0 11px", lineHeight: 1.5 }}>
+                  Look at your top exposures across sectors, AMCs, stocks and groups.
+                </p>
+              </>
+            )}
+            <div style={inlineStatRowStyle}>
+              <InlineStat label="Top 5" value={data.amc?.items?.slice(0,5).reduce((s,i)=>s+(i.pct||0),0).toFixed(0) + "%"} />
+              <InlineStat label="HHI" value={data.sector?.hhi != null ? Math.round(data.sector.hhi * 10000).toString() : "—"} />
+              <InlineStat label="Eff. N" value={data.sector?.effective_n != null ? Number(data.sector.effective_n).toFixed(1) : "—"} />
+            </div>
           </div>
 
           {/* Lens chips */}
@@ -124,12 +145,6 @@ export default function Concentration() {
                 </span>
               )}
             </div>
-            {active.hero && (
-              <div style={heroInsightStyle(active.hero.tone)}>
-                <div style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)", marginBottom: 4 }}>{active.hero.headline}</div>
-                {active.hero.detail && <div style={{ fontSize: 12, color: "var(--v4-ink-dim)", lineHeight: 1.5 }}>{active.hero.detail}</div>}
-              </div>
-            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "13px 16px 15px" }}>
               {(active.items || []).slice(0, 10).map((item, i) => (
                 <BarRow key={item.name || i} item={item} max={(active.items?.[0]?.pct) || 1} />
@@ -143,7 +158,7 @@ export default function Concentration() {
           {/* ② Recommendations */}
           {recs.length > 0 && (
             <>
-              <div style={hlStyle}>② Recommendations · ranked by priority</div>
+              <HlBar>② Recommendations · ranked by priority</HlBar>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                 {recs.map(action => (
                   <RecommendationCard
@@ -173,6 +188,15 @@ export default function Concentration() {
   );
 }
 
+function InlineStat({ label, value }) {
+  return (
+    <div style={inlineStatBoxStyle}>
+      <div style={{ fontFamily: "var(--v4-mono)", fontSize: 7, letterSpacing: 1, color: "var(--v4-ink-faint)", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontFamily: "var(--v4-display)", fontSize: 16, fontWeight: 600, marginTop: 3, color: "var(--v4-ink)" }}>{value}</div>
+    </div>
+  );
+}
+
 function BarRow({ item, max }) {
   const pct = Number(item.pct || 0);
   const barWidth = max > 0 ? Math.min((pct / max) * 100, 100) : 0;
@@ -191,11 +215,12 @@ function BarRow({ item, max }) {
 }
 
 const eyebrowStyle = { fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: "var(--v4-ink-faint)", textTransform: "uppercase", marginBottom: 10 };
-const statsRowStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 10, marginBottom: 12 };
+const insightCardStyle = { background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))", border: "1px solid var(--v4-line-strong)", borderRadius: 16, padding: "14px 16px", marginBottom: 11 };
+const inlineStatRowStyle = { display: "flex", gap: 8 };
+const inlineStatBoxStyle = { flex: 1, background: "var(--v4-s0)", border: "1px solid var(--v4-line)", borderRadius: 10, padding: "9px 6px", textAlign: "center" };
 const chipRowStyle  = { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 };
 const lensChipStyle = { fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing: 0.8, color: "var(--v4-ink-faint)", background: "var(--v4-s1)", border: "1px solid var(--v4-line)", padding: "6px 13px", borderRadius: 999, cursor: "pointer", textTransform: "uppercase" };
 const lensChipActiveStyle = { color: "var(--v4-saffron)", borderColor: "rgba(255,146,72,.4)", background: "rgba(255,146,72,.08)" };
 const chartCardStyle = { background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderRadius: "var(--v4-r-lg)", overflow: "hidden", marginBottom: 18 };
 const chartHeaderStyle = { display: "flex", alignItems: "center", gap: 8, padding: "11px 16px 8px", borderBottom: "1px solid var(--v4-line)" };
 const heroInsightStyle = (tone) => ({ borderLeft: `3px solid ${tone === "ok" ? "var(--v4-moss)" : tone === "warn" ? "var(--v4-gold)" : "var(--v4-rust)"}`, padding: "12px 16px 10px", borderBottom: "1px solid var(--v4-line)" });
-const hlStyle = { fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: "var(--v4-ink-faint)", textTransform: "uppercase", marginBottom: 9, display: "flex", alignItems: "center", gap: 8 };

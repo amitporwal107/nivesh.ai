@@ -232,6 +232,19 @@ export function ApplyCard({ metricLabel, before, after, unit = "%", acceptedCoun
   );
 }
 
+/**
+ * Section-header row: mono caps label with a hairline rule that extends
+ * to the right edge. Matches `.hl` in the prototype.
+ */
+export function HlBar({ children, tone = "var(--v4-ink-faint)" }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+      <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1.6, color: tone, textTransform: "uppercase" }}>{children}</span>
+      <span style={{ flex: 1, height: 1, background: "var(--v4-line)" }} />
+    </div>
+  );
+}
+
 /* ── Styles ──────────────────────────────────────────────── */
 
 const rootStyle = {
