@@ -38,7 +38,7 @@ def build_holdings(
     """Flatten + dedupe a ParsedData payload into ``HoldingRow``s."""
     rows: list[HoldingRow] = []
     seen_equity: set[tuple[str, str]] = set()         # (isin, qty)
-    seen_mf:     set[tuple[str, str, str | None]] = set()  # (amc, folio, scheme_code)
+    seen_mf:     set[tuple[str, str | None, str | None]] = set()  # (amc, folio_number, isin|scheme_code)
     dropped = 0
 
     base_trace: dict[str, Any] = {
@@ -83,27 +83,36 @@ def build_holdings(
             ))
 
     # ── Mutual funds ──────────────────────────────────────────────────────
-    for amc in payload.mutual_funds:
-        for fol in amc.folios:
-            for s in fol.schemes:
-                key = (amc.amc, fol.folio, s.scheme_code)
-                if key in seen_mf:
-                    dropped += 1
-                    continue
-                seen_mf.add(key)
-                trace = {**base_trace, "folio": fol.folio}
-                rows.append(HoldingRow(
-                    asset_class="mf",
-                    isin=None,
-                    amfi_code=s.scheme_code,        # AMFI scheme code lives here
-                    folio=fol.folio,
-                    scheme_code=s.scheme_code,
-                    amc=amc.amc,
-                    name=s.name,
-                    quantity=s.units,
-                    value=s.value,
-                    source_trace=trace,
-                ))
+    # SDK shape: payload.mutual_funds is a flat list of folios; each folio
+    # has `amc, folio_number, schemes[]`. (Earlier code expected an extra
+    # AMC-wrapper layer that doesn't exist — root cause of the 52 missing
+    # MF rows in the 60-vs-112 bug.)
+    for fol in payload.mutual_funds:
+        for s in fol.schemes:
+            # Dedupe by (amc, folio_number, isin) — ISIN is more reliable
+            # than the legacy scheme_code which the SDK rarely populates.
+            key = (fol.amc, fol.folio_number, s.isin or s.scheme_code)
+            if key in seen_mf:
+                dropped += 1
+                continue
+            seen_mf.add(key)
+            trace = {
+                **base_trace,
+                "folio":     fol.folio_number,
+                "registrar": fol.registrar,
+            }
+            rows.append(HoldingRow(
+                asset_class="mutual_fund",
+                isin=s.isin,
+                amfi_code=s.scheme_code,        # legacy field; usually null for SDK output
+                folio=fol.folio_number,
+                scheme_code=s.scheme_code,
+                amc=fol.amc,
+                name=s.name,
+                quantity=s.units,
+                value=s.value,
+                source_trace=trace,
+            ))
 
     # ── Insurance ─────────────────────────────────────────────────────────
     for pol in payload.insurance.life_insurance_policies:

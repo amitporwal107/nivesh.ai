@@ -132,27 +132,82 @@ class DematAccount(BaseModel):
 
 
 # ── Mutual funds (CAMS / KFin or via eCAS) ────────────────────────────────
+#
+# Real CASParser SDK shape (verified against tests/fixtures/sdk_real_nsdl_full.json):
+#
+#   data.mutual_funds: [
+#     {
+#       amc:           "Axis",
+#       folio_number:  "910140445463",       ← folio number directly on the entry
+#       registrar:     "CAMS" | "KFIN" | null,
+#       value:         3651.04,              ← folio total value
+#       linked_holders: [...],
+#       additional_info: {},
+#       schemes: [                            ← schemes DIRECTLY here (no `folios` wrapper)
+#         { isin, name, units, nav, value, cost, gain, type, transactions, … },
+#         ...
+#       ]
+#     }, ...
+#   ]
+#
+# Earlier schema had an extra `MfAmc → folios → schemes` wrapper that does
+# not exist in the SDK payload — every read of `.folios` returned undefined
+# and the builder emitted ZERO mutual_fund rows from this section. Fixed
+# by flattening: each `mutual_funds[]` entry IS a folio (one amc, one
+# folio_number, multiple schemes).
 
 
 class MfScheme(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    scheme_code: str | None = None
-    name: str
-    units: Decimal
-    nav: Decimal | None = None
-    value: Decimal
+    """One scheme within a folio.  Real SDK fields:
+    isin, name, units, nav, value, cost, gain{absolute,percentage}, type, …"""
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    isin:        str | None = None
+    name:        str
+    units:       Decimal
+    nav:         Decimal | None = None
+    value:       Decimal
+    cost:        Decimal | None = None
+    type:        str | None = None          # "EQUITY" | "DEBT" | "OTHER" | ...
+    scheme_code: str | None = None          # kept for legacy synthetic fixtures
 
 
 class MfFolio(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    folio: str
-    schemes: list[MfScheme] = Field(default_factory=list)
+    """A folio at one AMC.  `mutual_funds[]` is a list of these.
+
+    Accepts both the real SDK key ``folio_number`` and the legacy synthetic
+    key ``folio`` via the populate-by-name alias config."""
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    amc:           str
+    folio_number:  str | None = Field(default=None, alias="folio")
+    registrar:     str | None = None
+    value:         Decimal | None = None
+    schemes:       list[MfScheme] = Field(default_factory=list)
 
 
+# Legacy alias: some pre-fix fixtures used `MfAmc(amc=…, folios=[MfFolio(folio=…, schemes=[…])])`
+# (an AMC → folios → schemes wrapper that doesn't match reality). Keep the
+# name available so old import sites still resolve; the wrapper itself is
+# now just a thin object that flattens its `folios` list at parse time so
+# the downstream ParsedData.mutual_funds (list[MfFolio]) sees the same
+# shape either way.
 class MfAmc(BaseModel):
+    """DEPRECATED legacy wrapper. Real SDK has no AMC-level grouping —
+    each `mutual_funds[]` entry IS a folio. Kept so older fixture/test
+    code keeps importing this name."""
     model_config = ConfigDict(extra="ignore")
-    amc: str
+    amc:    str
     folios: list[MfFolio] = Field(default_factory=list)
+
+    def as_folios(self) -> list[MfFolio]:
+        """Flatten this legacy AMC wrapper into a list of MfFolios with the
+        amc field copied onto each (mirrors the real SDK shape)."""
+        out: list[MfFolio] = []
+        for f in self.folios:
+            # populate amc on each folio so downstream sees a self-contained MfFolio
+            folio_dict = f.model_dump(exclude_none=True)
+            folio_dict["amc"] = self.amc
+            out.append(MfFolio.model_validate(folio_dict))
+        return out
 
 
 # ── Insurance + NPS (V1: stored but minimally enriched) ───────────────────
@@ -191,9 +246,39 @@ class ParsedData(BaseModel):
     investor: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
     demat_accounts: list[DematAccount] = Field(default_factory=list)
-    mutual_funds: list[MfAmc] = Field(default_factory=list)
+    # Real SDK shape: list of folio entries (each with `amc, folio_number,
+    # registrar, value, schemes[]`). The legacy synthetic shape used an
+    # MfAmc wrapper {amc, folios: [{folio, schemes}]} — normalised below.
+    mutual_funds: list[MfFolio] = Field(default_factory=list)
     insurance: InsuranceSection = Field(default_factory=InsuranceSection)
     nps: list[NpsHolding] = Field(default_factory=list)
+
+    @field_validator("mutual_funds", mode="before")
+    @classmethod
+    def _normalise_legacy_mf_amc_wrapper(cls, v):
+        """If any list item is an MfAmc-shaped dict {amc, folios:[...]},
+        unwrap it into a flat list of MfFolio-shaped dicts.  Items already
+        in MfFolio shape pass through untouched."""
+        if not isinstance(v, list):
+            return v
+        out = []
+        for item in v:
+            if not isinstance(item, dict):
+                out.append(item)
+                continue
+            # Legacy wrapper detected: has `folios` key with a list value
+            if "folios" in item and isinstance(item.get("folios"), list):
+                amc = item.get("amc")
+                for f in item["folios"]:
+                    if isinstance(f, dict):
+                        folio_dict = {**f}
+                        folio_dict.setdefault("amc", amc)
+                        out.append(folio_dict)
+                    else:
+                        out.append(f)
+            else:
+                out.append(item)
+        return out
 
     @property
     def total_value(self) -> Decimal:
@@ -202,9 +287,9 @@ class ParsedData(BaseModel):
         for da in self.demat_accounts:
             for _asset_class, h in da.iter_lines():
                 total += h.value
-        for amc in self.mutual_funds:
-            for fol in amc.folios:
-                total += sum((s.value for s in fol.schemes), Decimal("0"))
+        # mutual_funds is now list[MfFolio] (real SDK shape).
+        for fol in self.mutual_funds:
+            total += sum((s.value for s in fol.schemes), Decimal("0"))
         total += sum((p.value for p in self.insurance.life_insurance_policies), Decimal("0"))
         total += sum((n.value for n in self.nps), Decimal("0"))
         return total
