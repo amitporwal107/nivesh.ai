@@ -20,6 +20,7 @@ from services.instrument_scoring import (
 )
 from services import rules_config
 from services import v3_integration
+from services.action_recommendation_schema import augment_all as _augment_v4_fields
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,7 @@ class ActionPlanManager:
                 "amount": 0,
                 "reason_codes": ["PORTFOLIO_HEALTHY"],
                 "reason_text": "Your portfolio already scores ≥75/100. No action needed right now.",
-                "status": "pending",
+                "status": ACTION_PENDING,
                 "tax_impact": None,
             })
             total_tax_impact = self._calculate_total_tax_impact(actions)
@@ -333,6 +334,12 @@ class ActionPlanManager:
                 actions,
                 key=lambda a: (_priority_rank(a), -(a.get("score") or 0)),
             )[:MAX_ACTIONS_PER_PLAN]
+
+        # v4 Recommendation schema augmentation (Decision 2 per docs/api-changes.md).
+        # Adds verb, priority_label, source_domain, effort, trade_off, impact,
+        # expected_impact, exclusive, scores, switch_target — all idempotent and
+        # non-destructive. Applied here so every creator path gets the v4 shape.
+        _augment_v4_fields(actions)
 
         plan_summary = self._generate_plan_summary(
             actions=actions,
@@ -423,28 +430,48 @@ class ActionPlanManager:
         logger.info("Plan %s saved as active", plan_id)
         return plan
     
-    async def get_active_plan(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user's active plan with calculated completion metrics."""
+    async def get_active_plan(
+        self,
+        user_id: str,
+        source_domain: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Get user's active plan with calculated completion metrics.
+
+        Args:
+            user_id: caller's effective user_id (advisor impersonation handled upstream).
+            source_domain: optional v4 filter — when set, returns only actions whose
+                `source_domain` matches. Per gap-analysis Finding C.9 — pushes the
+                domain filter server-side instead of client-side reason_code matching.
+        """
         plan = await db.action_plans.find_one(
             {"user_id": user_id, "status": STATUS_ACTIVE},
             {"_id": 0}
         )
-        
+
         if not plan:
             return None
-        
-        # Calculate completion metrics
-        actions = plan.get("actions", [])
+
+        actions = plan.get("actions", []) or []
+
+        # Read-time v4 augmentation — handles legacy plans that pre-date Decision 2.
+        # Idempotent; no-op for already-augmented documents.
+        _augment_v4_fields(actions)
+
+        # Optional source_domain filter (v4).
+        if source_domain:
+            sd = source_domain.lower()
+            actions = [a for a in actions if (a.get("source_domain") or "").lower() == sd]
+            plan["actions"] = actions
+
         total_actions = len(actions)
         completed_actions = len([a for a in actions if a.get("status") == "COMPLETED"])
         completion_pct = (completed_actions / total_actions * 100) if total_actions > 0 else 0
-        
-        # Add calculated fields to plan
+
         plan["total_actions"] = total_actions
         plan["completed_actions"] = completed_actions
         plan["completion_pct"] = completion_pct
         plan["pending_actions"] = total_actions - completed_actions
-        
+
         return plan
     
     async def get_plan(self, plan_id: str, user_id: str) -> Optional[Dict[str, Any]]:
@@ -1382,8 +1409,11 @@ class ActionPlanManager:
             target = rule.get("target") or {}
 
             if action_type == "FLAG_ONLY":
+                # Per gap-analysis Finding C.8: dual id + action_id for backward compat.
+                custom_id = f"custom-{rid}-{priority_counter[0]}"
                 out.append({
-                    "id": f"custom-{rid}-{priority_counter[0]}",
+                    "id": custom_id,
+                    "action_id": custom_id,
                     "type": "REVIEW",
                     "asset_name": "Portfolio",
                     "asset_type": "portfolio",

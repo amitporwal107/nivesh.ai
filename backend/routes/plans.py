@@ -102,11 +102,17 @@ async def save_plan(plan_id: str, request: Request):
 
 
 @router.get("/plans/active")
-async def get_active_plan(request: Request):
+async def get_active_plan(request: Request, source_domain: Optional[str] = None):
     """Get user's active plan.
-    
+
     Also runs auto-archive for old completed plans.
-    
+
+    Query params:
+        source_domain — v4 filter; one of
+            concentration | diversification | risk | performance | goals | tax.
+            When set, returns only actions tagged with that source_domain
+            (push-down filter for the per-dashboard recommendation matrix).
+
     Returns:
         {
             "plan": {...} | null,
@@ -115,16 +121,16 @@ async def get_active_plan(request: Request):
     """
     user = await get_current_user(request)
     user_id = user["user_id"]
-    
+
     # Auto-archive old completed plans (runs in background)
     try:
         await plan_manager.auto_archive_old_completed_plans(user_id)
     except Exception as e:
         # Don't fail the request if auto-archive fails
         logger.warning("Auto-archive failed: %s", e)
-    
-    plan = await plan_manager.get_active_plan(user_id)
-    
+
+    plan = await plan_manager.get_active_plan(user_id, source_domain=source_domain)
+
     return {
         "plan": plan,
         "has_plan": plan is not None
