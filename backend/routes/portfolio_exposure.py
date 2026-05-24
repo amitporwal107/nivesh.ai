@@ -180,6 +180,7 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
 
     # 3. Build the list of funds that have cache data
     funds = []
+    seen_isins: set[str] = set()
     weights: dict[str, dict[str, float]] = {}
     total_aum = 0.0
     covered_aum = 0.0
@@ -194,6 +195,11 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
             continue
         weights[isin] = w
         covered_aum += value
+        # Deduplicate by ISIN — multiple folios of the same fund should count
+        # as one entry in the overlap matrix, not produce "fund vs itself" pairs.
+        if isin in seen_isins:
+            continue
+        seen_isins.add(isin)
         funds.append({
             "id": isin,
             "name": h.get("name") or isin,

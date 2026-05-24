@@ -162,7 +162,7 @@ function OverlapRow({ pair }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
         <div style={{ fontSize: 12, color: "var(--v4-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "65%" }}>
-          {pair.fund_a || pair.a || "Fund A"} <span style={{ color: "var(--v4-ink-faint)" }}>vs</span> {pair.fund_b || pair.b || "Fund B"}
+          {pair.a_name || pair.fund_a || pair.a || "Fund A"} <span style={{ color: "var(--v4-ink-faint)" }}>vs</span> {pair.b_name || pair.fund_b || pair.b || "Fund B"}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ fontFamily: "var(--v4-display)", fontSize: 14, color: tone }}>{pct.toFixed(1)}%</span>
