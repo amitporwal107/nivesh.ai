@@ -888,6 +888,11 @@ async def build_portfolio_health(
     all_holdings: List[Dict[str, Any]] = await _db.holdings.find(
         {"user_id": user_id}, {"_id": 0},
     ).to_list(1000)
+    if not all_holdings:
+        # V4 onboarding writes to portfolio_ingestion (V3 Postgres), not Mongo.
+        # Bridge: pull from V3 so V2 scoring still works for V4 users.
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        all_holdings = await pi_holdings_for_user(user_id)
     mf_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
     equity_holdings = [h for h in all_holdings if (h.get("asset_type") or "").lower() in ("equity", "stock")]
 

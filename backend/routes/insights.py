@@ -1080,11 +1080,15 @@ async def v3_portfolio_summary(request: Request):
     uid = user["user_id"]
     force_refresh_stocks = request.query_params.get("refresh_stocks", "").lower() in ("1", "true", "yes")
 
-    # Load MF holdings
+    # Load MF holdings — with V3 Postgres fallback for V4 users
     mf_holdings = await db.holdings.find(
         {"user_id": uid, "asset_type": "mutual_fund"},
         {"_id": 0},
     ).to_list(500)
+    if not mf_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _bridge = await pi_holdings_for_user(uid)
+        mf_holdings = [h for h in _bridge if h.get("asset_type") in ("mutual_fund", "etf")]
     if not mf_holdings:
         # Still compute Health from equity-only portfolio (if any equities exist)
         try:

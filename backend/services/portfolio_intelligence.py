@@ -60,7 +60,11 @@ async def _compute_holistic_allocation(user_id: str) -> Dict[str, Any]:
     debt = 0.0
     gold = 0.0
     other = 0.0
-    async for h in db.holdings.find({"user_id": user_id}, {"_id": 0}):
+    _mongo_holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    if not _mongo_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _mongo_holdings = await pi_holdings_for_user(user_id)
+    for h in _mongo_holdings:
         val = _amount(h)
         if val <= 0:
             continue
@@ -106,11 +110,15 @@ async def compute_portfolio_intelligence(user_id: str) -> Dict[str, Any]:
     # Holistic allocation + total value (all asset types, not just MF)
     holistic = await _compute_holistic_allocation(user_id)
 
-    # 1. MF investments from Mongo
+    # 1. MF investments — with V3 Postgres fallback for V4 users
     mf_holdings = await db.holdings.find(
         {"user_id": user_id, "asset_type": {"$in": ["mutual_fund", "MUTUAL_FUND"]}},
         {"_id": 0},
     ).to_list(500)
+    if not mf_holdings:
+        from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+        _all = await pi_holdings_for_user(user_id)
+        mf_holdings = [h for h in _all if h.get("asset_type") in ("mutual_fund", "etf")]
 
     if not mf_holdings:
         resp = _empty_response("No mutual fund holdings found")

@@ -1867,8 +1867,11 @@ class ActionPlanManager:
             parent_plan_id = None
             new_version = 1
         
-        # Fetch fresh data
+        # Fetch fresh data — with V3 Postgres fallback for V4 users
         holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0}).to_list(500)
+        if not holdings:
+            from services.pi_bridge import pi_holdings_for_user  # noqa: WPS433
+            holdings = await pi_holdings_for_user(user_id)
         from services import portfolio_intelligence
         intelligence = await portfolio_intelligence.compute_portfolio_intelligence(user_id)
         
