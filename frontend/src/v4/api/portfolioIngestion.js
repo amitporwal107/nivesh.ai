@@ -167,6 +167,21 @@ export async function runCasIngestion({ mode = "cas", onStatus } = {}) {
   // Stash for post-hoc inspection: open DevTools console after the run,
   // type `__lastCasResult` to get the full object back.
   try { window.__lastCasResult = widgetResult; } catch (_) {}
+
+  // Fire-and-forget: ship the ENTIRE widgetResult to the diagnostic endpoint
+  // so we have a permanent server-side record (survives page refresh).
+  // Errors here are ignored — never block the real flow.
+  try {
+    fetch("/api/admin/diag/sdk-result", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-External-Id": String(externalId),
+      },
+      body: JSON.stringify(widgetResult),
+    }).catch(() => {});
+  } catch (_) {}
   // ─────────────────────────────────────────────────────────────────────
 
   const parsed = widgetResult?.data;

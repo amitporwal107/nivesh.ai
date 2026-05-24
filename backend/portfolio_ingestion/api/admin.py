@@ -8,13 +8,18 @@ real RBAC; suitable for staging + internal ops curl.
 """
 from __future__ import annotations
 
+import logging
 import os
-from typing import Annotated
+from datetime import datetime, timezone
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from ..clients.mongo import get_database
 from ..db.pool import get_pool
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -27,6 +32,47 @@ async def verify(
     access before exposing the upload form. No side effects."""
     _check_admin(x_admin_token)
     return {"status": "ok"}
+
+
+@router.post("/diag/sdk-result")
+async def diag_sdk_result(request: Request) -> dict:
+    """Diagnostic-only — accepts ANY JSON body and dumps it to a Mongo
+    collection (_diag_sdk_results) so we can inspect the raw SDK widget
+    response server-side without relying on the browser console / session.
+
+    Open in staging; useful for debugging the CASParser SDK callback shape
+    when the integration sees less data than the SDK's own UI does.
+    """
+    body: Any = None
+    try:
+        body = await request.json()
+    except Exception:
+        body = {"_raw": (await request.body()).decode("utf-8", errors="replace")[:200000]}
+
+    try:
+        db = await get_database()
+        await db["_diag_sdk_results"].insert_one({
+            "received_at": datetime.now(timezone.utc),
+            "user_agent":  request.headers.get("user-agent"),
+            "external_id": request.headers.get("x-user-external-id"),
+            "body": body,
+        })
+    except Exception as e:
+        log.warning("diag/sdk-result mongo insert failed: %s", e)
+
+    log.info(
+        "DIAG SDK RESULT",
+        extra={
+            "eventType": "DIAG_SDK_RESULT",
+            "top_keys":  list(body.keys()) if isinstance(body, dict) else None,
+            "data_keys": (
+                list(body["data"].keys())
+                if isinstance(body, dict) and isinstance(body.get("data"), dict)
+                else None
+            ),
+        },
+    )
+    return {"ok": True}
 
 
 def _check_admin(token: str | None) -> None:
