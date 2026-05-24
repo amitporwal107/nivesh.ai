@@ -143,23 +143,55 @@ export async function runCasIngestion({ mode = "cas", onStatus } = {}) {
     return { ok: false, error: { message: err.message || String(err) } };
   }
 
+  // ── DIAGNOSTIC: log the COMPLETE widget result before any stripping. ──
+  // The goal is to verify whether the SDK actually returns full MF scheme
+  // detail somewhere our integration was missing. Stashed on window so it's
+  // inspectable in DevTools even after the post completes.
+  // eslint-disable-next-line no-console
+  console.log("[CAS-DEBUG] widgetResult — full SDK response:", widgetResult);
+  // eslint-disable-next-line no-console
+  console.log("[CAS-DEBUG] widgetResult top-level keys:", widgetResult ? Object.keys(widgetResult) : null);
+  // eslint-disable-next-line no-console
+  console.log("[CAS-DEBUG] widgetResult.data keys:", widgetResult?.data ? Object.keys(widgetResult.data) : null);
+  // eslint-disable-next-line no-console
+  console.log("[CAS-DEBUG] widgetResult.metadata:", widgetResult?.metadata);
+  if (widgetResult?.data?.mutual_funds) {
+    const mf = widgetResult.data.mutual_funds;
+    // eslint-disable-next-line no-console
+    console.log(
+      "[CAS-DEBUG] mutual_funds: " + mf.length + " AMCs, " +
+      mf.reduce((s, a) => s + (a.folios || []).length, 0) + " folios, " +
+      mf.reduce((s, a) => s + (a.folios || []).reduce((t, f) => t + (f.schemes || []).length, 0), 0) + " schemes"
+    );
+  }
+  // Stash for post-hoc inspection: open DevTools console after the run,
+  // type `__lastCasResult` to get the full object back.
+  try { window.__lastCasResult = widgetResult; } catch (_) {}
+  // ─────────────────────────────────────────────────────────────────────
+
   const parsed = widgetResult?.data;
   if (!parsed) return { ok: false, cancelled: true };
 
-  // 3. Hand the parsed payload to the V3 ingestion service.
+  // 3. Hand the parsed payload to the ingestion endpoint.
   tell("Storing your portfolio…");
   const checksum = await _sha256OfJson(parsed);
-  const metadata = widgetResult?.metadata || {};
+  // Pass through the SDK's metadata verbatim (no reshape) so anything the
+  // SDK chose to surface stays on the body. Backend's extra='ignore' will
+  // drop fields the schema doesn't know about, but the raw archive (Mongo
+  // pi_raw_parsed_data) keeps the unreshaped sdk_metadata.
+  const metadata = {
+    ...(widgetResult?.metadata || {}),
+    // Defensive defaults — never overwrite a value the SDK supplied.
+    method:   widgetResult?.metadata?.method   || (mode === "gmail" ? "inbox" : mode === "cdsl" ? "cdsl_fetch" : "upload"),
+    cas_type: widgetResult?.metadata?.cas_type || (parsed.meta && parsed.meta.cas_type) || null,
+  };
   try {
     const response = await api.post(
       "/api/cas/sdk-callback",
       {
         checksum,
         source_type: inferSourceType(parsed, metadata),
-        metadata: {
-          method: metadata.method || (mode === "gmail" ? "inbox" : mode === "cdsl" ? "cdsl_fetch" : "upload"),
-          cas_type: metadata.cas_type || (parsed.meta && parsed.meta.cas_type) || null,
-        },
+        metadata,
         data: parsed,
       },
       { headers: { "X-User-External-Id": String(externalId) } },
