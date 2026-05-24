@@ -17,6 +17,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 const Homepage = lazy(() => import("../screens/Homepage"));
 const Onboarding = lazy(() => import("../screens/onboarding/Onboarding"));
 const CasCallback = lazy(() => import("../screens/CasCallback"));
+const CopilotLanding = lazy(() => import("../screens/CopilotLanding"));
 
 function ScreenSkeleton() {
   return (
@@ -51,7 +52,8 @@ export default function V4Router() {
         <Route path="home" element={<Homepage />} />
         <Route path="onboarding" element={<Onboarding />} />
         <Route path="cas-callback" element={<CasCallback />} />
-        {/* M3-M6 screens land here as they're built */}
+        <Route path="landing" element={<CopilotLanding />} />
+        {/* M4-M6 screens land here as they're built */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

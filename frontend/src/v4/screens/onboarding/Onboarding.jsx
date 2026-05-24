@@ -10,10 +10,10 @@ import {
 } from "../../api/portfolioIngestion";
 
 /**
- * COCKPIT_PATH — where "Take me to the cockpit" sends a fresh-snapshot user.
- * V4 Copilot Landing (M3) lands at /v4/landing later; until then, ship to V2.
+ * COCKPIT_PATH — where "Take me to the cockpit" / "Skip for now" sends a
+ * fresh-snapshot user. Relative to BrowserRouter basename="/v4".
  */
-const COCKPIT_PATH = "/v2/app";
+const COCKPIT_PATH = "/landing";
 
 /**
  * Snapshot is "stale" when today's calendar month is strictly after the
@@ -296,7 +296,7 @@ export default function Onboarding() {
             <AlreadySetUpCard
               snapshot={snapshot}
               portfolio={activePortfolio?.portfolio}
-              onContinue={() => (window.location.href = COCKPIT_PATH)}
+              onContinue={() => (navigate(COCKPIT_PATH))}
               onReimport={() => setForceReimport(true)}
             />
           </>
@@ -331,7 +331,7 @@ export default function Onboarding() {
             {stale && (
               <StaleSnapshotBanner
                 period={snapshot.period}
-                onSkip={() => (window.location.href = COCKPIT_PATH)}
+                onSkip={() => (navigate(COCKPIT_PATH))}
               />
             )}
 
@@ -343,7 +343,7 @@ export default function Onboarding() {
               <SuccessCard
                 result={result}
                 activePortfolio={activePortfolio}
-                onContinue={() => (window.location.href = COCKPIT_PATH)}
+                onContinue={() => (navigate(COCKPIT_PATH))}
                 onRetry={() => {
                   setStatus("idle");
                   setResult(null);
