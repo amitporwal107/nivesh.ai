@@ -39,17 +39,17 @@ docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull
 log "Bringing the stack up..."
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
 
-log "Waiting for nivesh-staging-ingestion to report healthy..."
+log "Waiting for nivesh-staging-app-backend to report healthy..."
 for i in {1..30}; do
-    status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null || echo "unknown")
+    status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null || echo "unknown")
     if [[ "${status}" == "healthy" ]]; then
         log "Healthy after ${i} checks."
         break
     fi
     sleep 2
 done
-[[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-ingestion 2>/dev/null)" == "healthy" ]] \
-    || fail "nivesh-staging-ingestion did not become healthy."
+[[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null)" == "healthy" ]] \
+    || fail "nivesh-staging-app-backend did not become healthy."
 
 # Reload the edge nginx so any nginx-staging.conf change lands and stale
 # upstream resolutions are cleared. (The config also uses dynamic DNS via

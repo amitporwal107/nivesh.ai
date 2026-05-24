@@ -77,50 +77,10 @@ services:
       timeout: 3s
       retries: 6
 
-  # ── Portfolio ingestion service ──────────────────────────────────────────
-
-  ingestion:
-    build:
-      context: ../../
-      dockerfile: deploy/nivesh-staging/Dockerfile.ingestion
-    image: nivesh/portfolio-ingestion:staging
-    container_name: nivesh-staging-ingestion
-    restart: unless-stopped
-    env_file: /opt/nivesh-staging/.env.staging
-    environment:
-      PI_POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
-      PI_MONGO_URL:    mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
-      PI_REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
-      APP_ENV:         staging
-      LOG_LEVEL:       INFO
-      # Outbound to PROD shared services (per user direction):
-      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
-      # T2.3 PAN encryption key — set per-env; staging falls back to a
-      # placeholder if unset (see migration 002_pgcrypto_pan.sql).
-      PI_PAN_ENCRYPTION_KEY: ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
-      # T3.1 GCS upload — stub mode in staging until bucket + ADC are wired.
-      PI_GCS_STUB:       ${PI_GCS_STUB:-true}
-      PI_GCS_BUCKET:     ${PI_GCS_BUCKET:-}
-      # T3.3 inbound-email webhook — feature-flagged off by default.
-      PI_WEBHOOK_ENABLED: ${PI_WEBHOOK_ENABLED:-false}
-      PI_WEBHOOK_SECRET:  ${PI_WEBHOOK_SECRET:-}
-      # T4.3 operator endpoints — required for /api/admin/jobs/*.
-      PI_ADMIN_TOKEN:    ${PI_ADMIN_TOKEN:-}
-    depends_on:
-      postgres: { condition: service_healthy }
-      mongo:    { condition: service_healthy }
-      redis:    { condition: service_healthy }
-    networks: [nivesh-staging]
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/api/healthz', timeout=3).status==200 else 1)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
   # ── Main app backend (mirror of prod nivesh-backend) ─────────────────────
-  # Same code as prod, points at the staging Postgres/Mongo/Redis containers.
+  # Same code as prod, plus the CAS ingestion module (used to be a separate
+  # 'ingestion' container — now mounted in-process; same DB, same endpoints).
+  # Points at the staging Postgres/Mongo/Redis containers.
 
   app-backend:
     build:
@@ -144,9 +104,18 @@ services:
       COOKIE_SAMESITE: "lax"
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
-      # /api/portfolio/import-connect shadow-writes the same parsed payload
-      # to the V3 portfolio_ingestion service so both schemas stay in lockstep.
-      V3_INGESTION_BASE_URL: http://ingestion:8002
+      # ── CAS ingestion module (lives inside this same backend now) ──
+      # Same DB connection; separate `portfolio_ingestion` schema.
+      PI_POSTGRES_URL:        postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      PI_MONGO_URL:           mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      PI_REDIS_URL:           redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      PI_PAN_ENCRYPTION_KEY:  ${PI_PAN_ENCRYPTION_KEY:-pi-staging-pan-key-rotate-me}
+      PI_CASPARSER_API_KEY:   ${CASPARSER_API_KEY:-}
+      PI_GCS_STUB:            ${PI_GCS_STUB:-true}
+      PI_GCS_BUCKET:          ${PI_GCS_BUCKET:-}
+      PI_WEBHOOK_ENABLED:     ${PI_WEBHOOK_ENABLED:-false}
+      PI_WEBHOOK_SECRET:      ${PI_WEBHOOK_SECRET:-}
+      PI_ADMIN_TOKEN:         ${PI_ADMIN_TOKEN:-}
     # Source mounted at runtime — image only carries OS + Python deps, code
     # is the freshly-pulled repo. Mirrors the prod backend mount pattern.
     volumes:

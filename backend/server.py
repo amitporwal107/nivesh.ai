@@ -84,6 +84,20 @@ from routes.copilot_agents import router as copilot_agents_router  # Copilot age
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
 
+# ── CAS ingestion module ──────────────────────────────────────────────
+# Used to be a standalone FastAPI service in its own container; now mounted
+# in-process on this app. Same DB, same endpoints (/api/cas/sdk-callback,
+# /api/casparser/token, /api/portfolio/me, /api/portfolio/snapshots,
+# /api/admin/jobs|/verify, /webhooks/casparser/*, /api/healthz, /api/readyz).
+from portfolio_ingestion.api.sdk_callback   import router as cas_sdk_router
+from portfolio_ingestion.api.uploads        import router as cas_uploads_router
+from portfolio_ingestion.api.portfolio      import router as cas_portfolio_router
+from portfolio_ingestion.api.token          import router as cas_token_router
+from portfolio_ingestion.api.webhooks       import router as cas_webhooks_router
+from portfolio_ingestion.api.admin          import router as cas_admin_router
+from portfolio_ingestion.api.health         import router as cas_health_router
+from portfolio_ingestion.db.migrations.runner import apply_pending as _cas_apply_migrations
+
 from core.correlation import CorrelationMiddleware
 from core.error_handlers import register_error_handlers
 
@@ -149,6 +163,15 @@ app.include_router(copilot_agents_router)          # Copilot agent + model picke
 app.include_router(copilot_widgets_router)         # Copilot widget envelopes (fund_card, market_brief, ...)
 app.include_router(admin_swagger_router)           # Admin-only Swagger UI + OpenAPI YAML serving
 
+# CAS ingestion routers — same domain as V2 backend, no separate container.
+app.include_router(cas_sdk_router)        # POST /api/cas/sdk-callback
+app.include_router(cas_uploads_router)    # POST /api/cas/uploads/init|complete
+app.include_router(cas_portfolio_router)  # GET  /api/portfolio/me|snapshots|snapshots/{id}
+app.include_router(cas_token_router)      # POST /api/casparser/token
+app.include_router(cas_webhooks_router)   # POST /webhooks/casparser/inbound-email (PI_WEBHOOK_ENABLED-gated)
+app.include_router(cas_admin_router)      # GET  /api/admin/jobs/stale|summary, /api/admin/verify
+app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-specific; V2 has none)
+
 
 # Root endpoint
 @app.get("/api/")
@@ -192,6 +215,15 @@ app.add_middleware(
 async def startup_seed():
     logger.info("Connected to MongoDB")
     await seed_admin_and_whitelist()
+    # CAS ingestion schema migrations — idempotent. Applies
+    # backend/portfolio_ingestion/db/migrations/*.sql against the same
+    # Postgres connection. Already-applied migrations are skipped in <1ms.
+    try:
+        if os.environ.get("PI_POSTGRES_URL"):
+            await _cas_apply_migrations()
+            logger.info("CAS ingestion migrations: applied/skipped")
+    except Exception as e:
+        logger.warning("CAS ingestion migration runner failed: %s", e)
     # Hydrate admin-managed config from DB
     try:
         from helpers import secrets as _secrets
