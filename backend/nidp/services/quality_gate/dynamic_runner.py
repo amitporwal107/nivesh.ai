@@ -57,8 +57,8 @@ PG_DSN = (
 # `nav_date`/`observation_date` if present).
 _DATASET_MAP: Dict[str, Tuple[str, str]] = {
     "amfi_nav":                   ("nidp.amfi_nav",            "as_of_date"),
-    "fii_dii":                    ("nidp.fii_dii",             "as_of_date"),
-    "fii_dii_flows":              ("nidp.fii_dii",             "as_of_date"),
+    "fii_dii":                    ("nidp.fii_dii_flows",       "as_of_date"),
+    "fii_dii_flows":              ("nidp.fii_dii_flows",       "as_of_date"),
     "bhavcopy":                   ("nidp.bhavcopy",            "as_of_date"),
     "prices_eod":                 ("nidp.prices_eod",          "as_of_date"),
     "prices_eod_adjusted":        ("nidp.prices_eod_adjusted", "as_of_date"),

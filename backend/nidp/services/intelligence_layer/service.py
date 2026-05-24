@@ -89,7 +89,12 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                        CASE
                            WHEN p.isin IS NULL THEN NULL
                            WHEN COUNT(*) OVER (PARTITION BY p.isin) > 1 THEN NULL
-                           WHEN EXISTS (SELECT 1 FROM ref.security_master sm WHERE sm.isin = p.isin) THEN NULL
+                           WHEN EXISTS (
+                               SELECT 1 FROM ref.security_master sm
+                                WHERE sm.isin = p.isin
+                                  AND NOT (sm.entity_type = 'MF_SCHEME'
+                                           AND sm.symbol = p.scheme_code)
+                           ) THEN NULL
                            ELSE p.isin
                        END AS isin
                   FROM per_scheme p
