@@ -15,7 +15,7 @@ real beta_1y, real sharpe_1y, real volatility_1y from NIDP's analytics layer.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request
 
@@ -219,6 +219,23 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         reverse=True,
     )[:3]
 
+    # v4 additions per docs/api-changes.md Modified Endpoint C.3
+    # Parametric 1-day VaR at 95% confidence: VaR = value × σ × z(0.95) / √252
+    # (z(0.95) = 1.645; σ is annualised; dividing by √252 converts to 1-day)
+    var_1d_rs: Optional[float] = None
+    var_1d_pct: Optional[float] = None
+    var_confidence = 0.95
+    if weighted_vol is not None and total_value > 0:
+        import math
+        sigma_1d = float(weighted_vol) / math.sqrt(252)
+        var_1d_pct = round(sigma_1d * 1.645 * 100, 2)
+        var_1d_rs = round(total_value * sigma_1d * 1.645, 0)
+
+    # Max drawdown — not yet exposed by NIDP primitives; signal missing
+    # via None so the UI can render "—". Future: pull max_drawdown_1y from
+    # /v1/intelligence/portfolio/{user_id}/snapshot once available.
+    max_drawdown_pct: Optional[float] = None
+
     return {
         "empty": False,
         "total_value": round(total_value, 2),
@@ -227,6 +244,13 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         "weighted_beta": weighted_beta,
         "weighted_sharpe": weighted_sharpe,
         "weighted_volatility": weighted_vol,
+        # v4 additions (Modified Endpoint C.3)
+        "max_drawdown_pct": max_drawdown_pct,
+        "var_1d_rs": var_1d_rs,
+        "var_1d_pct": var_1d_pct,
+        "portfolio_value_rs": round(total_value, 2),
+        "var_confidence": var_confidence,
+        # Existing fields unchanged
         "equity_pct": round(100 * asset_value["equity"] / total_value, 1) if total_value > 0 else 0,
         "debt_pct": round(100 * asset_value["debt"] / total_value, 1) if total_value > 0 else 0,
         "gold_pct": round(100 * asset_value["gold"] / total_value, 1) if total_value > 0 else 0,

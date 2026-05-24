@@ -590,6 +590,113 @@ class ActionPlanManager:
         return updated_plan
         
     
+    async def add_action_to_active_plan(
+        self,
+        user_id: str,
+        action_input: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """v4 — Create a new action on the user's active plan.
+
+        Per docs/api-changes.md B.10. Used for cross-domain action creation:
+        Tax (from tax_harvest candidates), Goals (from goal-engine recs), or
+        advisor Discuss promotion. Idempotent if `idempotency_key` is set.
+        """
+        # Find the active plan
+        plan = await db.action_plans.find_one(
+            {"user_id": user_id, "status": STATUS_ACTIVE},
+            {"_id": 0},
+        )
+        if not plan:
+            raise ValueError("No active plan found")
+
+        # Idempotency check — if this key was already applied, return existing
+        if idempotency_key:
+            for existing in plan.get("actions", []) or []:
+                if existing.get("idempotency_key") == idempotency_key:
+                    return existing
+
+        # Build the action dict, then run through the v4 augment so all
+        # schema fields are present.
+        new_action = dict(action_input)
+        new_action.setdefault("action_id", f"act_{uuid4().hex[:8]}")
+        new_action.setdefault("status", ACTION_PENDING)
+        new_action.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+        if idempotency_key:
+            new_action["idempotency_key"] = idempotency_key
+
+        _augment_v4_fields([new_action])
+
+        # Push to plan
+        await db.action_plans.update_one(
+            {"plan_id": plan["plan_id"], "user_id": user_id},
+            {
+                "$push": {"actions": new_action},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+                "$inc": {"total_actions": 1, "pending_actions": 1},
+            },
+        )
+
+        logger.info("Action %s added to plan %s (source=%s)",
+                    new_action["action_id"], plan["plan_id"], new_action.get("source_domain"))
+        return new_action
+
+
+    async def record_action_discussion(
+        self,
+        plan_id: str,
+        action_id: str,
+        advisor_user_id: str,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """v4 — Advisor-side Discuss-only write per PRD §10.2.
+
+        Records that the advisor discussed this action with the client.
+        Does NOT modify action.status — client retains sole control.
+        """
+        # We don't know the client user_id from advisor session alone — look up by plan_id
+        plan = await db.action_plans.find_one({"plan_id": plan_id}, {"_id": 0})
+        if not plan:
+            raise ValueError(f"Plan {plan_id} not found")
+
+        action_idx = None
+        for idx, action in enumerate(plan.get("actions", []) or []):
+            if action.get("action_id") == action_id or action.get("id") == action_id:
+                action_idx = idx
+                break
+        if action_idx is None:
+            raise ValueError(f"Action {action_id} not found in plan {plan_id}")
+
+        now = datetime.now(timezone.utc).isoformat()
+        existing_discussions = plan["actions"][action_idx].get("discussions", []) or []
+        discussion_event = {
+            "advisor_user_id": advisor_user_id,
+            "discussed_at": now,
+            "note": note or "",
+        }
+        new_discussions = existing_discussions + [discussion_event]
+
+        await db.action_plans.update_one(
+            {"plan_id": plan_id},
+            {
+                "$set": {
+                    f"actions.{action_idx}.discussions": new_discussions,
+                    f"actions.{action_idx}.last_discussed_at": now,
+                    f"actions.{action_idx}.discussion_count": len(new_discussions),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        return {
+            "action_id": action_id,
+            "discussed_at": now,
+            "discussed_by_advisor_id": advisor_user_id,
+            "discussion_count": len(new_discussions),
+            "discussion_note": note or "",
+        }
+
+
     async def update_action_feedback(
         self,
         plan_id: str,

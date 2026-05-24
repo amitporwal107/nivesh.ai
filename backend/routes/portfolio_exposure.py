@@ -236,12 +236,19 @@ async def get_fund_overlap_matrix(request: Request) -> dict[str, Any]:
                 high_pairs += 1
 
     pairs.sort(key=lambda p: p["overlap_pct"], reverse=True)
+
+    # v4 addition (Modified Endpoint C.6) — distinct stocks across all funds.
+    unique_stocks: set[str] = set()
+    for w in weights.values():
+        unique_stocks.update(w.keys())
+
     return {
         "funds": funds,
         "matrix": matrix,
         "pairs": pairs[:25],   # top 25 to keep payload small
         "max_pct": round(max_pct, 2),
         "high_pairs": high_pairs,
+        "unique_stocks_count": len(unique_stocks),   # v4
         "coverage_pct": round(100 * covered_aum / total_aum, 1) if total_aum > 0 else 0,
         "empty": False,
     }

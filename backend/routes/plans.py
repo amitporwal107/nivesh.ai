@@ -32,6 +32,36 @@ class ActionFeedback(BaseModel):
     comment: Optional[str] = None
 
 
+# ── v4 — POST /plans/active/actions (cross-domain action create) ──────────
+# Per docs/api-changes.md New Endpoint B.10. Used by Tax / Goals / advisor
+# Discuss promotion to add actions that the standard plan generator did not
+# auto-create. All new v4 fields per Decision 2 (snake_case).
+
+class CreateActionRequest(BaseModel):
+    source_domain: str  # concentration|diversification|risk|performance|goals|tax
+    type: str           # EXIT|ADD|TRIM|HOLD|REVIEW|SWITCH|MERGE|HARVEST|RAISE_SIP
+    verb: Optional[str] = None
+    asset_type: str     # STOCK|FUND|DEBT|GOLD|portfolio|mutual_fund|equity
+    asset_name: str
+    instrument_id: Optional[str] = None
+    amount: float = 0
+    priority: int = 2
+    priority_label: Optional[str] = None
+    impact: Optional[dict] = None        # {label, value}
+    effort: str = "MEDIUM"               # LOW|MEDIUM|HIGH
+    trade_off: str = ""                  # mandatory per PRD §7.4
+    expected_impact: Optional[dict] = None
+    exclusive: bool = False
+    reason_text: str = ""
+    reason_codes: list[str] = []
+    confidence: str = "MEDIUM"           # HIGH|MEDIUM|LOW
+
+
+class DiscussActionRequest(BaseModel):
+    """Per PRD §10.2 — advisor records a Discuss event without touching status."""
+    discussion_note: Optional[str] = None
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # PLAN GENERATION
 # ══════════════════════════════════════════════════════════════════════════
@@ -259,6 +289,64 @@ async def update_action_status(
             "plan": updated_plan,
             "message": f"Action {action_id} marked as {body.status}"
         }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# v4 — CROSS-DOMAIN ACTION CREATE (B.10) + ADVISOR DISCUSS (B.11)
+# ══════════════════════════════════════════════════════════════════════════
+
+@router.post("/plans/active/actions", status_code=201)
+async def create_active_plan_action(body: CreateActionRequest, request: Request):
+    """Create a new action on the active plan.
+
+    Per docs/api-changes.md B.10 — used when the source is a widget (Tax)
+    or a domain that doesn't feed action_plan_manager auto-generation
+    (Goals), or for advisor "Discuss" promotion.
+
+    Idempotency: pass `Idempotency-Key: <uuid>` header to make repeated
+    POSTs from the same client idempotent.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    idempotency_key = request.headers.get("Idempotency-Key")
+
+    try:
+        new_action = await plan_manager.add_action_to_active_plan(
+            user_id=user_id,
+            action_input=body.model_dump(),
+            idempotency_key=idempotency_key,
+        )
+        return new_action
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/plans/{plan_id}/actions/{action_id}/discuss")
+async def discuss_action(
+    plan_id: str,
+    action_id: str,
+    body: DiscussActionRequest,
+    request: Request,
+):
+    """Advisor-side Discuss-only write.
+
+    Per PRD §10.2 + docs/api-changes.md B.11. Records that the advisor
+    discussed this action with the client; does NOT change action.status.
+    The client retains sole control over Accept/Skip.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    try:
+        updated_action = await plan_manager.record_action_discussion(
+            plan_id=plan_id,
+            action_id=action_id,
+            advisor_user_id=user_id,
+            note=body.discussion_note,
+        )
+        return updated_action
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
