@@ -1,4 +1,4 @@
-# Staging stack for the portfolio_ingestion service.
+# Staging stack: V2 backend (with CAS ingestion mounted in-process) + V2/V4 frontend.
 #
 # Runs on nivesh-app-vm alongside the production stack, fully isolated:
 #   - Separate docker network        (nivesh-staging)
@@ -211,7 +211,6 @@ services:
       - ./nginx-staging.conf:/etc/nginx/conf.d/staging.conf:ro
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
     depends_on:
-      ingestion:    { condition: service_healthy }
       app-backend:  { condition: service_healthy }
       app-frontend: { condition: service_started }
     networks: [nivesh-staging]
