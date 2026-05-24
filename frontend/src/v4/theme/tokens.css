@@ -51,7 +51,25 @@
   font-family: var(--v4-sans);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  position: relative;
 }
+
+/* Ambient saffron + indigo radial glows — matches body::before in the HTML prototype. */
+.v4::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(680px 540px at 86% -8%, rgba(255, 146, 72, 0.07), transparent 62%),
+    radial-gradient(720px 620px at 4% 110%, rgba(125, 126, 255, 0.055), transparent 62%);
+}
+
+/* Lift app content above the ambient layer */
+.v4 > * { position: relative; z-index: 1; }
+
+.v4 ::selection { background: rgba(255, 146, 72, 0.26); color: #fff; }
 
 @keyframes v4-shimmer {
   0%   { background-position: 200% 0; }
