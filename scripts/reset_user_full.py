@@ -199,29 +199,38 @@ async def reset_pi_pg(pan_hash: str | None):
 
 
 async def reset_nidp_pg(email: str):
+    """Best-effort cleanup of the legacy V2/NIDP Postgres tables.
+
+    Staging may not have the V2 `portfolio.*` schema (V4 deployments run
+    only the `portfolio_ingestion` schema), so every statement is wrapped
+    individually — a missing table is logged and skipped, not fatal."""
     import asyncpg
     pg_url = PG_URL.replace("postgresql://", "postgres://") if PG_URL.startswith("postgresql://") else PG_URL
-    conn = await asyncpg.connect(pg_url)
     try:
-        # user_intelligence_snapshot
-        n1 = await conn.fetchval(
-            "WITH d AS (DELETE FROM portfolio.user_intelligence_snapshot WHERE external_user_id = $1 RETURNING 1) "
-            "SELECT count(*) FROM d", email) or 0
-        # user_holdings_snapshot cascades to holding_security_map
-        n2 = await conn.fetchval(
-            "WITH d AS (DELETE FROM portfolio.user_holdings_snapshot WHERE external_user_id = $1 RETURNING 1) "
-            "SELECT count(*) FROM d", email) or 0
-        # Also clear any nidp.validation_findings or job data if user-scoped
-        try:
-            n3 = await conn.fetchval(
-                "WITH d AS (DELETE FROM nidp.validation_findings WHERE external_user_id = $1 RETURNING 1) "
-                "SELECT count(*) FROM d", email) or 0
-            if n3:
-                print(f"  pg nidp.validation_findings: deleted {n3}")
-        except Exception:
-            pass
-        print(f"  pg user_intelligence_snapshot: deleted {n1}")
-        print(f"  pg user_holdings_snapshot (+security_map cascade): deleted {n2}")
+        conn = await asyncpg.connect(pg_url)
+    except Exception as e:
+        print(f"  nidp pg: connect failed, skipping ({e})")
+        return
+    try:
+        # Each delete in its own savepoint-style try so one missing schema
+        # doesn't poison the whole transaction.
+        for label, sql in [
+            ("portfolio.user_intelligence_snapshot",
+             "WITH d AS (DELETE FROM portfolio.user_intelligence_snapshot WHERE external_user_id = $1 RETURNING 1) SELECT count(*) FROM d"),
+            ("portfolio.user_holdings_snapshot (+security_map cascade)",
+             "WITH d AS (DELETE FROM portfolio.user_holdings_snapshot WHERE external_user_id = $1 RETURNING 1) SELECT count(*) FROM d"),
+            ("nidp.validation_findings",
+             "WITH d AS (DELETE FROM nidp.validation_findings WHERE external_user_id = $1 RETURNING 1) SELECT count(*) FROM d"),
+        ]:
+            try:
+                n = await conn.fetchval(sql, email) or 0
+                print(f"  pg {label}: deleted {n}")
+            except asyncpg.UndefinedTableError:
+                print(f"  pg {label}: table missing (V4-only deployment), skipping")
+            except asyncpg.UndefinedColumnError as e:
+                print(f"  pg {label}: column missing, skipping ({e})")
+            except Exception as e:
+                print(f"  pg {label}: skip ({type(e).__name__}: {e})")
     finally:
         await conn.close()
 
