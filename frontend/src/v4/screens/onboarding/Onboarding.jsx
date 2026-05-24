@@ -34,9 +34,43 @@ function isSnapshotStale(snapshot) {
   return nowYM > stmtYM;
 }
 
+/**
+ * Backend (V3 portfolio_ingestion.assemble) returns:
+ *   allocation: [{ asset_class, value, pct }, …]   ← canonical
+ * Tolerate dict-of-pcts too (some response paths may flatten it) so the V4
+ * adapter never breaks if either shape lands.
+ */
+function normaliseAllocation(alloc) {
+  if (!alloc) return [];
+  if (Array.isArray(alloc)) {
+    return alloc
+      .map((row) => ({
+        label: String(row.asset_class || row.label || "—"),
+        value: Number(row.value ?? 0),
+        pct: row.pct != null ? Number(row.pct) : null,
+      }))
+      .filter((r) => r.value > 0 || (r.pct != null && r.pct > 0));
+  }
+  if (typeof alloc === "object") {
+    return Object.entries(alloc)
+      .map(([label, v]) => ({
+        label,
+        value: typeof v === "number" ? v : Number(v) || 0,
+        pct: null,
+      }))
+      .filter((r) => r.value > 0);
+  }
+  return [];
+}
+
 function hasMeaningfulAllocation(alloc) {
-  if (!alloc || typeof alloc !== "object") return false;
-  return Object.values(alloc).some((v) => typeof v === "number" && v > 0);
+  return normaliseAllocation(alloc).length > 0;
+}
+
+function toNumberOrNull(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -489,8 +523,9 @@ function ErrorBanner({ message, onDismiss }) {
 function AlreadySetUpCard({ snapshot, portfolio, onContinue, onReimport }) {
   const period = snapshot?.period;
   const holdingsCount = portfolio?.holdings_count;
-  const totalValue = portfolio?.total_value ?? snapshot?.total_value;
+  const totalValue = toNumberOrNull(portfolio?.total_value ?? snapshot?.total_value);
   const allocation = portfolio?.allocation;
+  const topHoldings = portfolio?.top_holdings;
   return (
     <section style={successCardStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
@@ -519,6 +554,8 @@ function AlreadySetUpCard({ snapshot, portfolio, onContinue, onReimport }) {
           <AllocationStrip allocation={allocation} />
         </div>
       ) : null}
+
+      <TopHoldings holdings={topHoldings} />
 
       <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
         <button style={ctaPrimaryStyle} onClick={onContinue}>
@@ -562,10 +599,23 @@ function StaleSnapshotBanner({ period, onSkip }) {
 
 function SuccessCard({ result, activePortfolio, onContinue, onRetry }) {
   const period = result?.period || activePortfolio?.snapshot?.period;
-  const holdingsCount = activePortfolio?.portfolio?.holdings_count;
-  const totalValue =
-    activePortfolio?.portfolio?.total_value ?? activePortfolio?.snapshot?.total_value;
-  const allocation = activePortfolio?.portfolio?.allocation;
+  // Total value: prefer the freshly-activated portfolio.total_value, fall back
+  // to the snapshot row. Both arrive as Pydantic Decimal → JSON string, so
+  // coerce.
+  const holdingsCount =
+    activePortfolio?.portfolio?.holdings_count ??
+    (Array.isArray(result?.portfolio?.top_holdings)
+      ? result.portfolio.top_holdings.length
+      : null);
+  const totalValue = toNumberOrNull(
+    activePortfolio?.portfolio?.total_value ??
+      result?.portfolio?.total_value ??
+      activePortfolio?.snapshot?.total_value,
+  );
+  const allocation =
+    activePortfolio?.portfolio?.allocation || result?.portfolio?.allocation;
+  const topHoldings =
+    activePortfolio?.portfolio?.top_holdings || result?.portfolio?.top_holdings;
   const isActive = result?.is_active !== false;
 
   return (
@@ -595,6 +645,8 @@ function SuccessCard({ result, activePortfolio, onContinue, onRetry }) {
           <AllocationStrip allocation={allocation} />
         </div>
       ) : null}
+
+      <TopHoldings holdings={topHoldings} />
 
       <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
         <button style={ctaPrimaryStyle} onClick={onContinue}>
@@ -631,37 +683,131 @@ function Stat({ label, value }) {
 }
 
 function AllocationStrip({ allocation }) {
-  if (!allocation || typeof allocation !== "object") return null;
-  const rows = Object.entries(allocation)
-    .filter(([, v]) => typeof v === "number" && v > 0)
-    .sort((a, b) => b[1] - a[1])
+  const rows = normaliseAllocation(allocation)
+    .sort((a, b) => b.value - a.value)
     .slice(0, 6);
   if (!rows.length) return null;
-  const total = rows.reduce((s, [, v]) => s + v, 0);
+  const total = rows.reduce((s, r) => s + r.value, 0);
   return (
     <div>
       <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", marginTop: 10 }}>
-        {rows.map(([k, v], i) => (
-          <div
-            key={k}
-            style={{
-              width: `${(v / total) * 100}%`,
-              background: ALLOC_COLOURS[i % ALLOC_COLOURS.length],
-            }}
-            title={`${k}: ${((v / total) * 100).toFixed(1)}%`}
-          />
-        ))}
+        {rows.map((r, i) => {
+          const pct = r.pct != null ? r.pct : total > 0 ? (r.value / total) * 100 : 0;
+          return (
+            <div
+              key={r.label}
+              style={{
+                width: `${pct}%`,
+                background: ALLOC_COLOURS[i % ALLOC_COLOURS.length],
+              }}
+              title={`${prettyLabel(r.label)}: ${pct.toFixed(1)}% (${formatInr(r.value)})`}
+            />
+          );
+        })}
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12 }}>
-        {rows.map(([k, v], i) => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: ALLOC_COLOURS[i % ALLOC_COLOURS.length] }} />
-            <div style={{ fontSize: 12, color: "var(--v4-ink-dim)" }}>
-              <span style={{ textTransform: "capitalize" }}>{k.replace(/_/g, " ")}</span>{" "}
-              <span style={{ color: "var(--v4-ink-mute)" }}>{((v / total) * 100).toFixed(0)}%</span>
+        {rows.map((r, i) => {
+          const pct = r.pct != null ? r.pct : total > 0 ? (r.value / total) * 100 : 0;
+          return (
+            <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: ALLOC_COLOURS[i % ALLOC_COLOURS.length] }} />
+              <div style={{ fontSize: 12, color: "var(--v4-ink-dim)" }}>
+                <span style={{ textTransform: "capitalize" }}>{prettyLabel(r.label)}</span>{" "}
+                <span style={{ color: "var(--v4-ink-mute)" }}>{pct.toFixed(0)}%</span>{" "}
+                <span style={{ color: "var(--v4-ink-faint)" }}>· {formatInr(r.value)}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const ASSET_CLASS_LABELS = {
+  equity: "Equity",
+  mf: "Mutual funds",
+  mutual_fund: "Mutual funds",
+  bond: "Bonds",
+  aif: "AIF",
+  g_sec: "G-Sec",
+  insurance: "Insurance",
+  nps: "NPS",
+};
+
+function prettyLabel(s) {
+  if (!s) return "—";
+  const k = String(s).toLowerCase();
+  return ASSET_CLASS_LABELS[k] || k.replace(/_/g, " ");
+}
+
+/**
+ * Lets the user line up the imported portfolio against their CAS PDF line by
+ * line — surfaces the top N positions with rupee value and % of total. Pulled
+ * from /api/portfolio/me.portfolio.top_holdings (canonical shape).
+ */
+function TopHoldings({ holdings }) {
+  if (!Array.isArray(holdings) || !holdings.length) return null;
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={eyebrowStyle}>TOP HOLDINGS</div>
+      <div style={topHoldingsListStyle}>
+        {holdings.slice(0, 10).map((h, i) => {
+          const name = h.name || h.scheme || h.asset_name || "—";
+          const value = toNumberOrNull(h.value);
+          const pct = h.pct != null ? Number(h.pct) : null;
+          return (
+            <div key={`${name}-${i}`} style={topHoldingRowStyle}>
+              <div
+                style={{
+                  fontFamily: "var(--v4-mono)",
+                  fontSize: 10,
+                  color: "var(--v4-ink-faint)",
+                  width: 18,
+                  flex: "none",
+                }}
+              >
+                {i + 1}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    color: "var(--v4-ink)",
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={name}
+                >
+                  {name}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "var(--v4-mono)",
+                    fontSize: 10,
+                    letterSpacing: 0.6,
+                    color: "var(--v4-ink-faint)",
+                    textTransform: "uppercase",
+                    marginTop: 2,
+                  }}
+                >
+                  {prettyLabel(h.asset_class)}
+                </div>
+              </div>
+              <div style={{ textAlign: "right", flex: "none" }}>
+                <div style={{ fontFamily: "var(--v4-display)", fontSize: 14, color: "var(--v4-ink)" }}>
+                  {formatInr(value)}
+                </div>
+                {pct != null ? (
+                  <div style={{ fontFamily: "var(--v4-mono)", fontSize: 10, color: "var(--v4-ink-faint)" }}>
+                    {pct.toFixed(1)}%
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -680,10 +826,13 @@ function Centered({ children }) {
 }
 
 function formatInr(n) {
-  if (n == null || isNaN(Number(n))) return "—";
-  const v = Number(n);
+  // Pydantic Decimal → JSON string in V3 responses; coerce safely.
+  if (n == null || n === "") return "—";
+  const v = typeof n === "number" ? n : Number(String(n).replace(/,/g, ""));
+  if (!Number.isFinite(v)) return "—";
   if (v >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
   if (v >= 1e5) return `₹${(v / 1e5).toFixed(2)} L`;
+  if (v >= 1e3) return `₹${(v / 1e3).toFixed(1)} K`;
   return `₹${Math.round(v).toLocaleString("en-IN")}`;
 }
 
@@ -971,4 +1120,22 @@ const inlineLinkStyle = {
   border: "none",
   cursor: "pointer",
   textTransform: "uppercase",
+};
+
+const topHoldingsListStyle = {
+  display: "flex",
+  flexDirection: "column",
+  marginTop: 10,
+  border: "1px solid var(--v4-line)",
+  borderRadius: "var(--v4-r-md)",
+  overflow: "hidden",
+};
+
+const topHoldingRowStyle = {
+  display: "flex",
+  gap: 14,
+  alignItems: "center",
+  padding: "12px 16px",
+  borderBottom: "1px solid var(--v4-line)",
+  background: "var(--v4-s1)",
 };
