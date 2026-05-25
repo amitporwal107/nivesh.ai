@@ -140,11 +140,11 @@ CREATE INDEX IF NOT EXISTS idx_sds_symbol_date_covering
 -- Delivery screener: rank by delivery % on a date
 CREATE INDEX IF NOT EXISTS idx_delivery_date_symbol
     ON nidp.delivery_data (as_of_date DESC, symbol)
-    INCLUDE (deliv_qty, deliv_pct);
+    INCLUDE (deliverable_qty, deliverable_pct);
 
 -- MF NAV time-series
 CREATE INDEX IF NOT EXISTS idx_mf_nav_scheme_date
-    ON nidp.mf_nav_daily (scheme_code, nav_date DESC)
+    ON nidp.mf_nav_daily (scheme_code, nav_date DESC)  -- nav_date is the actual PK column
     INCLUDE (nav);
 
 -- Portfolio holdings: common dashboard query
