@@ -26,9 +26,17 @@ END $$;
 ALTER TABLE nidp.corporate_event_signals
     DROP CONSTRAINT IF EXISTS corporate_event_signals_symbol_event_type_event_date_period_signal_type_key;
 
-ALTER TABLE nidp.corporate_event_signals
-    ADD CONSTRAINT corporate_event_signals_uniq
-    UNIQUE (symbol, event_type, event_date, period, signal_type);
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'corporate_event_signals_uniq'
+          AND conrelid = 'nidp.corporate_event_signals'::regclass
+    ) THEN
+        ALTER TABLE nidp.corporate_event_signals
+            ADD CONSTRAINT corporate_event_signals_uniq
+            UNIQUE (symbol, event_type, event_date, period, signal_type);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_signals_signal_type
     ON nidp.corporate_event_signals(signal_type, event_date DESC);
