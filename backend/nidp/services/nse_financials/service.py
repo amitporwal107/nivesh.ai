@@ -152,6 +152,12 @@ async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) 
         return_exceptions=True,
     )
 
-    success = sum(1 for r in results if isinstance(r, int))
+    success = 0
+    for d, r in zip(due, results):
+        if isinstance(r, int):
+            success += 1
+        elif isinstance(r, Exception):
+            logger.error("nse_financials: exception for %s: %s", d["symbol"], r)
+
     logger.info("nse_financials: done. %d/%d succeeded", success, len(due))
     await close_pool()
