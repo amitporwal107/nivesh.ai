@@ -133,7 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_sfd_symbol_date_covering
 -- Stock daily snapshot hot path: symbol lookup
 CREATE INDEX IF NOT EXISTS idx_sds_symbol_date_covering
     ON nidp.stock_daily_snapshot (symbol, as_of_date DESC)
-    INCLUDE (close_price, pct_change_1d, volume, deliv_pct,
+    INCLUDE (close_price, return_1d_pct, volume, deliv_pct,
              in_nifty50, in_nifty500, industry,
              bulk_deal_count, has_upcoming_ca);
 
@@ -444,7 +444,7 @@ BEGIN
         sds.in_nifty500,
         sds.close_price,
         sds.prev_close,
-        sds.pct_change_1d,
+        sds.return_1d_pct,
         sds.volume,
         sfd.avg_volume_20,
         CASE WHEN sfd.avg_volume_20 > 0
