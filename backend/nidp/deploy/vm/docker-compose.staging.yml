@@ -1,0 +1,43 @@
+# NIDP staging docker-compose — TimescaleDB for the staging environment.
+#
+# Mirrors docker-compose.prod.yml exactly except:
+#   • container_name:  nidp-postgres-staging
+#   • host port:       127.0.0.1:5434:5432   (prod uses 5433; avoids conflict)
+#   • data volume:     /opt/nidp-staging/data/postgres
+#   • networks:        nidp-staging-default + nidp-staging-bridge
+#
+# One-time setup (run as root on the staging VM):
+#   docker network create nidp-staging-bridge
+#   docker compose -f docker-compose.staging.yml up -d
+#
+# The staging NIDP_POSTGRES_URL in /opt/nidp-staging/nidp.env must use
+# port 5434:
+#   NIDP_POSTGRES_URL=postgresql://nidp_staging:<pw>@localhost:5434/nidp_staging
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: nidp-postgres-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${NIDP_PG_USER:-nidp_staging}
+      POSTGRES_PASSWORD: ${NIDP_PG_PASSWORD}
+      POSTGRES_DB:       ${NIDP_PG_DB:-nidp_staging}
+    ports:
+      # 5434 on host → avoids conflict with prod nidp-postgres on 5433
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - /opt/nidp-staging/data/postgres:/var/lib/postgresql/data
+    networks: [nidp-staging-default, nidp-staging-bridge]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NIDP_PG_USER:-nidp_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  nidp-staging-default:
+    name: nidp-staging-default
+  nidp-staging-bridge:
+    name: nidp-staging-bridge
+    external: true
