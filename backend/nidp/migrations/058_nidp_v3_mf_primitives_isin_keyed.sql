@@ -226,11 +226,11 @@ COMMENT ON VIEW nidp.v_v3_mf_primitives IS
 -- Audit
 DO $$
 BEGIN
-    INSERT INTO nidp.job_log (job_name, status, message, started_at, finished_at)
+    INSERT INTO nidp.job_log (run_id, ingester, status, started_at, finished_at)
     SELECT
+        gen_random_uuid(),
         'migration_058_v_v3_mf_primitives_isin_keyed',
-        'success',
-        'Recreated nidp.v_v3_mf_primitives keyed on ISIN; dropped legacy table deps.',
+        'OK',
         NOW(), NOW()
     WHERE EXISTS (
         SELECT 1 FROM information_schema.tables
