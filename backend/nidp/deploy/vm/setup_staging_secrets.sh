@@ -71,7 +71,7 @@ declare -A SECRETS=(
     [NIDP_CLAUDE_API_KEY_STAGING]="SET_ME"
     [NIDP_QUERY_API_TOKEN_STAGING]="SET_ME"
     # Query API base URL for staging (Cloudflare A record → this VM, nginx routes by vhost)
-    [NIDP_QUERY_API_BASE_URL_STAGING]="https://data.staging.niveshcopilot.com"
+    [NIDP_QUERY_API_BASE_URL_STAGING]="https://staging-data.niveshcopilot.com"
     # NOTE: TLS cert/key are NOT separate secrets for staging — the prod wildcard
     # cert (nidp-tls-cert / nidp-tls-key) covers *.niveshcopilot.com and is reused.
 )
