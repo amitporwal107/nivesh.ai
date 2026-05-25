@@ -12,11 +12,11 @@
 -- bulk-batch outer loop that ORDER BY nav_date DESC across all schemes.
 
 -- Index 1: per-scheme date range scans (covers the per-scheme sub-queries)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_mf_nav_daily_scheme_date
+CREATE INDEX IF NOT EXISTS idx_mf_nav_daily_scheme_date
     ON nidp.mf_nav_daily (scheme_code, nav_date DESC);
 
 -- Index 2: latest-NAV look-ups (WHERE nav_date = $latest, all schemes)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_mf_nav_daily_date_scheme
+CREATE INDEX IF NOT EXISTS idx_mf_nav_daily_date_scheme
     ON nidp.mf_nav_daily (nav_date DESC, scheme_code);
 
 -- Analyze so the planner picks up the new statistics immediately.
