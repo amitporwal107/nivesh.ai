@@ -403,8 +403,14 @@ async def v3_mf_primitives_bulk(
             )
         rows = await conn.fetch(
             f"""
-            SELECT {_V3_MF_PRIMITIVE_COLS}
+            SELECT {_V3_MF_PRIMITIVE_COLS},
+                   n.nav_date::text AS latest_nav_date
               FROM nidp.v_v3_mf_primitives v
+              LEFT JOIN LATERAL (
+                  SELECT MAX(nav_date) AS nav_date
+                    FROM nidp.mf_nav_daily
+                   WHERE scheme_code = v.scheme_code
+              ) n ON true
              WHERE v.isin = ANY($1::text[])
             """,
             isins,

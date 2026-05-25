@@ -123,7 +123,9 @@ def test_ar2_tax_suppression():
 
 
 def test_ar3_confidence_gate():
-    """Signals with confidence < threshold are suppressed."""
+    """Signals below confidence threshold are downgraded to LOW — NOT silently dropped.
+    Rule book §10.11: 'Downgrade by one level — do NOT drop it silently.'
+    """
     ctx = medium_portfolio_context()
     low_conf = EngineSignal(
         signal_id="test::low_conf",
@@ -133,7 +135,9 @@ def test_ar3_confidence_gate():
         base_score=5.0, confidence=0.2,  # below 0.4 threshold
     )
     arbitrated = ArbitrationEngine().arbitrate([low_conf], ctx)
-    assert arbitrated[0].suppressed is True
+    assert arbitrated[0].suppressed is False          # NOT suppressed — kept in output
+    assert arbitrated[0].confidence <= 0.3            # downgraded to LOW
+    assert "[AR-3 downgraded" in arbitrated[0].reason_text
 
 
 # ── No duplicate EXIT for same instrument ────────────────────────────────────

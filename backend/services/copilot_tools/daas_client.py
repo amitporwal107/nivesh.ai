@@ -312,6 +312,48 @@ async def get_user_holdings(
     return rows if isinstance(rows, list) else []
 
 
+async def get_portfolio_correlations(
+    security_ids: list[str],
+    min_abs_corr: float = 0.7,
+    window_days: Optional[int] = 90,
+    timeout: float = 10.0,
+) -> list[dict]:
+    """Fetch pairwise correlations for all holdings in a portfolio.
+
+    Calls POST /v1/intelligence/graph/correlations/bulk — returns only pairs
+    where BOTH sides are in the supplied security_id list (the portfolio
+    correlation subgraph). security_ids are UUIDs from ref.security_master.
+
+    Returns empty list on connectivity failure so the CorrelationEngine
+    degrades gracefully to zero pairs rather than crashing the pipeline.
+
+    Args:
+        security_ids:  UUIDs from ref.security_master (max 50).
+        min_abs_corr:  Only return pairs with |corr| >= this value (default 0.7).
+        window_days:   Lookback window filter — 90 for 90-day Pearson (default).
+                       Pass None to get all windows.
+    """
+    if not security_ids:
+        return []
+    try:
+        payload = await _post(
+            "/intelligence/graph/correlations/bulk",
+            {"security_ids": security_ids},
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        logger.warning("get_portfolio_correlations: %s", exc)
+        return []
+    if not payload:
+        return []
+    rows = payload.get("data") or []
+    # Apply client-side filters in case server params weren't respected
+    result = [r for r in rows if isinstance(r, dict)]
+    if min_abs_corr > 0:
+        result = [r for r in result if float(r.get("abs_correlation") or 0) >= min_abs_corr]
+    return result
+
+
 async def get_v3_stock_primitives_bulk(
     symbols: list[str],
     timeout: float = 15.0,

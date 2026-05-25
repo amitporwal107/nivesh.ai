@@ -3,7 +3,8 @@ ArbitrationEngine — PRD AR-1, AR-2, AR-3: Conflict resolution.
 
 AR-2: Suppress signals where tax cost > threshold % of exit amount
       (unless is_tax_harvesting=True).
-AR-3: Drop signals below confidence threshold (default 0.4).
+AR-3: Downgrade signals below confidence threshold to LOW severity.
+      Rule book §10.11: "Downgrade by one level — do NOT drop silently."
 AR-1: Deduplicate by dedup_key; GoalAlignmentEngine wins; else highest base_score.
 AR-3 priority rank: 0.30×risk_reduction + 0.25×diversification_gain
                   + 0.20×goal_impact + 0.15×urgency + 0.10×implementation_ease
@@ -50,10 +51,15 @@ class ArbitrationEngine:
                     active.append(sig)
                     continue
 
-            # AR-3: confidence gate
+            # AR-3: confidence below threshold — downgrade to LOW, do NOT suppress.
+            # Rule book §10.11: "Downgrade by one level — do NOT drop silently. Record in trace."
             if sig.confidence < confidence_threshold:
-                sig = _suppress(sig, f"Confidence {sig.confidence:.2f} < {confidence_threshold:.2f}")
-                active.append(sig)
+                import copy as _copy
+                s = _copy.copy(sig)
+                note = f"[AR-3 downgraded: confidence {sig.confidence:.2f} → LOW (< {confidence_threshold:.2f})]"
+                s.confidence = min(s.confidence, 0.3)
+                s.reason_text = (f"{note} {s.reason_text}").strip()
+                active.append(s)
                 continue
 
             active.append(sig)

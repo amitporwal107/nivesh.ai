@@ -47,32 +47,22 @@ async def _get_historical_financials(conn, symbol: str, limit: int = 4) -> list[
 async def _get_price_context(conn, symbol: str) -> dict:
     row = await conn.fetchrow(
         """
-        SELECT close_price,
-               MAX(close_price) OVER (ORDER BY trade_date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW) AS high_52w,
-               MIN(close_price) OVER (ORDER BY trade_date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW) AS low_52w
-          FROM nidp.eod_prices
-         WHERE symbol = $1
-         ORDER BY trade_date DESC
-         LIMIT 1
-        """,
-        symbol,
-    ) if False else None  # placeholder — query adjusted for actual schema below
-    row = await conn.fetchrow(
-        """
         SELECT p.close_price,
                h.high_52w,
                h.low_52w,
                ref.sector
-          FROM nidp.eod_prices p
+          FROM nidp.prices_eod p
           LEFT JOIN LATERAL (
               SELECT MAX(close_price) AS high_52w, MIN(close_price) AS low_52w
-                FROM nidp.eod_prices
+                FROM nidp.prices_eod
                WHERE symbol = $1
-                 AND trade_date >= CURRENT_DATE - INTERVAL '52 weeks'
+                 AND series = 'EQ'
+                 AND as_of_date >= CURRENT_DATE - INTERVAL '52 weeks'
           ) h ON TRUE
           LEFT JOIN nidp.symbol_master ref ON ref.symbol = $1
          WHERE p.symbol = $1
-         ORDER BY p.trade_date DESC
+           AND p.series = 'EQ'
+         ORDER BY p.as_of_date DESC
          LIMIT 1
         """,
         symbol,

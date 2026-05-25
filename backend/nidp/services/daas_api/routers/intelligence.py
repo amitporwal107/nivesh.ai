@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
@@ -280,6 +280,57 @@ async def intelligence_event_detail(event_id: str) -> Dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=404, detail="event not found")
     return {"data": row_to_dict(row)}
+
+
+@router.post("/graph/correlations/bulk", summary="Pairwise correlations for a portfolio of securities")
+async def portfolio_correlations_bulk(
+    body: Dict[str, Any] = Body(
+        ...,
+        example={"security_ids": ["<uuid1>", "<uuid2>", "<uuid3>"]},
+    ),
+    min_abs_corr: float = Query(0.0, ge=0.0, le=1.0),
+    window_days:  Optional[int] = Query(None, ge=1, le=3650),
+) -> Dict[str, Any]:
+    """Return all pairwise correlations where BOTH sides are in the supplied
+    security_id list — i.e. the correlation subgraph for a portfolio.
+
+    Accepts up to 50 security_ids. Returns pairs ordered by abs_correlation DESC.
+    Missing pairs (not enough shared history) are simply absent.
+    """
+    raw_ids: List[str] = body.get("security_ids") or []
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="security_ids must be a list")
+    ids = [s.strip() for s in raw_ids if isinstance(s, str) and s.strip()]
+    if not ids:
+        return {"data": [], "count": 0, "requested": 0}
+    if len(ids) > 50:
+        raise HTTPException(status_code=400, detail="security_ids must not exceed 50")
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Use the latest available date for each pair when no window specified
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT ON (LEAST(c.left_security_id, c.right_security_id),
+                                GREATEST(c.left_security_id, c.right_security_id))
+                   c.correlation_id, c.as_of_date, c.window_days,
+                   c.left_security_id, c.right_security_id,
+                   c.relationship_type, c.correlation_value, c.abs_correlation, c.method,
+                   c.created_at
+              FROM graph.correlations c
+             WHERE c.left_security_id  = ANY($1::uuid[])
+               AND c.right_security_id = ANY($1::uuid[])
+               AND c.left_security_id != c.right_security_id
+               AND ($2::int IS NULL OR c.window_days = $2)
+               AND c.abs_correlation >= $3
+             ORDER BY LEAST(c.left_security_id, c.right_security_id),
+                      GREATEST(c.left_security_id, c.right_security_id),
+                      c.as_of_date DESC
+            """,
+            ids, window_days, min_abs_corr,
+        )
+    result = [row_to_dict(r) for r in rows]
+    return {"data": result, "count": len(result), "requested": len(ids)}
 
 
 @router.get("/graph/correlations/{security_id}/top", summary="Top correlation peers for one security")

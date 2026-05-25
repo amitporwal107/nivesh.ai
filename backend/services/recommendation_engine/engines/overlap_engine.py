@@ -1,8 +1,13 @@
 """
 OverlapEngine — Rules 4 + 9: EXIT when two funds have high stock overlap.
 
-Rule 4: Exit the fund with the higher exit score when overlap > threshold.
+OV-1 (Rule 4): Exit the weaker fund when overlap > 70% (consolidation candidate).
+               Uses OV-3 Keep Score to decide which fund to exit.
+OV-2 (Rule 4): Emit lower-priority signal when 50–70% overlap (cleanup item).
 Rule 9: Suggest a replacement from a complementary category (cross-category variant).
+
+OV-3 Keep Score = 0.35×NIDP_score + 0.20×consistency + 0.15×risk_adjusted_return
+                + 0.10×expense + 0.10×manager_stability + 0.10×portfolio_fit
 
 Wires consolidation_score_engine.score_pair() for confidence scoring.
 """
@@ -21,6 +26,39 @@ from services.recommendation_engine.helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _ov3_keep_score(iid: Optional[str], v3_scores: Dict[str, Any]) -> float:
+    """OV-3 Keep Score (rule book §10.5).
+
+    Combines NIDP quality composite, consistency, risk-adjusted return,
+    cost efficiency, manager stability, and portfolio fit into a single
+    0–10 score. Higher = better quality fund to keep.
+    """
+    v3 = v3_scores.get(iid or "", {})
+    if not v3:
+        return 5.0
+    prims = v3.get("v3_primitives") or {}
+
+    nidp = (v3.get("quality_score") or 0) / 10.0           # 0-100 → 0-10
+    consistency = float(prims.get("consistency_score") or 5.0)
+    sharpe = prims.get("sharpe")
+    risk_adj = max(0.0, min(10.0, 5.0 + float(sharpe) * 2.0)) if sharpe is not None else 5.0
+    ter = float(prims.get("expense_ratio_direct") or 1.0)
+    expense = max(0.0, min(10.0, 10.0 - (ter - 0.3) * 4.0))
+    tenure = float(prims.get("manager_tenure_years") or 2.0)
+    manager = min(10.0, tenure * 2.0)  # 5y+ → 10.0
+    portfolio_fit = 5.0  # neutral; would use gap-fit score if available
+
+    return round(
+        0.35 * nidp
+        + 0.20 * consistency
+        + 0.15 * risk_adj
+        + 0.10 * expense
+        + 0.10 * manager
+        + 0.10 * portfolio_fit,
+        2,
+    )
 
 # Complementary category map: when exiting a fund in key category,
 # suggest adding one from the value category.
@@ -51,7 +89,8 @@ class OverlapEngine(BaseEngine):
             return []
 
         r4_params = (ctx.rules_cfg.get("rule_4_different_fund_overlap") or {}).get("params", {})
-        overlap_threshold = float(r4_params.get("overlap_threshold_pct", 60.0))
+        overlap_threshold = float(r4_params.get("overlap_threshold_pct", 70.0))    # OV-1
+        overlap_moderate = float(r4_params.get("overlap_moderate_pct", 50.0))      # OV-2
         max_exits = int(r4_params.get("max_overlap_exits", 2))
 
         r9_enabled = (ctx.rules_cfg.get("rule_9_cross_category_overlap_replacement") or {}).get("enabled", True)
@@ -76,7 +115,11 @@ class OverlapEngine(BaseEngine):
             return float((cand or {}).get("exit_score", 5.0))
 
         for pair in pairs:
-            if pair.get("overlap_pct", 0) < overlap_threshold:
+            overlap_pct = float(pair.get("overlap_pct", 0))
+            is_ov1 = overlap_pct >= overlap_threshold
+            is_ov2 = not is_ov1 and overlap_pct >= overlap_moderate
+
+            if not is_ov1 and not is_ov2:
                 continue
             if overlap_exit_count >= max_exits:
                 break
@@ -94,13 +137,17 @@ class OverlapEngine(BaseEngine):
                     id_b in ctx.exited_ids or id_b in local_exited_ids):
                 continue
 
-            score_a = _exit_rank(id_a, name_a)
-            score_b = _exit_rank(id_b, name_b)
+            # OV-3 Keep Score: exit the fund with the lower keep score
+            keep_a = _ov3_keep_score(id_a, ctx.v3_scores)
+            keep_b = _ov3_keep_score(id_b, ctx.v3_scores)
 
-            if score_a >= score_b:
+            if keep_a <= keep_b:
                 victim_iid, victim_name, victim_cand, partner_name = id_a, name_a, candidate_by_id.get(id_a), name_b
             else:
                 victim_iid, victim_name, victim_cand, partner_name = id_b, name_b, candidate_by_id.get(id_b), name_a
+
+            score_a = _exit_rank(id_a, name_a)
+            score_b = _exit_rank(id_b, name_b)
 
             # Proxy switch score gate (Rule 4 V2.5 guard)
             if victim_cand:
@@ -167,32 +214,56 @@ class OverlapEngine(BaseEngine):
             amount_rs = float(h.get("quantity", 0)) * float(h.get("current_price", 0))
             overlap_pct = pair.get("overlap_pct", overlap_threshold)
 
-            reason_text = (
-                f"High overlap ({overlap_pct:.1f}%, {pair.get('shared_count',0)} shared stocks) "
-                f"with {partner_name}. Consolidating by exiting the weaker fund "
-                f"(exit score {max(score_a, score_b):.1f})."
-            )
+            if is_ov1:
+                reason_text = (
+                    f"High overlap ({overlap_pct:.1f}%, {pair.get('shared_count',0)} shared stocks) "
+                    f"with {partner_name}. Consolidating by exiting the weaker fund "
+                    f"(keep score {min(keep_a, keep_b):.1f}/10 vs {max(keep_a, keep_b):.1f}/10)."
+                )
+                rule_label = "Rule 4 (OV-1)"
+                reason_code = "OVERLAP_CONSOLIDATION"
+                base_score = max(score_a, score_b)
+                urgency = 0.4
+            else:
+                # OV-2: moderate overlap (50–70%) — lower-priority cleanup
+                reason_text = (
+                    f"Moderate overlap ({overlap_pct:.1f}%, {pair.get('shared_count',0)} shared stocks) "
+                    f"with {partner_name}. Consider exiting the weaker fund when tax window is favourable."
+                )
+                rule_label = "Rule 4 (OV-2)"
+                reason_code = "OVERLAP_MODERATE"
+                base_score = max(score_a, score_b) * 0.6  # lower priority than OV-1
+                confidence = min(confidence, 0.5)          # cap at MEDIUM for OV-2
+                urgency = 0.2
 
             sig = EngineSignal(
                 signal_id=f"overlap::{victim_iid or victim_name[:20]}",
                 engine_name=self.engine_name,
-                rule_label="Rule 4",
+                rule_label=rule_label,
                 action_type="EXIT",
                 instrument_id=victim_iid,
                 instrument_name=victim_name,
                 amount_rs=amount_rs,
-                base_score=max(score_a, score_b),
+                base_score=base_score,
                 confidence=confidence,
                 risk_reduction=0.5,
                 diversification_gain=0.6,
-                urgency=0.4,
+                urgency=urgency,
                 implementation_ease=0.5,
-                reason_codes=["OVERLAP_CONSOLIDATION"],
+                reason_codes=[reason_code],
                 reason_text=reason_text,
                 dedup_key=f"EXIT::{victim_iid or victim_name[:30]}",
             )
             sig.__dict__["_holding"] = h
             sig.__dict__["_candidate"] = victim_cand
+
+            # PI-2: compute weighted overlap = overlap_fraction × min(weight_victim, weight_partner)
+            _wv = ctx.holding_weights.get(victim_iid or "") or ctx.holding_weights.get(normalize_fund_name(victim_name))
+            _wp = ctx.holding_weights.get(id_a if victim_iid != id_a else id_b or "") or ctx.holding_weights.get(normalize_fund_name(name_a if victim_name != name_a else name_b))
+            _w_vict = (_wv.weight_pct / 100.0) if _wv else 0.05
+            _w_part = (_wp.weight_pct / 100.0) if _wp else 0.05
+            sig.__dict__["_pi2_weighted_overlap"] = round((overlap_pct / 100.0) * min(_w_vict, _w_part), 4)
+
             signals.append(sig)
 
             local_exited_keys.add(h_key)

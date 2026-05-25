@@ -87,6 +87,14 @@ MAILTO=""
 # nidp.v3_{mf,stock}_scores_daily; served by /v1/{mf,stocks}/scores/*.
 55 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh v3_scores_engine
 
+# ── Analytics performance layer (T12 fix) ─────────────────────────
+# Populates analytics.stock_card + analytics.sector_snapshot and
+# refreshes 4 materialized views (mv_top_momentum, mv_delivery_surge,
+# mv_sector_heatmap, mv_fund_category_top10).
+# Runs AFTER v3_scores_engine (23:55) to ensure stock_features_daily
+# and stock_daily_snapshot are fully updated for the date.
+10 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh analytics_refresh
+
 # ── AMC URL drift check (daily 08:00 IST) ─────────────────────────
 # Pings every AMC + AMFI listing-page candidate. Marks the JobRun
 # FAILED on first AMC with zero healthy candidates so the next-morning

@@ -125,6 +125,15 @@ class RecommendationContext:
     # List of rows from db.international_funds_cache — needed by InternationalEngine.
     international_funds_cache: List[Dict[str, Any]] = field(default_factory=list)
 
+    # ── Data validation state (populated in build_context, read by engines) ──
+    # instrument_ids whose EXIT/tax-aware signals should be suppressed (DV-3)
+    tax_suppressed_instrument_ids: set = field(default_factory=set)
+    # Fraction of portfolio value with a valid current_price (DV-1)
+    portfolio_coverage_pct: float = 100.0
+    # Pre-fetched pairwise correlation rows from graph.correlations (CR-1)
+    # Each row: {left_security_id, right_security_id, correlation_value, abs_correlation, window_days}
+    portfolio_correlations: List[Dict[str, Any]] = field(default_factory=list)
+
     # ── Mutable dedup state (written by orchestrator only, never by engines) ──
     exited_ids: set = field(default_factory=set)
     exited_holding_keys: set = field(default_factory=set)

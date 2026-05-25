@@ -72,16 +72,18 @@ async def _get_price_context(conn, symbol: str, trade_date: date) -> dict:
     row = await conn.fetchrow(
         """
         SELECT p.close_price, h.high_52w, h.low_52w
-          FROM nidp.eod_prices p
+          FROM nidp.prices_eod p
           LEFT JOIN LATERAL (
               SELECT MAX(close_price) AS high_52w, MIN(close_price) AS low_52w
-                FROM nidp.eod_prices
+                FROM nidp.prices_eod
                WHERE symbol = $1
-                 AND trade_date >= $2 - INTERVAL '52 weeks'
+                 AND series = 'EQ'
+                 AND as_of_date >= $2 - INTERVAL '52 weeks'
           ) h ON TRUE
          WHERE p.symbol = $1
-           AND p.trade_date <= $2
-         ORDER BY p.trade_date DESC
+           AND p.series = 'EQ'
+           AND p.as_of_date <= $2
+         ORDER BY p.as_of_date DESC
          LIMIT 1
         """,
         symbol, trade_date,

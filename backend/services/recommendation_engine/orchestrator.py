@@ -27,6 +27,7 @@ from services.recommendation_engine.arbitration_engine import ArbitrationEngine
 from services.recommendation_engine.helpers import normalize_fund_name
 
 # ── Individual engines ───────────────────────────────────────────────────────
+from services.recommendation_engine.engines.data_validation_engine import DataValidationEngine
 from services.recommendation_engine.engines.regular_direct_engine import RegularDirectEngine
 from services.recommendation_engine.engines.amc_concentration_engine import AMCConcentrationEngine
 from services.recommendation_engine.engines.category_concentration_engine import CategoryConcentrationEngine
@@ -37,21 +38,30 @@ from services.recommendation_engine.engines.same_category_engine import SameCate
 from services.recommendation_engine.engines.international_engine import InternationalEngine
 from services.recommendation_engine.engines.drift_engine import DriftEngine
 from services.recommendation_engine.engines.goal_alignment_engine import GoalAlignmentEngine
+from services.recommendation_engine.engines.risk_alignment_engine import RiskAlignmentEngine
+from services.recommendation_engine.engines.portfolio_analytics_engine import PortfolioAnalyticsEngine
+from services.recommendation_engine.engines.correlation_engine import CorrelationEngine
+from services.recommendation_engine.engines.stock_scoring_engine import StockScoringEngine
 
 logger = logging.getLogger(__name__)
 
-# ── Plugin registry — order matters for tiebreaking only (AR-1 handles dedup) ──
+# ── Plugin registry — DataValidationEngine runs first (populates coverage flag) ──
 ENGINE_REGISTRY: List[BaseEngine] = [
-    RegularDirectEngine(),
-    AMCConcentrationEngine(),
-    CategoryConcentrationEngine(),
-    UnderperformerEngine(),
-    OverlapEngine(),
-    AllocationEngine(),
-    SameCategoryEngine(),
-    InternationalEngine(),
-    DriftEngine(),
-    GoalAlignmentEngine(),
+    DataValidationEngine(),       # DV-1..DV-3: data quality gate
+    RiskAlignmentEngine(),        # RA-1..RA-3: risk profile caps
+    PortfolioAnalyticsEngine(),   # PA-1..PA-2: fund count / concentration
+    RegularDirectEngine(),        # Rules 1 + 6: regular→direct
+    AMCConcentrationEngine(),     # Rule 2: AMC concentration
+    CategoryConcentrationEngine(), # Rule 2b: category concentration
+    UnderperformerEngine(),       # Rule 3: underperformer replacement
+    OverlapEngine(),              # Rules 4 + 9: pairwise overlap
+    CorrelationEngine(),          # CR-1: behavioural redundancy
+    AllocationEngine(),           # Rule 5: debt allocation
+    SameCategoryEngine(),         # Rule 8: same-category consolidation
+    InternationalEngine(),        # Rule 10: international fund gap
+    DriftEngine(),                # asset-class drift
+    GoalAlignmentEngine(),        # GA-1..GA-4: goal alignment (wins AR-1)
+    StockScoringEngine(),         # §10.9: direct equity scoring
 ]
 
 
@@ -110,6 +120,27 @@ def build_context(
         if name_key:
             holding_weights[name_key] = hw
 
+    # DV-1: Portfolio coverage pct — fraction of total_value_rs with a valid current_price
+    if total_value_rs > 0:
+        priced_value = sum(
+            float(h.get("quantity", 0)) * float(h.get("current_price", 0))
+            for h in holdings
+            if (h.get("current_price") or 0) > 0
+        )
+        portfolio_coverage_pct = priced_value / total_value_rs * 100.0
+    else:
+        portfolio_coverage_pct = 100.0
+
+    # DV-3: Holdings missing cost basis — suppress tax-aware EXIT signals for these
+    tax_suppressed: set = set()
+    for h in mf_holdings:
+        iid = h.get("instrument_id")
+        if iid and not any([
+            h.get("buy_price"), h.get("average_cost_rs"), h.get("nav_at_purchase"),
+            h.get("purchase_nav"), h.get("avg_cost"),
+        ]):
+            tax_suppressed.add(iid)
+
     return RecommendationContext(
         user_id=user_id,
         risk_profile=risk_profile,
@@ -126,6 +157,8 @@ def build_context(
         rules_cfg=rules_cfg,
         signals=signals,
         international_funds_cache=international_funds_cache or [],
+        portfolio_coverage_pct=portfolio_coverage_pct,
+        tax_suppressed_instrument_ids=tax_suppressed,
     )
 
 
@@ -179,6 +212,15 @@ def _signal_to_action(
         base["status"] = "SUPPRESSED"
         base["suppression_reason"] = sig.suppression_reason
 
+    # PI-2 and PI-4 metadata for UI/trace
+    pi2_wo = sig.__dict__.get("_pi2_weighted_overlap")
+    if pi2_wo is not None:
+        base["pi2_weighted_overlap"] = pi2_wo
+
+    pi4 = sig.__dict__.get("_pi4_contribution_score")
+    if pi4 is not None:
+        base["pi4_contribution_score"] = pi4
+
     return base
 
 
@@ -225,6 +267,56 @@ async def run_engine_pipeline(
         deviation_result=deviation_result,
         international_funds_cache=international_funds_cache,
     )
+
+    # 1b. Pre-fetch portfolio correlations (CR-1, best-effort — NIDP may be unconfigured)
+    corr_cfg = rules_cfg.get("correlation") or {}
+    if corr_cfg.get("enabled", True) and holdings:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            # Collect NIDP security_ids from holdings (instrument_id = UUID from ref.security_master)
+            security_ids = [
+                h["instrument_id"] for h in holdings
+                if h.get("instrument_id") and len(h["instrument_id"]) == 36  # UUID check
+            ][:50]
+            if security_ids:
+                min_abs_corr = float(corr_cfg.get("min_abs_correlation", 0.85))
+                window_days = corr_cfg.get("window_days", 90)
+                ctx.portfolio_correlations = await _daas.get_portfolio_correlations(
+                    security_ids=security_ids,
+                    min_abs_corr=0.7,   # fetch lower threshold; CR-1 filters at 0.85 itself
+                    window_days=window_days,
+                )
+        except Exception as _exc:
+            logger.debug("[Orchestrator] portfolio_correlations prefetch skipped: %s", _exc)
+
+    # 1c. Pre-fetch stock V3 primitives (§10.9, best-effort)
+    if ctx.stock_holdings:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            symbols = [
+                (h.get("ticker") or h.get("symbol") or "").upper()
+                for h in ctx.stock_holdings
+                if h.get("ticker") or h.get("symbol")
+            ]
+            symbols = [s for s in symbols if s][:30]
+            if symbols:
+                stock_prims = await _daas.get_v3_stock_primitives_bulk(symbols)
+                for sym, prow in stock_prims.items():
+                    # Store under symbol and under instrument_id if available
+                    ctx.v3_scores[sym] = {
+                        "quality_score": None,   # computed by StockScoringEngine
+                        "v3_primitives": prow,
+                    }
+                    # Also index by instrument_id if we can match
+                    iid_match = next(
+                        (h.get("instrument_id") for h in ctx.stock_holdings
+                         if (h.get("ticker") or h.get("symbol") or "").upper() == sym),
+                        None,
+                    )
+                    if iid_match:
+                        ctx.v3_scores[iid_match] = ctx.v3_scores[sym]
+        except Exception as _exc:
+            logger.debug("[Orchestrator] stock primitives prefetch skipped: %s", _exc)
 
     # 2. Collect signals from all engines (pure, no I/O)
     all_signals: List[EngineSignal] = []

@@ -912,7 +912,7 @@ class ActionPlanManager:
         # pluggable orchestrator. The legacy sequential rule body is skipped.
         _ep = rcfg.get("engine_pipeline") or {}
         if _ep.get("enabled"):
-            from backend.services.recommendation_engine.orchestrator import run_engine_pipeline
+            from services.recommendation_engine.orchestrator import run_engine_pipeline
             # Fetch international_funds_cache for InternationalEngine (pure engine needs pre-fetched data)
             _intl_cache: List[Dict[str, Any]] = []
             try:
