@@ -56,22 +56,30 @@ PG_DSN = (
 # discovery (table_name = dataset_name and prefer `as_of_date`/`target_date`/
 # `nav_date`/`observation_date` if present).
 _DATASET_MAP: Dict[str, Tuple[str, str]] = {
-    "amfi_nav":                   ("nidp.amfi_nav",            "as_of_date"),
-    "fii_dii":                    ("nidp.fii_dii",             "as_of_date"),
-    "fii_dii_flows":              ("nidp.fii_dii",             "as_of_date"),
-    "bhavcopy":                   ("nidp.bhavcopy",            "as_of_date"),
+    # Dataset name → (physical table, date column). Both must match what
+    # exists in nidp schema today. Logical feed names (e.g. "amfi_nav",
+    # "bhavcopy") are kept as alias keys for backwards-compat with
+    # dq.expectations_active rows; they all resolve to the same physical
+    # tables as the canonical entries below.
+    "amfi_nav":                   ("nidp.mf_nav_daily",        "nav_date"),
+    "amfi_nav_history":           ("nidp.mf_nav_daily",        "nav_date"),
+    "mf_nav_daily":               ("nidp.mf_nav_daily",        "nav_date"),
+    "fii_dii":                    ("nidp.fii_dii_flows",       "as_of_date"),
+    "fii_dii_flows":              ("nidp.fii_dii_flows",       "as_of_date"),
+    "bhavcopy":                   ("nidp.prices_eod",          "as_of_date"),
     "prices_eod":                 ("nidp.prices_eod",          "as_of_date"),
     "prices_eod_adjusted":        ("nidp.prices_eod_adjusted", "as_of_date"),
-    "delivery":                   ("nidp.delivery",            "as_of_date"),
-    "index_close":                ("nidp.index_close",         "as_of_date"),
+    "delivery":                   ("nidp.delivery_data",       "as_of_date"),
+    "delivery_data":              ("nidp.delivery_data",       "as_of_date"),
+    "index_close":                ("nidp.index_eod",           "as_of_date"),
+    "index_eod":                  ("nidp.index_eod",           "as_of_date"),
     "fno_bhavcopy":               ("nidp.fno_bhavcopy",        "as_of_date"),
     "bulk_deals":                 ("nidp.bulk_deals",          "as_of_date"),
     "block_deals":                ("nidp.block_deals",         "as_of_date"),
     "rbi_yields":                 ("nidp.rbi_yields",          "as_of_date"),
-    "fred_macro":                 ("nidp.fred_macro",          "observation_date"),
-    "mf_nav_daily":               ("nidp.mf_nav_daily",        "nav_date"),
-    "amfi_nav_history":           ("nidp.mf_nav_daily",        "nav_date"),
-    "mf_holdings":                ("nidp.mf_holdings",         "snapshot_date"),
+    "fred_macro":                 ("nidp.fred_macro",          "as_of_date"),
+    "mf_holdings":                ("nidp.mf_holdings_monthly", "as_of_month"),
+    "mf_holdings_monthly":        ("nidp.mf_holdings_monthly", "as_of_month"),
     "mf_disclosure_snapshot":     ("nidp.mf_scheme_disclosure_snapshot", "snapshot_date"),
 }
 
@@ -158,12 +166,47 @@ async def _evaluate_rule(
     rule: Dict[str, Any],
     target_date: Optional[date],
 ) -> DynamicRuleResult:
-    """Run one expression against the target table+date."""
+    """Run one expression against the target table+date.
+
+    Branches on rule_kind (migration 064):
+      per_row    — expression is a per-row boolean. Total/bad counted across
+                   rows of the table for target_date.
+      aggregate  — expression is a full boolean SQL fragment (typically a
+                   subquery against the table itself). Evaluated once. The
+                   rule passes iff the fragment evaluates to TRUE. Required
+                   for table-level assertions (freshness, row-count floor).
+    """
     dataset = rule["dataset_name"]
     name    = rule["name"]
     expr    = rule["expression"]
     rid     = str(rule["rule_id"])
+    kind    = rule.get("rule_kind", "per_row") or "per_row"
 
+    if kind == "aggregate":
+        # Run the expression as the sole projection. It must be a boolean
+        # expression — typically a subquery: `(SELECT max(...) >= ... FROM ...)`
+        sql = f"SELECT ({expr}) AS passed"
+        try:
+            row = await conn.fetchrow(sql)
+        except Exception as e:                                            # noqa: BLE001
+            return DynamicRuleResult(
+                rule_id=rid, dataset_name=dataset, name=name,
+                severity=rule.get("severity", "WARN"), expression=expr,
+                success=False, total_rows=0, failed_rows=0, failed_pct=0.0,
+                error=f"{type(e).__name__}: {str(e)[:200]}",
+            )
+        passed = bool(row["passed"]) if row and row["passed"] is not None else False
+        return DynamicRuleResult(
+            rule_id=rid, dataset_name=dataset, name=name,
+            severity=rule["severity"], expression=expr,
+            success=passed,
+            # For aggregate rules total/bad describe rule-level pass/fail:
+            # 1 row tested, 0 or 1 "failed" depending on outcome.
+            total_rows=1, failed_rows=(0 if passed else 1),
+            failed_pct=(0.0 if passed else 100.0),
+        )
+
+    # ── per_row mode (legacy default) ──
     resolved = await _resolve_table(conn, dataset)
     if resolved is None:
         return DynamicRuleResult(
@@ -198,10 +241,15 @@ async def _evaluate_rule(
     total = int(row["total"] or 0)
     bad   = int(row["bad"]   or 0)
     pct   = (100.0 * bad / total) if total > 0 else 0.0
+    # Per-row rule with total==0 means: no rows matched the target_date filter.
+    # We don't surface this as a failure here — the universal aggregate
+    # rules added by migration 064 are the source of truth for "table
+    # missing data on target_date". Per-row rules just go SUCCESS=TRUE on
+    # empty input so we don't double-fire on weekends/holidays.
     return DynamicRuleResult(
         rule_id=rid, dataset_name=dataset, name=name,
         severity=rule["severity"], expression=expr,
-        success=(bad == 0 and total > 0),
+        success=(bad == 0),
         total_rows=total, failed_rows=bad, failed_pct=pct,
     )
 
@@ -213,8 +261,18 @@ async def _persist_finding(
     result: DynamicRuleResult,
 ) -> None:
     """Write one failing dynamic-rule result into nidp.validation_findings.
-    Successful rules are not persisted (parity with GE runner)."""
-    if result.success or result.error is None and result.failed_rows == 0:
+    Successful rules are not persisted (parity with GE runner).
+
+    Bugfix (2026-05-21): the old short-circuit
+        `if result.success or result.error is None and result.failed_rows == 0`
+    was parsed by Python operator precedence as
+        `result.success OR (result.error is None AND result.failed_rows == 0)`
+    which silently suppressed every "empty table" failure: a feed that
+    wrote zero rows produced result.success=False, error=None, failed_rows=0
+    → second branch True → finding skipped. That's why mf_holdings_monthly
+    being empty for weeks never surfaced in the dashboard.
+    """
+    if result.success:
         return
 
     # Severity escalation: a CRITICAL rule with > 5% failure rate stays
@@ -247,6 +305,19 @@ async def _persist_finding(
             "INFO":     "INFO",
         }.get(sev, "FIX")
 
+        # Aggregate rules have total_rows=1 by convention (the rule itself
+        # is the unit). Per-row rules have total_rows = the dataset's row
+        # count for target_date. Give each a useful human message.
+        if result.error:
+            msg = result.error
+        elif result.total_rows == 1 and result.failed_rows == 1 and not result.error:
+            # Aggregate rule failed — name the expectation, not "1/1 rows"
+            msg = f"aggregate expectation '{result.name}' returned FALSE"
+        elif result.total_rows == 0:
+            msg = f"no rows in {result.dataset_name} for target_date={target_date}"
+        else:
+            msg = f"{result.failed_rows}/{result.total_rows} rows violate {result.name}"
+
         await conn.execute(
             """
             INSERT INTO nidp.validation_findings
@@ -256,8 +327,7 @@ async def _persist_finding(
             VALUES (gen_random_uuid(), gen_random_uuid(), $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10::jsonb)
             """,
             run_id, result.dataset_name, target_date, result.name, sev,
-            failure_class,
-            (result.error or f"{result.failed_rows}/{result.total_rows} rows violate {result.name}")[:500],
+            failure_class, msg[:500],
             result.expression[:1000],
             str(result.failed_rows),
             json.dumps(payload, default=str),
@@ -282,13 +352,22 @@ async def run_active_rules(
     """
     conn = await asyncpg.connect(PG_DSN)
     try:
+        # DQ expressions often reference tables without a schema prefix
+        # (e.g. `EXISTS (SELECT 1 FROM corporate_actions WHERE ...)`).
+        # The default search_path is "$user", public — which can't see
+        # nidp/dq/etc. Set it explicitly so unqualified table names in
+        # rule expressions resolve to the right schema.
+        await conn.execute(
+            "SET search_path TO nidp, dq, features, analytics, events, graph, ref, public"
+        )
         # Bail early if the schema isn't there yet (migration 043
         # not applied) — equivalent to "no rules registered".
         try:
             rows = await conn.fetch(
                 """
                 SELECT rule_id, dataset_name, name, expression,
-                       severity, active, rationale, business_impact
+                       severity, active, rationale, business_impact,
+                       COALESCE(rule_kind, 'per_row') AS rule_kind
                   FROM dq.expectations_active
                  WHERE active = TRUE
                    AND ($1::text IS NULL OR dataset_name = $1)
