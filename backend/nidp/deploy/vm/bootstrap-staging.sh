@@ -43,6 +43,21 @@ if [[ $EUID -ne 0 ]]; then
     echo "ERROR: this script must be run as root (sudo)." >&2; exit 1
 fi
 
+# ── 0b. Timezone ─────────────────────────────────────────────────────
+# TZ=Asia/Kolkata in env files only works when tzdata is installed and the
+# system timezone is set. Do both so cron, Python, and Docker all agree.
+if ! dpkg -l tzdata 2>/dev/null | grep -q '^ii'; then
+    log "installing tzdata"
+    run "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tzdata"
+fi
+if command -v timedatectl >/dev/null 2>&1; then
+    log "setting system timezone to Asia/Kolkata"
+    run "timedatectl set-timezone Asia/Kolkata"
+else
+    run "ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime"
+    run "echo 'Asia/Kolkata' > /etc/timezone"
+fi
+
 # ── 1. Service user ──────────────────────────────────────────────────
 if ! id -u "$NIDP_STAGING_USER" >/dev/null 2>&1; then
     log "creating service user $NIDP_STAGING_USER"

@@ -23,6 +23,7 @@ services:
       POSTGRES_USER:     ${NIDP_PG_USER:-nidp_staging}
       POSTGRES_PASSWORD: ${NIDP_PG_PASSWORD}
       POSTGRES_DB:       ${NIDP_PG_DB:-nidp_staging}
+      TZ:                Asia/Kolkata
     ports:
       # 5434 on host → avoids conflict with prod nidp-postgres on 5433
       - "127.0.0.1:5434:5432"

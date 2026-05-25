@@ -26,13 +26,24 @@ NIDP_USER=nidp
 
 log() { printf '\033[1;36m[bootstrap]\033[0m %s\n' "$*"; }
 
+# ── 0. Timezone — must be set before any service starts ───────────
+# TZ=Asia/Kolkata in nidp.env only works when tzdata is present and the
+# system clock is anchored to IST. Set it at the OS level so cron,
+# Python, and Docker containers all agree.
+if command -v timedatectl >/dev/null 2>&1; then
+    timedatectl set-timezone Asia/Kolkata
+else
+    ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime
+    echo 'Asia/Kolkata' > /etc/timezone
+fi
+
 # ── 1. System packages ────────────────────────────────────────────
 log "installing apt packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
     python3.11 python3.11-venv python3-pip \
-    git curl jq postgresql-client logrotate cron ca-certificates
+    git curl jq postgresql-client logrotate cron ca-certificates tzdata
 
 # ── 2. Service user ───────────────────────────────────────────────
 if ! id -u "$NIDP_USER" >/dev/null 2>&1; then
