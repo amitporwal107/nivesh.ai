@@ -30,8 +30,9 @@ PROJECT="niveshdataintelligence"
 CONF_SRC="/opt/nidp/repo/backend/nidp/deploy/vm/nginx.staging.conf"
 CONF_DST="/etc/nginx/sites-available/nidp-staging"
 SSL_DIR="/etc/nginx/ssl"
-CERT_FILE="$SSL_DIR/data-staging.crt"
-KEY_FILE="$SSL_DIR/data-staging.key"
+# Staging reuses the prod wildcard cert (*.niveshcopilot.com covers data.staging.*)
+CERT_FILE="$SSL_DIR/data.crt"
+KEY_FILE="$SSL_DIR/data.key"
 
 log()  { printf '\033[1;36m[install_nginx_staging]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[install_nginx_staging]\033[0m %s\n' "$*"; exit 1; }
@@ -41,21 +42,25 @@ fail() { printf '\033[1;31m[install_nginx_staging]\033[0m %s\n' "$*"; exit 1; }
 command -v gcloud >/dev/null 2>&1 || fail "gcloud not on PATH"
 command -v nginx  >/dev/null 2>&1 || fail "nginx not installed — run install_nginx.sh first"
 
-# ── 1. TLS material from Secret Manager ───────────────────────────────
+# ── 1. TLS material — reuse prod wildcard cert (*.niveshcopilot.com) ──
 install -d -m 0750 -o root -g root "$SSL_DIR"
 
-log "fetching nidp-tls-cert-staging from Secret Manager"
-gcloud secrets versions access latest \
-    --secret=nidp-tls-cert-staging --project="$PROJECT" \
-    | install -m 0644 -o root -g root /dev/stdin "$CERT_FILE"
+if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
+    log "prod wildcard cert already present at $CERT_FILE — skipping fetch"
+else
+    log "fetching nidp-tls-cert from Secret Manager (shared wildcard)"
+    gcloud secrets versions access latest \
+        --secret=nidp-tls-cert --project="$PROJECT" \
+        | install -m 0644 -o root -g root /dev/stdin "$CERT_FILE"
 
-log "fetching nidp-tls-key-staging from Secret Manager"
-gcloud secrets versions access latest \
-    --secret=nidp-tls-key-staging --project="$PROJECT" \
-    | install -m 0600 -o root -g root /dev/stdin "$KEY_FILE"
+    log "fetching nidp-tls-key from Secret Manager (shared wildcard)"
+    gcloud secrets versions access latest \
+        --secret=nidp-tls-key --project="$PROJECT" \
+        | install -m 0600 -o root -g root /dev/stdin "$KEY_FILE"
+fi
 
 openssl x509 -in "$CERT_FILE" -noout -subject -dates >/dev/null \
-    || fail "fetched staging cert is not a valid X.509 PEM"
+    || fail "cert at $CERT_FILE is not a valid X.509 PEM"
 
 # ── 2. Install site config ─────────────────────────────────────────────
 log "installing $CONF_DST"

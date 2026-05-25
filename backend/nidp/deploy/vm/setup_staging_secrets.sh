@@ -72,12 +72,8 @@ declare -A SECRETS=(
     [NIDP_QUERY_API_TOKEN_STAGING]="SET_ME"
     # Query API base URL for staging (Cloudflare A record → this VM, nginx routes by vhost)
     [NIDP_QUERY_API_BASE_URL_STAGING]="https://data.staging.niveshcopilot.com"
-    # TLS certs for data.staging.niveshcopilot.com (self-signed or Cloudflare Origin CA)
-    # Populate with: openssl req -x509 -newkey rsa:2048 -keyout /dev/stdout -out /dev/stdout \
-    #   -days 3650 -nodes -subj "/CN=data.staging.niveshcopilot.com" 2>/dev/null | \
-    #   <split cert/key and upload separately>
-    [nidp-tls-cert-staging]="SET_ME_PEM_CERT"
-    [nidp-tls-key-staging]="SET_ME_PEM_KEY"
+    # NOTE: TLS cert/key are NOT separate secrets for staging — the prod wildcard
+    # cert (nidp-tls-cert / nidp-tls-key) covers *.niveshcopilot.com and is reused.
 )
 
 for SECRET_NAME in "${!SECRETS[@]}"; do
