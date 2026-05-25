@@ -18,12 +18,7 @@ const CONC_CODES = new Set([
   "COMPANY_CONCENTRATION", "STOCK_CONCENTRATION", "OVERLAP_CONSOLIDATION",
 ]);
 
-const HHI_META = (hhi) => {
-  if (hhi == null) return { label: "—", tone: "var(--v4-ink-faint)" };
-  if (hhi < 0.15) return { label: "Well diversified", tone: "var(--v4-moss)" };
-  if (hhi < 0.25) return { label: "Moderate",         tone: "var(--v4-gold)" };
-  return              { label: "Concentrated",         tone: "var(--v4-rust)" };
-};
+const CAUTION_PCT = 25; // threshold line shown on bars
 
 export default function Concentration() {
   const navigate = useNavigate();
@@ -63,15 +58,20 @@ export default function Concentration() {
 
   /* ③ improvement metric */
   const improvements = plan?.plan?.improvements || {};
-  const before = improvements.top_amc_pct?.before;
-  const after  = improvements.top_amc_pct?.after;
+  const healthBefore = improvements.health_score?.before ?? improvements.concentration_score?.before ?? null;
+  const healthAfter  = improvements.health_score?.after  ?? improvements.concentration_score?.after  ?? null;
 
-  const badge = data?.amc?.hhi != null
-    ? HHI_META(data.amc.hhi).label
-    : data?.empty ? undefined : "Loading";
-  const badgeTone = data?.amc?.hhi >= 0.25 ? "rust" : data?.amc?.hhi >= 0.15 ? "gold" : "moss";
+  /* Badge: HIGH / MEDIUM / LOW based on sector HHI */
+  const sectorHhi = data?.sector?.hhi;
+  const badge = sectorHhi != null
+    ? (sectorHhi >= 0.25 ? "HIGH" : sectorHhi >= 0.15 ? "MEDIUM" : "LOW")
+    : data?.empty ? undefined : undefined;
+  const badgeTone = sectorHhi >= 0.25 ? "rust" : sectorHhi >= 0.15 ? "gold" : "moss";
 
-  /* lens data */
+  /* Lens tabs — order: Stocks | Sectors | AMC | Groups */
+  const LENS_ORDER = ["company", "sector", "amc", "group"];
+  const LENS_LABELS = { company: "Stocks", sector: "Sectors", amc: "AMC", group: "Groups" };
+
   const lensData = {
     sector:  { items: data?.sector?.items,  hhi: data?.sector?.hhi,  hero: data?.sector?.hero_insight,  label: "By sector · look-through" },
     amc:     { items: data?.amc?.items,     hhi: data?.amc?.hhi,     hero: data?.amc?.hero_insight,     label: "By AMC" },
@@ -79,6 +79,10 @@ export default function Concentration() {
     group:   { items: data?.group?.items,   hhi: data?.group?.hhi,   hero: data?.group?.hero_insight,   label: "By promoter group" },
   };
   const active = lensData[lens];
+  const activeMax = (active.items?.[0]?.pct) || 1;
+
+  /* TOP 5 uses sector items (matches headline context) */
+  const top5Pct = (data?.sector?.items || []).slice(0, 5).reduce((s, i) => s + (i.pct || 0), 0).toFixed(0);
 
   return (
     <DashboardShell title="Concentration" badge={badge} badgeTone={badgeTone}>
@@ -95,7 +99,7 @@ export default function Concentration() {
           {/* ① Insight */}
           <div style={eyebrowStyle}>① Insight</div>
 
-          {/* Insight card — narrative headline + inline stats (matches prototype) */}
+          {/* Insight card */}
           <div style={insightCardStyle}>
             {active.hero?.headline ? (
               <>
@@ -117,18 +121,18 @@ export default function Concentration() {
               </>
             )}
             <div style={inlineStatRowStyle}>
-              <InlineStat label="Top 5" value={data.amc?.items?.slice(0,5).reduce((s,i)=>s+(i.pct||0),0).toFixed(0) + "%"} />
+              <InlineStat label="Top 5" value={`${top5Pct}%`} />
               <InlineStat label="HHI" value={data.sector?.hhi != null ? Math.round(data.sector.hhi * 10000).toString() : "—"} />
               <InlineStat label="Eff. N" value={data.sector?.effective_n != null ? Number(data.sector.effective_n).toFixed(1) : "—"} />
             </div>
           </div>
 
-          {/* Lens chips */}
+          {/* Lens chips — Stocks | Sectors | AMC | Groups */}
           <div style={chipRowStyle}>
-            {(["sector","amc","company","group"]).map(l => (
+            {LENS_ORDER.map(l => (
               <button key={l} type="button" onClick={() => setLens(l)}
                 style={l === lens ? {...lensChipStyle, ...lensChipActiveStyle} : lensChipStyle}>
-                {l === "sector" ? "Sectors" : l === "amc" ? "AMC" : l === "company" ? "Stocks" : "Groups"}
+                {LENS_LABELS[l]}
               </button>
             ))}
           </div>
@@ -139,15 +143,13 @@ export default function Concentration() {
               <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1.1, color: "var(--v4-ink-mute)", textTransform: "uppercase" }}>
                 {active.label}
               </span>
-              {active.hhi != null && (
-                <span style={{ marginLeft: "auto", fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 0.9, color: active.hhi > 0.25 ? "var(--v4-rust)" : "var(--v4-gold)", textTransform: "uppercase" }}>
-                  Caution {active.hhi > 0.25 ? ">25%" : "25%"}
-                </span>
-              )}
+              <span style={{ marginLeft: "auto", fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 0.9, color: "var(--v4-saffron)", textTransform: "uppercase" }}>
+                Caution {CAUTION_PCT}%
+              </span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "13px 16px 15px" }}>
               {(active.items || []).slice(0, 10).map((item, i) => (
-                <BarRow key={item.name || i} item={item} max={(active.items?.[0]?.pct) || 1} />
+                <BarRow key={item.name || i} item={item} max={activeMax} caution={CAUTION_PCT} />
               ))}
               {(!active.items || active.items.length === 0) && (
                 <div style={{ fontSize: 12, color: "var(--v4-ink-faint)", padding: "8px 0" }}>No data for this lens.</div>
@@ -175,10 +177,10 @@ export default function Concentration() {
 
           {/* ③ Apply */}
           <ApplyCard
-            metricLabel="Top AMC weight"
-            before={before != null ? before.toFixed(1) : null}
-            after={after != null ? after.toFixed(1) : null}
-            unit="%"
+            metricLabel="Projected health"
+            before={healthBefore != null ? String(Math.round(healthBefore)) : null}
+            after={healthAfter != null ? String(Math.round(healthAfter)) : null}
+            unit=""
             acceptedCount={accepted.size}
             onSend={() => navigate("/plan")}
           />
@@ -197,18 +199,23 @@ function InlineStat({ label, value }) {
   );
 }
 
-function BarRow({ item, max }) {
+function BarRow({ item, max, caution }) {
   const pct = Number(item.pct || 0);
   const barWidth = max > 0 ? Math.min((pct / max) * 100, 100) : 0;
-  const tone = pct > 30 ? "var(--v4-rust)" : pct > 20 ? "var(--v4-gold)" : "var(--v4-saffron)";
+  // Caution tick position as % of the track — only render if max > caution
+  const cautionPos = (caution && max > caution) ? Math.min((caution / max) * 100, 100) : null;
+  const tone = pct > caution ? "var(--v4-rust)" : "var(--v4-moss)";
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
         <span style={{ fontSize: 13, color: "var(--v4-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{item.name || "—"}</span>
         <span style={{ fontFamily: "var(--v4-display)", fontSize: 13, color: "var(--v4-ink)", flexShrink: 0 }}>{pct.toFixed(1)}%</span>
       </div>
-      <div style={{ height: 4, borderRadius: 2, background: "var(--v4-line-strong)", overflow: "hidden" }}>
+      <div style={{ height: 4, borderRadius: 2, background: "var(--v4-line-strong)", position: "relative" }}>
         <div style={{ height: "100%", width: `${barWidth}%`, background: tone, borderRadius: 2, transition: "width .4s var(--v4-ease)" }} />
+        {cautionPos != null && (
+          <div style={{ position: "absolute", top: 0, left: `${cautionPos}%`, width: 1, height: "100%", background: "rgba(255,255,255,0.25)" }} />
+        )}
       </div>
     </div>
   );
@@ -223,4 +230,3 @@ const lensChipStyle = { fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing
 const lensChipActiveStyle = { color: "var(--v4-saffron)", borderColor: "rgba(255,146,72,.4)", background: "rgba(255,146,72,.08)" };
 const chartCardStyle = { background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderRadius: "var(--v4-r-lg)", overflow: "hidden", marginBottom: 18 };
 const chartHeaderStyle = { display: "flex", alignItems: "center", gap: 8, padding: "11px 16px 8px", borderBottom: "1px solid var(--v4-line)" };
-const heroInsightStyle = (tone) => ({ borderLeft: `3px solid ${tone === "ok" ? "var(--v4-moss)" : tone === "warn" ? "var(--v4-gold)" : "var(--v4-rust)"}`, padding: "12px 16px 10px", borderBottom: "1px solid var(--v4-line)" });

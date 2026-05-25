@@ -1,0 +1,94 @@
+"""
+ArbitrationEngine — PRD AR-1, AR-2, AR-3: Conflict resolution.
+
+AR-2: Suppress signals where tax cost > threshold % of exit amount
+      (unless is_tax_harvesting=True).
+AR-3: Drop signals below confidence threshold (default 0.4).
+AR-1: Deduplicate by dedup_key; GoalAlignmentEngine wins; else highest base_score.
+AR-3 priority rank: 0.30×risk_reduction + 0.25×diversification_gain
+                  + 0.20×goal_impact + 0.15×urgency + 0.10×implementation_ease
+                  × base_score (final sort key for output ordering)
+"""
+from __future__ import annotations
+
+import logging
+from typing import Dict, List
+
+from services.recommendation_engine.context import EngineSignal, RecommendationContext
+
+logger = logging.getLogger(__name__)
+
+_GOAL_ENGINE = "GoalAlignmentEngine"
+
+
+class ArbitrationEngine:
+    """Suppress, deduplicate, and rank EngineSignals."""
+
+    def arbitrate(
+        self,
+        signals: List[EngineSignal],
+        ctx: RecommendationContext,
+    ) -> List[EngineSignal]:
+        ep_cfg = (ctx.rules_cfg.get("engine_pipeline") or {})
+        arb_cfg = ep_cfg.get("arbitration") or {}
+        confidence_threshold = float(arb_cfg.get("confidence_threshold", 0.4))
+        tax_threshold_pct = float(arb_cfg.get("tax_suppression_threshold_pct", 15.0))
+
+        active: List[EngineSignal] = []
+
+        for sig in signals:
+            # AR-2: tax suppression
+            if (
+                sig.action_type == "EXIT"
+                and not sig.is_tax_harvesting
+                and sig.estimated_tax_rs > 0
+                and sig.amount_rs > 0
+            ):
+                tax_pct = sig.estimated_tax_rs / sig.amount_rs * 100
+                if tax_pct > tax_threshold_pct:
+                    sig = _suppress(sig, f"Tax cost {tax_pct:.1f}% > {tax_threshold_pct:.0f}% threshold")
+                    active.append(sig)
+                    continue
+
+            # AR-3: confidence gate
+            if sig.confidence < confidence_threshold:
+                sig = _suppress(sig, f"Confidence {sig.confidence:.2f} < {confidence_threshold:.2f}")
+                active.append(sig)
+                continue
+
+            active.append(sig)
+
+        # AR-1: dedup by dedup_key — GoalAlignmentEngine wins; else highest base_score
+        best_by_key: Dict[str, EngineSignal] = {}
+        for sig in active:
+            if sig.suppressed:
+                continue
+            key = sig.dedup_key
+            existing = best_by_key.get(key)
+            if existing is None:
+                best_by_key[key] = sig
+            elif sig.engine_name == _GOAL_ENGINE and existing.engine_name != _GOAL_ENGINE:
+                best_by_key[key] = sig  # goal engine always wins
+            elif sig.base_score > existing.base_score and existing.engine_name != _GOAL_ENGINE:
+                best_by_key[key] = sig
+
+        deduped = list(best_by_key.values())
+        suppressed = [s for s in active if s.suppressed]
+
+        # AR-3 priority sort
+        deduped.sort(key=lambda s: s.ar3_priority, reverse=True)
+
+        logger.info(
+            "[Arbitration] %d signals → %d active, %d suppressed",
+            len(signals), len(deduped), len(suppressed),
+        )
+
+        return deduped + suppressed  # suppressed kept at end for audit trail
+
+
+def _suppress(sig: EngineSignal, reason: str) -> EngineSignal:
+    import copy
+    s = copy.copy(sig)
+    s.suppressed = True
+    s.suppression_reason = reason
+    return s

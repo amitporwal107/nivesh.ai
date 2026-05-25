@@ -99,6 +99,11 @@ REASON_CODE_DOMAIN: Dict[str, str] = {
     "TAX_HARVEST": "tax",
     "TAX_STRUCTURING": "tax",
     "TAX_80C": "tax",
+    # Diversification domain (new rules 8-10)
+    "SAME_CATEGORY_CONSOLIDATION": "diversification",
+    "CROSS_CATEGORY_REPLACEMENT": "diversification",
+    "INTERNATIONAL_DIVERSIFICATION": "diversification",
+    "GEOGRAPHIC_GAP": "diversification",
 }
 
 
@@ -139,10 +144,10 @@ def _derive_verb(action_type: Optional[str], asset_type: Optional[str],
 
     if reason_codes and t == "EXIT" and at in FUND_ASSET_TYPES:
         for code in reason_codes:
-            if "SWITCH" in code or code == "REGULAR_DIRECT_DUPLICATE":
+            if "SWITCH" in code or code in ("REGULAR_DIRECT_DUPLICATE", "CROSS_CATEGORY_REPLACEMENT"):
                 return "SWITCH"
         for code in reason_codes:
-            if "MERGE" in code or code == "OVERLAP_CONSOLIDATION":
+            if "MERGE" in code or code in ("OVERLAP_CONSOLIDATION", "SAME_CATEGORY_CONSOLIDATION"):
                 return "MERGE"
 
     return VERB_BY_TYPE.get(t, t)

@@ -17,6 +17,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular deps at module load time.
+def _secrets_get(key: str) -> str:
+    try:
+        from helpers import secrets
+        return secrets.get(key)
+    except Exception:
+        return os.environ.get(key, "")
+
 _DEFAULT_TIMEOUT = 10.0
 
 
@@ -28,11 +36,13 @@ class DaasError(Exception):
 
 
 def _creds() -> tuple[str, str]:
-    base = os.environ.get("NIDP_DAAS_BASE_URL", "").rstrip("/")
-    key = os.environ.get("NIDP_DAAS_API_KEY", "")
+    base = _secrets_get("NIDP_DAAS_BASE_URL").rstrip("/")
+    # Admin UI registers the key as NIDP_DAAS_INTERNAL_TOKEN; Cloud Run env var
+    # may be named NIDP_DAAS_API_KEY — try both so either path works.
+    key = _secrets_get("NIDP_DAAS_INTERNAL_TOKEN") or _secrets_get("NIDP_DAAS_API_KEY")
     if not base or not key:
         raise DaasError(
-            "NIDP_DAAS_BASE_URL and NIDP_DAAS_API_KEY must be set to call DAAS"
+            "NIDP_DAAS_BASE_URL and NIDP_DAAS_API_KEY (or NIDP_DAAS_INTERNAL_TOKEN) must be set to call DAAS"
         )
     return base, key
 
@@ -94,10 +104,8 @@ def is_configured() -> bool:
     Callers use this to decide whether to attempt DaaS HTTP before
     falling back to a direct PG read.
     """
-    return bool(
-        os.environ.get("NIDP_DAAS_BASE_URL", "").strip()
-        and os.environ.get("NIDP_DAAS_API_KEY", "").strip()
-    )
+    key = _secrets_get("NIDP_DAAS_INTERNAL_TOKEN") or _secrets_get("NIDP_DAAS_API_KEY")
+    return bool(_secrets_get("NIDP_DAAS_BASE_URL").strip() and key.strip())
 
 
 async def get_stock_features_latest(symbol: str) -> Optional[Dict[str, Any]]:

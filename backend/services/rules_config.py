@@ -91,11 +91,55 @@ DEFAULTS: Dict[str, Any] = {
                 "portfolio_score_threshold": 75.0,
             },
         },
+        "rule_8_same_category_consolidation": {
+            "enabled": True,
+            "label": "Rule 8 · Same-category fund consolidation",
+            "description": "When the user holds 3+ funds in the same SEBI category (e.g. Large Cap), recommend exiting all but the best-scoring one.",
+            "params": {
+                "min_funds_to_trigger": 3,
+                "keep_top_n": 1,
+            },
+        },
+        "rule_9_cross_category_overlap_replacement": {
+            "enabled": True,
+            "label": "Rule 9 · Cross-category overlap replacement",
+            "description": "When two funds overlap heavily, instead of just exiting one, suggest replacing it with a fund in a complementary category.",
+            "params": {
+                "overlap_threshold_pct": 60.0,
+                "max_replacements": 2,
+            },
+        },
+        "rule_10_international_fund_gap": {
+            "enabled": True,
+            "label": "Rule 10 · International fund gap",
+            "description": "Recommend adding an international fund when the user has <2% geographic diversification and the risk profile supports it.",
+            "params": {
+                "min_intl_gap_pct": 2.0,
+                "min_portfolio_value_rs": 500000,
+            },
+        },
     },
     "plan_limits": {
         "max_actions_per_plan": 6,
     },
     "custom_rules": [],   # Phase 2 — user-defined rules
+    # ── Engine pipeline (new architecture) ───────────────────────────────
+    # engine_pipeline.enabled=False → legacy sequential _apply_action_rules()
+    # engine_pipeline.enabled=True  → new run_engine_pipeline() orchestrator
+    "engine_pipeline": {
+        "enabled": False,
+        "arbitration": {
+            "confidence_threshold": 0.4,
+            "tax_suppression_threshold_pct": 15.0,
+        },
+        "simulation": {
+            # 0 = off (no marginal suppression); raise to e.g. 50000 once validated
+            "marginal_improvement_threshold_rs": 0,
+        },
+        "portfolio_impact": {
+            "enabled": True,
+        },
+    },
 }
 
 

@@ -122,7 +122,9 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
     covered_value = 0.0
     fund_breakdown: list[dict] = []
     stock_breakdown: list[dict] = []
-    risk_drivers: list[dict] = []
+    # factor exposure accumulators for bar-chart risk drivers
+    smallcap_val = high_beta_val = cyclical_val = 0.0
+    _CYCLICAL_KW = {"bank", "nbfc", "finance", "metal", "real estate", "auto", "construct", "oil", "chemical"}
 
     for h in holdings:
         qty = float(h.get("quantity") or 0)
@@ -136,6 +138,19 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
             prim = mf_primitives.get(h["ticker"])
         elif atype in {"stock", "equity"} and h.get("ticker"):
             prim = stock_primitives.get(h["ticker"])
+
+        # Factor exposure tracking — runs even when prim is missing
+        _cat        = ((prim.get("sub_category") or prim.get("category") or "") if prim else "").lower()
+        _cap_bucket = ((prim.get("market_cap_bucket") or "") if prim else "").lower()
+        _sect       = (h.get("sector") or "").lower()
+        # Smallcap: MF sub_category "Small Cap" OR stock market_cap_bucket SMALL/MICRO
+        if "small" in _cat or "small" in _cap_bucket or "micro" in _cap_bucket:
+            smallcap_val += value
+        if any(kw in _sect for kw in _CYCLICAL_KW):
+            cyclical_val += value
+        if prim and isinstance(prim.get("beta_1y"), (int, float)) and float(prim["beta_1y"]) > 1.3:
+            high_beta_val += value
+
         if not prim:
             continue
 
@@ -182,34 +197,38 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
     weighted_sharpe = round(sharpe_num / sharpe_den, 3) if sharpe_den > 0 else None
     weighted_vol = round(vol_num / vol_den, 4) if vol_den > 0 else None
 
-    # Risk drivers
-    if weighted_beta is not None and weighted_beta > 1.1:
+    # Risk drivers — factor-exposure bars for the v4 risk dashboard.
+    # Each entry has a `pct` field so the frontend can render a horizontal bar.
+    risk_drivers: list[dict] = []
+    if total_value > 0:
+        smallcap_pct = round(100 * smallcap_val / total_value, 1)
+        high_beta_pct = round(100 * high_beta_val / total_value, 1)
+        cyclical_pct  = round(100 * cyclical_val / total_value, 1)
+        dg_pct = round(100 * (asset_value["debt"] + asset_value["gold"]) / total_value, 1)
+
+        if smallcap_pct >= 10:
+            risk_drivers.append({
+                "type": "SMALLCAP_WEIGHT", "label": "Smallcap weight",
+                "pct": smallcap_pct,
+                "impact": "HIGH" if smallcap_pct > 30 else "MEDIUM",
+            })
+        if high_beta_pct >= 20:
+            risk_drivers.append({
+                "type": "HIGH_BETA_NAMES", "label": "High-beta names",
+                "pct": high_beta_pct,
+                "impact": "HIGH" if high_beta_pct > 40 else "MEDIUM",
+            })
+        if cyclical_pct >= 25:
+            risk_drivers.append({
+                "type": "CYCLICAL_SECTORS", "label": "Cyclical sectors",
+                "pct": cyclical_pct,
+                "impact": "HIGH" if cyclical_pct > 50 else "MEDIUM",
+            })
+        # Buffer row always shown — a low buffer (high impact) warns; adequate buffer reassures.
         risk_drivers.append({
-            "type": "HIGH_BETA",
-            "label": f"Portfolio beta is {weighted_beta}",
-            "detail": "Will move more than the market — expect outsized swings.",
-            "impact": "HIGH" if weighted_beta > 1.3 else "MEDIUM",
-        })
-    if weighted_vol is not None and weighted_vol > 0.22:
-        risk_drivers.append({
-            "type": "HIGH_VOLATILITY",
-            "label": f"Annualised volatility {round(weighted_vol * 100, 1)}%",
-            "detail": "Daily price swings are larger than a balanced portfolio.",
-            "impact": "HIGH" if weighted_vol > 0.30 else "MEDIUM",
-        })
-    if total_value > 0 and asset_value["equity"] / total_value > 0.80:
-        risk_drivers.append({
-            "type": "EQUITY_HEAVY",
-            "label": f"{round(100 * asset_value['equity'] / total_value)}% equity allocation",
-            "detail": "Limited debt/gold buffer for drawdowns.",
-            "impact": "MEDIUM",
-        })
-    if weighted_sharpe is not None and weighted_sharpe < 0.5:
-        risk_drivers.append({
-            "type": "LOW_SHARPE",
-            "label": f"Sharpe ratio {weighted_sharpe}",
-            "detail": "Returns are not compensating for the risk taken.",
-            "impact": "MEDIUM",
+            "type": "DEBT_GOLD_BUFFER", "label": "Debt + gold buffer",
+            "pct": dg_pct,
+            "impact": "LOW" if dg_pct >= 15 else ("MEDIUM" if dg_pct >= 5 else "HIGH"),
         })
 
     # Top 3 highest-vol holdings

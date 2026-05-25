@@ -164,44 +164,72 @@ const ACTION_META = {
   REVIEW: { tone: "var(--v4-saffron)", label: "Review" },
 };
 
-export function RecommendationCard({ action, accepted, onAccept, onSkip }) {
-  const type  = (action.type || "REVIEW").toUpperCase();
-  const meta  = ACTION_META[type] || ACTION_META.REVIEW;
-  const title = action.asset_name || action.title || "Action";
-  const detail = action.reason_text || action.detail;
-  const priority = String(action.priority || "").toLowerCase();
+const _PRIORITY_META = {
+  Critical: { tone: "var(--v4-rust)",  bg: "rgba(196,75,58,.12)",   border: "rgba(196,75,58,.35)",   badge: "CRITICAL"  },
+  Optimise: { tone: "var(--v4-gold)",  bg: "rgba(196,154,42,.12)",  border: "rgba(196,154,42,.35)",  badge: "OPTIMISE"  },
+  Enhance:  { tone: "var(--v4-moss)",  bg: "rgba(61,122,84,.12)",   border: "rgba(61,122,84,.35)",   badge: "ENHANCE"   },
+};
+
+function _InfoPill({ label, value }) {
+  return (
+    <div style={{ background: "var(--v4-s0)", border: "1px solid var(--v4-line)", borderRadius: 7, padding: "6px 8px", flex: 1, minWidth: 0, overflow: "hidden" }}>
+      <div style={{ fontFamily: "var(--v4-mono)", fontSize: 7, color: "var(--v4-ink-faint)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--v4-ink)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value || "—"}</div>
+    </div>
+  );
+}
+
+export function RecommendationCard({ action, index, accepted, onAccept, onSkip }) {
+  const title       = action.asset_name || action.title || "Action";
+  const detail      = action.reason_text || action.detail;
+  const pl          = action.priority_label || "";
+  const pm          = _PRIORITY_META[pl] || { tone: "var(--v4-ink-faint)", bg: "rgba(140,130,115,.1)", border: "rgba(140,130,115,.25)", badge: pl.toUpperCase() || "" };
+  const effort      = action.effort ? action.effort.charAt(0) + action.effort.slice(1).toLowerCase() : "";
+  const tradeOff    = action.trade_off || "";
+  const impact      = action.impact || {};
+  const impactVal   = impact.value != null && impact.value !== "" ? String(impact.value) : (action.amount > 0 ? formatInr(action.amount) : "");
 
   return (
-    <div style={recCardStyle(meta.tone, accepted)}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <div style={recTypeBadge(meta.tone)}>
-          <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1, color: meta.tone, textTransform: "uppercase" }}>{meta.label}</span>
-        </div>
+    <div style={recCardStyle(pm.tone, accepted)}>
+      {/* Title row */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+        {index != null && (
+          <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--v4-s1)", border: "1px solid var(--v4-line-strong)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+            <span style={{ fontFamily: "var(--v4-mono)", fontSize: 10, fontWeight: 700, color: "var(--v4-ink)" }}>{index + 1}</span>
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
-            <span style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)" }}>{title}</span>
-            {priority && (
-              <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8, letterSpacing: 1, color: "var(--v4-ink-faint)", textTransform: "uppercase" }}>
-                {priority} priority
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: detail ? 4 : 0 }}>
+            <span style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)", lineHeight: 1.3 }}>{title}</span>
+            {pm.badge && (
+              <span style={{ fontFamily: "var(--v4-mono)", fontSize: 7.5, letterSpacing: 1, color: pm.tone, background: pm.bg, border: `1px solid ${pm.border}`, borderRadius: 5, padding: "2px 6px", textTransform: "uppercase", flexShrink: 0, marginTop: 2 }}>
+                {pm.badge}
               </span>
             )}
           </div>
-          {detail && <div style={{ fontSize: 12, color: "var(--v4-ink-dim)", lineHeight: 1.5, marginBottom: 10 }}>{detail}</div>}
-          {action.amount > 0 && (
-            <div style={{ fontFamily: "var(--v4-mono)", fontSize: 10, color: "var(--v4-ink-mute)", marginBottom: 10 }}>
-              Amount: <span style={{ color: "var(--v4-ink)" }}>{formatInr(action.amount)}</span>
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={onAccept}
-              style={accepted ? recBtnAcceptedStyle : recBtnAcceptStyle}>
-              {accepted ? "✓ Accepted" : "Accept"}
-            </button>
-            {!accepted && (
-              <button type="button" onClick={onSkip} style={recBtnSkipStyle}>Skip</button>
-            )}
-          </div>
+          {detail && <div style={{ fontSize: 11.5, color: "var(--v4-ink-dim)", lineHeight: 1.5 }}>{detail}</div>}
         </div>
+      </div>
+
+      {/* 3-pill row */}
+      <div style={{ display: "flex", gap: 7, marginBottom: 12 }}>
+        <_InfoPill label={impact.label || "Impact"} value={impactVal} />
+        <_InfoPill label="Effort" value={effort} />
+        <_InfoPill label="Trade-off" value={tradeOff} />
+      </div>
+
+      {/* Buttons */}
+      <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+        <button type="button" onClick={onAccept}
+          style={accepted ? { ...recBtnAcceptedStyle, flex: 1, justifyContent: "center", display: "flex" } : recBtnAcceptFullStyle}>
+          {accepted ? "✓ Accepted" : "Accept"}
+        </button>
+        {!accepted && (
+          <>
+            <button type="button" onClick={() => {}} style={whyBtnStyle}>Why?</button>
+            <button type="button" onClick={onSkip} style={recBtnSkipStyle}>Skip</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -373,6 +401,19 @@ const recBtnAcceptStyle = {
   color: "var(--v4-moss)", background: "rgba(136,171,102,.1)",
   border: "1px solid rgba(136,171,102,.35)", padding: "6px 13px",
   borderRadius: 7, cursor: "pointer", textTransform: "uppercase",
+};
+
+const recBtnAcceptFullStyle = {
+  flex: 1, fontFamily: "var(--v4-sans)", fontSize: 13, fontWeight: 600,
+  color: "#2a1605",
+  background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-dk))",
+  border: "none", padding: "9px 16px", borderRadius: 9, cursor: "pointer",
+};
+
+const whyBtnStyle = {
+  fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing: 0.8,
+  color: "var(--v4-ink-faint)", background: "transparent",
+  border: "none", padding: "6px 8px", cursor: "pointer", textTransform: "uppercase",
 };
 
 const recBtnAcceptedStyle = {

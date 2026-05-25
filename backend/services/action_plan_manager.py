@@ -206,6 +206,7 @@ class ActionPlanManager:
         )
 
         portfolio_context = {
+            "user_id": user_id,
             "total_value": portfolio_data["total_value"],
             "mf_count": len(mf_holdings),
             "stock_count": len(stock_holdings),
@@ -220,9 +221,34 @@ class ActionPlanManager:
         
         # Sort by exit score (highest first)
         exit_candidates = sorted(exit_candidates, key=lambda x: x["exit_score"], reverse=True)
-        
+
         logger.info("Generated %s MF exit candidates", len(exit_candidates))
-        
+
+        # ── V3 enrichment + guardrail filtering ──────────────────────────────
+        # Runs here (generate_plan scope) so orchestrator / future engines can
+        # receive v3_scores_by_id via RecommendationContext without re-querying.
+        v3_scores_by_id = await v3_integration.enrich_candidates_with_v3(
+            mf_investments=mf_investments,
+            exit_candidates=exit_candidates,
+            mf_holdings=mf_holdings,
+            portfolio_intelligence=portfolio_intelligence,
+        )
+        _pre_filter = len(exit_candidates)
+        exit_candidates = [
+            c for c in exit_candidates
+            if not (
+                c.get("instrument_id") and
+                v3_scores_by_id.get(c["instrument_id"], {}).get("guardrail_blocked")
+            )
+        ]
+        _dropped_by_guardrail = _pre_filter - len(exit_candidates)
+        if _dropped_by_guardrail:
+            logger.info(
+                "[V3 guardrails] blocked %d exit candidate(s) "
+                "(protected by quality/tax/recent-investment rules)",
+                _dropped_by_guardrail,
+            )
+
         # 3. Apply V2 Action Generation Rules (6 core rules)
         actions = await self._apply_action_rules(
             mf_holdings=mf_holdings,
@@ -232,6 +258,7 @@ class ActionPlanManager:
             portfolio_intelligence=portfolio_intelligence,
             portfolio_context=portfolio_context,
             signals=signals,
+            v3_scores_by_id=v3_scores_by_id,
         )
 
         # 3b. Augment with Decision Engine drift / cap rules
@@ -386,6 +413,9 @@ class ActionPlanManager:
                 "portfolio_value_at_creation": portfolio_data["total_value"],
                 "engine_version": "v2.5",
             },
+            # New optional fields (engine pipeline only; old clients ignore unknown fields)
+            # simulation: IS-1 before/after 10Y projection + IS-2 suppression summary
+            "simulation": getattr(self, "_last_simulation", None),
         }
         
         logger.info("Plan generated: %s with %s actions · score=%s · conf=%s", plan_id, len(actions), portfolio_score, confidence_score)
@@ -858,53 +888,71 @@ class ActionPlanManager:
         portfolio_intelligence: Dict[str, Any],
         portfolio_context: Dict[str, Any],
         signals: List[Dict[str, Any]],
+        v3_scores_by_id: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """Apply the 6 V2 Action Generation Rules in priority order.
+        """Apply Action Generation Rules in priority order.
 
-        Rule 1 (P0): Regular → Direct consolidation (same fund, exit Regular)
-        Rule 6 (P0): Regular → Direct cost-leak switch actions (>₹10K/yr)
-        Rule 2 (P0): AMC concentration >15% → EXIT by highest exit_score until <15%
-        Rule 3 (P1): Underperformer → replace with same-category top ADD score fund
-        Rule 4 (P1): Different-fund overlap >60% → EXIT fund with higher exit_score
-        Rule 5 (P2): Equity>90% & Debt<10% → ADD debt fund
+        Rule 1  (P0): Regular → Direct consolidation (same fund, exit Regular)
+        Rule 6  (P0): Regular → Direct cost-leak switch actions (>₹10K/yr)
+        Rule 2  (P0): AMC concentration >15% → EXIT by highest exit_score until <15%
+        Rule 3  (P1): Underperformer → replace with same-category top ADD score fund
+        Rule 4  (P1): Different-fund overlap >60% → EXIT fund with higher exit_score
+        Rule 5  (P2): Equity>90% & Debt<10% → ADD debt fund
+        Rule 8  (P1): Same-category consolidation (≥3 funds in same SEBI category → keep best, exit rest)
+        Rule 9  (P1): Cross-category overlap replacement (high overlap → exit + suggest complementary category)
+        Rule 10 (P2): International fund gap → ADD global exposure when <target%
 
         Each fund can only be selected for EXIT once (tracked via exited_ids set).
         """
         # Load live rule config (admin-tunable)
         rcfg = await rules_config.get_config()
+
+        # ── Feature gate: new engine pipeline ────────────────────────────────
+        # When engine_pipeline.enabled=True, delegate entirely to the new
+        # pluggable orchestrator. The legacy sequential rule body is skipped.
+        _ep = rcfg.get("engine_pipeline") or {}
+        if _ep.get("enabled"):
+            from backend.services.recommendation_engine.orchestrator import run_engine_pipeline
+            # Fetch international_funds_cache for InternationalEngine (pure engine needs pre-fetched data)
+            _intl_cache: List[Dict[str, Any]] = []
+            try:
+                from deps import db as _db
+                _intl_cache = await _db.international_funds_cache.find(
+                    {}, {"_id": 0}
+                ).sort("fetched_at", -1).to_list(50)
+            except Exception:
+                pass
+            _pipeline_actions, _pipeline_sim = await run_engine_pipeline(
+                user_id=portfolio_context.get("user_id", ""),
+                risk_profile=portfolio_context.get("risk_profile", "medium"),
+                total_value_rs=portfolio_context.get("total_value", 0.0),
+                holdings=holdings,
+                mf_holdings=mf_holdings,
+                stock_holdings=[],
+                portfolio_intelligence=portfolio_intelligence,
+                mf_investments=mf_investments,
+                exit_candidates=exit_candidates,
+                v3_scores=v3_scores_by_id or {},
+                rules_cfg=rcfg,
+                signals=signals,
+                international_funds_cache=_intl_cache,
+            )
+            # Stash simulation result so generate_plan() can add it to the plan doc.
+            # Thread-safe: one generate_plan() call per instance (request-scoped).
+            self._last_simulation = _pipeline_sim
+            return _pipeline_actions
+        # ─────────────────────────────────────────────────────────────────────
+
         rules_cfg = rcfg["rules"]
         actions: List[Dict[str, Any]] = []
         exited_ids: set = set()                  # instrument_ids already marked for exit
         exited_holding_keys: set = set()         # mongo holding keys (for Regular/Direct matches without IDs)
         priority_counter = [1]                   # mutable int for shared incrementing
 
-        # ── V3 Phase 2: Enrich with composite scores + guardrails ───────────
-        # Returns {instrument_id: {quality_score, health_score, exit_score,
-        #                          add_score, guardrail_blocked, guardrail_reasons}}
-        v3_scores_by_id = await v3_integration.enrich_candidates_with_v3(
-            mf_investments=mf_investments,
-            exit_candidates=exit_candidates,
-            mf_holdings=mf_holdings,
-            portfolio_intelligence=portfolio_intelligence,
-        )
-        # Apply V3 guardrails: any candidate blocked by High-Quality-Protection,
-        # Tax-Exceeds-Benefit, or Recent-Investment-Lockout is dropped from the
-        # EXIT pool entirely. Guardrail results are also stashed so actions can
-        # report them in reason text.
-        pre_filter = len(exit_candidates)
-        exit_candidates = [
-            c for c in exit_candidates
-            if not (
-                c.get("instrument_id") and
-                v3_scores_by_id.get(c["instrument_id"], {}).get("guardrail_blocked")
-            )
-        ]
-        dropped_by_guardrail = pre_filter - len(exit_candidates)
-        if dropped_by_guardrail:
-            logger.info(
-                f"[V3 guardrails] blocked {dropped_by_guardrail} exit candidate(s) "
-                f"(protected by quality/tax/recent-investment rules)"
-            )
+        # v3_scores_by_id is pre-computed + guardrail-filtered in generate_plan();
+        # default to empty dict so inner helpers degrade gracefully if called directly.
+        if v3_scores_by_id is None:
+            v3_scores_by_id = {}
 
         def _v3_exit_rank(iid: Optional[str], legacy: float, name: Optional[str] = None) -> float:
             """Unified ranking score. Prefer V3 exit_score (scaled to 0-10)
@@ -1383,6 +1431,259 @@ class ActionPlanManager:
                 priority_counter[0] += 1
                 logger.info("[Rule 5] ADD debt fund: %s", debt_suggestion.get('fund_name',''))
 
+        # ── RULE 8: Same-Category Consolidation ────────────────────────────
+        # "Merge N large-cap funds into one"
+        # Triggers when user holds ≥3 funds in the same SEBI category.
+        # Keep the one with the lowest exit score; exit the rest.
+        rule_8_enabled = rules_cfg.get("rule_8_same_category_consolidation", {}).get("enabled", True)
+        r8_params = rules_cfg.get("rule_8_same_category_consolidation", {}).get("params", {})
+        if rule_8_enabled:
+            min_funds_to_trigger = int(r8_params.get("min_funds_to_trigger", 3))
+            # Group all non-exited MF holdings by SEBI category
+            cat_to_holdings: Dict[str, List[Dict[str, Any]]] = {}
+            for m in mf_holdings:
+                if _holding_key(m) in exited_holding_keys:
+                    continue
+                cat = (m.get("category") or "").strip()
+                if not cat:
+                    cat = self._infer_category_from_name(m.get("name", "") or m.get("scheme_name", "")) or ""
+                if not cat:
+                    continue
+                cat_to_holdings.setdefault(cat, []).append(m)
+
+            for cat, group in cat_to_holdings.items():
+                if len(group) < min_funds_to_trigger:
+                    continue
+                # Score each holding — prefer V3 exit score, fall back to legacy
+                scored = []
+                for m in group:
+                    cand = _resolve_candidate(m)
+                    iid = (cand or {}).get("instrument_id")
+                    legacy = (cand or {}).get("exit_score", 5.0)
+                    score = _v3_exit_rank(iid, legacy, m.get("name") or m.get("scheme_name"))
+                    scored.append((score, m, cand))
+                # Sort descending by exit score: highest score = exit first
+                scored.sort(key=lambda x: x[0], reverse=True)
+                # Keep the best (lowest exit score = last in sorted list)
+                to_exit = scored[:-1]  # all but the keeper
+                keeper_name = (scored[-1][1].get("name") or scored[-1][1].get("scheme_name") or "")[:40]
+                logger.info(
+                    "[Rule 8] %s funds in '%s' — keeping %s, exiting %s",
+                    len(group), cat, keeper_name, len(to_exit),
+                )
+                for exit_score, holding, cand in to_exit:
+                    h_key = _holding_key(holding)
+                    if h_key in exited_holding_keys:
+                        continue
+                    reason = (
+                        f"You hold {len(group)} {cat} funds — they all track similar stocks. "
+                        f"Consolidating to one fund (keeping {keeper_name}) reduces overlap "
+                        f"and simplifies your portfolio."
+                    )
+                    action = self._build_exit_action_from_holding(
+                        holding=holding,
+                        candidate=cand,
+                        priority=priority_counter[0],
+                        reason_prefix=reason,
+                        reason_code="SAME_CATEGORY_CONSOLIDATION",
+                    )
+                    actions.append(action)
+                    exited_holding_keys.add(h_key)
+                    if cand and cand.get("instrument_id"):
+                        exited_ids.add(cand["instrument_id"])
+                    priority_counter[0] += 1
+
+        # ── RULE 9: Cross-Category Overlap Replacement ──────────────────────
+        # "Replace an overlapping fund with a complementary category"
+        # When two funds overlap ≥60%, instead of just exiting the weaker one,
+        # suggest a replacement in a different category to add true diversity.
+        rule_9_enabled = rules_cfg.get("rule_9_cross_category_overlap_replacement", {}).get("enabled", True)
+        r9_params = rules_cfg.get("rule_9_cross_category_overlap_replacement", {}).get("params", {})
+        if rule_9_enabled:
+            r9_overlap_threshold = float(r9_params.get("overlap_threshold_pct", 60.0))
+            r9_max = int(r9_params.get("max_replacements", 2))
+            r9_count = 0
+            pairs_r9 = portfolio_intelligence.get("pairwise_overlap", []) or []
+            # Complementary category map: if victim is in category X, suggest category Y
+            _COMPLEMENT_MAP = {
+                "large cap": "Mid Cap",
+                "mid cap": "Small Cap",
+                "small cap": "Mid Cap",
+                "flexi cap": "Mid Cap",
+                "multi cap": "Small Cap",
+                "focused fund": "Flexi Cap",
+                "elss": "Mid Cap",
+            }
+            for pair in pairs_r9:
+                if r9_count >= r9_max:
+                    break
+                if float(pair.get("overlap_pct", 0)) < r9_overlap_threshold:
+                    continue
+                id_a = pair.get("a") or pair.get("a_isin")
+                id_b = pair.get("b") or pair.get("b_isin")
+                name_a = pair.get("a_name", "")
+                name_b = pair.get("b_name", "")
+                # Skip if same base scheme (Regular/Direct pair — handled by Rule 1)
+                if self._normalize_base_scheme_name(name_a) == self._normalize_base_scheme_name(name_b):
+                    continue
+                cand_a = candidate_by_id.get(id_a)
+                cand_b = candidate_by_id.get(id_b)
+                score_a = _v3_exit_rank(id_a, (cand_a or {}).get("exit_score", 5.0), name_a)
+                score_b = _v3_exit_rank(id_b, (cand_b or {}).get("exit_score", 5.0), name_b)
+                victim_name = name_a if score_a >= score_b else name_b
+                victim_cand = cand_a if score_a >= score_b else cand_b
+                partner_name = name_b if score_a >= score_b else name_a
+                h = _fuzzy_match_holding(victim_name, mf_holdings)
+                if not h:
+                    continue
+                h_key = _holding_key(h)
+                if h_key in exited_holding_keys:
+                    continue
+                # Find victim's category, pick a complementary category
+                victim_cat = (h.get("category") or "").strip().lower()
+                if not victim_cat:
+                    victim_cat = (self._infer_category_from_name(victim_name) or "").lower()
+                complement_cat = _COMPLEMENT_MAP.get(victim_cat)
+                if not complement_cat:
+                    continue  # don't know what to suggest — skip
+                replacement = self._find_best_same_category_replacement(
+                    category=complement_cat,
+                    excluded_ids=exited_ids,
+                    mf_investments=mf_investments,
+                    portfolio_intelligence=portfolio_intelligence,
+                )
+                reason = (
+                    f"High overlap ({pair.get('overlap_pct', 0):.0f}%) with {partner_name}. "
+                    f"Instead of two similar {victim_cat.title()} funds, replacing with a "
+                    f"{complement_cat} fund adds true diversification."
+                )
+                action = self._build_exit_action_from_holding(
+                    holding=h,
+                    candidate=victim_cand,
+                    priority=priority_counter[0],
+                    reason_prefix=reason,
+                    reason_code="CROSS_CATEGORY_REPLACEMENT",
+                )
+                if replacement:
+                    action["replacement_suggestion"] = replacement
+                    action["reason_codes"] = list({*(action.get("reason_codes") or []), "CROSS_CATEGORY_REPLACEMENT"})
+                actions.append(action)
+                exited_holding_keys.add(h_key)
+                if victim_cand and victim_cand.get("instrument_id"):
+                    exited_ids.add(victim_cand["instrument_id"])
+                priority_counter[0] += 1
+                r9_count += 1
+                logger.info(
+                    "[Rule 9] Cross-category replacement: exit %s → add %s",
+                    victim_name[:40], complement_cat,
+                )
+
+        # ── RULE 10: International Fund Gap ────────────────────────────────
+        # "Add an international fund"
+        # Fires when: no existing international exposure AND portfolio ≥₹5L
+        # AND risk profile isn't conservative with <3y horizon.
+        rule_10_enabled = rules_cfg.get("rule_10_international_fund_gap", {}).get("enabled", True)
+        r10_params = rules_cfg.get("rule_10_international_fund_gap", {}).get("params", {})
+        if rule_10_enabled:
+            r10_min_gap_pct = float(r10_params.get("min_intl_gap_pct", 2.0))
+            r10_min_portfolio = float(r10_params.get("min_portfolio_value_rs", 500000))
+            total_value = portfolio_context.get("total_value", 0) or 0
+            if total_value >= r10_min_portfolio:
+                from services import international_funds as _intl
+                # Detect existing international exposure from holdings
+                intl_value = 0.0
+                for m in mf_holdings:
+                    name = m.get("name") or m.get("scheme_name") or ""
+                    cat = m.get("category") or ""
+                    if _intl.classify_international(name, cat) is not None:
+                        qty = float(m.get("quantity") or 0)
+                        cp = float(m.get("current_price") or 0)
+                        intl_value += qty * cp
+                current_intl_pct = (intl_value / total_value * 100.0) if total_value > 0 else 0.0
+                # Compute target
+                risk = (portfolio_context.get("risk_profile") or "moderate").lower()
+                target_info = _intl.compute_target_international_pct(risk_profile=risk)
+                target_pct = float(target_info.get("pct", 0))
+                gap_pct = target_pct - current_intl_pct
+                logger.info(
+                    "[Rule 10] intl current=%.1f%% target=%.1f%% gap=%.1f%% portfolio=₹%.0f",
+                    current_intl_pct, target_pct, gap_pct, total_value,
+                )
+                if gap_pct >= r10_min_gap_pct and target_pct > 0:
+                    # No international ADD already in actions
+                    has_intl_add = any(
+                        "INTERNATIONAL_DIVERSIFICATION" in (a.get("reason_codes") or [])
+                        for a in actions
+                    )
+                    if not has_intl_add:
+                        gap_rs = total_value * (gap_pct / 100.0)
+                        # Pick best fund from cache (core band only)
+                        best_fund = None
+                        try:
+                            from deps import db as _db
+                            import asyncio as _asyncio
+                            cached = await _db.international_funds_cache.find(
+                                {}, {"_id": 0}
+                            ).sort("fetched_at", -1).to_list(50)
+                            core_funds = [
+                                f for f in cached
+                                if _intl._band_for(_intl._quality_score(f)) == "core"
+                                and not _intl._portfolio_overrides(
+                                    f,
+                                    us_exposure_pct=current_intl_pct,
+                                    it_concentration_pct=0.0,
+                                    risk_profile=risk,
+                                )
+                            ]
+                            core_funds.sort(key=lambda x: _intl._quality_score(x), reverse=True)
+                            if core_funds:
+                                best_fund = core_funds[0]
+                        except Exception as _e:
+                            logger.debug("[Rule 10] cache lookup skipped: %s", _e)
+
+                        fund_name = (best_fund or {}).get("scheme_name") or "An international fund of funds"
+                        expense = (best_fund or {}).get("expense_ratio_direct")
+                        ret_3y = (best_fund or {}).get("ret_3y")
+                        detail_parts = []
+                        if ret_3y is not None:
+                            detail_parts.append(f"3Y return {ret_3y:.1f}%")
+                        if expense is not None:
+                            detail_parts.append(f"expense {expense:.2f}%")
+                        detail_str = f" ({', '.join(detail_parts)})" if detail_parts else ""
+
+                        action = {
+                            "action_id": f"act_{uuid4().hex[:8]}",
+                            "type": "ADD",
+                            "priority": priority_counter[0],
+                            "asset_type": "mutual_fund",
+                            "asset_name": fund_name,
+                            "fund_details": {
+                                "fund_name": fund_name,
+                                "fund_type": "International Fund of Funds",
+                                "bucket": (best_fund or {}).get("bucket", "Global"),
+                                "expense_ratio": expense,
+                                "ret_3y": ret_3y,
+                                "aum_cr": (best_fund or {}).get("aum_cr"),
+                                "suggested_amount_rs": round(gap_rs, 0),
+                                "target_pct": target_pct,
+                                "current_pct": round(current_intl_pct, 2),
+                            },
+                            "amount": round(gap_rs, 2),
+                            "confidence": "MEDIUM",
+                            "reason_text": (
+                                f"Your portfolio has {current_intl_pct:.0f}% international exposure — "
+                                f"{target_pct:.0f}% is recommended for a {risk} risk profile. "
+                                f"Adding {fund_name}{detail_str} gives you 5–10% global exposure, "
+                                f"reducing India-concentration risk."
+                            ),
+                            "reason_codes": ["INTERNATIONAL_DIVERSIFICATION", "GEOGRAPHIC_GAP"],
+                            "status": "PENDING",
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        actions.append(action)
+                        priority_counter[0] += 1
+                        logger.info("[Rule 10] ADD international fund: %s (gap ₹%.0f)", fund_name[:40], gap_rs)
+
         # ── CUSTOM RULES (Phase 2) ──────────────────────────────────────────
         # Custom rules are evaluated last so built-ins take priority.
         custom_rules = rcfg.get("custom_rules", []) or []
@@ -1435,9 +1736,8 @@ class ActionPlanManager:
                     a["v3_guardrail_reasons"] = v3["guardrail_reasons"]
 
         logger.info(
-            f"Rule engine produced {len(actions)} actions "
-            f"(V3 enrichment: {len(v3_scores_by_id)} funds scored, "
-            f"{dropped_by_guardrail} blocked by guardrails)"
+            "Rule engine produced %d actions (V3 enrichment: %d funds scored)",
+            len(actions), len(v3_scores_by_id),
         )
         return actions
 
