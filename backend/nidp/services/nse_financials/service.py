@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from nidp.shared.logging_setup import setup_logging
@@ -24,6 +24,37 @@ from .llm_extractor import extract_financials, parse_nse_xbrl_json
 from .writer import upsert_financials
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_period_end(event_date: date) -> date:
+    """Derive quarter-end date from the result announcement date.
+
+    Indian FY runs April–March. Results are typically announced:
+      Jan–Mar  → Q3 results (Oct–Dec)  → Dec 31 of previous year
+      Apr–Jul  → Q4 results (Jan–Mar)  → Mar 31 of same year
+      Aug–Sep  → Q1 results (Apr–Jun)  → Jun 30 of same year
+      Oct–Dec  → Q2 results (Jul–Sep)  → Sep 30 of same year
+    """
+    m, y = event_date.month, event_date.year
+    if m in (1, 2, 3):
+        return date(y - 1, 12, 31)
+    if m in (4, 5, 6, 7):
+        return date(y, 3, 31)
+    if m in (8, 9):
+        return date(y, 6, 30)
+    return date(y, 9, 30)  # Oct, Nov, Dec
+
+
+def _fill_period_end(data: dict, event_date: date) -> dict:
+    """Set period_end in data if LLM left it null, using event_date heuristic."""
+    if not data.get("period_end"):
+        inferred = _infer_period_end(event_date)
+        data["period_end"] = inferred.strftime("%Y-%m-%d")
+        logger.info(
+            "nse_financials: inferred period_end=%s from event_date=%s",
+            data["period_end"], event_date,
+        )
+    return data
 
 
 async def _get_due_today(conn, target_date: date) -> list[dict]:
@@ -44,6 +75,7 @@ async def _get_due_today(conn, target_date: date) -> list[dict]:
 async def _process_symbol(
     symbol: str,
     period: Optional[str],
+    event_date: date,
     ir_url: Optional[str],
     results_url: Optional[str],
 ) -> Optional[int]:
@@ -56,6 +88,7 @@ async def _process_symbol(
         if raw:
             data = await extract_financials(symbol, raw, source_url=results_url or ir_url)
             if data:
+                data = _fill_period_end(data, event_date)
                 financials_id = await upsert_financials(
                     symbol, data, source="company_ir", ir_url=results_url or ir_url
                 )
@@ -73,6 +106,7 @@ async def _process_symbol(
             # Fall back to LLM extraction
             data = await extract_financials(symbol, xbrl_text)
         if data:
+            data = _fill_period_end(data, event_date)
             financials_id = await upsert_financials(
                 symbol, data, source="nse_xbrl"
             )
@@ -92,7 +126,7 @@ async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) 
     async with pool.acquire() as conn:
         if symbol:
             due = [{"symbol": symbol.upper(), "company_name": "", "period": None,
-                    "ir_url": None, "results_url": None}]
+                    "event_date": target_date, "ir_url": None, "results_url": None}]
             # Try to get IR URL from DB
             row = await conn.fetchrow(
                 "SELECT ir_url, results_url FROM nidp.company_ir_urls WHERE symbol=$1",
@@ -112,7 +146,8 @@ async def run(target_date: Optional[date] = None, symbol: Optional[str] = None) 
 
     results = await asyncio.gather(
         *[_process_symbol(
-            d["symbol"], d.get("period"), d.get("ir_url"), d.get("results_url")
+            d["symbol"], d.get("period"), d.get("event_date") or target_date,
+            d.get("ir_url"), d.get("results_url")
         ) for d in due],
         return_exceptions=True,
     )
