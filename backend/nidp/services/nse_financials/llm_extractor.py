@@ -1,11 +1,13 @@
-"""LLM-powered financial data extractor using Claude.
+"""LLM-powered financial data extractor.
 
 Takes raw text (HTML / PDF text / XBRL JSON) from a company's result
 document and extracts structured financial figures into a dict matching
 the nidp.nse_financials_quarterly schema.
 
-Uses claude-haiku-4-5 for speed + cost; falls back gracefully if the
-LLM cannot find a number (returns None for that field).
+Backend selection (checked in order):
+  1. OPENAI_API_KEY set  → OpenAI gpt-4o-mini
+  2. ANTHROPIC_API_KEY set → Claude claude-haiku-4-5
+Falls back gracefully if the LLM cannot find a number (returns None).
 """
 from __future__ import annotations
 
@@ -17,7 +19,8 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-haiku-4-5-20251001"
+_CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+_OPENAI_MODEL = "gpt-4o-mini"
 
 _SYSTEM = """You are a financial data extraction assistant specialised in Indian company quarterly results.
 Extract structured financial data from the provided document text.
@@ -66,9 +69,11 @@ Return JSON with exactly this structure:
 }}"""
 
 
-def _get_client():
-    import anthropic
-    return anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+def _provider() -> str:
+    """Return 'openai' or 'anthropic' based on which key is set."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    return "anthropic"
 
 
 async def extract_financials(
@@ -76,7 +81,7 @@ async def extract_financials(
     raw_text: str,
     source_url: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
-    """Use Claude to extract structured financials from raw document text.
+    """Extract structured financials from raw document text using the configured LLM.
 
     Returns a dict matching nse_financials_quarterly columns, or None on failure.
     """
@@ -85,25 +90,39 @@ async def extract_financials(
 
     # Trim to 15k chars — enough for a full result page without burning tokens
     text = raw_text[:15_000]
+    prompt = _PROMPT_TEMPLATE.format(symbol=symbol, text=text)
 
     try:
-        import anthropic
-        client = _get_client()
-        msg = client.messages.create(
-            model=_MODEL,
-            max_tokens=1024,
-            system=_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": _PROMPT_TEMPLATE.format(symbol=symbol, text=text),
-            }],
-        )
-        raw = msg.content[0].text.strip()
+        if _provider() == "openai":
+            from openai import OpenAI
+            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            resp = client.chat.completions.create(
+                model=_OPENAI_MODEL,
+                max_tokens=1024,
+                messages=[
+                    {"role": "system", "content": _SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            raw = resp.choices[0].message.content.strip()
+            tokens = resp.usage.prompt_tokens
+        else:
+            import anthropic
+            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            msg = client.messages.create(
+                model=_CLAUDE_MODEL,
+                max_tokens=1024,
+                system=_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = msg.content[0].text.strip()
+            tokens = msg.usage.input_tokens
+
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         data = json.loads(raw)
-        logger.info("llm_extractor: extracted financials for %s (tokens=%d)", symbol, msg.usage.input_tokens)
+        logger.info("llm_extractor: extracted financials for %s via %s (tokens=%d)", symbol, _provider(), tokens)
         return data
     except json.JSONDecodeError as e:
         logger.warning("llm_extractor: JSON parse failed for %s: %s", symbol, e)
