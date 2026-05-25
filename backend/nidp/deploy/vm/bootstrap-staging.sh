@@ -19,7 +19,7 @@ set -euo pipefail
 
 NIDP_STAGING_HOME=/opt/nidp-staging
 NIDP_STAGING_USER=nidp-staging
-DEV_REPO=/opt/nidp/dev-repo          # staging code — tracks the dev branch
+DEV_REPO=/opt/nidp/dev-repo/nivesh.ai  # staging code — tracks the dev branch
 REPO_URL="${NIDP_REPO_URL:-}"
 REPO_BRANCH="${NIDP_REPO_BRANCH:-dev}"
 DRY=true
@@ -158,7 +158,7 @@ cat > "$STAGING_RS" <<'RSEOF'
 # runs Python from /opt/nidp/dev-repo.
 set -uo pipefail
 NIDP_HOME=/opt/nidp-staging
-DEV_REPO=/opt/nidp/dev-repo
+DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
 SERVICE="${1:-}"; shift || true
 if [[ -z "$SERVICE" ]]; then echo "usage: $0 <service> [args...]" >&2; exit 2; fi
 LOG_DIR="$NIDP_HOME/logs/$SERVICE"

@@ -27,7 +27,7 @@
 set -euo pipefail
 
 PROJECT="niveshdataintelligence"
-CONF_SRC="/opt/nidp/dev-repo/backend/nidp/deploy/vm/nginx.staging.conf"
+CONF_SRC="/opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/nginx.staging.conf"
 CONF_DST="/etc/nginx/sites-available/nidp-staging"
 SSL_DIR="/etc/nginx/ssl"
 # Staging reuses the prod wildcard cert (*.niveshcopilot.com covers data.staging.*)
