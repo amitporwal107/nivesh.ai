@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Optional
 
 from nidp.shared.storage.pg import get_pool
@@ -16,19 +17,25 @@ async def upsert_financials(
     ir_url: Optional[str] = None,
     filing_id: Optional[str] = None,
     broadcast_at: Optional[str] = None,
+    source_run_id: Optional[str] = None,
 ) -> Optional[int]:
-    period_end = data.get("period_end")
+    from datetime import datetime as _dt
+
+    def _parse_date(val):
+        if val is None or not isinstance(val, str):
+            return val
+        try:
+            return _dt.strptime(val, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    period_end = _parse_date(data.get("period_end"))
     if not period_end:
         logger.warning("upsert_financials: no period_end for %s, skipping", symbol)
         return None
-    if isinstance(period_end, str):
-        try:
-            from datetime import datetime
-            period_end = datetime.strptime(period_end, "%Y-%m-%d").date()
-        except ValueError:
-            logger.warning("upsert_financials: bad period_end %r for %s", period_end, symbol)
-            return None
+    period_start = _parse_date(data.get("period_start"))
 
+    run_id = source_run_id or str(uuid.uuid4())
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -42,10 +49,10 @@ async def upsert_financials(
                 eps_basic, eps_diluted, face_value,
                 total_equity_cr, long_term_debt_cr, short_term_debt_cr, cash_and_equiv_cr,
                 interest_earned_cr, interest_expended_cr, nim_pct,
-                source, ir_url, filing_id, broadcast_at
+                source, source_run_id, ir_url, filing_id, broadcast_at
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-                $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
+                $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
             )
             ON CONFLICT (symbol, period_end, consolidated)
             DO UPDATE SET
@@ -56,10 +63,11 @@ async def upsert_financials(
                 ebitda_cr           = COALESCE(EXCLUDED.ebitda_cr,           nidp.nse_financials_quarterly.ebitda_cr),
                 pbt_cr              = COALESCE(EXCLUDED.pbt_cr,              nidp.nse_financials_quarterly.pbt_cr),
                 source              = EXCLUDED.source,
+                source_run_id       = EXCLUDED.source_run_id,
                 ingested_at         = NOW()
             RETURNING id
             """,
-            symbol, period_end, data.get("period_start"), data.get("period_type","quarterly"),
+            symbol, period_end, period_start, data.get("period_type","quarterly"),
             bool(data.get("consolidated",False)), data.get("audited"),
             data.get("revenue_from_ops_cr"), data.get("other_income_cr"), data.get("total_income_cr"),
             data.get("total_expenses_cr"), data.get("ebitda_cr"), data.get("finance_costs_cr"),
@@ -69,6 +77,6 @@ async def upsert_financials(
             data.get("face_value"), data.get("total_equity_cr"), data.get("long_term_debt_cr"),
             data.get("short_term_debt_cr"), data.get("cash_and_equiv_cr"),
             data.get("interest_earned_cr"), data.get("interest_expended_cr"), data.get("nim_pct"),
-            source, ir_url, filing_id, broadcast_at,
+            source, run_id, ir_url, filing_id, broadcast_at,
         )
     return row["id"] if row else None

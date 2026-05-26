@@ -132,6 +132,107 @@ async def extract_financials(
         return None
 
 
+def parse_nse_integrated_xbrl(symbol: str, xml_text: str) -> Optional[dict[str, Any]]:
+    """Parse NSE Integrated XBRL filing (SEBI IndAS/IGAAP format) — zero LLM tokens.
+
+    The integrated filing XML stores monetary values in base INR (rupees).
+    All P&L items use contextRef="OneD" (current quarter).
+    Balance sheet items use contextRef="OneI" (period-end instant).
+    Metadata fields (dates, flags) also use contextRef="OneD".
+    """
+    if not xml_text or "<?xml" not in xml_text[:100]:
+        return None
+
+    def _num(tag: str, ctx: str) -> Optional[float]:
+        m = re.search(
+            r'<[^:>]+:' + re.escape(tag) + r'[^>]*contextRef="' + ctx + r'"[^>]*>([^<]+)<',
+            xml_text,
+        )
+        if not m:
+            return None
+        try:
+            return round(float(m.group(1).replace(",", "")) / 1e7, 4)  # rupees → crores
+        except (ValueError, TypeError):
+            return None
+
+    def _raw(tag: str, ctx: str) -> Optional[float]:
+        """Return raw numeric value (no crore conversion — for EPS, face value)."""
+        m = re.search(
+            r'<[^:>]+:' + re.escape(tag) + r'[^>]*contextRef="' + ctx + r'"[^>]*>([^<]+)<',
+            xml_text,
+        )
+        if not m:
+            return None
+        try:
+            return float(m.group(1).replace(",", ""))
+        except (ValueError, TypeError):
+            return None
+
+    def _str(tag: str, ctx: str = "OneD") -> Optional[str]:
+        m = re.search(
+            r'<[^:>]+:' + re.escape(tag) + r'[^>]*contextRef="' + ctx + r'"[^>]*>([^<]+)<',
+            xml_text,
+        )
+        return m.group(1).strip() if m else None
+
+    period_end = _str("DateOfEndOfReportingPeriod")
+    period_start = _str("DateOfStartOfReportingPeriod")
+    if not period_end:
+        logger.warning("parse_nse_integrated_xbrl: no period_end in XML for %s", symbol)
+        return None
+
+    nature = _str("NatureOfReportStandaloneConsolidated") or ""
+    audited_str = _str("WhetherResultsAreAuditedOrUnaudited") or ""
+    consolidated = "consolidated" in nature.lower()
+    audited = "audited" in audited_str.lower() and "unaudited" not in audited_str.lower()
+
+    pat = _num("ProfitLossForPeriod", "OneD") or _num("ProfitLossForPeriodFromContinuingOperations", "OneD")
+    pbt_exc = _num("ProfitBeforeExceptionalItemsAndTax", "OneD")
+    fin_costs = _num("FinanceCosts", "OneD")
+    dep = _num("DepreciationDepletionAndAmortisationExpense", "OneD")
+    ebitda = round(pbt_exc + fin_costs + dep, 4) if all(v is not None for v in [pbt_exc, fin_costs, dep]) else None
+
+    # EPS and face value are per-share rupee amounts — no crore conversion
+    eps_basic = (_raw("BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations", "OneD")
+                 or _raw("BasicEarningsLossPerShareFromContinuingOperations", "OneD"))
+    eps_diluted = (_raw("DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations", "OneD")
+                   or _raw("DilutedEarningsLossPerShareFromContinuingOperations", "OneD"))
+    face_value = (_raw("FaceValueOfEquityShareCapital", "OneD")
+                  or _raw("FaceValueOfEquityShareCapital", "FourD"))
+
+    result = {
+        "period_end":           period_end,
+        "period_start":         period_start,
+        "period_type":          "quarterly",
+        "consolidated":         consolidated,
+        "audited":              audited,
+        "revenue_from_ops_cr":  _num("RevenueFromOperations", "OneD"),
+        "other_income_cr":      _num("OtherIncome", "OneD"),
+        "total_income_cr":      _num("Income", "OneD"),
+        "total_expenses_cr":    _num("Expenses", "OneD"),
+        "ebitda_cr":            ebitda,
+        "finance_costs_cr":     fin_costs,
+        "depreciation_cr":      dep,
+        "pbt_before_exc_cr":    pbt_exc,
+        "exceptional_items_cr": _num("ExceptionalItemsBeforeTax", "OneD"),
+        "pbt_cr":               _num("ProfitBeforeTax", "OneD"),
+        "tax_expense_cr":       _num("TaxExpense", "OneD"),
+        "pat_cr":               pat,
+        "pat_attrib_owners_cr": _num("ProfitLossAttributableToOwnersOfParent", "OneD"),
+        "eps_basic":            eps_basic,
+        "eps_diluted":          eps_diluted,
+        "face_value":           face_value,
+        "total_equity_cr":      _num("Equity", "OneI"),
+        "long_term_debt_cr":    _num("BorrowingsNoncurrent", "OneI"),
+        "short_term_debt_cr":   _num("BorrowingsCurrent", "OneI"),
+        "cash_and_equiv_cr":    _num("CashAndCashEquivalents", "OneI"),
+    }
+    non_null = sum(1 for v in result.values() if v is not None)
+    logger.info("parse_nse_integrated_xbrl: %s parsed %d fields (period=%s, consolidated=%s)",
+                symbol, non_null, period_end, consolidated)
+    return result
+
+
 def parse_nse_xbrl_json(symbol: str, xbrl_text: str) -> Optional[dict[str, Any]]:
     """Parse NSE's structured XBRL comparator JSON response directly (no LLM needed)."""
     try:

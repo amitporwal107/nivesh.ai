@@ -1,11 +1,11 @@
 """NIDP nse_financials service.
 
 For each company with a result due today (from nidp.event_calendar):
-  1. Try company IR page first (fastest — often published before NSE)
-  2. Fall back to NSE XBRL comparator API
-  3. Use LLM (Claude Haiku) to extract structured numbers from raw text
-  4. Upsert into nidp.nse_financials_quarterly
-  5. Trigger event_analyzer to generate AI signal
+  1. Try NSE Integrated XBRL filing (_WEB.xml via corporate-announcements API)
+  2. Fall back to company IR page (manual ir_url seeded in company_ir_urls)
+  3. Fall back to NSE XBRL comparator API
+  4. Use LLM to extract structured numbers from raw text (strategies 2 & 3)
+  5. Upsert into nidp.nse_financials_quarterly
 
 Can be run daily (catches anything due today) or with --symbol for one stock.
 """
@@ -19,8 +19,8 @@ from typing import Optional
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool, get_pool
 
-from .ir_scraper import fetch_nse_xbrl, scrape_ir_page
-from .llm_extractor import extract_financials, parse_nse_xbrl_json
+from .ir_scraper import fetch_nse_integrated_filing, fetch_nse_xbrl, scrape_ir_page
+from .llm_extractor import extract_financials, parse_nse_integrated_xbrl, parse_nse_xbrl_json
 from .writer import upsert_financials
 
 logger = logging.getLogger(__name__)
@@ -81,12 +81,28 @@ async def _process_symbol(
 ) -> Optional[int]:
     financials_id = None
 
-    # Strategy 1: Company IR page (fastest)
+    # Strategy 1: NSE Integrated XBRL filing (structured XML — no LLM tokens)
+    logger.info("nse_financials: trying NSE integrated filing XBRL for %s", symbol)
+    xml_text = await fetch_nse_integrated_filing(symbol)
+    if xml_text:
+        data = parse_nse_integrated_xbrl(symbol, xml_text)
+        if data and data.get("pat_cr") is not None:
+            data = _fill_period_end(data, event_date)
+            financials_id = await upsert_financials(symbol, data, source="nse_integrated_xbrl")
+            if financials_id:
+                logger.info("nse_financials: ✓ %s from NSE integrated XBRL (id=%d)", symbol, financials_id)
+                return financials_id
+
+    # Strategy 2: Company IR page (manual URL seeded in company_ir_urls)
     if ir_url:
         logger.info("nse_financials: trying IR page for %s", symbol)
         raw = await scrape_ir_page(symbol, ir_url, results_url)
         if raw:
-            data = await extract_financials(symbol, raw, source_url=results_url or ir_url)
+            # If it's XBRL XML (results_url pointed directly at a _WEB.xml), parse structurally
+            if raw.lstrip().startswith("<?xml"):
+                data = parse_nse_integrated_xbrl(symbol, raw)
+            else:
+                data = await extract_financials(symbol, raw, source_url=results_url or ir_url)
             if data:
                 data = _fill_period_end(data, event_date)
                 financials_id = await upsert_financials(
@@ -96,22 +112,18 @@ async def _process_symbol(
                     logger.info("nse_financials: ✓ %s from company IR page (id=%d)", symbol, financials_id)
                     return financials_id
 
-    # Strategy 2: NSE XBRL comparator
-    logger.info("nse_financials: trying NSE XBRL for %s", symbol)
+    # Strategy 3: NSE XBRL comparator (JSON API)
+    logger.info("nse_financials: trying NSE XBRL comparator for %s", symbol)
     xbrl_text = await fetch_nse_xbrl(symbol, period)
     if xbrl_text:
-        # Try direct XBRL parse first (no LLM tokens)
         data = parse_nse_xbrl_json(symbol, xbrl_text)
         if not data or not data.get("pat_cr"):
-            # Fall back to LLM extraction
             data = await extract_financials(symbol, xbrl_text)
         if data:
             data = _fill_period_end(data, event_date)
-            financials_id = await upsert_financials(
-                symbol, data, source="nse_xbrl"
-            )
+            financials_id = await upsert_financials(symbol, data, source="nse_xbrl")
             if financials_id:
-                logger.info("nse_financials: ✓ %s from NSE XBRL (id=%d)", symbol, financials_id)
+                logger.info("nse_financials: ✓ %s from NSE XBRL comparator (id=%d)", symbol, financials_id)
                 return financials_id
 
     logger.warning("nse_financials: ✗ could not extract financials for %s", symbol)

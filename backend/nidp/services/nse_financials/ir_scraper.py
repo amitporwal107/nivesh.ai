@@ -93,6 +93,11 @@ async def scrape_ir_page(symbol: str, ir_url: str, results_url: Optional[str] = 
     if len(html) > 100 and "%" in html[:4]:  # PDF magic bytes as text
         return html
 
+    # If it's an XBRL XML file, return it directly for parse_nse_integrated_xbrl
+    if html.lstrip().startswith("<?xml"):
+        logger.info("ir_scraper: got XBRL XML for %s from %s", symbol, target)
+        return html
+
     # Find result document links on the page
     links = _find_result_links(html, target)
     for link in links:
@@ -105,6 +110,58 @@ async def scrape_ir_page(symbol: str, ir_url: str, results_url: Optional[str] = 
     if len(html) > 200:
         return html[:40_000]
     return None
+
+
+async def fetch_nse_integrated_filing(symbol: str) -> Optional[str]:
+    """Find and fetch the latest NSE Integrated XBRL filing (_WEB.xml) for a symbol.
+
+    Uses the NSE corporate-announcements API (which lists all filings with attachment
+    URLs) and picks the most recent _WEB.xml attachment from nsearchives.nseindia.com.
+    Returns raw XML text, or None if not found.
+    """
+    from datetime import date, timedelta
+    today = date.today()
+    from_date = (today - timedelta(days=90)).strftime("%d-%m-%Y")
+    to_date = today.strftime("%d-%m-%Y")
+
+    url = (
+        f"https://www.nseindia.com/api/corporate-announcements"
+        f"?index=equities&symbol={symbol}&from_date={from_date}&to_date={to_date}"
+    )
+    try:
+        from nidp.shared.sources.nse_fetcher import fetch_text
+        text, status = await fetch_text(
+            url,
+            referer="https://www.nseindia.com/companies-listing/corporate-integrated-filing"
+                    f"?symbol={symbol}&tabIndex=equity",
+        )
+        if status != 200 or not text:
+            return None
+
+        import json as _json
+        items = _json.loads(text)
+        if not isinstance(items, list):
+            return None
+
+        # Find announcements whose attachment is an integrated XBRL WEB.xml
+        xbrl_url = None
+        for item in items:
+            attach = item.get("attchmntFile", "") or ""
+            if "nsearchives" in attach and "_WEB.xml" in attach and "INTEGRATED_FILING" in attach:
+                xbrl_url = attach
+                break  # items are sorted newest-first
+
+        if not xbrl_url:
+            logger.debug("fetch_nse_integrated_filing: no _WEB.xml found for %s", symbol)
+            return None
+
+        logger.info("fetch_nse_integrated_filing: found XBRL for %s → %s", symbol, xbrl_url)
+        xml_text = await _get_text(xbrl_url)
+        return xml_text
+
+    except Exception as e:
+        logger.debug("fetch_nse_integrated_filing(%s) failed: %s", symbol, e)
+        return None
 
 
 async def fetch_nse_xbrl(symbol: str, period: Optional[str] = None) -> Optional[str]:
