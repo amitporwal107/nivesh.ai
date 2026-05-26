@@ -18,6 +18,7 @@ async def upsert_financials(
     filing_id: Optional[str] = None,
     broadcast_at: Optional[str] = None,
     source_run_id: Optional[str] = None,
+    raw_data: Optional[dict[str, Any]] = None,
 ) -> Optional[int]:
     from datetime import datetime as _dt
 
@@ -42,7 +43,10 @@ async def upsert_financials(
         return None
     period_start = _parse_date(data.get("period_start"))
 
+    import json as _json
+
     run_id = source_run_id or str(uuid.uuid4())
+    raw_data_json = _json.dumps(raw_data) if raw_data else None
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -56,10 +60,10 @@ async def upsert_financials(
                 eps_basic, eps_diluted, face_value,
                 total_equity_cr, long_term_debt_cr, short_term_debt_cr, cash_and_equiv_cr,
                 interest_earned_cr, interest_expended_cr, nim_pct,
-                source, source_run_id, ir_url, filing_id, broadcast_at
+                source, source_run_id, ir_url, filing_id, broadcast_at, raw_data
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-                $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
+                $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
             )
             ON CONFLICT (symbol, period_end, consolidated)
             DO UPDATE SET
@@ -69,6 +73,7 @@ async def upsert_financials(
                 eps_basic           = COALESCE(EXCLUDED.eps_basic,           nidp.nse_financials_quarterly.eps_basic),
                 ebitda_cr           = COALESCE(EXCLUDED.ebitda_cr,           nidp.nse_financials_quarterly.ebitda_cr),
                 pbt_cr              = COALESCE(EXCLUDED.pbt_cr,              nidp.nse_financials_quarterly.pbt_cr),
+                raw_data            = COALESCE(EXCLUDED.raw_data,            nidp.nse_financials_quarterly.raw_data),
                 source              = EXCLUDED.source,
                 source_run_id       = EXCLUDED.source_run_id,
                 ingested_at         = NOW()
@@ -84,6 +89,6 @@ async def upsert_financials(
             data.get("face_value"), data.get("total_equity_cr"), data.get("long_term_debt_cr"),
             data.get("short_term_debt_cr"), data.get("cash_and_equiv_cr"),
             data.get("interest_earned_cr"), data.get("interest_expended_cr"), data.get("nim_pct"),
-            source, run_id, ir_url, filing_id, broadcast_at,
+            source, run_id, ir_url, filing_id, broadcast_at, raw_data_json,
         )
     return row["id"] if row else None

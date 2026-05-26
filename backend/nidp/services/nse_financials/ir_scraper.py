@@ -16,6 +16,14 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# Screener.in uses its own slugs — most match NSE symbols, exceptions listed here.
+# Covers all current Nifty 50 constituents (May 2026).
+_SCREENER_SLUG_MAP: dict[str, str] = {
+    "M&M": "M-AND-M",
+    "BAJAJFINSV": "BAJAJ-FINSERV",
+    "TATAMOTORS": "TMCV",          # Tata Motors listed as TMCV on Screener.in
+}
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -162,6 +170,38 @@ async def fetch_nse_integrated_filing(symbol: str) -> Optional[str]:
     except Exception as e:
         logger.debug("fetch_nse_integrated_filing(%s) failed: %s", symbol, e)
         return None
+
+
+def _screener_is_rate_limited(html: Optional[str]) -> bool:
+    """Return True if Screener.in returned a rate-limit / captcha / login wall."""
+    if not html:
+        return False
+    lower = html.lower()
+    return any(k in lower for k in ("captcha", "rate limit", "too many requests",
+                                    "login", "sign in to continue", "please verify"))
+
+
+async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
+    """Fetch Screener.in company page for the given NSE symbol.
+
+    Tries standalone first, then consolidated. Returns (html, is_consolidated)
+    or None if the company is not found on Screener.in.
+
+    Raises RuntimeError if Screener.in signals rate-limiting so callers can
+    detect the difference between "symbol doesn't exist" and "we're blocked".
+    """
+    slug = _SCREENER_SLUG_MAP.get(symbol, symbol)
+    for consolidated in (False, True):
+        path = "consolidated/" if consolidated else ""
+        url = f"https://www.screener.in/company/{slug}/{path}"
+        html = await _get_text(url)
+        if _screener_is_rate_limited(html):
+            raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
+        if html and len(html) > 1000 and 'id="quarters"' in html:
+            logger.info("fetch_screener_quarters: found %s on Screener.in (consolidated=%s)", symbol, consolidated)
+            return html, consolidated
+    logger.debug("fetch_screener_quarters: %s not found on Screener.in", symbol)
+    return None
 
 
 async def fetch_nse_xbrl(symbol: str, period: Optional[str] = None) -> Optional[str]:

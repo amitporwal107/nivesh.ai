@@ -2,10 +2,11 @@
 
 For each company with a result due today (from nidp.event_calendar):
   1. Try NSE Integrated XBRL filing (_WEB.xml via corporate-announcements API)
-  2. Fall back to company IR page (manual ir_url seeded in company_ir_urls)
-  3. Fall back to NSE XBRL comparator API
-  4. Use LLM to extract structured numbers from raw text (strategies 2 & 3)
-  5. Upsert into nidp.nse_financials_quarterly
+  2. Try Screener.in quarterly table (structured HTML — no LLM tokens; reliable for Nifty 50)
+  3. Fall back to company IR page (manual ir_url seeded in company_ir_urls)
+  4. Fall back to NSE XBRL comparator API
+  5. Use LLM to extract structured numbers from raw text (strategies 3 & 4)
+  6. Upsert into nidp.nse_financials_quarterly
 
 Can be run daily (catches anything due today) or with --symbol for one stock.
 """
@@ -19,8 +20,13 @@ from typing import Optional
 from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool, get_pool
 
-from .ir_scraper import fetch_nse_integrated_filing, fetch_nse_xbrl, scrape_ir_page
-from .llm_extractor import extract_financials, parse_nse_integrated_xbrl, parse_nse_xbrl_json
+from .ir_scraper import fetch_nse_integrated_filing, fetch_nse_xbrl, fetch_screener_quarters, scrape_ir_page
+from .llm_extractor import (
+    extract_financials,
+    parse_nse_integrated_xbrl,
+    parse_nse_xbrl_json,
+    parse_screener_quarters,
+)
 from .writer import upsert_financials
 
 logger = logging.getLogger(__name__)
@@ -93,7 +99,24 @@ async def _process_symbol(
                 logger.info("nse_financials: ✓ %s from NSE integrated XBRL (id=%d)", symbol, financials_id)
                 return financials_id
 
-    # Strategy 2: Company IR page or direct XBRL URL (seeded in company_ir_urls)
+    # Strategy 2: Screener.in quarterly table (structured HTML — no LLM tokens)
+    logger.info("nse_financials: trying Screener.in for %s", symbol)
+    screener_result = await fetch_screener_quarters(symbol)
+    if screener_result:
+        html, is_consolidated = screener_result
+        parsed = parse_screener_quarters(symbol, html, consolidated=is_consolidated)
+        if parsed:
+            data, raw_data = parsed
+            if data.get("pat_cr") is not None:
+                data = _fill_period_end(data, event_date)
+                financials_id = await upsert_financials(
+                    symbol, data, source="screener_in", raw_data=raw_data
+                )
+                if financials_id:
+                    logger.info("nse_financials: ✓ %s from Screener.in (id=%d)", symbol, financials_id)
+                    return financials_id
+
+    # Strategy 3: Company IR page or direct XBRL URL (seeded in company_ir_urls)
     if ir_url or results_url:
         logger.info("nse_financials: trying IR/results URL for %s", symbol)
         raw = await scrape_ir_page(symbol, ir_url or results_url, results_url)
@@ -112,7 +135,7 @@ async def _process_symbol(
                     logger.info("nse_financials: ✓ %s from company IR page (id=%d)", symbol, financials_id)
                     return financials_id
 
-    # Strategy 3: NSE XBRL comparator (JSON API)
+    # Strategy 4: NSE XBRL comparator (JSON API)
     logger.info("nse_financials: trying NSE XBRL comparator for %s", symbol)
     xbrl_text = await fetch_nse_xbrl(symbol, period)
     if xbrl_text:

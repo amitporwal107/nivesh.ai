@@ -132,6 +132,220 @@ async def extract_financials(
         return None
 
 
+def _screener_quarter_label_to_date(label: str) -> Optional[str]:
+    """Convert Screener.in quarter label to ISO date string.
+
+    Examples: 'Mar 2025' → '2025-03-31', 'Dec 2024' → '2024-12-31'
+    """
+    _MONTH_END = {
+        "jan": (1, 31), "feb": (2, 28), "mar": (3, 31), "apr": (4, 30),
+        "may": (5, 31), "jun": (6, 30), "jul": (7, 31), "aug": (8, 31),
+        "sep": (9, 30), "oct": (10, 31), "nov": (11, 30), "dec": (12, 31),
+    }
+    parts = label.strip().split()
+    if len(parts) != 2:
+        return None
+    mon = parts[0].lower()[:3]
+    try:
+        year = int(parts[1])
+    except ValueError:
+        return None
+    if mon not in _MONTH_END:
+        return None
+    m, d = _MONTH_END[mon]
+    return f"{year}-{m:02d}-{d:02d}"
+
+
+def _parse_screener_table(
+    html: str,
+) -> Optional[tuple[list[str], dict[str, list[Optional[float]]]]]:
+    """Parse the Screener.in #quarters table into (quarter_labels, raw_table).
+
+    quarter_labels: list of column headers in oldest→newest order, e.g.
+        ['Mar 2023', 'Jun 2023', ..., 'Mar 2026']
+    raw_table: dict mapping normalised row label → list of float|None values
+        aligned with quarter_labels.
+
+    Returns None if the table cannot be found or parsed.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return None
+
+    soup = BeautifulSoup(html, "lxml")
+    section = soup.find("section", {"id": "quarters"})
+    if not section:
+        return None
+    table = section.find("table", class_="data-table")
+    if not table:
+        return None
+    thead = table.find("thead")
+    tbody = table.find("tbody")
+    if not thead or not tbody:
+        return None
+
+    ths = thead.find_all("th")
+    if len(ths) < 2:
+        return None
+    quarter_labels = [th.get_text(strip=True) for th in ths[1:]]
+
+    raw_table: dict[str, list[Optional[float]]] = {}
+    for tr in tbody.find_all("tr"):
+        cells = tr.find_all("td")
+        if len(cells) < 2:
+            continue
+        label = cells[0].get_text(strip=True).rstrip("+").strip().lower()
+        all_vals: list[Optional[float]] = []
+        for cell in cells[1:]:
+            raw = cell.get_text(strip=True).replace(",", "")
+            try:
+                all_vals.append(float(raw))
+            except ValueError:
+                all_vals.append(None)
+        raw_table[label] = all_vals
+
+    return quarter_labels, raw_table
+
+
+def _build_quarter_dict(
+    row_map: dict[str, Optional[float]],
+    period_end: str,
+    consolidated: bool,
+) -> dict[str, Any]:
+    """Map a Screener row_map (single quarter) to nse_financials_quarterly columns."""
+    def _get(*keys: str) -> Optional[float]:
+        for k in keys:
+            for label, val in row_map.items():
+                if k in label:
+                    return val
+        return None
+
+    revenue = _get("sales")
+    other_income = _get("other income")
+    total_income: Optional[float] = None
+    if revenue is not None and other_income is not None:
+        total_income = round(revenue + other_income, 4)
+    elif revenue is not None:
+        total_income = revenue
+
+    return {
+        "period_end":           period_end,
+        "period_type":          "quarterly",
+        "consolidated":         consolidated,
+        "audited":              None,
+        "revenue_from_ops_cr":  revenue,
+        "other_income_cr":      other_income,
+        "total_income_cr":      total_income,
+        "total_expenses_cr":    _get("expenses"),
+        "ebitda_cr":            _get("operating profit"),
+        "finance_costs_cr":     _get("interest"),
+        "depreciation_cr":      _get("depreciation"),
+        "pbt_cr":               _get("profit before tax"),
+        "pat_cr":               _get("net profit"),
+        "eps_basic":            _get("eps in rs", "eps"),
+    }
+
+
+def parse_screener_quarters(
+    symbol: str, html: str, consolidated: bool = False
+) -> Optional[tuple[dict[str, Any], dict[str, Any]]]:
+    """Parse Screener.in company page HTML.
+
+    Returns (parsed, raw_data) where:
+    - parsed  matches nse_financials_quarterly columns (latest quarter only)
+    - raw_data stores all quarters & all rows for future metric extraction
+
+    Screener reports values in ₹ Crore — no unit conversion needed.
+    Returns None on failure.
+    """
+    result = _parse_screener_table(html)
+    if not result:
+        logger.debug("parse_screener_quarters: no #quarters section for %s", symbol)
+        return None
+
+    quarter_labels, raw_table = result
+    latest_label = quarter_labels[-1]
+    period_end = _screener_quarter_label_to_date(latest_label)
+    if not period_end:
+        logger.warning("parse_screener_quarters: unrecognised quarter label '%s' for %s", latest_label, symbol)
+        return None
+
+    row_map_latest = {label: vals[-1] if vals else None for label, vals in raw_table.items()}
+
+    raw_data: dict[str, Any] = {
+        "source": "screener_in",
+        "consolidated": consolidated,
+        "quarters": quarter_labels,
+        "data": raw_table,
+    }
+
+    def _get(*keys: str) -> Optional[float]:
+        for k in keys:
+            for label, val in row_map_latest.items():
+                if k in label:
+                    return val
+        return None
+
+    revenue = _get("sales")
+    other_income = _get("other income")
+    expenses = _get("expenses")
+    op_profit = _get("operating profit")
+    interest = _get("interest")
+    parsed = _build_quarter_dict(row_map_latest, period_end, consolidated)
+
+    non_null = sum(1 for v in parsed.values() if v is not None)
+    logger.info(
+        "parse_screener_quarters: %s parsed %d fields for %s (consolidated=%s, quarters=%d)",
+        symbol, non_null, period_end, consolidated, len(quarter_labels),
+    )
+    return parsed, raw_data
+
+
+def parse_all_screener_quarters(
+    symbol: str,
+    html: str,
+    consolidated: bool = False,
+    since_date: Optional[str] = None,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Parse ALL quarters from a Screener.in page within the given date window.
+
+    Returns a list of (parsed, raw_data) tuples — one per quarter where
+    period_end >= since_date (ISO string, e.g. '2025-01-01').
+    raw_data is the same full-table payload for each entry.
+    Returns [] on failure.
+    """
+    result = _parse_screener_table(html)
+    if not result:
+        logger.debug("parse_all_screener_quarters: no #quarters section for %s", symbol)
+        return []
+
+    quarter_labels, raw_table = result
+    raw_data: dict[str, Any] = {
+        "source": "screener_in",
+        "consolidated": consolidated,
+        "quarters": quarter_labels,
+        "data": raw_table,
+    }
+
+    output: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for i, label in enumerate(quarter_labels):
+        period_end = _screener_quarter_label_to_date(label)
+        if not period_end:
+            continue
+        if since_date and period_end < since_date:
+            continue
+        row_map = {lbl: vals[i] if i < len(vals) else None for lbl, vals in raw_table.items()}
+        parsed = _build_quarter_dict(row_map, period_end, consolidated)
+        output.append((parsed, raw_data))
+
+    logger.info(
+        "parse_all_screener_quarters: %s — %d quarters in window (since=%s, total=%d)",
+        symbol, len(output), since_date, len(quarter_labels),
+    )
+    return output
+
+
 def parse_nse_integrated_xbrl(symbol: str, xml_text: str) -> Optional[dict[str, Any]]:
     """Parse NSE Integrated XBRL filing (SEBI IndAS/IGAAP format) — zero LLM tokens.
 
