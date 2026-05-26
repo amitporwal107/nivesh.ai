@@ -1,7 +1,13 @@
 -- Migration 069: Add missing columns to v_stock_fundamentals_latest
 -- face_value, ebitda_cr, finance_costs_cr, depreciation_cr used by fundamental_engine
+-- Also fixes period_type filter: was exact 'QUARTERLY', data stores lowercase 'quarterly'
+-- DROP CASCADE is required because columns are added in the middle of the SELECT list.
+-- v_stock_features_full (which depends on this view) is recreated at the end.
 
-CREATE OR REPLACE VIEW nidp.v_stock_fundamentals_latest AS
+DROP VIEW IF EXISTS nidp.v_stock_features_full;
+DROP VIEW IF EXISTS nidp.v_stock_fundamentals_latest;
+
+CREATE VIEW nidp.v_stock_fundamentals_latest AS
 WITH ranked AS (
     SELECT f.*,
            ROW_NUMBER() OVER (PARTITION BY f.symbol ORDER BY f.consolidated DESC, f.period_end DESC) AS rn,
@@ -83,3 +89,37 @@ SELECT r.symbol,
   LEFT JOIN ttm t    ON t.symbol = r.symbol
   LEFT JOIN prior_year py ON py.symbol = r.symbol
  WHERE r.rn = 1;
+
+
+-- Recreate v_stock_features_full (was dropped by CASCADE above)
+CREATE OR REPLACE VIEW nidp.v_stock_features_full AS
+SELECT
+    f.*,
+    fund.revenue_ttm_cr,
+    fund.pat_ttm_cr,
+    fund.eps_ttm,
+    fund.total_equity_cr,
+    fund.long_term_debt_cr,
+    fund.short_term_debt_cr,
+    fund.cash_and_equiv_cr,
+    fund.equity_share_capital_cr,
+    fund.ebitda_ttm_cr,
+    fund.ebit_ttm_cr,
+    fund.capital_employed_cr,
+    fund.finance_costs_ttm_cr,
+    shp.insurance_pct,
+    shp.individual_pct,
+    shp.mf_pct_change_qoq,
+    shp.pledge_pct_change_qoq,
+    sm.isin,
+    sm.listing_date,
+    sm.face_value
+  FROM nidp.stock_features_daily f
+  LEFT JOIN nidp.v_stock_fundamentals_latest fund ON fund.symbol = f.symbol
+  LEFT JOIN nidp.v_shareholding_latest shp         ON shp.symbol  = f.symbol
+  LEFT JOIN nidp.sector_master sm                  ON sm.symbol   = f.symbol;
+
+
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('069_fix_v_stock_fundamentals_latest.sql')
+ON CONFLICT (filename) DO NOTHING;
