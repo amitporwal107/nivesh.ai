@@ -202,7 +202,7 @@ def _parse_screener_section(
         label = cells[0].get_text(strip=True).rstrip("+").strip().lower()
         all_vals: list[Optional[float]] = []
         for cell in cells[1:]:
-            raw = cell.get_text(strip=True).replace(",", "")
+            raw = cell.get_text(strip=True).replace(",", "").rstrip("%")
             try:
                 all_vals.append(float(raw))
             except ValueError:
