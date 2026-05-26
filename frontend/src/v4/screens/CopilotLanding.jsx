@@ -258,7 +258,10 @@ export default function CopilotLanding() {
           {/* ── Insight cards ── */}
           {insightCards.length > 0 && (
             <>
-              <div style={hlStyle}>Top insights · tap to open dashboard</div>
+              <div style={hlStyle}>
+                <span>Top insights · tap to open dashboard</span>
+                <span style={{ flex: 1, height: 1, background: "var(--v4-line)" }} />
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 18 }}>
                 {insightCards.map((rec, i) => {
                   const kind = (rec.kind || "").toUpperCase();
@@ -304,6 +307,9 @@ export default function CopilotLanding() {
                 <button style={ctaPrimaryStyle} type="button" onClick={() => navigate("/plan")}>
                   See the plan
                 </button>
+                <button style={ctaGhostStyle} type="button" onClick={() => navigate("/builder")}>
+                  Build a portfolio
+                </button>
               </div>
             </div>
           )}
@@ -311,7 +317,10 @@ export default function CopilotLanding() {
           {/* ── Prompt chips + chat ── */}
           {prompts.length > 0 && (
             <>
-              <div style={hlStyle}>Or ask me anything</div>
+              <div style={hlStyle}>
+                <span>Or ask me anything</span>
+                <span style={{ flex: 1, height: 1, background: "var(--v4-line)" }} />
+              </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 20 }}>
                 {prompts.map((p) => {
                   const label = p.label || p.text || p.query;
@@ -467,6 +476,12 @@ const ctaPrimaryStyle = {
   fontSize: 12, fontWeight: 600,
   background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-dk))",
   color: "#2a1605", padding: "8px 14px", borderRadius: 9, border: "none", cursor: "pointer",
+};
+
+const ctaGhostStyle = {
+  fontSize: 12, color: "var(--v4-ink-dim)",
+  background: "var(--v4-s2)", border: "1px solid var(--v4-line)",
+  padding: "8px 14px", borderRadius: 9, cursor: "pointer",
 };
 
 const chipStyle = {

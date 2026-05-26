@@ -14,6 +14,8 @@ const NAV_ITEMS = [
   { label: "Concentration",   path: "/concentration" },
   { label: "Diversification", path: "/diversification" },
   { label: "Risk",            path: "/risk" },
+  { label: "Performance",     path: "/performance" },
+  { label: "Tax",             path: "/tax" },
   { label: "Action Plan",     path: "/plan" },
   { label: "Goals",           path: "/goals" },
 ];

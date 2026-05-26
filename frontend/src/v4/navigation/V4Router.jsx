@@ -22,6 +22,8 @@ const Concentration = lazy(() => import("../screens/Concentration"));
 const Diversification = lazy(() => import("../screens/Diversification"));
 const Risk = lazy(() => import("../screens/Risk"));
 const ActionPlan = lazy(() => import("../screens/ActionPlan"));
+const Performance = lazy(() => import("../screens/Performance"));
+const Tax = lazy(() => import("../screens/Tax"));
 const Goals = lazy(() => import("../screens/Goals"));
 
 function ScreenSkeleton() {
@@ -62,6 +64,8 @@ export default function V4Router() {
         <Route path="diversification" element={<Diversification />} />
         <Route path="risk" element={<Risk />} />
         <Route path="plan" element={<ActionPlan />} />
+        <Route path="performance" element={<Performance />} />
+        <Route path="tax" element={<Tax />} />
         <Route path="goals" element={<Goals />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

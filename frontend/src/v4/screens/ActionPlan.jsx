@@ -10,12 +10,24 @@ import {
   DashboardShell, EmptyState, Skeleton, HlBar, formatInr,
 } from "../components/DashboardShell";
 
-const ACTION_META = {
-  EXIT:   { tone: "var(--v4-rust)",     label: "Exit",   icon: "↗" },
-  ADD:    { tone: "var(--v4-moss)",     label: "Add",    icon: "+" },
-  TRIM:   { tone: "var(--v4-gold)",    label: "Trim",   icon: "↘" },
-  HOLD:   { tone: "var(--v4-indigo)",  label: "Hold",   icon: "◆" },
-  REVIEW: { tone: "var(--v4-saffron)", label: "Review", icon: "◎" },
+const DOMAIN_COLOR = {
+  concentration:  "var(--v4-rust)",
+  diversification: "var(--v4-gold)",
+  risk:           "var(--v4-rust)",
+  performance:    "var(--v4-moss)",
+  tax:            "var(--v4-indigo)",
+  goals:          "var(--v4-gold)",
+};
+
+const VERB_META = {
+  EXIT:    { text: "EXIT",    color: "var(--v4-rust)"    },
+  TRIM:    { text: "TRIM",    color: "var(--v4-gold)"    },
+  ADD:     { text: "ADD",     color: "var(--v4-indigo)"  },
+  HOLD:    { text: "HOLD",    color: "var(--v4-indigo)"  },
+  REVIEW:  { text: "REVIEW",  color: "var(--v4-saffron)" },
+  SWITCH:  { text: "SWITCH",  color: "var(--v4-saffron)" },
+  MERGE:   { text: "MERGE",   color: "var(--v4-gold)"    },
+  HARVEST: { text: "HARVEST", color: "var(--v4-indigo)"  },
 };
 
 export default function ActionPlan() {
@@ -205,40 +217,100 @@ function Group({ label, count, labelTone, actions, markDone, markSkip, undoDone,
 }
 
 function PlanActionCard({ action, onDone, onSkip, onUndo }) {
-  const type = (action.type || "REVIEW").toUpperCase();
-  const meta = ACTION_META[type] || ACTION_META.REVIEW;
-  const title = action.asset_name || action.title || action.action || "Action";
-  const detail = action.reason_text || action.detail;
-  const amount = action.amount;
-  const priority = String(action.priority || "").toLowerCase();
+  const type     = (action.type || "REVIEW").toUpperCase();
+  const verb     = VERB_META[type] || VERB_META.REVIEW;
+  const domain   = (action.source_domain || action.domain || "").toLowerCase();
+  const barColor = DOMAIN_COLOR[domain] || "var(--v4-ink-faint)";
+  const title    = action.asset_name || action.title || action.action || "Action";
+  const detail   = action.reason_text || action.detail;
+  const isDone   = !onDone && !onSkip && !onUndo ? false : !!onUndo && !onDone;
+  const isSkip   = !onDone && !onSkip && !onUndo ? false : !!onSkip && !onDone && !onUndo;
+
+  const rawImpact = action.impact?.value ?? action.impact_points ?? action.health_delta ?? "";
+  const impactPts = rawImpact !== "" && rawImpact != null
+    ? `+${Math.abs(Number(rawImpact))} pts`
+    : "";
+
+  /* left-border color: moss if done, line color otherwise */
+  const borderLeftColor = onUndo ? "var(--v4-moss)" : "var(--v4-line)";
+  const cardOpacity     = (onSkip === null && onDone === null && onUndo === null) ? 0.6 : 1;
 
   return (
-    <div style={planCardStyle(meta.tone)}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <div style={iconStyle(meta.tone)}>{meta.icon}</div>
+    <div style={{
+      background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))",
+      border: "1px solid var(--v4-line)",
+      borderLeft: `3px solid ${borderLeftColor}`,
+      borderRadius: "var(--v4-r-md)",
+      padding: "12px 14px",
+      opacity: cardOpacity,
+    }}>
+      <div style={{ display: "flex", gap: 9 }}>
+        {/* Left domain color bar */}
+        <div style={{ width: 6, alignSelf: "stretch", background: barColor, borderRadius: 3, flexShrink: 0 }} />
+
+        {/* Content */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 3, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8.5, letterSpacing: 1.2, color: meta.tone, textTransform: "uppercase" }}>{meta.label}</span>
-            {priority && <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8.5, color: "var(--v4-ink-faint)", letterSpacing: 0.8 }}>· {priority}</span>}
-            {amount && <span style={{ marginLeft: "auto", fontFamily: "var(--v4-display)", fontSize: 12, color: "var(--v4-ink)" }}>{formatInr(amount)}</span>}
+          {/* Title row with verb badge */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 3 }}>
+            <span style={{
+              fontFamily: "var(--v4-mono)", fontSize: 7, letterSpacing: 0.8,
+              color: verb.color,
+              background: `${verb.color}1a`,
+              border: `1px solid ${verb.color}38`,
+              padding: "3px 7px", borderRadius: 5, textTransform: "uppercase",
+            }}>
+              {verb.text}
+            </span>
+            <span style={{
+              fontSize: 12.5, fontWeight: 500, color: "var(--v4-ink)",
+              textDecoration: onUndo ? "line-through" : "none",
+            }}>
+              {title}
+            </span>
           </div>
-          <div style={{ fontFamily: "var(--v4-display)", fontSize: 15, color: "var(--v4-ink)", marginBottom: detail ? 3 : 0 }}>{title}</div>
-          {detail && <div style={{ fontSize: 12, color: "var(--v4-ink-dim)", lineHeight: 1.5 }}>{detail}</div>}
-          {(onDone || onSkip || onUndo) && (
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              {onDone && <button type="button" onClick={onDone} style={btnDone}>Mark done</button>}
-              {onSkip && <button type="button" onClick={onSkip} style={btnSkip}>Skip</button>}
-              {onUndo && <button type="button" onClick={onUndo} style={btnSkip}>Undo</button>}
+          {/* Detail */}
+          {detail && (
+            <div style={{ fontFamily: "var(--v4-mono)", fontSize: 8, color: "var(--v4-ink-mute)", marginTop: 3, lineHeight: 1.5 }}>
+              {detail}
             </div>
           )}
         </div>
+
+        {/* Right: pts or source */}
+        <div style={{ fontFamily: "var(--v4-mono)", fontSize: 8, whiteSpace: "nowrap", color: onUndo ? "var(--v4-moss)" : "var(--v4-ink-faint)", flexShrink: 0, alignSelf: "flex-start" }}>
+          {onUndo && impactPts ? `✓ ${impactPts}` : impactPts || (domain ? `${domain} ↗` : "")}
+        </div>
       </div>
+
+      {/* Buttons row */}
+      {(onDone || onSkip || onUndo) && (
+        <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+          {onUndo && (
+            <button type="button" onClick={onUndo} style={btnGhost}>Undo</button>
+          )}
+          {onDone && (
+            <>
+              <button type="button" onClick={onDone} style={btnMarkDone}>Mark done</button>
+              <button type="button" onClick={onSkip} style={btnGhost}>Skip</button>
+            </>
+          )}
+          {onSkip && !onDone && !onUndo && (
+            <button type="button" onClick={onSkip} style={btnGhost}>Restore</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 const heroCardStyle = { background: "linear-gradient(168deg, var(--v4-hero-a), var(--v4-hero-b))", border: "1px solid var(--v4-line-strong)", borderRadius: 16, padding: "16px 18px", marginBottom: 20 };
-const planCardStyle = (tone) => ({ background: "linear-gradient(165deg, var(--v4-s2), var(--v4-s1))", border: "1px solid var(--v4-line)", borderLeft: `3px solid ${tone}`, borderRadius: "var(--v4-r-md)", padding: "14px 16px" });
-const iconStyle = (tone) => ({ width: 30, height: 30, borderRadius: 7, background: `${tone}18`, border: `1px solid ${tone}40`, display: "grid", placeItems: "center", flexShrink: 0, color: tone, fontSize: 13 });
-const btnDone = { fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "6px 14px", borderRadius: 999, cursor: "pointer", background: "rgba(99,190,123,.12)", border: "1px solid rgba(99,190,123,.35)", color: "var(--v4-moss)" };
-const btnSkip = { fontFamily: "var(--v4-mono)", fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "6px 14px", borderRadius: 999, cursor: "pointer", background: "var(--v4-s1)", border: "1px solid var(--v4-line)", color: "var(--v4-ink-faint)" };
+const btnMarkDone = {
+  flex: 1, fontSize: 10.5, fontWeight: 600, borderRadius: 7, padding: 7, border: "none", cursor: "pointer",
+  background: "linear-gradient(150deg, var(--v4-saffron), var(--v4-saffron-dk))", color: "#2a1605",
+};
+const btnDone = btnMarkDone;
+const btnGhost = {
+  fontSize: 10.5, borderRadius: 7, padding: "7px 11px",
+  border: "1px solid var(--v4-line)", background: "var(--v4-s2)", color: "var(--v4-ink-mute)", cursor: "pointer",
+};
+const btnSkip = btnGhost;
