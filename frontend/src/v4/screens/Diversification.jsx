@@ -7,150 +7,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Treemap, ResponsiveContainer } from "recharts";
 import api from "../api/client";
 import {
   DashboardShell, EmptyState, Skeleton,
   RecommendationCard, ApplyCard, HlBar,
 } from "../components/DashboardShell";
-
-// ── V4 palette (hex — CSS vars don't resolve inside <svg>) ───────────────────
-const C_RUST  = "#c44b3a";   // ≥65% overlap  → danger
-const C_GOLD  = "#c49a2a";   // 40–65%        → caution
-const C_MOSS  = "#3d7a54";   // <40%          → safe
-const C_MUTED = "#2c2926";   // no data
-
-function overlapColor(pct) {
-  if (pct >= 65) return C_RUST;
-  if (pct >= 40) return C_GOLD;
-  if (pct > 0)   return C_MOSS;
-  return C_MUTED;
-}
-
-function maxOverlapForFund(isin, pairs) {
-  let max = 0;
-  for (const p of pairs) {
-    if (p.a === isin || p.b === isin) max = Math.max(max, Number(p.overlap_pct) || 0);
-  }
-  return max;
-}
-
-function cleanAmc(raw) {
-  return (raw || "Other")
-    .replace(/\s+(Mutual Fund|Asset Management(?: Co\.?)?|AMC|Ltd\.?|Limited)$/i, "")
-    .trim();
-}
-
-function shortLabel(name, isin) {
-  if (!name || name === isin) return (isin || "").slice(-6);
-  return name
-    .replace(/\s+(Direct|Regular|Growth|IDCW|Dividend|Plan|Option|Scheme)\b.*/i, "")
-    .trim()
-    .slice(0, 24);
-}
-
-function buildTreemapData(funds, pairs) {
-  const byAmc = {};
-  for (const f of funds) {
-    const amc = cleanAmc(f.amc);
-    if (!byAmc[amc]) byAmc[amc] = [];
-    byAmc[amc].push({
-      name: f.name || f.id,
-      isin: f.id,
-      value: Math.max(f.value_rs || 0, 500),
-      maxOverlap: maxOverlapForFund(f.id, pairs),
-    });
-  }
-  return Object.entries(byAmc)
-    .sort(([, a], [, b]) =>
-      b.reduce((s, f) => s + f.value, 0) - a.reduce((s, f) => s + f.value, 0)
-    )
-    .map(([name, children]) => ({ name, children }));
-}
-
-function TreemapCell(props) {
-  const { x, y, width, height, name, depth, maxOverlap, isin } = props;
-  if (!width || !height || width < 2 || height < 2) return null;
-
-  if (depth === 1) {
-    return (
-      <g>
-        <rect
-          x={x + 1} y={y + 1}
-          width={width - 2} height={height - 2}
-          fill="rgba(20,15,10,0)"
-          stroke="rgba(255,255,255,0.07)"
-          strokeWidth={1}
-          rx={6}
-        />
-        {width > 55 && height > 18 && (
-          <text
-            x={x + 7} y={y + 13}
-            fill="rgba(255,255,255,0.3)"
-            fontSize={8}
-            fontFamily="ui-monospace, monospace"
-            style={{ userSelect: "none", pointerEvents: "none" }}
-          >
-            {name}
-          </text>
-        )}
-      </g>
-    );
-  }
-
-  if (depth === 2) {
-    const ov = maxOverlap || 0;
-    const bg = overlapColor(ov);
-    const label = shortLabel(name, isin);
-    const showLabel = width > 48 && height > 20;
-    const showOv    = width > 52 && height > 40 && ov > 0;
-    const fontSize  = Math.max(7.5, Math.min(11, width / 10));
-
-    return (
-      <g>
-        <rect
-          x={x + 2} y={y + 2}
-          width={width - 4} height={height - 4}
-          fill={bg}
-          fillOpacity={0.82}
-          rx={4}
-        />
-        {showLabel && (
-          <text
-            x={x + width / 2}
-            y={y + height / 2 - (showOv ? 8 : 0)}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="#fff"
-            fillOpacity={0.9}
-            fontSize={fontSize}
-            fontFamily="ui-monospace, monospace"
-            style={{ userSelect: "none", pointerEvents: "none" }}
-          >
-            {label}
-          </text>
-        )}
-        {showOv && (
-          <text
-            x={x + width / 2}
-            y={y + height / 2 + 9}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="#fff"
-            fillOpacity={0.5}
-            fontSize={7.5}
-            fontFamily="ui-monospace, monospace"
-            style={{ userSelect: "none", pointerEvents: "none" }}
-          >
-            {ov.toFixed(0)}% overlap
-          </text>
-        )}
-      </g>
-    );
-  }
-
-  return null;
-}
 
 const DIV_CODES = new Set([
   "OVERLAP_CONSOLIDATION", "REGULAR_DIRECT_DUPLICATE",
@@ -158,6 +19,24 @@ const DIV_CODES = new Set([
   "SAME_CATEGORY_CONSOLIDATION", "CROSS_CATEGORY_REPLACEMENT",
   "INTERNATIONAL_DIVERSIFICATION", "GEOGRAPHIC_GAP",
 ]);
+
+const CAUTION_PCT = 60;
+
+function fundName(isin, fundsMap) {
+  const f = fundsMap[isin];
+  if (!f) return isin ? isin.slice(-6) : "—";
+  const raw = f.name || f.id || isin;
+  return raw
+    .replace(/\s+(Direct|Regular|Growth|IDCW|Dividend|Plan|Option|Scheme)\b.*/i, "")
+    .trim()
+    .slice(0, 22);
+}
+
+function overlapColor(pct) {
+  if (pct >= 65) return "var(--v4-rust)";
+  if (pct >= 40) return "var(--v4-gold)";
+  return "var(--v4-moss)";
+}
 
 // ── Main screen ──────────────────────────────────────────────────────────────
 
@@ -188,21 +67,32 @@ export default function Diversification() {
   if (authLoading) return null;
   if (!user) { navigate("/onboarding", { replace: true }); return null; }
 
-  const funds      = data?.funds  || [];
-  const pairs      = data?.pairs  || [];
-  const maxPct     = data?.max_pct   || 0;
-  const highPairs  = data?.high_pairs || 0;
+  const funds = data?.funds  || [];
+  const pairs = data?.pairs  || [];
+
+  /* Build ISIN → fund lookup */
+  const fundsMap = {};
+  for (const f of funds) fundsMap[f.id] = f;
+
+  /* Sort pairs by overlap descending, take top 8 */
+  const sortedPairs = [...pairs]
+    .sort((a, b) => Number(b.overlap_pct) - Number(a.overlap_pct))
+    .slice(0, 8);
+
+  const maxPct = sortedPairs.length > 0 ? Number(sortedPairs[0].overlap_pct) : 0;
+  const scaleMax = Math.max(maxPct, CAUTION_PCT, 1);
+
+  /* High-overlap pairs (≥40%) */
+  const highPairs = pairs.filter(p => Number(p.overlap_pct) >= 40).length;
   const uniqueStocks = data?.unique_stocks_count ?? "—";
 
-  const treemapData = funds.length >= 2 ? buildTreemapData(funds, pairs) : null;
-
-  // Count distinct funds involved in any overlapping pair (≥40%)
-  const overlappingFundSet = new Set();
+  /* Headline */
+  const overlapFundSet = new Set();
   pairs.filter(p => Number(p.overlap_pct) >= 40).forEach(p => {
-    if (p.a) overlappingFundSet.add(p.a);
-    if (p.b) overlappingFundSet.add(p.b);
+    if (p.a) overlapFundSet.add(p.a);
+    if (p.b) overlapFundSet.add(p.b);
   });
-  const overlappingFundCount = overlappingFundSet.size;
+  const overlapFundCount = overlapFundSet.size;
 
   /* ② filter recs */
   const allActions = plan?.plan?.actions || [];
@@ -241,13 +131,13 @@ export default function Diversification() {
 
       {!loading && data && !data.empty && (
         <>
-          {/* ① Insight header */}
+          {/* ① Insight */}
           <div style={eyebrowStyle}>① Insight</div>
 
           <div style={insightCardStyle}>
             <div style={{ fontFamily: "var(--v4-display)", fontSize: 21, fontWeight: 600, letterSpacing: "-.02em", color: "var(--v4-ink)", marginBottom: 6 }}>
-              {overlappingFundCount > 0
-                ? `${overlappingFundCount} fund${overlappingFundCount > 1 ? "s" : ""} hold near-identical stocks`
+              {overlapFundCount > 0
+                ? `${overlapFundCount} fund${overlapFundCount > 1 ? "s" : ""} hold near-identical stocks`
                 : funds.length > 0 ? `${funds.length} funds mapped` : "Overlap analysis ready"}
             </div>
             <p style={{ fontSize: 12, color: "var(--v4-ink-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
@@ -260,26 +150,40 @@ export default function Diversification() {
             </div>
           </div>
 
-          {/* Fund allocation treemap */}
-          {treemapData && (
+          {/* Pairwise overlap bars — matches the design exactly */}
+          {sortedPairs.length > 0 && (
             <div style={cardStyle}>
               <div style={cardHeaderStyle}>
-                <span style={monoLabel}>Fund allocation map</span>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <LegendDot color={C_RUST} label="≥65% overlap" />
-                  <LegendDot color={C_GOLD} label="40–65%" />
-                  <LegendDot color={C_MOSS} label="<40%" />
-                </div>
+                <span style={monoLabel}>Pairwise fund overlap</span>
+                <span style={{ fontFamily: "var(--v4-mono)", fontSize: 8, color: "var(--v4-rust)", letterSpacing: 0.9, textTransform: "uppercase" }}>
+                  Caution {CAUTION_PCT}%
+                </span>
               </div>
-              <div style={{ padding: "10px 12px 14px" }}>
-                <ResponsiveContainer width="100%" height={260}>
-                  <Treemap
-                    data={treemapData}
-                    dataKey="value"
-                    content={<TreemapCell />}
-                    animationDuration={350}
-                  />
-                </ResponsiveContainer>
+              <div style={{ padding: "13px 16px 15px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {sortedPairs.map((pair, i) => {
+                  const pct   = Number(pair.overlap_pct) || 0;
+                  const barW  = Math.round((pct / scaleMax) * 100);
+                  const cauW  = Math.round((CAUTION_PCT / scaleMax) * 100);
+                  const color = overlapColor(pct);
+                  const nA    = fundName(pair.a, fundsMap);
+                  const nB    = fundName(pair.b, fundsMap);
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "165px 1fr 42px", gap: 10, alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--v4-ink-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {nA} vs {nB}
+                      </span>
+                      <div style={{ position: "relative", height: 9, background: "var(--v4-s3)", borderRadius: 5, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${barW}%`, background: color, borderRadius: 5, transition: "width .5s" }} />
+                        {cauW > 0 && cauW < 100 && (
+                          <div style={{ position: "absolute", top: -2, bottom: -2, left: `${cauW}%`, width: 1, background: "var(--v4-rust)", opacity: 0.55 }} />
+                        )}
+                      </div>
+                      <span style={{ fontFamily: "var(--v4-mono)", fontSize: 10.5, color: "var(--v4-ink)", textAlign: "right" }}>
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -329,17 +233,6 @@ function StatBox({ label, value }) {
       <div style={{ fontFamily: "var(--v4-display)", fontSize: 16, fontWeight: 600, color: "var(--v4-ink)" }}>
         {value}
       </div>
-    </div>
-  );
-}
-
-function LegendDot({ color, label }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <div style={{ width: 7, height: 7, borderRadius: 2, background: color, flexShrink: 0 }} />
-      <span style={{ fontFamily: "var(--v4-mono)", fontSize: 7.5, color: "var(--v4-ink-mute)", letterSpacing: 0.7, textTransform: "uppercase" }}>
-        {label}
-      </span>
     </div>
   );
 }
