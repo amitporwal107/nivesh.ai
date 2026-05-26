@@ -33,6 +33,13 @@ async def upsert_financials(
     if not period_end:
         logger.warning("upsert_financials: no period_end for %s, skipping", symbol)
         return None
+
+    # Skip if no meaningful financial data was extracted
+    financial_fields = ("pat_cr", "revenue_from_ops_cr", "total_income_cr", "pbt_cr",
+                        "interest_earned_cr", "eps_basic")
+    if not any(data.get(f) is not None for f in financial_fields):
+        logger.warning("upsert_financials: all financial fields null for %s period=%s, skipping", symbol, period_end)
+        return None
     period_start = _parse_date(data.get("period_start"))
 
     run_id = source_run_id or str(uuid.uuid4())

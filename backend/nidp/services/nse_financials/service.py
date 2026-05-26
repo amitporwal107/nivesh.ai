@@ -93,10 +93,10 @@ async def _process_symbol(
                 logger.info("nse_financials: ✓ %s from NSE integrated XBRL (id=%d)", symbol, financials_id)
                 return financials_id
 
-    # Strategy 2: Company IR page (manual URL seeded in company_ir_urls)
-    if ir_url:
-        logger.info("nse_financials: trying IR page for %s", symbol)
-        raw = await scrape_ir_page(symbol, ir_url, results_url)
+    # Strategy 2: Company IR page or direct XBRL URL (seeded in company_ir_urls)
+    if ir_url or results_url:
+        logger.info("nse_financials: trying IR/results URL for %s", symbol)
+        raw = await scrape_ir_page(symbol, ir_url or results_url, results_url)
         if raw:
             # If it's XBRL XML (results_url pointed directly at a _WEB.xml), parse structurally
             if raw.lstrip().startswith("<?xml"):
