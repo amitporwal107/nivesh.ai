@@ -30,8 +30,12 @@ from nidp.shared.logging_setup import setup_logging
 from nidp.shared.storage.pg import close_pool, get_pool
 
 from .ir_scraper import fetch_screener_quarters
-from .llm_extractor import parse_all_screener_quarters
-from .writer import upsert_financials
+from .llm_extractor import (
+    parse_all_screener_quarters,
+    parse_screener_balance_sheet,
+    parse_screener_shareholding,
+)
+from .writer import upsert_financials, upsert_shareholding
 
 # Global flag — set when Screener.in rate-limits us; stops new fetches
 _rate_limited = False
@@ -152,6 +156,39 @@ async def _report_failure(conn, symbol: str, tier: int, reason: str) -> None:
                      tier, symbol, reason, e)
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _match_balance_sheet(
+    quarter_period_end: str,
+    bs_entries: list[dict],
+) -> dict:
+    """Return balance sheet columns for the most recent fiscal year end ≤ quarter_period_end.
+
+    Screener.in balance sheet uses March 31 year-ends. For a quarter ending
+    Jun/Sep/Dec, the most recent available balance sheet is the prior March year-end.
+    For March quarters, the balance sheet from the same March year-end applies.
+    """
+    best: dict | None = None
+    best_date: date | None = None
+    q_date = date.fromisoformat(quarter_period_end)
+    for entry in bs_entries:
+        try:
+            bs_date = date.fromisoformat(entry["period_end"])
+        except (ValueError, KeyError):
+            continue
+        if bs_date <= q_date and (best_date is None or bs_date > best_date):
+            best = entry
+            best_date = bs_date
+
+    if not best:
+        return {}
+    return {
+        "equity_share_capital_cr": best.get("equity_share_capital_cr"),
+        "total_equity_cr":         best.get("total_equity_cr"),
+        "long_term_debt_cr":       best.get("long_term_debt_cr"),
+    }
+
+
 # ── Core per-symbol logic ────────────────────────────────────────────────────
 
 async def _process_one(
@@ -220,7 +257,7 @@ async def _process_one(
 
             html, is_consolidated = fetch_result
 
-            # ── Parse ────────────────────────────────────────────────────
+            # ── Parse income statement quarters ──────────────────────────
             quarters = parse_all_screener_quarters(
                 symbol, html, consolidated=is_consolidated, since_date=since_date
             )
@@ -231,11 +268,28 @@ async def _process_one(
                 stats["outcome"] = "parse_failed"
                 return stats
 
-            # ── Write ────────────────────────────────────────────────────
+            # ── Parse balance sheet (annual) ─────────────────────────────
+            bs_entries = parse_screener_balance_sheet(
+                symbol, html, consolidated=is_consolidated
+            )
+
+            # ── Parse shareholding (quarterly) ───────────────────────────
+            shp_entries = parse_screener_shareholding(symbol, html)
+
+            # ── Write income statement + balance sheet per quarter ───────
             written = 0
             for parsed, raw_data in quarters:
                 if parsed.get("pat_cr") is None and parsed.get("revenue_from_ops_cr") is None:
-                    continue  # no meaningful data for this quarter
+                    continue  # no meaningful income data for this quarter
+
+                # Merge nearest fiscal-year-end balance sheet into quarterly row
+                q_end = parsed.get("period_end", "")
+                if q_end and bs_entries:
+                    bs = _match_balance_sheet(q_end, bs_entries)
+                    for k, v in bs.items():
+                        if v is not None and parsed.get(k) is None:
+                            parsed[k] = v
+
                 fid = await upsert_financials(
                     symbol, parsed, source="screener_in", raw_data=raw_data
                 )
@@ -249,12 +303,24 @@ async def _process_one(
                 stats["outcome"] = "no_data"
                 return stats
 
+            # ── Write shareholding ───────────────────────────────────────
+            shp_written = 0
+            for shp in shp_entries:
+                ok = await upsert_shareholding(symbol, shp, source="screener_in")
+                if ok:
+                    shp_written += 1
+
             await _write_job_log(conn, run_id, symbol, tier, "OK", rows_inserted=written)
             logger.info(
-                "backfill_hist: ✓ T%d %-15s  %d quarters written  since=%s",
-                tier, symbol, written, since_date,
+                "backfill_hist: ✓ T%d %-15s  %d quarters  %d bs_years  %d shp written  since=%s",
+                tier, symbol, written, len(bs_entries), shp_written, since_date,
             )
-            stats.update({"outcome": "ok", "quarters_written": written})
+            stats.update({
+                "outcome": "ok",
+                "quarters_written": written,
+                "bs_years": len(bs_entries),
+                "shp_quarters": shp_written,
+            })
             return stats
 
 

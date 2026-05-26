@@ -9,6 +9,7 @@ Returns raw text content for the LLM extractor to parse.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Optional
 
@@ -35,9 +36,23 @@ _HEADERS = {
 _TIMEOUT = aiohttp.ClientTimeout(total=30)
 
 
+def _screener_session_cookie() -> Optional[str]:
+    """Return the Screener.in session cookie from env if configured.
+
+    Set SCREENER_SESSION_COOKIE in the environment to the value of the
+    'sessionid' cookie obtained after logging in to screener.in.
+    Without this, Screener.in returns a login-wall for financial data pages.
+    """
+    return os.environ.get("SCREENER_SESSION_COOKIE")
+
+
 async def _get_text(url: str) -> Optional[str]:
+    headers = dict(_HEADERS)
+    cookie = _screener_session_cookie()
+    if cookie and "screener.in" in url:
+        headers["Cookie"] = f"sessionid={cookie}"
     try:
-        async with aiohttp.ClientSession(headers=_HEADERS, timeout=_TIMEOUT) as s:
+        async with aiohttp.ClientSession(headers=headers, timeout=_TIMEOUT) as s:
             async with s.get(url, allow_redirects=True) as r:
                 if r.status != 200:
                     return None

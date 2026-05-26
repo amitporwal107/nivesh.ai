@@ -156,17 +156,19 @@ def _screener_quarter_label_to_date(label: str) -> Optional[str]:
     return f"{year}-{m:02d}-{d:02d}"
 
 
-def _parse_screener_table(
+def _parse_screener_section(
     html: str,
+    section_id: str,
 ) -> Optional[tuple[list[str], dict[str, list[Optional[float]]]]]:
-    """Parse the Screener.in #quarters table into (quarter_labels, raw_table).
+    """Generic Screener.in data-table parser for any named section.
 
-    quarter_labels: list of column headers in oldest→newest order, e.g.
-        ['Mar 2023', 'Jun 2023', ..., 'Mar 2026']
-    raw_table: dict mapping normalised row label → list of float|None values
-        aligned with quarter_labels.
+    section_id: HTML id attribute of the <section> element, e.g. 'quarters',
+        'balance-sheet', 'shareholding', 'cash-flow'.
 
-    Returns None if the table cannot be found or parsed.
+    Returns (col_labels, raw_table) or None if the section/table is absent.
+    col_labels: column header strings (oldest→newest for time-series sections).
+    raw_table:  dict mapping normalised row label → list of float|None values
+                aligned with col_labels.
     """
     try:
         from bs4 import BeautifulSoup
@@ -174,10 +176,12 @@ def _parse_screener_table(
         return None
 
     soup = BeautifulSoup(html, "lxml")
-    section = soup.find("section", {"id": "quarters"})
+    section = soup.find("section", {"id": section_id})
     if not section:
         return None
     table = section.find("table", class_="data-table")
+    if not table:
+        table = section.find("table")  # fallback: first table in section
     if not table:
         return None
     thead = table.find("thead")
@@ -188,7 +192,7 @@ def _parse_screener_table(
     ths = thead.find_all("th")
     if len(ths) < 2:
         return None
-    quarter_labels = [th.get_text(strip=True) for th in ths[1:]]
+    col_labels = [th.get_text(strip=True) for th in ths[1:]]
 
     raw_table: dict[str, list[Optional[float]]] = {}
     for tr in tbody.find_all("tr"):
@@ -205,7 +209,14 @@ def _parse_screener_table(
                 all_vals.append(None)
         raw_table[label] = all_vals
 
-    return quarter_labels, raw_table
+    return col_labels, raw_table
+
+
+def _parse_screener_table(
+    html: str,
+) -> Optional[tuple[list[str], dict[str, list[Optional[float]]]]]:
+    """Parse the Screener.in #quarters table. Delegates to _parse_screener_section."""
+    return _parse_screener_section(html, "quarters")
 
 
 def _build_quarter_dict(
@@ -445,6 +456,127 @@ def parse_nse_integrated_xbrl(symbol: str, xml_text: str) -> Optional[dict[str, 
     logger.info("parse_nse_integrated_xbrl: %s parsed %d fields (period=%s, consolidated=%s)",
                 symbol, non_null, period_end, consolidated)
     return result
+
+
+def parse_screener_balance_sheet(
+    symbol: str,
+    html: str,
+    consolidated: bool = False,
+) -> list[dict[str, Any]]:
+    """Parse Screener.in #balance-sheet section → list of annual dicts.
+
+    Each entry covers a fiscal year-end (March 31) and contains:
+      period_end, equity_share_capital_cr, total_equity_cr (equity + reserves),
+      long_term_debt_cr (borrowings), consolidated.
+
+    Screener reports all figures in ₹ Crore — no conversion needed.
+    Returns [] if the section is absent or no parseable rows are found.
+    """
+    result = _parse_screener_section(html, "balance-sheet")
+    if not result:
+        logger.debug("parse_screener_balance_sheet: no #balance-sheet section for %s", symbol)
+        return []
+
+    col_labels, raw_table = result
+
+    def _row(*keys: str) -> list[Optional[float]]:
+        for k in keys:
+            for label, vals in raw_table.items():
+                if k in label:
+                    return vals
+        return [None] * len(col_labels)
+
+    equity_cap_vals = _row("equity capital", "share capital")
+    reserves_vals   = _row("reserves")
+    borrowings_vals = _row("borrowings")
+
+    output: list[dict[str, Any]] = []
+    for i, label in enumerate(col_labels):
+        period_end = _screener_quarter_label_to_date(label)
+        if not period_end:
+            continue
+
+        def _v(vals: list) -> Optional[float]:
+            return vals[i] if i < len(vals) else None
+
+        eq_cap   = _v(equity_cap_vals)
+        reserves = _v(reserves_vals)
+        borrow   = _v(borrowings_vals)
+
+        total_equity: Optional[float] = None
+        if eq_cap is not None and reserves is not None:
+            total_equity = round(eq_cap + reserves, 4)
+        elif eq_cap is not None:
+            total_equity = eq_cap
+
+        output.append({
+            "period_end":              period_end,
+            "consolidated":            consolidated,
+            "equity_share_capital_cr": eq_cap,
+            "total_equity_cr":         total_equity,
+            "long_term_debt_cr":       borrow,
+        })
+
+    logger.info(
+        "parse_screener_balance_sheet: %s — %d annual entries (consolidated=%s)",
+        symbol, len(output), consolidated,
+    )
+    return output
+
+
+def parse_screener_shareholding(
+    symbol: str,
+    html: str,
+) -> list[dict[str, Any]]:
+    """Parse Screener.in #shareholding section → list of quarterly dicts.
+
+    Each entry covers a quarter-end date and contains:
+      period_end, promoter_pct, fii_pct, dii_pct, public_pct.
+
+    Values are percentages (0–100).
+    Returns [] if the section is absent or cannot be parsed.
+    """
+    result = _parse_screener_section(html, "shareholding")
+    if not result:
+        logger.debug("parse_screener_shareholding: no #shareholding section for %s", symbol)
+        return []
+
+    col_labels, raw_table = result
+
+    def _row(*keys: str) -> list[Optional[float]]:
+        for k in keys:
+            for label, vals in raw_table.items():
+                if k in label:
+                    return vals
+        return [None] * len(col_labels)
+
+    promoter_vals = _row("promoters")
+    fii_vals      = _row("fiis", "fpis", "foreign")
+    dii_vals      = _row("diis")
+    public_vals   = _row("public")
+
+    output: list[dict[str, Any]] = []
+    for i, label in enumerate(col_labels):
+        period_end = _screener_quarter_label_to_date(label)
+        if not period_end:
+            continue
+
+        def _v(vals: list) -> Optional[float]:
+            return vals[i] if i < len(vals) else None
+
+        output.append({
+            "period_end":   period_end,
+            "promoter_pct": _v(promoter_vals),
+            "fii_pct":      _v(fii_vals),
+            "dii_pct":      _v(dii_vals),
+            "public_pct":   _v(public_vals),
+        })
+
+    logger.info(
+        "parse_screener_shareholding: %s — %d quarterly entries",
+        symbol, len(output),
+    )
+    return output
 
 
 def parse_nse_xbrl_json(symbol: str, xbrl_text: str) -> Optional[dict[str, Any]]:
