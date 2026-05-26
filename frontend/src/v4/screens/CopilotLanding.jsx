@@ -120,7 +120,8 @@ export default function CopilotLanding() {
     setSending(true); setChatErr(null); setReply(null);
     try {
       const res = await api.post("/api/chat/send", { message: m });
-      setReply({ user: m, assistant: res?.reply || res?.message || "(no reply)" });
+      const assistantText = res?.ai_message?.content || res?.reply || res?.message || "(no reply)";
+      setReply({ user: m, assistant: assistantText });
       setChatText("");
     } catch (e) {
       setChatErr(e instanceof ApiError ? `${e.status} ${e.detail || e.message}` : e.message || "Could not reach the copilot.");
