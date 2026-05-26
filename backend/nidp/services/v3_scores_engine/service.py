@@ -13,6 +13,7 @@ Coverage:
 """
 from __future__ import annotations
 
+import decimal
 import json
 import logging
 import os
@@ -82,7 +83,10 @@ async def _score_mf(conn, target_date: date) -> int:
 
     written = 0
     for row in rows:
-        f = {k: row.get(k) for k in row.keys()}
+        f = {
+            k: float(v) if isinstance(v, decimal.Decimal) else v
+            for k, v in ((k, row.get(k)) for k in row.keys())
+        }
 
         try:
             q = v3_scoring.compute_quality_score(f)
@@ -194,7 +198,10 @@ async def _score_stocks(conn, target_date: date) -> int:
 
     written = 0
     for row in rows:
-        prims = {k: row.get(k) for k in row.keys()}
+        prims = {
+            k: float(v) if isinstance(v, decimal.Decimal) else v
+            for k, v in ((k, row.get(k)) for k in row.keys())
+        }
 
         # Normalise the cap_bucket alias (view returns CASE-derived 'large'/'mid'/'small')
         if prims.get("cap_bucket") is None and prims.get("market_cap_bucket"):

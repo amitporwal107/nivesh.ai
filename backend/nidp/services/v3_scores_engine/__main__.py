@@ -35,12 +35,19 @@ async def _main() -> None:
     )
     args = p.parse_args()
 
+    # run_with_job_log captures target_date for JobRun logging but does NOT forward it
+    # to coro_fn. Wrap run() so the date is bound before passing to the wrapper.
+    _target = args.date
+    _domain = args.domain
+
+    async def _run() -> dict:
+        return await run(target_date=_target, domain=_domain)
+
     try:
         await run_with_job_log(
             "v3_scores_engine",
-            run,
+            _run,
             target_date=args.date,
-            domain=args.domain,
             rows_inserted_attr="rows_written",
         )
     finally:
