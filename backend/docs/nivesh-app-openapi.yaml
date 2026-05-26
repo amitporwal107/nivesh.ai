@@ -15,17 +15,18 @@ info:
 
     ## Base URL
 
-    `https://api.nivesh.ai`
+    - **Production**: `https://niveshcopilot.com`
+    - **Staging**: `https://staging.niveshcopilot.com`
 
   contact:
     name: Nivesh
     url: https://nivesh.com
 
 servers:
-  - url: https://api.nivesh.ai
-    description: Production API
-  - url: http://localhost:8000
-    description: Local development
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
 
 tags:
   - name: auth

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a8645806-7881-4406-a8fc-4bcbed397d5a",
     "name": "Nivesh v4 API Collection",
-    "description": "Postman v2.1 collection for all v4 new and modified endpoints.\n\n14 new endpoints (B.1–B.14) + 10 modified endpoints (C.1–C.10) per docs/api-changes.md.\n\nAll changes are additive — no existing endpoint shapes were broken.\n\n## Auth\nSet the `session_token` collection variable to your cookie value.\nGet one via: GET https://nidp-backfill-ui.preview.emergentagent.com/api/auth/dev-set-cookie?token=<token>\n\n## Base URL\nDefault: nidp-backfill-ui.preview.emergentagent.com (preview)\nSwap BASE_URL variable for prod (niveshcopilot.com) or local (localhost:8000).",
+    "description": "Postman v2.1 collection for all v4 new and modified endpoints.\n\n14 new endpoints (B.1–B.14) + 10 modified endpoints (C.1–C.10) per docs/api-changes.md.\n\nAll changes are additive — no existing endpoint shapes were broken.\n\n## Auth\nSet the `session_token` collection variable to your cookie value.\nGet one via: GET https://staging.niveshcopilot.com/api/auth/dev-set-cookie?token=<token>\n\n## Base URL\nDefault: staging.niveshcopilot.com (staging)\nSwap BASE_URL variable for prod (niveshcopilot.com).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -28,8 +28,8 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "https://nidp-backfill-ui.preview.emergentagent.com",
-      "description": "Base URL — swap to https://niveshcopilot.com for prod or http://localhost:8000 for local"
+      "value": "https://staging.niveshcopilot.com",
+      "description": "Base URL — swap to https://niveshcopilot.com for prod"
     },
     {
       "key": "session_token",
