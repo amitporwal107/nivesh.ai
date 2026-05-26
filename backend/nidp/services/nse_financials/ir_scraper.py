@@ -206,7 +206,7 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
     detect the difference between "symbol doesn't exist" and "we're blocked".
     """
     slug = _SCREENER_SLUG_MAP.get(symbol, symbol)
-    for consolidated in (False, True):
+    for consolidated in (True, False):  # consolidated first — matches NSE XBRL backfill rows
         path = "consolidated/" if consolidated else ""
         url = f"https://www.screener.in/company/{slug}/{path}"
         html = await _get_text(url)
