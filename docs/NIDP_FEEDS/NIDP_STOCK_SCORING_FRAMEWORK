@@ -1,0 +1,1047 @@
+# NIDP Sector-Aware Stock Quality Scoring Framework
+
+> **Version:** 1.0
+> **Date:** 2026-05-27
+> **Author:** NIDP Scoring Engine Design
+> **Status:** Specification — for `v3_scores_engine` enhancement
+
+---
+
+## Table of Contents
+
+1. [Executive Summary](#1-executive-summary)
+2. [Data Feed Mapping](#2-data-feed-mapping)
+3. [Architecture: How This Plugs into NIDP](#3-architecture-how-this-plugs-into-nidp)
+4. [Universal Building Blocks](#4-universal-building-blocks)
+5. [Sector Classification Logic](#5-sector-classification-logic)
+6. [Sector-Specific Scoring Formulas](#6-sector-specific-scoring-formulas)
+   - 6.1 [Banks](#61-banks)
+   - 6.2 [NBFCs](#62-nbfcs)
+   - 6.3 [Cyclicals](#63-cyclicals-metals-cement-auto-chemicals)
+   - 6.4 [IT Services](#64-it-services)
+   - 6.5 [FMCG / Consumer Staples](#65-fmcg--consumer-staples)
+   - 6.6 [Pharmaceuticals](#66-pharmaceuticals)
+   - 6.7 [Capital Goods / Infrastructure](#67-capital-goods--infrastructure)
+7. [Technical Layer (Cross-Sector)](#7-technical-layer-cross-sector)
+8. [Event-Based Score Overlays](#8-event-based-score-overlays)
+9. [Composite V3 Score Assembly](#9-composite-v3-score-assembly)
+10. [Implementation Roadmap](#10-implementation-roadmap)
+11. [Data Gaps & Required New Feeds](#11-data-gaps--required-new-feeds)
+
+---
+
+## 1. Executive Summary
+
+This document specifies a sector-aware quality scoring framework for the NIDP `v3_scores_engine`. The core insight is that **one set of weights and metrics cannot fairly score a bank, a steel manufacturer, and an FMCG company** — their business models are structurally different.
+
+The framework introduces:
+
+- **7 sector-specific scoring profiles** with custom metrics and weights
+- **Through-cycle normalization** for cyclical sectors
+- **Event-based score overlays** that consume the `corporate_event_signals` AI layer
+- **Red-flag penalty system** tied to the `announcement_classifier` taxonomy
+- **Direct data lineage** to existing NIDP tables — no new external feeds required for the core (some enhancements suggested in Section 11)
+
+Final scores range from 0–100, with sector-relative bands determining Buy / Hold / Reduce / Avoid signals.
+
+---
+
+## 2. Data Feed Mapping
+
+Every metric in this framework maps directly to an existing NIDP feed. This table shows the full lineage:
+
+| Scoring Input | Source Feed | Output Table | Layer |
+|---|---|---|---|
+| OHLCV, price history | `bhavcopy`, `yfinance_backfill` | `nidp.bhavcopy`, `nidp.yfinance_ohlcv` | L1 |
+| Delivery quality | `delivery` | `nidp.delivery` | L1 |
+| Index benchmarks (alpha/beta) | `index_close` | `nidp.index_close` | L1 |
+| Index membership (universe gate) | `index_constituents` | `nidp.index_constituents` | L1 |
+| Sector & market cap tier | `nse_equity_master` | `nidp.sector_master` | L1 |
+| Quarterly/Annual financials | `nse_financials` | `nidp.nse_financials_quarterly/annual` | L1 |
+| Shareholding (promoter, FII, MF, pledge) | `nse_shareholding` | `nidp.shareholding_pattern` | L1 |
+| Bulk/block deal smart money | `bulk_deals`, `block_deals` | `nidp.bulk_deals`, `nidp.block_deals` | L1 |
+| Corporate actions (divs, splits, buybacks) | `corporate_actions` | `nidp.corporate_actions` | L1 |
+| Risk-free rate | `rbi_yields` | `nidp.rbi_yields` | L1 |
+| Macro regime (FII flows, USD/INR) | `fii_dii`, `fred_macro` | `nidp.fii_dii`, `nidp.fred_macro` | L1 |
+| AI-classified events | `announcement_classifier`, `event_analyzer` | `nidp.corporate_announcements` (classified cols), `nidp.corporate_event_signals` | L2 |
+| Price-based features (SMA, momentum, vol) | `feature_snapshotter` | `nidp.stock_features_daily` | L3 |
+| Technical indicators (RSI, MACD, ADX, BB) | `technical_indicator_engine` | `nidp.stock_technical_indicators_daily` | L3 |
+| Fundamental ratios (P/E, ROE, D/E, growth) | `fundamental_engine` | `nidp.stock_fundamentals_daily` | L3 |
+| Composite V3 output | `v3_scores_engine` | `nidp.v3_stock_scores_daily` | L3 |
+
+---
+
+## 3. Architecture: How This Plugs into NIDP
+
+The sector-aware scoring sits inside the existing `v3_scores_engine` Cloud Run job, running after `fundamental_engine` and `technical_indicator_engine` complete (post 19:00 IST in the daily chain).
+
+```
+bhavcopy ──► feature_snapshotter ──► technical_indicator_engine ──┐
+                                                                   │
+nse_financials ──► fundamental_engine ─────────────────────────────┤
+                                                                   ▼
+nse_shareholding ──────────────────────────────────────────► v3_scores_engine
+                                                                   │
+corporate_event_signals ───────────────────────────────────────────┤
+                                                                   │
+sector_master (gate) ──────────────────────────────────────────────┘
+                                                                   │
+                                                                   ▼
+                                                    nidp.v3_stock_scores_daily
+                                                    (sector_profile, sub_scores, final_score, band)
+```
+
+**Required schema additions to `nidp.v3_stock_scores_daily`:**
+
+```sql
+ALTER TABLE nidp.v3_stock_scores_daily
+  ADD COLUMN sector_profile         VARCHAR(32),   -- BANK | NBFC | CYCLICAL | IT | FMCG | PHARMA | CAPGOODS | DEFAULT
+  ADD COLUMN fundamental_score      NUMERIC(5,2),  -- 0–100, sector-weighted
+  ADD COLUMN technical_score        NUMERIC(5,2),  -- 0–100
+  ADD COLUMN cycle_position_score   NUMERIC(5,2),  -- 0–100, populated for CYCLICAL only
+  ADD COLUMN red_flag_penalty       NUMERIC(5,2),  -- subtracted from total
+  ADD COLUMN sub_scores_jsonb       JSONB,         -- nested breakdown for explainability
+  ADD COLUMN final_score            NUMERIC(5,2),
+  ADD COLUMN band                   VARCHAR(16);   -- STRONG_BUY | BUY | HOLD | REDUCE | AVOID
+```
+
+The `sub_scores_jsonb` column is critical — it allows the copilot to *explain* why a stock scored what it did, e.g.:
+
+```json
+{
+  "asset_quality": 78, "profitability": 65, "capital_adequacy": 88,
+  "growth": 60, "efficiency": 70, "valuation": 55,
+  "red_flags": [{"code": "PROMOTER_PLEDGE_HIGH", "penalty": -10}]
+}
+```
+
+---
+
+## 4. Universal Building Blocks
+
+### 4.1 Normalization Functions
+
+These are implemented as Python utility functions in `v3_scores_engine`:
+
+**Higher-is-better (HIB):**
+
+```
+Score = MIN(100, MAX(0, ((Value - Floor) / (Ceiling - Floor)) × 100))
+```
+
+**Lower-is-better (LIB):**
+
+```
+Score = MIN(100, MAX(0, ((Ceiling - Value) / (Ceiling - Floor)) × 100))
+```
+
+**Sector percentile rank (uses `nidp.sector_master` to define peer group):**
+
+```
+Score = (Rank within sector / Count in sector) × 100
+```
+
+**Own-history percentile (for valuation — uses 5Y of `nidp.stock_fundamentals_daily`):**
+
+```
+Score = 100 − (Current Percentile in own 5Y history)
+```
+
+### 4.2 Universal Pre-Filters (Gates)
+
+Before any stock is scored, it must pass these gates (sourced from `nidp.index_constituents` + `nidp.sector_master`):
+
+| Gate | Rule | Source |
+|---|---|---|
+| Universe | Must be in Nifty 500 | `nidp.index_constituents` |
+| Listing age | ≥ 3 years of price history | `nidp.bhavcopy` |
+| Trading liquidity | Avg 30-day volume × close > ₹2 crore | `nidp.bhavcopy` + `nidp.delivery` |
+| F&O status | Optional flag, not mandatory | `nidp.fno_bhavcopy` |
+| Suspension | Not under T2T or suspension | `nidp.corporate_announcements` |
+
+Failed gates produce score = NULL with `gate_failure_reason` logged.
+
+### 4.3 Universal Fundamental Sub-Score (applies to all sectors)
+
+Some metrics are universal regardless of sector — they represent governance quality.
+
+```
+Governance_Score = 
+    (Promoter_Holding_Stability × 0.30) +
+    (Promoter_Pledge_Score × 0.40) +
+    (FII_MF_Holding_Trend × 0.30)
+
+Where (all from nidp.shareholding_pattern):
+
+Promoter_Holding_Stability_Score:
+    100 if promoter holding stable or rising over 4 quarters
+    50 if minor decline (< 2%)
+    0 if material decline (> 5%)
+
+Promoter_Pledge_Score = MAX(0, 100 − (Pledge% × 2))
+    (0% pledge = 100, 50%+ pledge = 0)
+
+FII_MF_Trend_Score: Combined trend over 4 quarters
+    +50 base, +25 for rising FII, +25 for rising MF holding
+```
+
+This Governance score is folded into the Fundamental Score of every sector (weighting varies — higher in small/midcaps).
+
+---
+
+## 5. Sector Classification Logic
+
+The framework maps each stock to a `sector_profile` using `nidp.sector_master`:
+
+| `sector_master` Sector | `sector_profile` |
+|---|---|
+| Banks (Public Sector), Banks (Private) | `BANK` |
+| Finance, NBFC, Housing Finance | `NBFC` |
+| Metals & Mining, Cement, Auto & Auto Components, Chemicals, Real Estate, Construction Materials | `CYCLICAL` |
+| Information Technology, Software Services | `IT` |
+| FMCG, Personal Care, Consumer Staples, Tobacco | `FMCG` |
+| Pharmaceuticals, Healthcare, Biotechnology | `PHARMA` |
+| Capital Goods, Industrial Machinery, Infrastructure, Engineering | `CAPGOODS` |
+| Everything else | `DEFAULT` (uses fallback weights) |
+
+Conglomerates (Reliance, ITC, etc.) get a `_CONGLOMERATE` suffix and use weighted sum-of-parts when segment-level data is available.
+
+---
+
+## 6. Sector-Specific Scoring Formulas
+
+For each sector below: data sources, sub-score formulas, weights, and red flags are specified.
+
+### 6.1 Banks
+
+**Sector profile:** `BANK`
+**Universe size:** ~20–25 stocks in Nifty 500
+
+**Final Score:**
+
+```
+Final_Bank = (Fundamental × 0.70) + (Technical × 0.30) − Red_Flag_Penalty
+```
+
+**Fundamental Score (out of 100):**
+
+```
+Fundamental_Bank = 
+    (Asset_Quality × 0.28) +
+    (Profitability × 0.22) +
+    (Capital_Adequacy × 0.15) +
+    (Growth × 0.15) +
+    (Efficiency × 0.10) +
+    (Governance × 0.05) +
+    (Valuation × 0.05)
+```
+
+#### Asset Quality (the most critical pillar)
+
+```
+Asset_Quality = 
+    (GNPA_Score × 0.35) +
+    (NNPA_Score × 0.35) +
+    (PCR_Score × 0.20) +
+    (Slippage_Score × 0.10)
+```
+
+| Metric | Formula | Source |
+|---|---|---|
+| GNPA_Score | LIB(GNPA%, floor=1, ceiling=5) | `nse_financials_quarterly` (bank XBRL extensions) |
+| NNPA_Score | LIB(NNPA%, floor=0.3, ceiling=2) | Same |
+| PCR_Score | HIB(PCR%, floor=50, ceiling=85) | Same |
+| Slippage_Score | LIB(Annualized slippage %, floor=0.5, ceiling=3) | Quarterly slippage from sequential quarters |
+
+#### Profitability
+
+```
+Profitability = 
+    (NIM_Score × 0.30) +
+    (RoA_Score × 0.35) +
+    (RoE_Score × 0.35)
+```
+
+| Metric | Formula |
+|---|---|
+| NIM_Score | HIB(NIM%, floor=2.0, ceiling=4.5) |
+| RoA_Score | HIB(RoA%, floor=0.5, ceiling=1.8) |
+| RoE_Score | HIB(RoE%, floor=8, ceiling=20) |
+
+#### Capital Adequacy
+
+```
+Capital_Adequacy = (CAR_Score × 0.50) + (CET1_Score × 0.50)
+
+CAR_Score   = HIB(CAR%,  floor=11.5, ceiling=18)
+CET1_Score  = HIB(CET1%, floor=8,    ceiling=15)
+```
+
+#### Growth
+
+```
+Growth = 
+    (Credit_Growth_Score × 0.40) +
+    (CASA_Score × 0.30) +
+    (Deposit_Growth_Score × 0.30)
+
+Credit_Growth_Score: Sector percentile rank, capped — values above 25% YoY 
+                     score 70 (suggests aggressive risk-taking, not quality)
+CASA_Score          = HIB(CASA%, floor=25, ceiling=50)
+Deposit_Growth      = Sector percentile rank
+```
+
+#### Efficiency & Valuation
+
+```
+Efficiency = LIB(Cost_to_Income%, floor=35, ceiling=55)
+
+Valuation_Bank = 100 − P/B_Percentile_in_own_5Y_history
+```
+
+Banks use **Price-to-Book** as the valuation anchor, not P/E. This is consumed from `nidp.stock_fundamentals_daily` (the `fundamental_engine` must extend its computations to include P/B and bank-specific ratios — see Section 11).
+
+#### Red Flags for Banks
+
+Sourced from `announcement_classifier` taxonomy in `nidp.corporate_announcements`:
+
+| Red Flag (classifier category) | Penalty |
+|---|---|
+| `RBI_PCA_ACTION` (Prompt Corrective Action) | −25 |
+| `AUDITOR_RESIGNATION` | −15 |
+| `RESTRUCTURED_BOOK_SPIKE` (> 3% jump QoQ) | −15 |
+| `KEY_MANAGEMENT_EXIT` (CEO/MD/CFO without succession) | −10 |
+| `PROMOTER_PLEDGE` > 50% | −10 |
+| `REGULATORY_PENALTY` (RBI fine > ₹10 cr) | −8 |
+
+---
+
+### 6.2 NBFCs
+
+**Sector profile:** `NBFC`
+**Critical difference from Banks:** Asset-Liability Management (ALM) is paramount; cost-of-funds trends drive margin compression risk.
+
+**Fundamental Score:**
+
+```
+Fundamental_NBFC = 
+    (Asset_Quality × 0.22) +
+    (Profitability × 0.18) +
+    (Capital_Adequacy × 0.13) +
+    (ALM_Strength × 0.17) +
+    (Borrowing_Cost_Trend × 0.10) +
+    (Growth × 0.10) +
+    (Governance × 0.05) +
+    (Valuation × 0.05)
+```
+
+#### ALM Strength (unique to NBFCs)
+
+```
+ALM_Strength = 
+    (Short_Term_Mismatch_Score × 0.40) +
+    (Liability_Diversification_Score × 0.30) +
+    (Liquidity_Coverage_Score × 0.30)
+```
+
+| Metric | Formula | Source |
+|---|---|---|
+| Short_Term_Mismatch | 100 if 0–1Y bucket has positive gap; scale down if gap exceeds 20% of borrowings | `nse_financials_quarterly` (ALM tables in NBFC XBRL) |
+| Liability_Diversification | LIB(CP_dependence%, floor=10, ceiling=40) | Borrowing mix from annual disclosures |
+| Liquidity_Coverage | HIB(LCR%, floor=100, ceiling=200) | Disclosed in quarterly results |
+
+#### Borrowing Cost Trend
+
+```
+Borrowing_Trend_Score = 100 − ((Current_CoF − YoY_CoF) × 20)
+
+Where CoF = Cost of Funds (Interest Expense / Avg Borrowings)
+Stable or declining CoF = high score
+50 bps increase = score drops by 10
+```
+
+#### NBFC-Specific Profitability
+
+Replace bank's NIM with **Spread**:
+
+```
+Spread = Yield_on_Advances − Cost_of_Funds
+Spread_Score = HIB(Spread%, floor=3, ceiling=7)
+
+RoA target for NBFCs is higher than banks:
+RoA_Score = HIB(RoA%, floor=1.5, ceiling=3.5)
+```
+
+#### NBFC Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `CRISIL/ICRA_DOWNGRADE` | −20 |
+| `ALM_STRESS_IN_COMMENTARY` (event_analyzer signal) | −15 |
+| `PROMOTER_GROUP_LEVERAGE_CONCERN` | −15 |
+| `SEGMENT_CONCENTRATION` (one segment > 40% AUM) | −10 |
+| `SUDDEN_AUM_DECLINE` (> 10% QoQ) | −10 |
+
+---
+
+### 6.3 Cyclicals (Metals, Cement, Auto, Chemicals)
+
+**Sector profile:** `CYCLICAL`
+**Critical insight:** Use through-cycle normalized earnings. P/E at the bottom of a cycle looks expensive (low E); P/E at the peak looks cheap (high E). Both are traps.
+
+**Final Score:**
+
+```
+Final_Cyclical = (Fundamental × 0.50) + (Technical × 0.30) + (Cycle_Position × 0.20)
+                 − Red_Flag_Penalty
+```
+
+The dedicated **Cycle_Position** sub-score is what distinguishes cyclical scoring from everything else.
+
+#### Fundamental Score
+
+```
+Fundamental_Cyclical = 
+    (Balance_Sheet_Strength × 0.30) +
+    (Operational_Efficiency × 0.22) +
+    (Through_Cycle_Profitability × 0.20) +
+    (Valuation × 0.15) +
+    (Free_Cash_Flow_Quality × 0.08) +
+    (Governance × 0.05)
+```
+
+#### Balance Sheet Strength (cyclicals die in downturns from leverage)
+
+```
+Balance_Sheet = 
+    (Debt_to_EBITDA_Score × 0.40) +
+    (Interest_Coverage_Score × 0.30) +
+    (Current_Ratio_Score × 0.30)
+
+Debt_to_EBITDA_Score    = LIB(D/EBITDA, floor=0.5, ceiling=4)
+Interest_Coverage_Score = HIB(IC, floor=2, ceiling=10)
+Current_Ratio_Score     = HIB(CR, floor=1, ceiling=2.5)
+```
+
+All sourced from `nidp.stock_fundamentals_daily` (already computed by `fundamental_engine`).
+
+#### Through-Cycle Profitability (use 7–10Y averages)
+
+```
+Through_Cycle = 
+    (10Y_Avg_ROCE_Score × 0.50) +
+    (10Y_Avg_EBITDA_Margin_Score × 0.50)
+
+Source: Compute 10Y avgs from nidp.nse_financials_annual (requires history depth check)
+For stocks listed < 10Y, use max available with minimum 5Y, flagged as PARTIAL_HISTORY
+```
+
+#### Cycle Position Score (the "secret sauce")
+
+```
+Cycle_Position = 
+    (Commodity_Price_Position × 0.40) +
+    (Margin_Position × 0.30) +
+    (Capacity_Utilization_Position × 0.30)
+
+Commodity_Price_Position:
+    100 if relevant commodity in bottom 25% of 10Y range
+    0  if in top 25%
+    Linear scale in between
+    
+Margin_Position:
+    100 if current EBITDA margin in bottom quartile of own 10Y history (compression done)
+    0  if in top quartile (peak margin — likely to mean-revert down)
+```
+
+**Counter-intuitive scoring:** high score when things look operationally weak. This is what separates cyclical investing from growth investing — you're rewarded for buying when the cycle is at the trough.
+
+> **Data gap:** Commodity price linkage requires a new feed. See Section 11 — recommend ingesting LME (metals), Platts (cement inputs), Brent (chemicals) commodity time series.
+
+#### Cyclical Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `DEBT_COVENANT_BREACH` | −25 |
+| `RATING_DOWNGRADE` | −15 |
+| `CAPACITY_IMPAIRMENT_CHARGE` | −10 |
+| `MASSIVE_CAPEX_AT_PEAK_CYCLE` (capex > 50% of revenue when cycle is hot) | −10 |
+| `PROMOTER_PLEDGE` > 30% | −10 |
+
+---
+
+### 6.4 IT Services
+
+**Sector profile:** `IT`
+
+**Fundamental Score:**
+
+```
+Fundamental_IT = 
+    (Growth × 0.28) +
+    (Profitability × 0.23) +
+    (Operational_Metrics × 0.18) +
+    (Client_Health × 0.13) +
+    (Governance × 0.08) +
+    (Valuation × 0.10)
+```
+
+#### Growth
+
+```
+Growth = 
+    (CC_Revenue_Growth_Score × 0.55) +
+    (Deal_TCV_Growth_Score × 0.25) +
+    (Headcount_Growth_Score × 0.20)
+
+CC_Revenue_Growth = HIB(Constant Currency Growth%, floor=5, ceiling=20)
+```
+
+Constant currency growth and TCV are typically disclosed in management commentary, not in XBRL. The `event_analyzer` and `announcement_classifier` should extract these from results filings — a structured field for `cc_revenue_growth` in `corporate_event_signals` is recommended (Section 11).
+
+#### Profitability
+
+```
+Profitability = 
+    (EBIT_Margin_Score × 0.50) +
+    (ROCE_Score × 0.30) +
+    (FCF_Conversion_Score × 0.20)
+
+EBIT_Margin_Score (tiered by market cap from sector_master):
+    Large-cap IT (mcap > ₹2L cr): HIB(margin, floor=15, ceiling=25)
+    Mid-cap IT:                    HIB(margin, floor=12, ceiling=22)
+    Small-cap IT:                  HIB(margin, floor=10, ceiling=20)
+
+ROCE_Score             = HIB(ROCE%, floor=20, ceiling=40)
+FCF_Conversion_Score   = HIB(FCF/Net Profit, floor=0.7, ceiling=1.2)
+```
+
+#### Operational Metrics
+
+```
+Operational = 
+    (Utilization_Score × 0.30) +
+    (Attrition_Score × 0.40) +
+    (Offshore_Ratio_Score × 0.30)
+
+Attrition_Score = LIB(LTM Attrition%, floor=12, ceiling=25)
+```
+
+Attrition is disclosed in quarterly results — `event_analyzer` should extract this into `corporate_event_signals`.
+
+#### IT Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `MARGIN_COMPRESSION` (>200 bps QoQ) | −10 |
+| `LARGE_CLIENT_LOSS` (>5% revenue) | −15 |
+| `KEY_MANAGEMENT_EXIT` (CEO/COO) | −10 |
+| `VISA_REGULATORY_DISRUPTION` | −5 |
+| `WHISTLEBLOWER_OR_GOVERNANCE` complaint | −20 |
+
+---
+
+### 6.5 FMCG / Consumer Staples
+
+**Sector profile:** `FMCG`
+**Critical insight:** Volume growth matters more than value growth; valuation is always optically high — compare to own history, not market.
+
+**Fundamental Score:**
+
+```
+Fundamental_FMCG = 
+    (Growth_Quality × 0.28) +
+    (Profitability × 0.23) +
+    (Capital_Efficiency × 0.20) +
+    (Brand_Strength × 0.15) +
+    (Governance × 0.05) +
+    (Valuation × 0.09)
+```
+
+#### Growth Quality (volume-weighted)
+
+```
+Growth_Quality = 
+    (Volume_Growth_Score × 0.60) +
+    (Value_Growth_Score × 0.30) +
+    (Rural_Mix_Score × 0.10)
+
+Volume_Growth_Score = HIB(Vol Growth%, floor=0, ceiling=10)
+```
+
+#### Capital Efficiency (FMCG should be capital-light)
+
+```
+Capital_Efficiency = 
+    (ROCE_Score × 0.50) +
+    (ROE_Score × 0.30) +
+    (Working_Capital_Days_Score × 0.20)
+
+ROCE_Score              = HIB(ROCE%, floor=20, ceiling=50)
+Working_Capital_Days    = LIB(WC days, floor=10, ceiling=60) [sector percentile]
+```
+
+#### Brand Strength (proxy: pricing power)
+
+```
+Brand_Strength = 
+    (Gross_Margin_Stability_Score × 0.50) +
+    (A&P_Intensity_Score × 0.30) +
+    (Distribution_Reach_Score × 0.20)
+
+Gross_Margin_Stability:
+    100 if 5Y std-dev of GM% < 1.5
+    0  if > 5
+A&P_Intensity:
+    Optimal range — too low = under-invested brand, too high = competitive pressure
+```
+
+#### Valuation (relative to OWN history only)
+
+```
+Valuation_FMCG = 100 − PE_Percentile_in_own_5Y_history
+
+Never compare HUL's P/E to a steel company's P/E. 
+A 60x P/E for HUL might be in its own 30th percentile (cheap by HUL standards).
+```
+
+#### FMCG Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `VOLUME_DECLINE` (3 consecutive quarters) | −15 |
+| `INPUT_COST_INFLATION_WITHOUT_PASSTHROUGH` | −10 |
+| `PROMOTER_HOLDING_SHARP_DECLINE` (>3% in a quarter) | −15 |
+| `KEY_BRAND_RECALL` or quality scandal | −20 |
+
+---
+
+### 6.6 Pharmaceuticals
+
+**Sector profile:** `PHARMA`
+**Critical split:** Domestic-focused vs export-heavy companies have very different risk profiles. Use export revenue % from segment disclosures to weight the sub-scores.
+
+**Fundamental Score (export-heavy variant):**
+
+```
+Fundamental_Pharma_Export = 
+    (Pipeline_Strength × 0.23) +
+    (Regulatory_Standing × 0.20) +
+    (Profitability × 0.18) +
+    (Geographic_Diversification × 0.13) +
+    (R&D_Productivity × 0.10) +
+    (Governance × 0.06) +
+    (Valuation × 0.10)
+```
+
+For domestic-focused pharma, increase weights on Profitability and Growth, drop Regulatory_Standing to 5%.
+
+#### Pipeline Strength
+
+```
+Pipeline = 
+    (ANDA_Pending_Score × 0.40) +
+    (Complex_Generics_Mix_Score × 0.30) +
+    (Specialty_Pipeline_Score × 0.30)
+
+ANDA_Pending_Score: Sector percentile rank of pending ANDAs
+```
+
+#### Regulatory Standing (often binary)
+
+```
+Regulatory_Score:
+    100 = Clean inspection record, no observations
+    70  = Form 483 with minor observations
+    40  = Warning letter on non-core facility
+    0   = Import alert on core facility OR consent decree
+```
+
+Inspection outcomes are disclosed via `corporate_announcements`; the `announcement_classifier` should tag these explicitly under a `USFDA_INSPECTION_OUTCOME` category.
+
+#### Pharma Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `USFDA_WARNING_LETTER` (core facility) | −30 |
+| `USFDA_WARNING_LETTER` (non-core) | −15 |
+| `IMPORT_ALERT` on key facility | −35 |
+| `KEY_PRODUCT_PRICE_EROSION` (>15%) | −10 |
+| `PATENT_LITIGATION_LOSS` | −15 |
+| `PRODUCT_RECALL` | −10 |
+
+---
+
+### 6.7 Capital Goods / Infrastructure
+
+**Sector profile:** `CAPGOODS`
+**Critical insight:** Order book quality is the leading indicator; revenue is the lagging indicator.
+
+**Fundamental Score:**
+
+```
+Fundamental_CapGoods = 
+    (Order_Book_Strength × 0.28) +
+    (Execution_Track_Record × 0.20) +
+    (Profitability × 0.18) +
+    (Balance_Sheet × 0.15) +
+    (Working_Capital × 0.10) +
+    (Governance × 0.04) +
+    (Valuation × 0.05)
+```
+
+#### Order Book Strength
+
+```
+Order_Book = 
+    (OB_to_Revenue_Score × 0.50) +
+    (OB_Growth_YoY_Score × 0.30) +
+    (Order_Quality_Score × 0.20)
+
+OB_to_Revenue_Score = HIB(OB/Rev, floor=1.5, ceiling=4)
+
+Order_Quality_Score:
+    Diversified order book + private sector orders = higher
+    Concentrated in single project + government PSU orders = lower
+```
+
+Order book disclosure is in management commentary, not XBRL. Recommend extending `event_analyzer` to extract structured `order_book_value` and `order_book_growth_yoy` fields.
+
+#### CapGoods Red Flags
+
+| Red Flag | Penalty |
+|---|---|
+| `LARGE_PROJECT_DELAY_DISCLOSED` | −12 |
+| `COST_OVERRUN_ANNOUNCEMENT` | −10 |
+| `CLIENT_DISPUTE_OR_ARBITRATION` (>5% of OB) | −15 |
+| `RECEIVABLES_OVER_180_DAYS` spike | −10 |
+
+---
+
+## 7. Technical Layer (Cross-Sector)
+
+The technical score uses the same formula across sectors but weights it differently in the final composite. Inputs come from `nidp.stock_technical_indicators_daily` and `nidp.stock_features_daily`.
+
+```
+Technical_Score = 
+    (Trend_Score × 0.35) +
+    (Relative_Strength × 0.25) +
+    (Momentum × 0.20) +
+    (Volume_Confirmation × 0.10) +
+    (Volatility_Adjusted × 0.10)
+```
+
+### Trend Score
+
+```
+Trend_Score = 
+    (Price > 200DMA ? 30 : 0) +
+    (Price > 50DMA ? 25 : 0) +
+    (200DMA slope positive over 3M ? 25 : 0) +
+    (Price_vs_52W_High_Score × 0.20)
+
+Price_vs_52W_High_Score = MIN(100, MAX(0, ((Price / 52W_High) − 0.75) / 0.25 × 100))
+```
+
+### Relative Strength (vs Sector Index)
+
+```
+RS_Score = Percentile rank of (Stock 3M return − Sector Index 3M return) within sector
+
+Sector index mapping from sector_master:
+    BANK    → Bank Nifty
+    NBFC    → Nifty Financial Services
+    IT      → Nifty IT
+    FMCG    → Nifty FMCG
+    PHARMA  → Nifty Pharma
+    AUTO    → Nifty Auto
+    METAL   → Nifty Metal
+    DEFAULT → Nifty 500
+```
+
+Source: `nidp.index_close`
+
+### Momentum
+
+```
+Momentum = 
+    (RSI_Score × 0.40) +
+    (MACD_Score × 0.30) +
+    (Price_ROC_Score × 0.30)
+
+RSI_Score (sweet spot is 50–65):
+    100 if RSI ∈ [50, 65]
+    Scale to 70 for RSI ∈ [40,50] or [65,75]
+    30 for RSI ∈ [30,40] or [75,80]
+    0  if RSI < 30 (deeply oversold — capitulation) or > 80 (overbought)
+
+MACD_Score:
+    100 if MACD line > Signal line AND histogram rising
+    50  if MACD line > Signal line but histogram flat/falling
+    25  if MACD line < Signal line but histogram rising (early reversal)
+    0   if both negative and falling
+```
+
+### Volume Confirmation (uses delivery %)
+
+```
+Volume_Confirmation = 
+    (Delivery_Pct_Score × 0.50) +
+    (Volume_vs_30D_Avg_Score × 0.30) +
+    (OBV_Trend_Score × 0.20)
+
+Delivery_Pct_Score = HIB(Delivery%, floor=30, ceiling=70)
+```
+
+The `nidp.delivery` feed gives a powerful edge here — high delivery % means real accumulation, not intraday speculation.
+
+### Volatility Adjustment
+
+```
+Volatility_Adjusted = LIB(90D_Realized_Vol%, floor=15, ceiling=50)
+
+Penalizes stocks with extreme volatility — they may have momentum but high tail risk.
+```
+
+---
+
+## 8. Event-Based Score Overlays
+
+This is where the AI layer (`announcement_classifier` + `event_analyzer`) adds material value beyond pure quantitative scoring.
+
+The `nidp.corporate_event_signals` table contains scored events; the `v3_scores_engine` should overlay these on a 7-day decaying window:
+
+### 8.1 Positive Event Boosts (additive, max +15)
+
+| Event Category (from event_analyzer) | Boost | Decay Period |
+|---|---|---|
+| `EARNINGS_BEAT` (>10% above estimate) | +8 | 30 days |
+| `ACQUISITION_VALUE_ACCRETIVE` | +6 | 60 days |
+| `MAJOR_ORDER_WIN` (>5% of revenue) | +5 | 45 days |
+| `BUYBACK_ANNOUNCEMENT` (>2% of equity) | +4 | 90 days |
+| `INSTITUTIONAL_BULK_BUY` (from bulk_deals + block_deals) | +3 | 14 days |
+| `CREDIT_RATING_UPGRADE` | +5 | 90 days |
+
+### 8.2 Negative Event Penalties (additive, max −30)
+
+| Event Category | Penalty | Decay Period |
+|---|---|---|
+| `EARNINGS_MISS` (>10% below estimate) | −8 | 30 days |
+| `AUDITOR_RESIGNATION` | −15 | 180 days |
+| `SEBI_ORDER` against company | −20 | 365 days |
+| `KEY_MANAGEMENT_EXIT` without succession | −10 | 90 days |
+| `PROMOTER_PLEDGE_INCREASE` >10% | −10 | 90 days |
+| `INSTITUTIONAL_BULK_SELL` (from bulk_deals) | −5 | 14 days |
+| `CREDIT_RATING_DOWNGRADE` | −10 | 180 days |
+| `RELATED_PARTY_TRANSACTION_FLAG` | −8 | 90 days |
+
+### 8.3 Decay Formula
+
+```
+Effective_Overlay = Raw_Overlay × MAX(0, 1 − (Days_Since_Event / Decay_Period))
+```
+
+Implementation note: the `v3_scores_engine` should query `corporate_event_signals` joined with `corporate_announcements` for last 180 days, compute decayed overlays, and apply min/max bounds.
+
+---
+
+## 9. Composite V3 Score Assembly
+
+The final assembly per stock:
+
+```
+Final_V3_Score = MIN(100, MAX(0,
+    (Fundamental × Sector_Fund_Weight) + 
+    (Technical × Sector_Tech_Weight) +
+    (Cycle_Position × Sector_Cycle_Weight) +   -- 0 for non-cyclicals
+    Event_Overlay −                             -- net positive/negative from §8
+    Red_Flag_Penalty
+))
+```
+
+### 9.1 Sector Weight Table
+
+| Sector | Fund_Weight | Tech_Weight | Cycle_Weight |
+|---|---|---|---|
+| `BANK` | 0.70 | 0.30 | — |
+| `NBFC` | 0.70 | 0.30 | — |
+| `CYCLICAL` | 0.50 | 0.30 | 0.20 |
+| `IT` | 0.70 | 0.30 | — |
+| `FMCG` | 0.75 | 0.25 | — |
+| `PHARMA` | 0.70 | 0.30 | — |
+| `CAPGOODS` | 0.60 | 0.40 | — |
+| `DEFAULT` | 0.65 | 0.35 | — |
+
+### 9.2 Score Bands (Buy/Hold/Sell)
+
+Bands are **sector-relative** (top quartile within sector matters more than absolute score, since FMCG quality scores typically run higher than capital goods):
+
+| Band | Definition | Copilot Action |
+|---|---|---|
+| `STRONG_BUY` | Score ≥ 80 AND in sector top decile | Surfaced as primary recommendation |
+| `BUY` | Score ≥ 65 AND in sector top quartile | Eligible for recommendation |
+| `HOLD` | Score 50–64 OR sector 2nd quartile | Hold current; no new buy |
+| `REDUCE` | Score 35–49 OR red flags present | Suggest trim |
+| `AVOID` | Score < 35 OR `AVOID_TRIGGERS` (PCA, import alert, auditor resignation) | Block from recommendations |
+
+### 9.3 Persistence to `nidp.v3_stock_scores_daily`
+
+```sql
+INSERT INTO nidp.v3_stock_scores_daily (
+    score_date, symbol, sector_profile,
+    fundamental_score, technical_score, cycle_position_score,
+    event_overlay, red_flag_penalty,
+    sub_scores_jsonb, final_score, band
+) VALUES (...)
+ON CONFLICT (score_date, symbol) DO UPDATE SET ...;
+```
+
+The `sub_scores_jsonb` enables the copilot to answer "why did this stock score 72?" with a structured breakdown.
+
+---
+
+## 10. Implementation Roadmap
+
+### Phase 1: Core Sector Profiles (Weeks 1–3)
+
+1. Extend `nidp.v3_stock_scores_daily` schema with new columns
+2. Implement `sector_profile` classifier from `nidp.sector_master`
+3. Build normalization utility functions (HIB, LIB, percentile)
+4. Implement `BANK`, `NBFC`, `IT`, `FMCG` scoring profiles
+5. Backtest against 5Y of `nidp.stock_fundamentals_daily` + `nidp.stock_technical_indicators_daily`
+
+### Phase 2: Cyclical + Pharma + CapGoods (Weeks 4–5)
+
+1. Implement through-cycle profitability computation (10Y rolling averages)
+2. Add Cycle_Position sub-score (requires commodity price feed — see §11)
+3. Implement Pharma and CapGoods profiles
+4. Extend backtest universe
+
+### Phase 3: Event Overlay (Weeks 6–7)
+
+1. Extend `announcement_classifier` taxonomy to include sector-specific categories (USFDA, RBI PCA, etc.)
+2. Implement event decay overlay in `v3_scores_engine`
+3. Validate against historical events (e.g., did Yes Bank scoring deteriorate before the moratorium?)
+
+### Phase 4: Productionization (Weeks 8–10)
+
+1. Wire `sub_scores_jsonb` into copilot explanation logic
+2. Build observability dashboards (score distribution by sector, score migration over time)
+3. Create alerting on score regime shifts (e.g., sector-wide downgrade signals)
+4. A/B test against current V3 scoring
+
+### Validation Methodology
+
+Backtest hypothesis: **stocks in `STRONG_BUY` band should outperform sector index over 6M and 12M forward returns**, with statistical significance (Sharpe > 0.5 vs sector benchmark).
+
+Use `nidp.stock_features_daily` (1Y+ forward returns) and `nidp.index_close` (sector benchmarks) for the backtest.
+
+---
+
+## 11. Data Gaps & Required New Feeds
+
+Some scoring components require feeds not yet in NIDP. Listed by priority:
+
+### Priority 1 — Required for Cyclical scoring
+
+**Commodity price feed** (LME for metals, Brent for chemicals, Platts/Mysteel for cement)
+
+- New `Layer 1` service: `commodity_prices_ingester`
+- Source: LME public data + FRED extension (FRED has some commodity series in DCOILWTICO etc.)
+- Output: `nidp.commodity_prices_daily`
+- Required for `Cycle_Position.Commodity_Price_Position` sub-score
+
+### Priority 2 — Enrich existing engines
+
+**Extend `fundamental_engine` to compute bank/NBFC-specific ratios**
+
+Currently `nidp.stock_fundamentals_daily` likely doesn't contain GNPA, NNPA, PCR, NIM, CAR, CET1, CASA. The `nse_financials_quarterly` XBRL already has these in bank-specific extensions — they need explicit extraction:
+
+- Add `bank_ratios_extractor` module to `fundamental_engine`
+- Add `nbfc_ratios_extractor` module
+- Schema additions to `nidp.stock_fundamentals_daily` (or a new bank-specific table)
+
+**Extend `event_analyzer` to extract structured operational metrics from results commentary**
+
+For IT (attrition, CC growth, TCV), CapGoods (order book), Pharma (USFDA outcomes), the values exist in unstructured PR text. Use Claude to extract structured fields into a new table:
+
+- New table: `nidp.event_structured_metrics`
+- Columns: `symbol`, `metric_name`, `metric_value`, `quarter`, `source_announcement_id`
+
+### Priority 3 — Quality enhancements
+
+**Extend `announcement_classifier` taxonomy**
+
+Current classification likely tags broad categories. Add sector-specific tags:
+
+- `RBI_PCA_ACTION`, `BANKING_LICENSE_ACTION`
+- `USFDA_INSPECTION_OUTCOME` (with sub-types: clean, 483, warning_letter, import_alert)
+- `CREDIT_RATING_CHANGE` (with sub-types: upgrade, downgrade, watch)
+- `ORDER_BOOK_DISCLOSURE`
+- `KEY_MANAGEMENT_EXIT` (with sub-types: planned succession vs sudden)
+
+These would land in the existing `nidp.corporate_announcements` classification columns; no schema change required.
+
+**Restore broken MF feeds (separate from stock scoring but mentioned for completeness)**
+
+The catalogue notes `mf_holdings` and `mf_disclosure_snapshot` are broken. Fund-of-fund overlap analysis used in portfolio_intelligence cannot run without these. Recommend prioritizing the `amc_urls_drift_check` alerts and rebuilding the scrapers.
+
+---
+
+## Appendix A: Quick Reference — Sector Weights at a Glance
+
+| Sub-Score | BANK | NBFC | CYCLICAL | IT | FMCG | PHARMA | CAPGOODS |
+|---|---|---|---|---|---|---|---|
+| Asset Quality | 28 | 22 | — | — | — | — | — |
+| Profitability | 22 | 18 | — | 23 | 23 | 18 | 18 |
+| Capital Adequacy | 15 | 13 | — | — | — | — | — |
+| ALM Strength | — | 17 | — | — | — | — | — |
+| Borrowing Cost Trend | — | 10 | — | — | — | — | — |
+| Growth | 15 | 10 | — | 28 | 28 | — | — |
+| Efficiency | 10 | — | — | — | — | — | — |
+| Balance Sheet Strength | — | — | 30 | — | — | — | 15 |
+| Operational Efficiency | — | — | 22 | 18 | — | — | — |
+| Through-Cycle Profitability | — | — | 20 | — | — | — | — |
+| Capital Efficiency | — | — | — | — | 20 | — | — |
+| Brand Strength | — | — | — | — | 15 | — | — |
+| Client Health | — | — | — | 13 | — | — | — |
+| Pipeline Strength | — | — | — | — | — | 23 | — |
+| Regulatory Standing | — | — | — | — | — | 20 | — |
+| Geographic Diversification | — | — | — | — | — | 13 | — |
+| R&D Productivity | — | — | — | — | — | 10 | — |
+| Order Book Strength | — | — | — | — | — | — | 28 |
+| Execution Track Record | — | — | — | — | — | — | 20 |
+| Working Capital | — | — | — | — | — | — | 10 |
+| Free Cash Flow Quality | — | — | 8 | — | — | — | — |
+| Governance (universal) | 5 | 5 | 5 | 8 | 5 | 6 | 4 |
+| Valuation | 5 | 5 | 15 | 10 | 9 | 10 | 5 |
+| **Total** | **100** | **100** | **100** | **100** | **100** | **100** | **100** |
+
+---
+
+## Appendix B: Glossary
+
+| Term | Definition |
+|---|---|
+| ALM | Asset-Liability Management — matching tenor of borrowings to lending book |
+| ANDA | Abbreviated New Drug Application (US generic drug approval) |
+| BB | Bollinger Bands |
+| CASA | Current Account + Savings Account deposits (cheap funding for banks) |
+| CAR | Capital Adequacy Ratio (capital / risk-weighted assets) |
+| CC | Constant Currency (revenue stripped of FX effects) |
+| CET1 | Common Equity Tier 1 capital ratio |
+| GNPA / NNPA | Gross / Net Non-Performing Assets |
+| HIB | Higher-Is-Better (normalization direction) |
+| LIB | Lower-Is-Better (normalization direction) |
+| LCR | Liquidity Coverage Ratio |
+| NIM | Net Interest Margin |
+| OB | Order Book |
+| PCA | Prompt Corrective Action (RBI restriction on weak banks) |
+| PCR | Provision Coverage Ratio (provisions / GNPA) |
+| ROCE | Return on Capital Employed |
+| TCV | Total Contract Value (signed deal value for IT services) |
+| WC | Working Capital |
+
+---
+
+*End of Document*
