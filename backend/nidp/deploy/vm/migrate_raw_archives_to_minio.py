@@ -93,15 +93,17 @@ def run(dry_run: bool, batch_size: int) -> None:
     offset = 0
 
     while True:
-        cur.execute("""
+        cur.execute(f"""
             SELECT id, file_path, ingester
             FROM nidp.raw_archive_files
-            WHERE file_path NOT LIKE 'minio://%'
-              AND file_path NOT LIKE 's3://%'
-              AND file_path NOT LIKE 'gs://%'
+            WHERE NOT (
+                starts_with(file_path, 'minio://')
+                OR starts_with(file_path, 's3://')
+                OR starts_with(file_path, 'gs://')
+            )
             ORDER BY id
-            LIMIT %s OFFSET %s
-        """, (batch_size, offset))
+            LIMIT {int(batch_size)} OFFSET {int(offset)}
+        """)
         rows = cur.fetchall()
         if not rows:
             break
