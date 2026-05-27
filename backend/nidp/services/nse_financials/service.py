@@ -25,9 +25,12 @@ from .llm_extractor import (
     extract_financials,
     parse_nse_integrated_xbrl,
     parse_nse_xbrl_json,
+    parse_screener_balance_sheet,
+    parse_screener_profit_loss,
     parse_screener_quarters,
+    parse_screener_shareholding,
 )
-from .writer import upsert_financials
+from .writer import upsert_financials, upsert_shareholding
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,29 @@ async def _process_symbol(
     screener_result = await fetch_screener_quarters(symbol)
     if screener_result:
         html, is_consolidated = screener_result
+
+        # ── Always extract supplemental data from the same page fetch ──
+        # Balance sheet (annual: equity, reserves, borrowings)
+        bs_entries = parse_screener_balance_sheet(symbol, html, consolidated=is_consolidated)
+        for bs in bs_entries:
+            await upsert_financials(symbol, bs, source="screener_in_bs")
+
+        # Annual P&L (revenue + PAT history for 3Y CAGR primitives)
+        pl_entries = parse_screener_profit_loss(symbol, html, consolidated=is_consolidated)
+        for pl in pl_entries:
+            await upsert_financials(symbol, pl, source="screener_in_annual")
+
+        # Shareholding pattern (promoter_pct primitive)
+        shp_entries = parse_screener_shareholding(symbol, html)
+        for shp in shp_entries:
+            await upsert_shareholding(symbol, shp, source="screener_in")
+
+        logger.info(
+            "nse_financials: %s supplemental from Screener.in — %d bs_years  %d pl_years  %d shp",
+            symbol, len(bs_entries), len(pl_entries), len(shp_entries),
+        )
+
+        # ── Latest-quarter P&L (primary quarterly record) ──────────────
         parsed = parse_screener_quarters(symbol, html, consolidated=is_consolidated)
         if parsed:
             data, raw_data = parsed

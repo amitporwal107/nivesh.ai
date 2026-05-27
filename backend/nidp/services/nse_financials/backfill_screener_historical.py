@@ -33,6 +33,7 @@ from .ir_scraper import fetch_screener_quarters
 from .llm_extractor import (
     parse_all_screener_quarters,
     parse_screener_balance_sheet,
+    parse_screener_profit_loss,
     parse_screener_shareholding,
 )
 from .writer import upsert_financials, upsert_shareholding
@@ -273,6 +274,19 @@ async def _process_one(
                 symbol, html, consolidated=is_consolidated
             )
 
+            # ── Parse annual P&L (profit-loss section) ───────────────────
+            # Use since_year 3 years before lookback window to cover full 3Y CAGR
+            # window even when main lookback is 1 year.
+            try:
+                lookback_year = date.fromisoformat(since_date).year
+            except (ValueError, AttributeError):
+                lookback_year = date.today().year - 1
+            pl_entries = parse_screener_profit_loss(
+                symbol, html,
+                consolidated=is_consolidated,
+                since_year=lookback_year - 3,
+            )
+
             # ── Parse shareholding (quarterly) ───────────────────────────
             shp_entries = parse_screener_shareholding(symbol, html)
 
@@ -303,6 +317,15 @@ async def _process_one(
                 stats["outcome"] = "no_data"
                 return stats
 
+            # ── Write annual P&L records ─────────────────────────────────
+            pl_written = 0
+            for pl in pl_entries:
+                fid = await upsert_financials(
+                    symbol, pl, source="screener_in_annual", raw_data=None
+                )
+                if fid:
+                    pl_written += 1
+
             # ── Write shareholding ───────────────────────────────────────
             shp_written = 0
             for shp in shp_entries:
@@ -312,13 +335,14 @@ async def _process_one(
 
             await _write_job_log(conn, run_id, symbol, tier, "OK", rows_inserted=written)
             logger.info(
-                "backfill_hist: ✓ T%d %-15s  %d quarters  %d bs_years  %d shp written  since=%s",
-                tier, symbol, written, len(bs_entries), shp_written, since_date,
+                "backfill_hist: ✓ T%d %-15s  %d quarters  %d bs_years  %d pl_years  %d shp written  since=%s",
+                tier, symbol, written, len(bs_entries), pl_written, shp_written, since_date,
             )
             stats.update({
                 "outcome": "ok",
                 "quarters_written": written,
                 "bs_years": len(bs_entries),
+                "pl_years": pl_written,
                 "shp_quarters": shp_written,
             })
             return stats
