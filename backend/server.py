@@ -21,7 +21,7 @@ except subprocess.CalledProcessError:
     subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
     subprocess.run(["apt-get", "install", "-y", "poppler-utils"], capture_output=True)
 
-from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, validate_env
+from middleware import RateLimitMiddleware, SecurityHeadersMiddleware, RequestLoggingMiddleware, BodySizeLimitMiddleware, validate_env
 
 # Validate env on startup
 validate_env()
@@ -201,6 +201,7 @@ async def root():
 # CorrelationMiddleware is outermost so the ID is available to all layers.
 # RequestLoggingMiddleware wraps everything below it to measure true latency.
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(CorrelationMiddleware)
@@ -291,6 +292,15 @@ async def startup_seed():
         await _iu.ensure_identity_indexes()
     except Exception as e:
         logger.warning("identity index ensure failed: %s", e)
+    # Idempotency key TTL index (24 h auto-expiry via MongoDB TTL)
+    try:
+        from deps import db as _db
+        await _db.idempotency_keys.create_index(
+            "expires_at", expireAfterSeconds=0, background=True
+        )
+        await _db.idempotency_keys.create_index("key", unique=True, background=True)
+    except Exception as e:
+        logger.warning("idempotency TTL index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.

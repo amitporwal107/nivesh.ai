@@ -1,0 +1,34 @@
+extends:
+  - spectral:oas
+
+# Override built-in rules — keep as errors only what we can guarantee passes
+rules:
+  # ── Require operationId on every operation (SDK generation + test naming) ──
+  operation-operationId:
+    description: Every operation must have a unique operationId.
+    severity: error
+    given: "$.paths.*[get,post,put,patch,delete,options,head]"
+    then:
+      field: operationId
+      function: truthy
+
+  # ── Require at least one tag per operation ───────────────────────────────
+  operation-tags:
+    description: Every operation must have at least one tag for grouping in docs.
+    severity: warn
+    given: "$.paths.*[get,post,put,patch,delete,options,head]"
+    then:
+      field: tags
+      function: truthy
+
+  # ── Disable noisy built-in rules that don't apply to our fragment files ──
+  # These built-in rules fire on domain YAML files that are intentionally minimal
+  info-contact: off
+  info-description: off
+  oas3-api-servers: off
+  openapi-tags: off
+  operation-description: off
+  tag-description: off
+
+  # ── Downgrade duplicate-check to warn so it surfaces without blocking ─────
+  no-$ref-siblings: warn

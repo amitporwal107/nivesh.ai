@@ -1,0 +1,875 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Advisor & MFD Workspace API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    The MFD (Mutual Fund Distributor) multi-client workspace and advisor analytics.
+
+    ### Who uses this
+    - **MFDs / IFAs** managing multiple client portfolios
+    - **Advisors** looking at aggregate AUM, underperformers, and rebalancing needs
+    - **RIAs** using the advisory mode with compliance controls
+
+    | Group | Endpoints | Purpose |
+    |-------|-----------|---------|
+    | **Workspace** | `/api/mfd/workspace` | MFD setup — firm name, mode (INDIVIDUAL/ADVISORY), ARN |
+    | **Client profiles** | `/api/mfd/profiles/*` | Create, list, and manage client profiles |
+    | **Impersonation** | `/api/mfd/profiles/{id}/activate` | Switch into a client's view |
+    | **Client notes** | `/api/mfd/profiles/{id}/notes` | CRM-style notes per client |
+    | **Tax summary** | `/api/mfd/profiles/{id}/tax-summary` | STCG/LTCG and harvesting opportunities |
+    | **Portfolio trend** | `/api/mfd/profiles/{id}/portfolio-trend` | Invested vs current value chart |
+    | **Holdings export** | `/api/mfd/profiles/{id}/holdings/export` | CSV/XLSX for a client |
+    | **Advisor home** | `/api/advisor/today` | Priority-ranked client list |
+    | **AUM ranking** | `/api/advisor/aum` | Clients by AUM with MoM delta |
+    | **Underperformers** | `/api/advisor/underperformers` | Clients lagging benchmark |
+    | **Rebalance list** | `/api/advisor/rebalance` | Clients drifted from target allocation |
+
+    ## MFD Workspace Model
+
+    ```
+    Workspace (per user)
+      └── mode: INDIVIDUAL | ADVISORY
+      └── profiles[]
+            ├── SELF  (always present, maps to the advisor's own portfolio)
+            ├── Client A
+            ├── Client B
+            └── ...
+    ```
+
+    Each profile has its own portfolio, holdings, plans, and goals.
+    The advisor **impersonates** a client by calling `POST /api/mfd/profiles/{id}/activate` —
+    all portfolio/insights/intelligence endpoints then operate on that client's data.
+    Call `POST /api/mfd/profiles/deactivate` to return to the advisor's own view.
+
+    ## Advisor Priority Score
+    The `priority_score` on each client profile is computed from:
+    - Portfolio health score (lower score = higher priority)
+    - Time since last review (`last_reviewed_at`)
+    - Allocation drift from target
+    - Presence of critical insights
+
+    Clients are bucketed into **high / medium / low** priority for the "Today" list.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  parameters:
+    profile_id_path:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: MFD client profile ID.
+    limit_query:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 100
+    format_query:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [csv, xlsx]
+        default: csv
+
+  schemas:
+    ClientProfile:
+      type: object
+      description: An MFD client profile.
+      properties:
+        profile_id:
+          type: string
+          example: prof_a1b2c3
+        name:
+          type: string
+          example: Priya Sharma
+        email:
+          type: string
+          nullable: true
+          example: priya@example.com
+        mobile:
+          type: string
+          nullable: true
+          example: "+919876543210"
+        pan:
+          type: string
+          nullable: true
+          example: ABCDE1234F
+        aum_rs:
+          type: number
+          nullable: true
+          example: 842000
+        tags:
+          type: array
+          items:
+            type: string
+          example: [premium, equity-focused]
+        notes:
+          type: string
+          nullable: true
+          example: Reviewing SIP increase in June.
+        is_self:
+          type: boolean
+          example: false
+        priority_score:
+          type: number
+          nullable: true
+          example: 82.4
+        priority_bucket:
+          type: string
+          nullable: true
+          enum: [high, medium, low]
+          example: high
+        health_score:
+          type: number
+          nullable: true
+          example: 61
+        last_reviewed_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2024-05-10T10:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-15T08:00:00Z"
+
+paths:
+
+  # ── MFD Workspace Setup ────────────────────────────────────────────────────
+
+  /api/mfd/workspace:
+    get:
+      tags: [mfd]
+      operationId: mfd_workspace_get
+      summary: Get current MFD workspace and mode
+      description: |
+        Returns the advisor's workspace configuration: mode (INDIVIDUAL or ADVISORY),
+        firm name, ARN/RIA number, and onboarding status.
+
+        **INDIVIDUAL mode** — advisor manages their own portfolio only.
+        **ADVISORY mode** — full multi-client workspace with compliance features.
+      responses:
+        "200":
+          description: Workspace details
+          content:
+            application/json:
+              example:
+                mode: ADVISORY
+                firm_name: Sharma Wealth Advisors
+                advisor_name: Rajesh Sharma
+                advisor_email: rajesh@sharmawealth.com
+                advisor_mobile: "+919876543210"
+                arn_or_ria: ARN-12345
+                client_count_range: "10-50"
+                mfd_onboarding_completed: true
+                profiles_count: 18
+
+    patch:
+      tags: [mfd]
+      operationId: mfd_workspace_update
+      summary: Update workspace mode and metadata
+      description: |
+        Updates workspace settings. Switch between INDIVIDUAL and ADVISORY mode,
+        update firm details, or complete MFD onboarding.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [INDIVIDUAL, ADVISORY]
+                firm_name:
+                  type: string
+                client_count_range:
+                  type: string
+                  enum: ["1-10", "10-50", "50-200", "200+"]
+                mfd_onboarding_completed:
+                  type: boolean
+                advisor_name:
+                  type: string
+                advisor_mobile:
+                  type: string
+                advisor_email:
+                  type: string
+                arn_or_ria:
+                  type: string
+            example:
+              mode: ADVISORY
+              firm_name: Sharma Wealth Advisors
+              advisor_name: Rajesh Sharma
+              arn_or_ria: ARN-12345
+              mfd_onboarding_completed: true
+      responses:
+        "200":
+          description: Updated workspace
+          content:
+            application/json:
+              example:
+                mode: ADVISORY
+                firm_name: Sharma Wealth Advisors
+                mfd_onboarding_completed: true
+
+  # ── Client Profiles ────────────────────────────────────────────────────────
+
+  /api/mfd/profiles:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_list
+      summary: List all client profiles with priority scores
+      description: |
+        Returns all client profiles including the SELF profile (the advisor's own portfolio).
+        Profiles are returned with priority scores and health scores pre-computed.
+
+        Use `include_self=false` to exclude the advisor's own SELF profile from the list.
+      parameters:
+        - name: include_self
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Include the advisor's own SELF profile in the list.
+      responses:
+        "200":
+          description: Client profiles with priority and health scores
+          content:
+            application/json:
+              example:
+                total: 18
+                profiles:
+                  - profile_id: prof_self
+                    name: Rajesh Sharma (Self)
+                    is_self: true
+                    aum_rs: 2400000
+                    health_score: 74
+                    priority_score: 45.0
+                    priority_bucket: low
+                    last_reviewed_at: "2024-05-20T10:00:00Z"
+                  - profile_id: prof_a1b2c3
+                    name: Priya Sharma
+                    email: priya@example.com
+                    aum_rs: 842000
+                    health_score: 58
+                    priority_score: 87.2
+                    priority_bucket: high
+                    last_reviewed_at: "2024-04-10T10:00:00Z"
+                    tags: [premium, equity-focused]
+                  - profile_id: prof_d4e5f6
+                    name: Rohan Gupta
+                    email: rohan@example.com
+                    aum_rs: 1200000
+                    health_score: 71
+                    priority_score: 52.1
+                    priority_bucket: medium
+                    last_reviewed_at: "2024-05-15T10:00:00Z"
+
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_create
+      summary: Create a client profile
+      description: |
+        Creates a new client profile. Each profile gets its own portfolio, holdings,
+        plans, and goals. PAN is stored encrypted for compliance purposes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                email:
+                  type: string
+                  nullable: true
+                mobile:
+                  type: string
+                  nullable: true
+                pan:
+                  type: string
+                  nullable: true
+                aum_rs:
+                  type: number
+                  nullable: true
+                tags:
+                  type: array
+                  items:
+                    type: string
+                notes:
+                  type: string
+                  nullable: true
+            example:
+              name: Meera Patel
+              email: meera@example.com
+              mobile: "+919812345678"
+              pan: BCDEF2345G
+              aum_rs: 650000
+              tags: [new-client, conservative]
+              notes: Conservative investor, prefers debt-heavy allocation.
+      responses:
+        "200":
+          description: Created client profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientProfile'
+              example:
+                profile_id: prof_g7h8i9
+                name: Meera Patel
+                email: meera@example.com
+                aum_rs: 650000
+                tags: [new-client, conservative]
+                is_self: false
+                priority_score: null
+                health_score: null
+                created_at: "2024-05-27T10:00:00Z"
+
+  /api/mfd/profiles/{profile_id}:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_get
+      summary: Get client profile detail with priority breakdown
+      description: |
+        Full client profile with priority score breakdown, portfolio summary,
+        recent plan status, and last review date.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Client profile detail
+          content:
+            application/json:
+              example:
+                profile_id: prof_a1b2c3
+                name: Priya Sharma
+                email: priya@example.com
+                aum_rs: 842000
+                health_score: 58
+                priority_score: 87.2
+                priority_bucket: high
+                priority_breakdown:
+                  health_score_contribution: 35.0
+                  days_since_review_contribution: 28.0
+                  allocation_drift_contribution: 14.2
+                  critical_insights_contribution: 10.0
+                last_reviewed_at: "2024-04-10T10:00:00Z"
+                active_plan_id: plan_a1b2c3
+                active_plan_actions_pending: 3
+                tags: [premium, equity-focused]
+
+    patch:
+      tags: [mfd]
+      operationId: mfd_profiles_update
+      summary: Update client profile fields
+      description: Partial update — only provided fields are changed.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                aum_rs:
+                  type: number
+                tags:
+                  type: array
+                  items:
+                    type: string
+                email:
+                  type: string
+                mobile:
+                  type: string
+                pan:
+                  type: string
+                last_reviewed_at:
+                  type: string
+                  format: date-time
+            example:
+              aum_rs: 920000
+              tags: [premium, equity-focused, reviewed-q2]
+              last_reviewed_at: "2024-05-27T10:00:00Z"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              example:
+                profile_id: prof_a1b2c3
+                name: Priya Sharma
+                aum_rs: 920000
+                last_reviewed_at: "2024-05-27T10:00:00Z"
+
+    delete:
+      tags: [mfd]
+      operationId: mfd_profiles_delete
+      summary: Delete a client profile
+      description: |
+        **Permanent** — deletes the client profile and all associated portfolios,
+        holdings, plans, and goals. The SELF profile cannot be deleted.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Profile deleted
+          content:
+            application/json:
+              example:
+                status: ok
+                profile_id: prof_g7h8i9
+                name: Meera Patel
+
+  /api/mfd/profiles/{profile_id}/activate:
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_activate
+      summary: Impersonate a client profile
+      description: |
+        Switches the active session context to the specified client profile.
+        After this call, all portfolio/insights/intelligence/plans API calls
+        operate on **this client's data** until deactivated.
+
+        Only one profile can be active at a time. Activating a second profile
+        automatically deactivates the previous one.
+
+        **Important**: The advisor's session cookie is preserved. This is a
+        server-side context switch, not a separate authentication.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Client profile activated — subsequent calls use this client's data
+          content:
+            application/json:
+              example:
+                status: ok
+                profile_id: prof_a1b2c3
+                name: Priya Sharma
+                active: true
+                message: Now viewing Priya Sharma's portfolio.
+
+  /api/mfd/profiles/deactivate:
+    post:
+      tags: [mfd]
+      operationId: mfd_profiles_deactivate
+      summary: Exit client view — return to advisor's own data
+      description: |
+        Clears the active client context. Subsequent calls return to the
+        advisor's own portfolio and data.
+      responses:
+        "200":
+          description: Client view exited
+          content:
+            application/json:
+              example:
+                status: ok
+                active_profile: null
+                message: Returned to your own portfolio view.
+
+  /api/mfd/profiles/{profile_id}/notes:
+    get:
+      tags: [mfd]
+      operationId: mfd_profiles_notes_get
+      summary: Get CRM notes for a client
+      description: Returns the advisor's notes, next SIP date, and preferred contact channel for this client.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Client notes
+          content:
+            application/json:
+              example:
+                profile_id: prof_a1b2c3
+                note: "Priya wants to increase SIP by ₹5K in June after salary hike. Conservative about switching funds."
+                sip_amount_rs: 38000
+                sip_frequency: monthly
+                next_sip_due: "2024-06-07"
+                preferred_channel: whatsapp
+                updated_at: "2024-05-10T10:00:00Z"
+
+    put:
+      tags: [mfd]
+      operationId: mfd_profiles_notes_save
+      summary: Save CRM notes for a client
+      description: |
+        Upserts the CRM notes for a client. All fields are optional — only
+        provided fields are updated.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 4000
+                  nullable: true
+                sip_amount_rs:
+                  type: number
+                  nullable: true
+                sip_frequency:
+                  type: string
+                  nullable: true
+                  enum: [monthly, quarterly, annual]
+                next_sip_due:
+                  type: string
+                  format: date
+                  nullable: true
+                preferred_channel:
+                  type: string
+                  nullable: true
+                  enum: [email, whatsapp, phone, in_person]
+            example:
+              note: "Discussed rebalancing. Priya agreed to switch out HDFC Top 100."
+              sip_amount_rs: 43000
+              next_sip_due: "2024-06-07"
+              preferred_channel: whatsapp
+      responses:
+        "200":
+          description: Notes saved
+          content:
+            application/json:
+              example:
+                status: ok
+                profile_id: prof_a1b2c3
+                updated_at: "2024-05-27T10:05:00Z"
+
+  /api/mfd/profiles/{profile_id}/tax-summary:
+    get:
+      tags: [mfd]
+      operationId: mfd_tax_summary
+      summary: Tax harvesting opportunities and lot coverage
+      description: |
+        Returns a tax summary for the client's portfolio computed using FIFO lot matching:
+
+        - **STCG** (Short-Term Capital Gains) — gains on equity held < 1 year (taxed at 20%)
+        - **LTCG** (Long-Term Capital Gains) — gains on equity held ≥ 1 year (taxed at 12.5% above ₹1.25L)
+        - **Harvest opportunities** — lots with unrealised STCG that are approaching 1-year mark
+        - **Loss harvest** — lots with unrealised losses that can offset gains
+
+        Data requires CAS transactions to be imported.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Tax summary with harvesting opportunities
+          content:
+            application/json:
+              example:
+                profile_id: prof_a1b2c3
+                computed_at: "2024-05-27T10:00:00Z"
+                stcg_rs: 18400
+                ltcg_rs: 142000
+                ltcg_above_exemption_rs: 17000
+                ltcg_tax_estimate_rs: 2125
+                harvest_opportunities:
+                  - fund: HDFC Mid-Cap Opportunities Fund
+                    folio: "1234567/89"
+                    purchase_date: "2023-06-10"
+                    becomes_ltcg_on: "2024-06-10"
+                    days_to_ltcg: 14
+                    unrealised_stcg_rs: 8200
+                    action: Wait 14 days to reclassify ₹8,200 as LTCG
+                  - fund: Axis Midcap Fund
+                    folio: "9876543/21"
+                    purchase_date: "2023-12-05"
+                    unrealised_loss_rs: -3400
+                    action: Harvest ₹3,400 loss to offset STCG
+                lot_coverage_pct: 84.2
+
+  /api/mfd/profiles/{profile_id}/portfolio-trend:
+    get:
+      tags: [mfd]
+      operationId: mfd_portfolio_trend
+      summary: Invested vs current value trend with recent transactions
+      description: |
+        Returns a time-series of invested amount vs current portfolio value for
+        the client, along with recent purchase transactions.
+        Used for the client detail page portfolio value chart.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+      responses:
+        "200":
+          description: Portfolio trend with invested vs current
+          content:
+            application/json:
+              example:
+                profile_id: prof_a1b2c3
+                current_value_rs: 842000
+                total_invested_rs: 620000
+                total_gain_pct: 35.8
+                trend:
+                  - date: "2024-01-15"
+                    invested_rs: 542000
+                    current_value_rs: 741000
+                  - date: "2024-03-15"
+                    invested_rs: 580000
+                    current_value_rs: 795000
+                  - date: "2024-05-15"
+                    invested_rs: 620000
+                    current_value_rs: 836500
+                recent_buys:
+                  - date: "2024-05-07"
+                    fund: Parag Parikh Flexi Cap Fund
+                    amount_rs: 15000
+                  - date: "2024-04-07"
+                    fund: Parag Parikh Flexi Cap Fund
+                    amount_rs: 15000
+
+  /api/mfd/profiles/{profile_id}/holdings/export:
+    get:
+      tags: [mfd]
+      operationId: mfd_holdings_export
+      summary: Export client holdings as CSV or XLSX
+      description: |
+        Downloads the client's portfolio holdings as a formatted file.
+        Includes holding name, ISIN, units, NAV, value, gain/loss, and weight %.
+      parameters:
+        - $ref: '#/components/parameters/profile_id_path'
+        - $ref: '#/components/parameters/format_query'
+      responses:
+        "200":
+          description: File download
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                Name,ISIN,Asset Type,Units,NAV,Value (₹),Gain %,Weight %
+                Parag Parikh Flexi Cap Fund,INF769K01EW6,mutual_fund,500.123,72.45,36234,24.1%,43.0%
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  # ── Advisor Analytics ──────────────────────────────────────────────────────
+
+  /api/advisor/today:
+    get:
+      tags: [advisor]
+      operationId: advisor_today
+      summary: Priority-ranked client list for today
+      description: |
+        Returns clients sorted by priority score, bucketed into high / medium / low.
+
+        **Priority score** (0-100) is computed from:
+        - Portfolio health score (lower score = higher priority)
+        - Days since last review (longer = higher priority)
+        - Active critical insights count
+        - Allocation drift from target
+
+        Use this as the "Today" / "Action required" view on the advisor home screen.
+      parameters:
+        - $ref: '#/components/parameters/limit_query'
+      responses:
+        "200":
+          description: Priority-sorted client list
+          content:
+            application/json:
+              example:
+                generated_at: "2024-05-27T10:00:00Z"
+                high_priority:
+                  - profile_id: prof_a1b2c3
+                    name: Priya Sharma
+                    priority_score: 87.2
+                    health_score: 58
+                    aum_rs: 842000
+                    top_reason: Portfolio health critical (58/100) — 2 unresolved issues
+                    days_since_review: 47
+                  - profile_id: prof_j1k2l3
+                    name: Amit Verma
+                    priority_score: 82.4
+                    health_score: 62
+                    aum_rs: 1540000
+                    top_reason: Allocation drifted 18% from target — needs rebalancing
+                    days_since_review: 31
+                medium_priority:
+                  - profile_id: prof_d4e5f6
+                    name: Rohan Gupta
+                    priority_score: 52.1
+                    health_score: 71
+                    aum_rs: 1200000
+                    top_reason: 22 days since last review
+                    days_since_review: 22
+                low_priority:
+                  - profile_id: prof_m7n8o9
+                    name: Sunita Mehta
+                    priority_score: 18.3
+                    health_score: 84
+                    aum_rs: 680000
+                    top_reason: Portfolio healthy. Reviewed 5 days ago.
+                    days_since_review: 5
+                summary:
+                  total_clients: 18
+                  high: 2
+                  medium: 8
+                  low: 8
+
+  /api/advisor/aum:
+    get:
+      tags: [advisor]
+      operationId: advisor_aum
+      summary: Clients ranked by AUM with month-over-month change
+      description: |
+        Returns all clients sorted by AUM (descending), with the month-over-month
+        change in portfolio value.
+
+        Use for tracking AUM growth and identifying clients whose portfolios
+        have grown significantly (upsell opportunity) or declined (review needed).
+      parameters:
+        - $ref: '#/components/parameters/limit_query'
+      responses:
+        "200":
+          description: AUM ranking
+          content:
+            application/json:
+              example:
+                total_aum_rs: 18400000
+                mom_change_pct: 3.2
+                clients:
+                  - profile_id: prof_j1k2l3
+                    name: Amit Verma
+                    aum_rs: 1540000
+                    aum_mom_change_rs: 48000
+                    aum_mom_change_pct: 3.2
+                    rank: 1
+                  - profile_id: prof_d4e5f6
+                    name: Rohan Gupta
+                    aum_rs: 1200000
+                    aum_mom_change_rs: -22000
+                    aum_mom_change_pct: -1.8
+                    rank: 2
+                  - profile_id: prof_a1b2c3
+                    name: Priya Sharma
+                    aum_rs: 842000
+                    aum_mom_change_rs: 5500
+                    aum_mom_change_pct: 0.7
+                    rank: 3
+
+  /api/advisor/underperformers:
+    get:
+      tags: [advisor]
+      operationId: advisor_underperformers
+      summary: Clients lagging a benchmark by gap_pct or more
+      description: |
+        Returns clients whose portfolio XIRR is underperforming the selected benchmark
+        by at least `gap_pct` percentage points.
+
+        **Benchmarks available**: `nifty_50`, `nifty_500`, `nifty_midcap_150`, `sensex`
+
+        Use this to proactively reach out to clients who need a portfolio review.
+      parameters:
+        - name: gap_pct
+          in: query
+          schema:
+            type: number
+            default: 5.0
+          description: Minimum underperformance gap in percentage points.
+          example: 5.0
+        - name: benchmark
+          in: query
+          schema:
+            type: string
+            default: nifty_50
+            enum: [nifty_50, nifty_500, nifty_midcap_150, sensex]
+          example: nifty_50
+      responses:
+        "200":
+          description: Underperforming clients
+          content:
+            application/json:
+              example:
+                benchmark: nifty_50
+                benchmark_xirr_pct: 16.4
+                gap_threshold_pct: 5.0
+                underperformers:
+                  - profile_id: prof_a1b2c3
+                    name: Priya Sharma
+                    portfolio_xirr_pct: 9.8
+                    benchmark_xirr_pct: 16.4
+                    gap_pct: 6.6
+                    aum_rs: 842000
+                    health_score: 58
+                    top_drag_fund: Sundaram Small Cap Fund (XIRR -2.1% vs benchmark 18.3%)
+                  - profile_id: prof_p2q3r4
+                    name: Kavita Nair
+                    portfolio_xirr_pct: 10.2
+                    benchmark_xirr_pct: 16.4
+                    gap_pct: 6.2
+                    aum_rs: 540000
+                    health_score: 63
+
+  /api/advisor/rebalance:
+    get:
+      tags: [advisor]
+      operationId: advisor_rebalance
+      summary: Clients drifted from target allocation
+      description: |
+        Returns clients whose current allocation has drifted more than `gap_pp`
+        percentage points from their target allocation (equity/debt/alternate).
+
+        Use to identify clients who need a rebalancing call before year-end or
+        after a large market move.
+      parameters:
+        - name: gap_pp
+          in: query
+          schema:
+            type: number
+            default: 10.0
+          description: Minimum drift threshold in percentage points.
+          example: 10.0
+      responses:
+        "200":
+          description: Clients needing rebalancing
+          content:
+            application/json:
+              example:
+                threshold_pp: 10.0
+                clients_needing_rebalance: 3
+                clients:
+                  - profile_id: prof_j1k2l3
+                    name: Amit Verma
+                    target_equity_pct: 60
+                    current_equity_pct: 78
+                    drift_pp: 18.0
+                    aum_rs: 1540000
+                    rebalance_action: Reduce equity by ~₹2.77L (18% drift — overweight)
+                  - profile_id: prof_d4e5f6
+                    name: Rohan Gupta
+                    target_equity_pct: 70
+                    current_equity_pct: 58
+                    drift_pp: 12.0
+                    aum_rs: 1200000
+                    rebalance_action: Add equity exposure (12% drift — underweight after market dip)

@@ -146,12 +146,24 @@ async def data_health_summary(request: Request) -> Dict[str, Any]:
     """
     await get_current_user(request)  # auth guard — must be logged in
 
-    # Pull the admin pipeline status (already aggregates job runs).
+    # Pull the admin pipeline status + ClamAV scanner health in parallel.
+    async def _scanner_health() -> Dict[str, Any]:
+        try:
+            from services.malware_scanner import health as _mhealth
+            return await _mhealth()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("data-health scanner_health failed: %s", e)
+            return {"status": "degraded", "scanner": "clamav", "detail": str(e)}
+
     try:
-        ps = await nav_analytics_sweep.pipeline_status()
+        ps, scanner = await asyncio.gather(
+            nav_analytics_sweep.pipeline_status(),
+            _scanner_health(),
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("data-health pipeline_status failed: %s", e)
         ps = {"jobs": {}, "scrape_queue": {"queued": 0, "done": 0, "failed": 0}}
+        scanner = {"status": "degraded", "scanner": "clamav", "detail": str(e)}
 
     issues: List[Dict[str, Any]] = []
     jobs = ps.get("jobs") or {}
@@ -191,6 +203,16 @@ async def data_health_summary(request: Request) -> Dict[str, Any]:
             "last_run_at": None,
         })
 
+    # ClamAV malware scanner
+    if scanner.get("status") != "ok":
+        issues.append({
+            "job": "malware_scanner",
+            "label": "Malware scanner (ClamAV)",
+            "severity": "warn",
+            "message": scanner.get("detail", "ClamAV daemon unreachable — uploads scanned by MIME/size only."),
+            "last_run_at": None,
+        })
+
     # Overall severity = max of any issue
     severities = [i["severity"] for i in issues]
     if "error" in severities:
@@ -206,6 +228,7 @@ async def data_health_summary(request: Request) -> Dict[str, Any]:
         "ms_coverage": ms,
         "mirror_age_hours": round(mirror_age, 1) if mirror_age is not None else None,
         "scrape_queue": sq,
+        "scanner": scanner,
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
 

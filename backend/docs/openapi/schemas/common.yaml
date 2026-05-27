@@ -1,0 +1,226 @@
+components:
+  schemas:
+
+    UserProfile:
+      type: object
+      description: Authenticated user identity and onboarding state.
+      properties:
+        user_id:
+          type: string
+          example: usr_9f3a2c
+        email:
+          type: string
+          example: priya@example.com
+        name:
+          type: string
+          example: Priya Sharma
+        is_admin:
+          type: boolean
+          example: false
+        journey_type:
+          type: string
+          nullable: true
+          enum: [self_directed, guided, mfd]
+          example: self_directed
+        risk_profile:
+          type: object
+          nullable: true
+          description: Output of the risk questionnaire.
+        onboarding_completed:
+          type: boolean
+          example: true
+        copilot_enabled:
+          type: boolean
+          example: true
+
+    Portfolio:
+      type: object
+      description: A named investment portfolio belonging to the user.
+      properties:
+        portfolio_id:
+          type: string
+          example: pf_7d4e1a
+        name:
+          type: string
+          example: My Primary Portfolio
+        member_name:
+          type: string
+          nullable: true
+          example: Rohan Sharma
+        relationship:
+          type: string
+          nullable: true
+          example: spouse
+        holdings_count:
+          type: integer
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-03-15T08:30:00Z"
+
+    Holding:
+      type: object
+      description: A single equity or mutual fund position.
+      properties:
+        holding_id:
+          type: string
+          example: h_3c1f8d
+        portfolio_id:
+          type: string
+          example: pf_7d4e1a
+        name:
+          type: string
+          example: HDFC Mid-Cap Opportunities Fund
+        ticker:
+          type: string
+          nullable: true
+          example: HDFCMID
+        asset_type:
+          type: string
+          enum: [equity, mutual_fund, etf, bond, gold, fd, other]
+          example: mutual_fund
+        quantity:
+          type: number
+          example: 250.456
+        buy_price:
+          type: number
+          example: 42.5
+        current_price:
+          type: number
+          example: 68.2
+        sector:
+          type: string
+          nullable: true
+          example: Financial Services
+        buy_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2022-01-15"
+
+    Plan:
+      type: object
+      description: AI-generated V2 Action Plan with rebalancing recommendations.
+      properties:
+        plan_id:
+          type: string
+          example: plan_a1b2c3
+        version:
+          type: string
+          example: "2.5"
+        status:
+          type: string
+          enum: [preview, active, archived]
+          example: active
+        actions:
+          type: array
+          items:
+            type: object
+          description: List of recommended portfolio actions.
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-05-20T10:00:00Z"
+
+    Goal:
+      type: object
+      description: A financial goal (retirement, home purchase, education, etc.).
+      properties:
+        goal_id:
+          type: string
+          example: goal_d4e5f6
+        goal_type:
+          type: string
+          example: retirement
+        goal_name:
+          type: string
+          example: Retirement at 60
+        target_amount_rs:
+          type: number
+          example: 5000000
+        horizon_years:
+          type: integer
+          example: 20
+        monthly_sip_rs:
+          type: number
+          example: 25000
+        on_track_pct:
+          type: number
+          nullable: true
+          example: 73.5
+        status:
+          type: string
+          enum: [active, completed, paused]
+          example: active
+
+    Error:
+      type: object
+      description: Standard error envelope returned by all 4xx/5xx responses.
+      properties:
+        detail:
+          type: string
+          example: Not authenticated
+        code:
+          type: string
+          nullable: true
+          description: Machine-readable error code from the error catalog (e.g. VAL-001, RES-002).
+          example: RES-002
+        correlationId:
+          type: string
+          nullable: true
+          description: Request correlation ID for log tracing.
+          example: req_8f2a1c
+
+    UploadTask:
+      type: object
+      description: |
+        State of an async CAS PDF parse task. Returned by
+        `/api/portfolio/upload-status/{task_id}` and `/api/portfolio/upload-latest-task`.
+      properties:
+        task_id:
+          type: string
+          example: task_a1b2c3d4e5f6
+        status:
+          type: string
+          enum: [processing, completed, failed]
+          example: completed
+        message:
+          type: string
+          example: "23 holdings imported from CAS PDF"
+        count:
+          type: integer
+          example: 23
+        holdings:
+          type: array
+          items:
+            type: object
+          description: Populated when status is `completed`.
+        parser_source:
+          type: string
+          nullable: true
+          enum: [openai_gpt5, casparser_lib, docling]
+          description: Which parser tier produced the result.
+          example: openai_gpt5
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-05-27T10:00:00Z"
+
+    ScannerHealth:
+      type: object
+      description: ClamAV malware scanner health status included in `/api/data-health/summary`.
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          example: ok
+        scanner:
+          type: string
+          enum: [clamav]
+          example: clamav
+        detail:
+          type: string
+          nullable: true
+          description: Present when status is `degraded` — explains why unavailable.
+          example: "daemon unreachable — scans skipped"

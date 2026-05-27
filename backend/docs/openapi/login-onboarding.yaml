@@ -1,0 +1,949 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Login & Onboarding API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    Everything from first touch to a fully onboarded investor:
+
+    | Stage | Endpoints |
+    |-------|-----------|
+    | **Sign-in** | Google OAuth → session cookie |
+    | **Identity** | `GET /api/auth/me`, logout |
+    | **Onboarding** | Risk questionnaire, journey type, quick-setup, complete |
+    | **Profile** | Read & update user profile |
+    | **Gmail integration** | Link Gmail to auto-import CAS statements |
+    | **File upload** | Upload CAS PDF / CSV / XLSX for parsing |
+    | **Compliance** | DPDP Act consent, data export, account erasure |
+
+    ## Authentication flow
+    ```
+    1. Frontend calls google.accounts.id.initialize (One Tap)
+    2. Google returns a short-lived ID token (credential)
+    3. POST /api/auth/google { credential } → 200 + Set-Cookie: session=...
+    4. All subsequent requests carry the cookie automatically
+    ```
+
+    Admin endpoints require `is_admin: true` on the account.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    UserProfile:
+      type: object
+      description: Authenticated user identity and onboarding state.
+      properties:
+        user_id:
+          type: string
+          example: usr_9f3a2c
+        email:
+          type: string
+          example: priya@example.com
+        name:
+          type: string
+          example: Priya Sharma
+        is_admin:
+          type: boolean
+          example: false
+        journey_type:
+          type: string
+          nullable: true
+          enum: [self_directed, guided, mfd]
+          example: self_directed
+        risk_profile:
+          type: object
+          nullable: true
+          description: Output of the risk questionnaire.
+        onboarding_completed:
+          type: boolean
+          example: true
+        copilot_enabled:
+          type: boolean
+          example: true
+
+    Error:
+      type: object
+      description: Standard error envelope.
+      properties:
+        detail:
+          type: string
+          example: Not authenticated
+        code:
+          type: string
+          nullable: true
+          example: AUTH-001
+
+paths:
+
+  # ── Auth ──────────────────────────────────────────────────────────────────
+
+  /api/auth/google:
+    post:
+      tags: [auth]
+      operationId: auth_google
+      summary: Sign in with Google
+      description: |
+        Exchange a Google One Tap ID token for a Nivesh session cookie.
+
+        **Flow**: Browser receives `credential` from Google's SDK → sends it here
+        → server validates it with Google, looks up or creates the user, sets an
+        HTTP-only `session` cookie, and returns the user profile.
+
+        This endpoint is unauthenticated (no existing session required).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential:
+                  type: string
+                  description: Google ID token from `google.accounts.id.initialize` callback.
+            example:
+              credential: "eyJhbGciOiJSUzI1NiIsImtpZCI6IjFlOTcz..."
+      responses:
+        "200":
+          description: "Login successful — Set-Cookie: session=<token>; HttpOnly; Path=/"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              example:
+                user_id: usr_9f3a2c
+                email: priya@example.com
+                name: Priya Sharma
+                is_admin: false
+                journey_type: null
+                risk_profile: null
+                onboarding_completed: false
+                copilot_enabled: true
+        "401":
+          description: Invalid or expired Google credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: Invalid Google credential
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      operationId: auth_me
+      summary: Get current authenticated user
+      description: |
+        Returns the profile of the currently logged-in user.
+        Use this to check session validity and hydrate the app on load.
+      responses:
+        "200":
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              example:
+                user_id: usr_9f3a2c
+                email: priya@example.com
+                name: Priya Sharma
+                is_admin: false
+                journey_type: self_directed
+                onboarding_completed: true
+                copilot_enabled: true
+        "401":
+          description: No valid session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: Not authenticated
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      operationId: auth_logout
+      summary: Logout — clear session cookie
+      description: |
+        Invalidates the current session server-side and clears the `session` cookie.
+        After this call the browser no longer has a valid session.
+      responses:
+        "200":
+          description: Session cleared
+          content:
+            application/json:
+              example:
+                message: Logged out successfully
+
+  /api/auth/google-client-id:
+    get:
+      tags: [auth]
+      operationId: auth_google_client_id
+      summary: Get Google OAuth client ID
+      description: |
+        Returns the Google OAuth client ID used to initialise the One Tap button.
+        Keeps the client ID out of the frontend bundle.
+      security: []
+      responses:
+        "200":
+          description: Google OAuth client ID
+          content:
+            application/json:
+              example:
+                client_id: "123456789-abc.apps.googleusercontent.com"
+
+  # ── User / Onboarding ─────────────────────────────────────────────────────
+
+  /api/user/profile:
+    get:
+      tags: [user]
+      operationId: user_profile
+      summary: Get user profile with onboarding status
+      description: |
+        Full user profile including journey type, risk profile result, and whether
+        onboarding has been completed. Use this to decide which onboarding step to
+        render next.
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              example:
+                user_id: usr_9f3a2c
+                email: priya@example.com
+                name: Priya Sharma
+                journey_type: self_directed
+                risk_profile:
+                  label: Moderate
+                  score: 55
+                  equity_allocation_pct: 60
+                onboarding_completed: false
+                copilot_enabled: true
+
+  /api/user/journey:
+    post:
+      tags: [user]
+      operationId: user_set_journey
+      summary: Set user journey type
+      description: |
+        Called at the start of onboarding when the user selects their path:
+        - `self_directed` — DIY investor managing their own portfolio
+        - `guided` — wants AI-driven recommendations and nudges
+        - `mfd` — mutual fund distributor managing client portfolios
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [journey_type]
+              properties:
+                journey_type:
+                  type: string
+                  enum: [self_directed, guided, mfd]
+            example:
+              journey_type: guided
+      responses:
+        "200":
+          description: Updated profile with new journey type
+          content:
+            application/json:
+              example:
+                user_id: usr_9f3a2c
+                journey_type: guided
+                onboarding_completed: false
+
+  /api/user/risk-profile:
+    get:
+      tags: [user]
+      operationId: user_get_risk_profile
+      summary: Get user risk profile
+      description: Returns the computed risk profile or `null` if not yet assessed.
+      responses:
+        "200":
+          description: Risk profile (null if not assessed)
+          content:
+            application/json:
+              example:
+                risk_profile:
+                  label: Moderate
+                  score: 55
+                  equity_allocation_pct: 60
+                  debt_allocation_pct: 30
+                  alternate_allocation_pct: 10
+                  description: You can tolerate moderate market fluctuations for better long-term returns.
+
+    post:
+      tags: [user]
+      operationId: user_save_risk_profile
+      summary: Save risk profile from questionnaire answers
+      description: |
+        Submit the investor's questionnaire answers. The server scores the
+        answers and returns a computed risk profile (`conservative`, `moderate`,
+        or `aggressive`) with suggested asset allocation percentages.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      question_id:
+                        type: string
+                      answer:
+                        type: string
+            example:
+              answers:
+                - question_id: q1_investment_horizon
+                  answer: "10+ years"
+                - question_id: q2_loss_tolerance
+                  answer: "Can tolerate up to 20% drawdown"
+                - question_id: q3_experience
+                  answer: "3-5 years"
+      responses:
+        "200":
+          description: Computed risk profile
+          content:
+            application/json:
+              example:
+                risk_profile:
+                  label: Moderate
+                  score: 55
+                  equity_allocation_pct: 60
+                  debt_allocation_pct: 30
+                  alternate_allocation_pct: 10
+
+  /api/user/quick-setup:
+    post:
+      tags: [user]
+      operationId: user_quick_setup
+      summary: Generate allocation and starter fund recommendations
+      description: |
+        One-shot onboarding shortcut. Provide basic investor parameters and get back
+        a suggested asset allocation and a starter list of recommended funds.
+        Used in the "Get started in 2 minutes" flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [age, risk_appetite, investment_horizon, monthly_investment, goal]
+              properties:
+                age:
+                  type: integer
+                risk_appetite:
+                  type: string
+                  enum: [conservative, moderate, aggressive]
+                investment_horizon:
+                  type: string
+                monthly_investment:
+                  type: number
+                goal:
+                  type: string
+            example:
+              age: 32
+              risk_appetite: moderate
+              investment_horizon: "10 years"
+              monthly_investment: 20000
+              goal: retirement
+      responses:
+        "200":
+          description: Starter plan with suggested allocation and funds
+          content:
+            application/json:
+              example:
+                allocation:
+                  equity_pct: 65
+                  debt_pct: 25
+                  alternate_pct: 10
+                recommended_funds:
+                  - name: Mirae Asset Large Cap Fund
+                    category: Large Cap
+                    suggested_sip_rs: 8000
+                  - name: HDFC Mid-Cap Opportunities Fund
+                    category: Mid Cap
+                    suggested_sip_rs: 5000
+                  - name: Parag Parikh Flexi Cap Fund
+                    category: Flexi Cap
+                    suggested_sip_rs: 7000
+                monthly_sip_total: 20000
+
+  /api/user/complete-onboarding:
+    post:
+      tags: [user]
+      operationId: user_complete_onboarding
+      summary: Mark onboarding as complete
+      description: |
+        Call this after the user has finished all onboarding steps. Sets
+        `onboarding_completed = true` on the profile, which unlocks the full dashboard.
+      responses:
+        "200":
+          description: Onboarding marked complete
+          content:
+            application/json:
+              example:
+                status: ok
+                onboarding_completed: true
+
+  # ── Gmail Integration ──────────────────────────────────────────────────────
+
+  /api/gmail/auth-url:
+    get:
+      tags: [gmail]
+      operationId: gmail_auth_url
+      summary: Get Gmail OAuth authorisation URL
+      description: |
+        Returns the Google OAuth URL to redirect the user to in order to grant
+        Gmail read access. Used to auto-scan the inbox for CAS statement emails.
+      responses:
+        "200":
+          description: OAuth redirect URL
+          content:
+            application/json:
+              example:
+                auth_url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=..."
+
+  /api/gmail/callback:
+    get:
+      tags: [gmail]
+      operationId: gmail_callback
+      summary: Handle Gmail OAuth callback
+      description: |
+        Called by Google after the user grants Gmail access. Stores the refresh
+        token and redirects back to the app.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect back to the app after token exchange
+
+  /api/gmail/status:
+    get:
+      tags: [gmail]
+      operationId: gmail_status
+      summary: Check Gmail connection status
+      description: Returns whether Gmail is connected and the last scan time.
+      responses:
+        "200":
+          description: Gmail connection status
+          content:
+            application/json:
+              example:
+                connected: true
+                email: priya@gmail.com
+                last_scanned_at: "2024-05-20T06:30:00Z"
+                cas_emails_found: 3
+
+  /api/gmail/scan:
+    post:
+      tags: [gmail]
+      operationId: gmail_scan
+      summary: Trigger Gmail inbox scan for CAS emails
+      description: |
+        Scans the connected Gmail inbox for CAMS/Karvy CAS statement emails and
+        queues them for automatic portfolio import.
+      responses:
+        "200":
+          description: Scan result
+          content:
+            application/json:
+              example:
+                emails_scanned: 150
+                cas_emails_found: 3
+                queued_for_import: 2
+
+  /api/gmail/disconnect:
+    post:
+      tags: [gmail]
+      operationId: gmail_disconnect
+      summary: Disconnect Gmail integration
+      description: Revokes Gmail OAuth token and removes the connection.
+      responses:
+        "200":
+          description: Gmail disconnected
+          content:
+            application/json:
+              example:
+                message: Gmail disconnected successfully
+
+  # ── File Upload & CAS Connect ─────────────────────────────────────────────
+  #
+  # CAS PDF upload now goes through the CAS Connect SDK widget, NOT direct
+  # file upload. The flow is:
+  #   1. POST /api/casparser/access-token  → get short-lived widget token
+  #   2. Open @cas-parser/connect widget   → user uploads PDF to casparser.in
+  #   3. POST /api/portfolio/import-connect → save widget's parsed JSON
+  #
+  # CSV / Excel uploads remain on POST /api/portfolio/upload (synchronous).
+
+  /api/portfolio/upload:
+    post:
+      tags: [upload]
+      operationId: portfolio_upload
+      summary: Upload CSV or Excel portfolio file (synchronous)
+      description: |
+        Upload a portfolio file in **CSV** or **Excel (.xlsx / .xls)** format.
+        Holdings are parsed synchronously and returned in the response body.
+
+        **CAS PDF is no longer accepted here** — use the CAS Connect SDK flow:
+        1. `POST /api/casparser/access-token`
+        2. Open the `@cas-parser/connect` widget with the token
+        3. `POST /api/portfolio/import-connect` with the widget's parsed JSON
+
+        **Validation pipeline** (applied before any parser):
+        1. File size cap — 50 MB max (`FR-UPLOAD-005`)
+        2. Extension allow-list — `.csv`, `.xlsx`, `.xls` (`FR-UPLOAD-001`)
+        3. Magic-byte MIME check — `.xlsx` must start with `PK\x03\x04` (`FR-UPLOAD-001`)
+        4. ClamAV malware scan — rejects file with 422 if threat is detected (`FR-UPLOAD-007`)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV or Excel (.xlsx/.xls) file. PDF is rejected with 410.
+      responses:
+        "200":
+          description: Holdings parsed synchronously and returned
+          content:
+            application/json:
+              examples:
+                csv_done:
+                  summary: CSV parsed successfully
+                  value:
+                    message: "3 holdings imported from CSV"
+                    count: 3
+                    holdings:
+                      - ticker: INE040A01034
+                        quantity: 10
+                no_holdings:
+                  summary: File parsed but contained no holdings
+                  value:
+                    message: No holdings found in the uploaded file
+                    count: 0
+                    holdings: []
+        "400":
+          description: Unsupported format or empty file
+          content:
+            application/json:
+              example:
+                detail: "Unsupported file format. Please upload CSV, Excel (.xlsx), or CAS PDF."
+        "410":
+          description: CAS PDF direct upload is deprecated — use CAS Connect SDK
+          content:
+            application/json:
+              example:
+                detail: "Direct CAS PDF upload to this endpoint is no longer supported. Use the CAS Connect SDK widget instead."
+        "413":
+          description: File exceeds 50 MB upload limit
+        "415":
+          description: MIME magic-byte check failed (file content does not match declared type)
+          content:
+            application/json:
+              example:
+                detail: "File contents do not match .xlsx signature."
+        "422":
+          description: Malware detected by ClamAV
+          content:
+            application/json:
+              example:
+                detail: "File rejected: malware detected (Eicar-Test-Signature). Do not retry with the same file."
+
+  /api/portfolio/upload-raw:
+    post:
+      tags: [upload]
+      operationId: portfolio_upload_raw
+      summary: Raw octet-stream upload (large files / specific portfolio targeting)
+      description: |
+        Raw `application/octet-stream` upload endpoint. Use this when:
+        - The file is too large for multipart form encoding
+        - You want to attach holdings to a specific portfolio via `X-Portfolio-Id`
+
+        | Header | Required | Description |
+        |--------|----------|-------------|
+        | `X-Filename` | **Yes** | e.g. `portfolio.csv` — drives parser selection |
+        | `X-Password` | Conditional | Ignored for CSV/Excel. Reserved for future use. |
+        | `X-Portfolio-Id` | Optional | Target portfolio ID. Defaults to primary portfolio. |
+
+        The same validation pipeline applies: size cap → extension → magic-byte → ClamAV.
+
+        **PDF files return 410 Gone** — use the CAS Connect SDK flow.
+      parameters:
+        - name: X-Filename
+          in: header
+          required: true
+          schema:
+            type: string
+          example: portfolio.csv
+          description: Filename including extension — determines which parser to use.
+        - name: X-Portfolio-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          example: pf_7d4e1a
+          description: Save holdings into this portfolio. Omit to use primary portfolio.
+        - name: X-Password
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Reserved — not used for CSV/Excel.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Holdings parsed and saved
+          content:
+            application/json:
+              example:
+                message: "7 holdings imported from Excel"
+                count: 7
+                holdings:
+                  - ticker: INE769K01EW6
+                    quantity: 500.123
+        "400":
+          description: Empty body or unsupported file format
+        "410":
+          description: CAS PDF — use CAS Connect SDK instead
+        "413":
+          description: Body exceeds 50 MB limit
+        "415":
+          description: MIME magic-byte check failed
+
+  /api/portfolio/upload-status/{task_id}:
+    get:
+      tags: [upload]
+      operationId: portfolio_upload_status
+      summary: Poll the status of an async CAS PDF parse task
+      description: |
+        Poll the status of a background CAS PDF parse task started by earlier
+        uploads. Poll every 2-5 seconds; stop when `status` is no longer
+        `processing`.
+
+        | Status | Meaning |
+        |--------|---------|
+        | `processing` | Parse in progress (GPT-5 Vision → casparser lib → Docling chain running) |
+        | `completed` | Parse done — `holdings` array is populated |
+        | `failed` | Parse failed — read `message` for the reason |
+
+        Typical latency: 35-70 s (GPT-5 Vision), < 1 s (casparser lib text PDF),
+        30-60 s (Docling OCR fallback).
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: task_a1b2c3d4e5f6
+      responses:
+        "200":
+          description: Current task state
+          content:
+            application/json:
+              examples:
+                processing:
+                  summary: Parse in progress
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: processing
+                    message: "Parsing CAS PDF with AI..."
+                    count: 0
+                    holdings: []
+                completed:
+                  summary: Parse completed
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: completed
+                    message: "23 holdings imported from CAS PDF"
+                    count: 23
+                    holdings:
+                      - ticker: INE040A01034
+                        quantity: 50
+                        asset_type: equity
+                    parser_source: openai_gpt5
+                failed:
+                  summary: Parse failed
+                  value:
+                    task_id: task_a1b2c3d4e5f6
+                    status: failed
+                    message: "Wrong CAS PDF password. Enter your PAN in UPPERCASE."
+                    count: 0
+                    holdings: []
+        "404":
+          description: No task with this ID belongs to the calling user
+
+  /api/portfolio/upload-latest-task:
+    get:
+      tags: [upload]
+      operationId: portfolio_upload_latest_task
+      summary: Return the most recent CAS upload task for the caller
+      description: |
+        Returns the most recent CAS upload task for the authenticated user
+        (sorted by `created_at` descending). Useful for the frontend to resume
+        polling after a page reload without persisting the `task_id` client-side.
+      responses:
+        "200":
+          description: Most recent task (same shape as `/upload-status/{task_id}`)
+          content:
+            application/json:
+              example:
+                task_id: task_a1b2c3d4e5f6
+                status: completed
+                message: "23 holdings imported from CAS PDF"
+                count: 23
+                parser_source: openai_gpt5
+        "404":
+          description: The caller has never uploaded a CAS PDF
+
+  /api/casparser/access-token:
+    post:
+      tags: [upload]
+      operationId: casparser_access_token
+      summary: Mint a short-lived CAS Parser access token for the Connect widget
+      description: |
+        Mints a 60-minute access token for the `@cas-parser/connect` frontend widget.
+
+        **CAS Connect flow**:
+        1. Call this endpoint → receive token
+        2. Open the `CasUploadButton.jsx` widget with the token
+        3. User uploads CAS PDF directly to `casparser.in` (browser → vendor, not our server)
+        4. Widget parses and returns JSON → `POST /api/portfolio/import-connect`
+
+        Returns **503** if `CASPARSER_API_KEYS` is not configured.
+      responses:
+        "200":
+          description: Short-lived token for the widget
+          content:
+            application/json:
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                expires_in: 3600
+                token_type: Bearer
+        "503":
+          description: CAS Parser not configured (CASPARSER_API_KEYS env var missing)
+
+  /api/portfolio/import-connect:
+    post:
+      tags: [upload]
+      operationId: portfolio_import_connect
+      summary: Ingest parsed portfolio from the CAS Connect widget
+      description: |
+        Receives the parsed JSON emitted by the `@cas-parser/connect` widget
+        and saves the holdings into the user's portfolio.
+
+        **What this endpoint does**:
+        - Validates and maps widget JSON → `Holding` objects
+        - Enriches holdings via masterdata lookup (ISIN → name, sector, AMC)
+        - Saves holdings to the target portfolio
+        - Sets `onboarding_completed: true` and `journey_type: existing_investor`
+        - Extracts transaction history and detects SIP schedules
+
+        **Idempotency**: Include an `Idempotency-Key` header (UUID) to prevent
+        duplicate imports on network retries. A repeated call with the same key
+        within 24 hours returns the cached first response without re-importing.
+
+        **Body**: Either the raw widget JSON, or wrapped in
+        `{"data": <widget_json>, "portfolio_id": "pf_xxx"}`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+          description: |
+            Unique key per import attempt. Same key within 24h returns cached
+            response without re-importing. Prevents duplicate holdings on network retries.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: |
+                Either the raw widget JSON or a wrapper with optional `portfolio_id`.
+              properties:
+                data:
+                  type: object
+                  description: Parsed CAS JSON from the widget (optional wrapper field).
+                portfolio_id:
+                  type: string
+                  description: Target portfolio. Defaults to primary portfolio.
+            examples:
+              wrapped:
+                summary: Wrapped with portfolio targeting
+                value:
+                  data:
+                    meta:
+                      cas_type: CAMS
+                      statement_period:
+                        from: "2020-01-01"
+                        to: "2024-05-15"
+                    investor:
+                      name: Priya Sharma
+                      email: priya@example.com
+                    folios: []
+                  portfolio_id: pf_7d4e1a
+              raw:
+                summary: Raw widget output (no wrapper)
+                value:
+                  meta:
+                    cas_type: CAMS
+                  investor:
+                    name: Priya Sharma
+                  folios: []
+      responses:
+        "200":
+          description: Holdings imported successfully
+          content:
+            application/json:
+              example:
+                message: "14 holdings imported via Portfolio Connect"
+                count: 14
+                holdings:
+                  - ticker: INF769K01EW6
+                    quantity: 500.123
+                    asset_type: mutual_fund
+                cas_type: CAMS
+                investor: Priya Sharma
+                transactions: 48
+                sips_detected: 4
+        "400":
+          description: Invalid payload — not a parsed CAS JSON object
+          content:
+            application/json:
+              example:
+                detail: "Invalid payload: expected parsed CAS JSON"
+        "422":
+          description: No holdings found in parsed data
+          content:
+            application/json:
+              example:
+                detail: "No holdings found in parsed data"
+
+  # ── Compliance (DPDP Act 2023) ────────────────────────────────────────────
+
+  /api/compliance/consent:
+    get:
+      tags: [compliance]
+      operationId: compliance_get_consent
+      summary: Get user consent record
+      description: Returns the user's current data consent status under DPDP Act 2023.
+      responses:
+        "200":
+          description: Consent record
+          content:
+            application/json:
+              example:
+                consent_given: true
+                consent_date: "2024-01-15T10:00:00Z"
+                version: "v1.2"
+
+    post:
+      tags: [compliance]
+      operationId: compliance_save_consent
+      summary: Save user consent
+      description: Record the user's explicit consent to data processing under DPDP Act 2023.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [consent_given]
+              properties:
+                consent_given:
+                  type: boolean
+            example:
+              consent_given: true
+      responses:
+        "200":
+          description: Consent recorded
+          content:
+            application/json:
+              example:
+                status: ok
+                consent_given: true
+                consent_date: "2024-05-27T08:00:00Z"
+
+  /api/compliance/export:
+    get:
+      tags: [compliance]
+      operationId: compliance_export_data
+      summary: Export all user data (right to portability)
+      description: |
+        Generates a ZIP archive with all data stored for this user:
+        profile, portfolios, holdings, goals, plans, chat history.
+        Required by DPDP Act 2023 right to data portability.
+      responses:
+        "200":
+          description: ZIP archive download
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  /api/compliance/delete:
+    post:
+      tags: [compliance]
+      operationId: compliance_delete_account
+      summary: Request account erasure (right to be forgotten)
+      description: |
+        Schedules permanent deletion of all user data within 30 days.
+        Sends confirmation email. Logout is triggered immediately.
+      responses:
+        "200":
+          description: Deletion scheduled
+          content:
+            application/json:
+              example:
+                status: deletion_scheduled
+                scheduled_at: "2024-06-26T00:00:00Z"
+                message: Your data will be permanently deleted within 30 days.

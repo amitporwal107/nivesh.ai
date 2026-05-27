@@ -9,6 +9,10 @@ import logging
 
 from deps import db, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, get_current_user, check_whitelist, COOKIE_SECURE, COOKIE_SAMESITE
 from core.logging_config import mask_email
+from core.exceptions import (
+    AuthenticationException, AuthorizationException, ValidationException,
+    ResourceNotFoundException, SystemException,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -20,7 +24,7 @@ async def google_auth(request: Request, response: Response):
     body = await request.json()
     credential = body.get("credential")
     if not credential:
-        raise HTTPException(status_code=400, detail="Google credential required")
+        raise ValidationException("Google credential required", code="VAL-002")
 
     try:
         async with httpx.AsyncClient() as http_client:
@@ -28,32 +32,32 @@ async def google_auth(request: Request, response: Response):
                 f"https://oauth2.googleapis.com/tokeninfo?id_token={credential}"
             )
             if resp.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid Google token")
+                raise AuthenticationException("Invalid Google token", code="AUTH-003")
 
             token_data = resp.json()
 
             if GOOGLE_CLIENT_ID and token_data.get("aud") != GOOGLE_CLIENT_ID:
-                raise HTTPException(status_code=401, detail="Token audience mismatch")
+                raise AuthenticationException("Token audience mismatch", code="AUTH-003")
 
             email = token_data.get("email", "").strip().lower()
             name = token_data.get("name", "")
             picture = token_data.get("picture", "")
 
             if not email:
-                raise HTTPException(status_code=401, detail="No email in Google token")
-    except HTTPException:
+                raise AuthenticationException("No email in Google token", code="AUTH-003")
+    except (AuthenticationException, ValidationException):
         raise
     except Exception as e:
         logger.error("Google token verification failed: %s", type(e).__name__)
-        raise HTTPException(status_code=401, detail="Failed to verify Google token")
+        raise AuthenticationException("Failed to verify Google token", code="AUTH-003", cause=e)
 
     # Whitelist Check
     whitelist_entry = await check_whitelist(email)
     if not whitelist_entry:
         logger.warning("Access denied — email not whitelisted: %s", mask_email(email))
-        raise HTTPException(
-            status_code=403,
-            detail="Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin."
+        raise AuthorizationException(
+            "Access is currently restricted. Your email is not on the invite list. Please request an invite from the admin.",
+            code="AUTHZ-001",
         )
 
     update_fields = {"status": "active", "registered_at": datetime.now(timezone.utc).isoformat()}
@@ -115,7 +119,7 @@ async def google_auth(request: Request, response: Response):
 @router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
     """Legacy session exchange — removed."""
-    raise HTTPException(status_code=410, detail="Emergent auth removed. Use Google OAuth via /api/auth/google")
+    raise ValidationException("Emergent auth removed. Use Google OAuth via /api/auth/google", code="VAL-001")
 
 
 @router.get("/auth/me")
@@ -150,7 +154,7 @@ async def logout(request: Request, response: Response):
 async def get_google_client_id():
     """Return the Google OAuth client ID for the frontend."""
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Google OAuth not configured")
+        raise SystemException("Google OAuth not configured", code="SYS-003")
     return {"client_id": GOOGLE_CLIENT_ID}
 
 @router.post("/auth/gmail-session")
@@ -161,11 +165,11 @@ async def exchange_gmail_session(request: Request, response: Response):
     body = await request.json()
     code = (body.get("code") or "").strip()
     if not code:
-        raise HTTPException(status_code=400, detail="code required")
+        raise ValidationException("code required", code="VAL-002")
 
     doc = await db.gmail_success_codes.find_one({"code": code}, {"_id": 0})
     if not doc:
-        raise HTTPException(status_code=401, detail="Invalid or expired gmail code")
+        raise AuthenticationException("Invalid or expired gmail code", code="AUTH-003")
 
     expires_at = doc.get("expires_at", "")
     if isinstance(expires_at, str):
@@ -174,7 +178,7 @@ async def exchange_gmail_session(request: Request, response: Response):
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires_at:
         await db.gmail_success_codes.delete_one({"code": code})
-        raise HTTPException(status_code=401, detail="Gmail code expired")
+        raise AuthenticationException("Gmail code expired", code="AUTH-002")
 
     await db.gmail_success_codes.delete_one({"code": code})
 
@@ -258,7 +262,7 @@ async def dev_set_cookie(token: str, response: Response):
     """Dev-only: set a pre-created session cookie directly (screenshot helper)."""
     sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0, "user_id": 1})
     if not sess:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise ResourceNotFoundException("Session not found", code="RES-001")
     response.set_cookie(
         key="session_token", value=token,
         httponly=True, secure=True, samesite="none", path="/", max_age=7 * 24 * 3600,

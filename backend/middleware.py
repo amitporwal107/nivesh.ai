@@ -33,6 +33,12 @@ class RateLimitStore:
         self._requests[key].append(now)
         return True
 
+    def current_count(self, key: str, window_seconds: int = 60) -> int:
+        """Return the number of requests in the current window (without modifying state)."""
+        now = time.time()
+        cutoff = now - window_seconds
+        return sum(1 for t in self._requests[key] if t > cutoff)
+
 
 rate_limiter = RateLimitStore()
 
@@ -48,25 +54,39 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("Authorization", "")
         key = session or auth or request.client.host if request.client else "unknown"
 
-        # Per-path budgets. Numbers reflect typical UI patterns: ChatView
-        # mount alone hits /chat/sessions + /chat/messages + /chat/warmup +
-        # /copilot/suggested-prompts on every open, ClientSnapshot polls
-        # /insights/analysis up to 5×, and a normal session opens the
-        # Copilot drawer multiple times — the old 60/min cap collapsed
-        # under that load even with no abuse.
+        # Per-category budgets (fintech-appropriate):
+        #   Auth     →   5/min  (brute-force protection on login)
+        #   Admin    →  10/min  (low-traffic management plane)
+        #   Chat/SSE →  30/min  (SSE streams are long-lived)
+        #   Analytics→  30/min  (compute-heavy; AI-backed)
+        #   Portfolio→  100/min (dashboard interactions)
+        #   Chat     →  200/min (general chat, non-streaming)
+        #   Insights →  200/min (read-heavy but cached)
+        #   Default  →  200/min (catch-all)
         path = request.url.path
         if "/chat/stream" in path:
-            max_req = 30  # SSE streams are long-lived, fewer needed
+            max_req = 30   # SSE streams are long-lived, fewer needed
         elif path.endswith("/chat/warmup"):
             # Idempotent fire-and-forget — exempt from limiting so a
             # rapid open-close-open of the drawer doesn't burn the bucket.
             return await call_next(request)
+        elif path.startswith("/api/auth/"):
+            max_req = 5    # Strict: protects login from brute-force
+        elif path.startswith("/api/admin/"):
+            max_req = 10   # Management plane — low expected volume
+        elif "/goals/" in path or "/scenarios/" in path or "/analytics/" in path:
+            max_req = 30   # Compute-heavy or AI-backed analytics
+        elif path.startswith("/api/portfolio/") or path.startswith("/api/portfolios"):
+            max_req = 100  # Dashboard holdings/enriched calls
         elif "/chat/" in path or "/insights/" in path:
-            max_req = 200
+            max_req = 200  # General chat + cached insight reads
         else:
-            max_req = 300
+            max_req = 200  # Default for all other /api/* paths
 
-        if not rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60):
+        allowed = rate_limiter.is_allowed(key, max_requests=max_req, window_seconds=60)
+        remaining = max(0, max_req - rate_limiter.current_count(key, window_seconds=60))
+
+        if not allowed:
             logger.warning(
                 "Rate limit exceeded",
                 extra={"path": path, "max_req": max_req, "window_s": 60},
@@ -87,9 +107,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "correlationId": cid,
                     "path": path,
                 },
+                headers={
+                    "X-RateLimit-Limit": str(max_req),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": "60",
+                },
             )
 
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(max_req)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        return response
 
 
 # ── Security Headers ──
@@ -236,6 +264,73 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             },
         )
         return response
+
+
+# ── JSON Body Size Limit ──────────────────────────────────────────────────────
+# Rejects JSON requests whose Content-Length exceeds MAX_JSON_BODY_BYTES before
+# the body is read. Protects against OOM from large payloads on non-upload routes.
+# File-upload endpoints (/api/portfolio/upload, /api/cas/*) are explicitly
+# excluded because they have their own per-endpoint size enforcement.
+
+_MAX_JSON_BODY_BYTES = int(os.environ.get("MAX_JSON_BODY_BYTES", str(1 * 1024 * 1024)))  # 1 MB
+
+# Prefixes that handle their own size validation — skip this middleware for them.
+_UPLOAD_PREFIXES = (
+    "/api/portfolio/upload",
+    "/api/portfolio/upload-raw",
+    "/api/cas/uploads",
+    "/api/casparser",
+)
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject JSON request bodies larger than MAX_JSON_BODY_BYTES (default 1 MB).
+
+    Only applies to requests with a JSON content-type on ``/api/*`` routes.
+    Upload endpoints are excluded — they enforce their own limits via
+    ``helpers.upload_validation.validate_upload``.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Only guard /api/* JSON requests; skip uploads and non-API paths.
+        if not path.startswith("/api"):
+            return await call_next(request)
+        if any(path.startswith(pfx) for pfx in _UPLOAD_PREFIXES):
+            return await call_next(request)
+
+        content_type = request.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return await call_next(request)
+
+        # Fast path: Content-Length header present — reject before reading body.
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > _MAX_JSON_BODY_BYTES:
+                    logger.warning(
+                        "JSON body too large",
+                        extra={
+                            "path": path,
+                            "content_length": content_length,
+                            "limit": _MAX_JSON_BODY_BYTES,
+                        },
+                    )
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "status": 413,
+                            "error": "PAYLOAD_TOO_LARGE",
+                            "code": "VAL-004",
+                            "message": f"Request body exceeds the {_MAX_JSON_BODY_BYTES // 1024} KB limit.",
+                            "details": [],
+                        },
+                    )
+            except ValueError:
+                pass  # Malformed Content-Length — let the body read handle it.
+
+        return await call_next(request)
 
 
 # ── Env Validation ──

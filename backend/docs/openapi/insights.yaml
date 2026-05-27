@@ -1,0 +1,329 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Insights API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    Portfolio health analysis, problem detection, and V3 scoring.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/insights` | Cached insights list for the current portfolio |
+    | `POST /api/insights/generate` | Force-regenerate insights (clears cache) |
+    | `GET /api/insights/analysis` | Full analysis with Portfolio Health Score (0–100) |
+    | `GET /api/insights/v3-portfolio` | V3 composite scores for the entire portfolio |
+
+    ## Portfolio Health Score
+    The health score (0–100) aggregates six engine outputs:
+
+    | Dimension | Weight |
+    |-----------|--------|
+    | Return Quality | 20% |
+    | Diversification | 20% |
+    | Risk-Adjusted Performance | 20% |
+    | Cost Efficiency | 15% |
+    | Goal Alignment | 15% |
+    | Overlap / Duplication | 10% |
+
+    **70+** = Healthy · **50–69** = Needs attention · **<50** = Action required
+
+    ## V3 Scoring
+    V3 scores are per-fund ratings (0–100) computed across 38 primitives covering
+    returns, risk, cost, consistency, portfolio fit, and ESG proxies. The portfolio
+    V3 score is the holdings-weighted average.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    Insight:
+      type: object
+      properties:
+        insight_id:
+          type: string
+          example: ins_c7d8e9
+        category:
+          type: string
+          enum: [overlap, concentration, underperformer, cost, diversification, goal_drift]
+          example: overlap
+        severity:
+          type: string
+          enum: [critical, warning, info]
+          example: warning
+        title:
+          type: string
+          example: High overlap between two large-cap funds
+        description:
+          type: string
+          example: HDFC Top 100 and Axis Bluechip share 78% of their top holdings.
+        affected_holdings:
+          type: array
+          items:
+            type: string
+          example: [HDFC Top 100 Fund, Axis Bluechip Fund]
+        action_hint:
+          type: string
+          example: Consider consolidating into one large-cap fund.
+
+    HealthScore:
+      type: object
+      properties:
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 67
+        grade:
+          type: string
+          enum: [A, B, C, D, F]
+          example: C
+        label:
+          type: string
+          example: Needs Attention
+        breakdown:
+          type: object
+          properties:
+            return_quality:
+              type: number
+              example: 72
+            diversification:
+              type: number
+              example: 58
+            risk_adjusted:
+              type: number
+              example: 65
+            cost_efficiency:
+              type: number
+              example: 80
+            goal_alignment:
+              type: number
+              example: 55
+            overlap_penalty:
+              type: number
+              example: 45
+
+    V3Score:
+      type: object
+      properties:
+        instrument_id:
+          type: string
+          example: INF200K01RJ3
+        name:
+          type: string
+          example: Mirae Asset Large Cap Fund
+        v3_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 78.4
+        coverage_pct:
+          type: number
+          description: Percentage of scoring primitives with data available.
+          example: 91.2
+        primitives:
+          type: object
+          description: Individual primitive scores (38 total).
+
+paths:
+
+  /api/insights:
+    get:
+      tags: [insights]
+      operationId: insights_list
+      summary: Get portfolio insights list
+      description: |
+        Returns cached insights for the user's current portfolio. Insights are
+        automatically generated after every portfolio change and after market close.
+
+        The response includes:
+        - Problem distribution (counts by category and severity)
+        - Top 10 actionable insights sorted by severity
+        - Risk gauge (portfolio beta and volatility summary)
+        - Action funnel (how many insights → actions → plans)
+
+        Use `POST /api/insights/generate` to force a refresh.
+      responses:
+        "200":
+          description: Insights array with metadata
+          content:
+            application/json:
+              example:
+                total_count: 7
+                critical_count: 1
+                warning_count: 4
+                info_count: 2
+                last_generated_at: "2024-05-27T06:30:00Z"
+                risk_gauge:
+                  portfolio_beta: 0.92
+                  volatility_pct: 14.3
+                  risk_label: Moderate
+                insights:
+                  - insight_id: ins_c7d8e9
+                    category: overlap
+                    severity: warning
+                    title: High overlap between large-cap funds
+                    description: HDFC Top 100 and Axis Bluechip share 78% top holdings.
+                    affected_holdings: [HDFC Top 100 Fund, Axis Bluechip Fund]
+                    action_hint: Consolidate into one large-cap fund.
+                  - insight_id: ins_a1b2c3
+                    category: concentration
+                    severity: critical
+                    title: 45% in a single sector
+                    description: Financial Services exposure is significantly above recommended 25%.
+                    affected_holdings: [HDFC Bank, ICICI Bank, SBI]
+                    action_hint: Reduce financial sector concentration.
+
+  /api/insights/generate:
+    post:
+      tags: [insights]
+      operationId: insights_generate
+      summary: Generate insights from current portfolio
+      description: |
+        Force-regenerates all insights for the current portfolio, bypassing the cache.
+
+        **When to use**: After manually adding holdings, after a CAS import, or
+        when the user explicitly clicks "Refresh Analysis".
+
+        This is a compute-intensive operation (~2-5 seconds). Consider showing a
+        loading spinner. The response is the same schema as `GET /api/insights`.
+      responses:
+        "200":
+          description: Freshly generated insights
+          content:
+            application/json:
+              example:
+                total_count: 8
+                critical_count: 2
+                warning_count: 4
+                info_count: 2
+                generated_at: "2024-05-27T10:15:00Z"
+                problem_distribution:
+                  overlap: 2
+                  concentration: 2
+                  underperformer: 1
+                  cost: 1
+                  diversification: 1
+                  goal_drift: 1
+                insights:
+                  - insight_id: ins_new1
+                    category: underperformer
+                    severity: critical
+                    title: Consistent underperformer detected
+                    description: Sundaram Small Cap has underperformed its benchmark by 8% over 3 years.
+                    affected_holdings: [Sundaram Small Cap Fund]
+                    action_hint: Review and consider switching to a better-performing small-cap fund.
+
+  /api/insights/analysis:
+    get:
+      tags: [insights]
+      operationId: insights_analysis
+      summary: Full analysis with Portfolio Health Score
+      description: |
+        Returns the comprehensive portfolio analysis including:
+        - **Portfolio Health Score** (0–100) with dimensional breakdown
+        - Full insights list
+        - Risk profile assessment
+        - Return attribution summary
+        - Suggested priority actions
+
+        This is the primary endpoint powering the "Portfolio Health" dashboard card.
+      responses:
+        "200":
+          description: Full portfolio analysis
+          content:
+            application/json:
+              example:
+                portfolio_health:
+                  score: 67
+                  grade: C
+                  label: Needs Attention
+                  breakdown:
+                    return_quality: 72
+                    diversification: 58
+                    risk_adjusted: 65
+                    cost_efficiency: 80
+                    goal_alignment: 55
+                    overlap_penalty: 45
+                  trend: improving
+                  previous_score: 61
+                summary:
+                  total_holdings: 12
+                  total_value_rs: 842000
+                  xirr_pct: 14.2
+                  benchmark_xirr_pct: 12.8
+                  outperformance_pct: 1.4
+                  expense_ratio_avg_pct: 0.78
+                top_actions:
+                  - Consolidate overlapping large-cap funds (saves ~₹840/year in fees)
+                  - Reduce financial sector concentration from 45% to 25%
+                  - Add international diversification (currently 0%)
+                insights_summary:
+                  critical: 2
+                  warning: 4
+                  info: 2
+
+  /api/insights/v3-portfolio:
+    get:
+      tags: [insights]
+      operationId: insights_v3_portfolio
+      summary: Portfolio-level V3 scoring
+      description: |
+        Returns V3 scores for every fund in the portfolio. V3 is Nivesh's
+        proprietary fund rating system (0–100) across 38 primitives.
+
+        The response includes:
+        - Per-fund V3 score and coverage percentage
+        - Portfolio-weighted average V3 score
+        - Funds below the minimum quality gate (score < 50)
+        - Coverage summary (what % of funds have full data)
+
+        Set `refresh_stocks=true` to force a re-fetch of equity primitives from NIDP.
+        This adds ~3-5 seconds but ensures you get the latest data.
+      parameters:
+        - name: refresh_stocks
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force-refresh equity primitive data from NIDP before scoring.
+      responses:
+        "200":
+          description: Portfolio V3 scores
+          content:
+            application/json:
+              example:
+                portfolio_v3_score: 71.3
+                coverage_pct: 87.5
+                funds_below_gate: 1
+                fund_scores:
+                  - instrument_id: INF200K01RJ3
+                    name: Mirae Asset Large Cap Fund
+                    v3_score: 82.1
+                    coverage_pct: 95.0
+                    weight_pct: 25.0
+                  - instrument_id: INF090I01239
+                    name: Sundaram Small Cap Fund
+                    v3_score: 44.8
+                    coverage_pct: 78.3
+                    weight_pct: 10.0
+                    below_gate: true
+                  - instrument_id: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund
+                    v3_score: 88.5
+                    coverage_pct: 97.2
+                    weight_pct: 30.0
+                generated_at: "2024-05-27T10:00:00Z"

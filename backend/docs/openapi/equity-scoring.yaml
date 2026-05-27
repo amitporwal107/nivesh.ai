@@ -1,0 +1,485 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Equity Scoring API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    V3 scores and analytics for equity (stock) holdings and ETFs.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/portfolio/stock-scores` | V3 scores for all equity holdings in the portfolio |
+    | `GET /api/intelligence/v3-score/{instrument_id}` | Full V3 primitive breakdown for one stock/ETF |
+    | `GET /api/portfolio/analytics` | Portfolio analytics including equity allocation heatmap |
+    | `GET /api/portfolio/deep-analytics` | Overlap matrix, overexposure, duplication detection |
+    | `GET /api/portfolio/allocation-analysis` | AI look-through sector/company concentration |
+    | `POST /api/portfolio/refresh-prices` | Refresh live equity/ETF prices from market feed |
+    | `POST /api/portfolio/refresh-stock-fundamentals` | Trigger Groww fundamentals refresh |
+
+    ## V3 Equity Scoring
+    Stocks are scored across 38 primitives in 6 composite dimensions:
+
+    | Composite | Key Primitives |
+    |-----------|----------------|
+    | **Returns** | 1Y/3Y/5Y CAGR, alpha vs Nifty 500 |
+    | **Risk** | Beta, volatility, max drawdown, VaR 95% |
+    | **Quality** | ROE, ROCE, D/E ratio, promoter holding % |
+    | **Valuation** | P/E vs sector median, P/B, EV/EBITDA |
+    | **Momentum** | 50d/200d MA position, RSI, 52W high proximity |
+    | **ESG Proxy** | ESG score, governance flags |
+
+    Coverage varies by stock — `coverage_pct` shows what fraction of the 38
+    primitives had live data at scoring time.
+
+    ## Health Score for Equity Holdings
+    Each equity holding contributes to the portfolio health score based on:
+    - Its V3 score (higher = better)
+    - Its weight in the portfolio
+    - Sector concentration contribution
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  parameters:
+    portfolio_id_query:
+      name: portfolio_id
+      in: query
+      schema:
+        type: string
+      description: Filter by portfolio ID. Omit to use the default/primary portfolio.
+
+  schemas:
+    StockScore:
+      type: object
+      description: V3 score for a single equity holding.
+      properties:
+        holding_id:
+          type: string
+          example: h_3c1f8d
+        isin:
+          type: string
+          example: INE040A01034
+        ticker:
+          type: string
+          example: HDFCBANK
+        name:
+          type: string
+          example: HDFC Bank
+        v3_score:
+          type: number
+          minimum: 0
+          maximum: 100
+          example: 76.3
+        grade:
+          type: string
+          enum: [A, B, C, D, F]
+          example: B
+        coverage_pct:
+          type: number
+          example: 88.5
+        composites:
+          type: object
+          properties:
+            returns:
+              type: number
+              example: 72.0
+            risk:
+              type: number
+              example: 80.0
+            quality:
+              type: number
+              example: 85.0
+            valuation:
+              type: number
+              example: 68.0
+            momentum:
+              type: number
+              example: 74.0
+            esg_proxy:
+              type: number
+              example: 70.0
+        weight_in_portfolio_pct:
+          type: number
+          example: 8.4
+
+paths:
+
+  /api/portfolio/stock-scores:
+    get:
+      tags: [analytics]
+      operationId: portfolio_stock_scores
+      summary: V3 scores for all equity holdings
+      description: |
+        Returns V3 scores for every equity (stock/ETF) holding in the portfolio.
+
+        MF holdings are excluded — use `/api/insights/v3-portfolio` or
+        `/api/intelligence/v3-score/{instrument_id}` for mutual fund scores.
+
+        The response includes:
+        - Per-stock V3 score and grade
+        - Coverage percentage (what % of 38 primitives had data)
+        - Portfolio-weighted equity score
+        - Stocks below the quality gate (score < 50)
+
+        Data is sourced from NIDP (Nivesh Intelligence Data Platform) and
+        refreshed daily after market close.
+      responses:
+        "200":
+          description: Stock V3 scores with portfolio summary
+          content:
+            application/json:
+              example:
+                portfolio_equity_score: 72.4
+                coverage_pct: 85.7
+                stocks_below_gate: 1
+                gate_threshold: 50
+                stock_scores:
+                  - holding_id: h_3c1f8d
+                    isin: INE040A01034
+                    ticker: HDFCBANK
+                    name: HDFC Bank
+                    v3_score: 76.3
+                    grade: B
+                    coverage_pct: 92.1
+                    composites:
+                      returns: 72.0
+                      risk: 82.0
+                      quality: 88.0
+                      valuation: 65.0
+                      momentum: 71.0
+                      esg_proxy: 75.0
+                    weight_in_portfolio_pct: 8.4
+                  - holding_id: h_9k1m3p
+                    isin: INE009A01021
+                    ticker: INFY
+                    name: Infosys
+                    v3_score: 81.2
+                    grade: A
+                    coverage_pct: 94.7
+                    composites:
+                      returns: 78.0
+                      risk: 85.0
+                      quality: 90.0
+                      valuation: 72.0
+                      momentum: 82.0
+                      esg_proxy: 80.0
+                    weight_in_portfolio_pct: 5.2
+                  - holding_id: h_2r4s6t
+                    isin: INE123B01021
+                    ticker: SMALLCAP1
+                    name: XYZ Small Industries
+                    v3_score: 38.5
+                    grade: F
+                    coverage_pct: 61.3
+                    composites:
+                      returns: 42.0
+                      risk: 35.0
+                      quality: 40.0
+                      valuation: 55.0
+                      momentum: 30.0
+                      esg_proxy: null
+                    below_gate: true
+                    weight_in_portfolio_pct: 2.1
+                generated_at: "2024-05-27T10:00:00Z"
+
+  /api/intelligence/v3-score/{instrument_id}:
+    get:
+      tags: [intelligence]
+      operationId: equity_v3_score
+      summary: Full V3 primitive breakdown for one equity/ETF
+      description: |
+        Returns all 38 individual primitive scores for a single stock or ETF,
+        grouped into 6 composite dimensions.
+
+        This is the most detailed equity scoring endpoint. Use it when the user
+        clicks into a specific holding to see why it scored the way it did.
+
+        **Primitives returned** (sample — full list has 38):
+        - `cagr_1y`, `cagr_3y`, `cagr_5y` — price return
+        - `alpha_vs_nifty500` — excess return vs benchmark
+        - `beta_1y` — market sensitivity
+        - `sharpe_1y`, `sortino_1y` — risk-adjusted return
+        - `max_drawdown_pct` — worst peak-to-trough
+        - `roe_pct`, `roce_pct` — return on equity/capital employed
+        - `debt_equity_ratio` — leverage
+        - `promoter_holding_pct` — insider ownership
+        - `pe_ratio`, `pb_ratio` — valuation multiples
+        - `rsi_14d` — momentum indicator
+        - `above_200d_ma` — long-term trend flag
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ISIN (e.g. `INE040A01034`) or NSE ticker (e.g. `HDFCBANK`)
+          example: INE040A01034
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force-refresh from NIDP before returning (~2-3s additional).
+      responses:
+        "200":
+          description: Full V3 score with all 38 primitives
+          content:
+            application/json:
+              example:
+                instrument_id: INE040A01034
+                ticker: HDFCBANK
+                name: HDFC Bank
+                asset_type: equity
+                sector: Financial Services
+                market_cap_cr: 1180000
+                v3_score: 76.3
+                grade: B
+                coverage_pct: 92.1
+                composites:
+                  returns:
+                    score: 72.0
+                    primitives:
+                      cagr_1y: 12.4
+                      cagr_3y: 14.1
+                      cagr_5y: 15.8
+                      alpha_vs_nifty500: 1.8
+                      cagr_vs_sector_median: 2.1
+                  risk:
+                    score: 82.0
+                    primitives:
+                      beta_1y: 0.91
+                      sharpe_1y: 1.24
+                      sortino_1y: 1.67
+                      max_drawdown_pct: -22.4
+                      var_95_pct: -2.8
+                      volatility_annualised_pct: 18.2
+                  quality:
+                    score: 88.0
+                    primitives:
+                      roe_pct: 17.2
+                      roce_pct: 15.8
+                      debt_equity_ratio: 0.12
+                      promoter_holding_pct: null
+                      net_profit_margin_pct: 22.4
+                      revenue_growth_3y_pct: 18.1
+                  valuation:
+                    score: 65.0
+                    primitives:
+                      pe_ratio: 19.8
+                      pb_ratio: 2.7
+                      ev_ebitda: 14.2
+                      pe_vs_sector_median_pct: 105.0
+                  momentum:
+                    score: 71.0
+                    primitives:
+                      rsi_14d: 54.2
+                      above_50d_ma: true
+                      above_200d_ma: true
+                      pct_from_52w_high: -8.4
+                      price_trend_30d: positive
+                  esg_proxy:
+                    score: 75.0
+                    primitives:
+                      esg_score: 72.0
+                      controversy_flag: false
+                      board_independence_pct: 62.0
+                generated_at: "2024-05-27T10:00:00Z"
+
+  /api/portfolio/analytics:
+    get:
+      tags: [analytics]
+      operationId: portfolio_analytics
+      summary: Full portfolio analytics with live prices
+      description: |
+        Comprehensive portfolio analytics computed with live (intraday) prices.
+
+        Returns:
+        - **Allocation** — equity vs debt vs alternate breakdown
+        - **Returns** — XIRR, absolute gain, benchmark comparison
+        - **Heatmap** — holding-level return matrix (1W/1M/3M/1Y)
+        - **Health score** — overall portfolio quality (0–100)
+        - **Sector weights** — aggregated sector allocation
+
+        Specify `portfolio_id` to analyse a specific portfolio, or omit to use
+        the user's primary portfolio.
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+      responses:
+        "200":
+          description: Full portfolio analytics
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                computed_at: "2024-05-27T14:30:00Z"
+                total_value_rs: 842000
+                total_invested_rs: 620000
+                total_gain_rs: 222000
+                gain_pct: 35.8
+                xirr_pct: 14.2
+                benchmark_xirr_pct: 12.8
+                alpha_pct: 1.4
+                health_score: 67
+                allocation:
+                  equity_pct: 68.4
+                  debt_pct: 22.1
+                  alternate_pct: 9.5
+                sector_weights:
+                  Financial Services: 28.4
+                  Information Technology: 18.2
+                  Consumer Goods: 11.7
+                  Healthcare: 9.2
+                heatmap:
+                  - holding_id: h_3c1f8d
+                    name: HDFC Bank
+                    return_1w_pct: 1.2
+                    return_1m_pct: -2.4
+                    return_3m_pct: 8.7
+                    return_1y_pct: 12.4
+
+  /api/portfolio/deep-analytics:
+    get:
+      tags: [analytics]
+      operationId: portfolio_deep_analytics
+      summary: Advanced analytics — overlap matrix, overexposure, duplication
+      description: |
+        Deep-dive analytics beyond standard allocation analysis:
+
+        - **Overlap matrix** — pairwise holding similarity across funds
+        - **Overexposure flags** — holdings or sectors exceeding concentration limits
+        - **Duplication index** — overall portfolio redundancy score (0-100, lower = better)
+        - **Effective diversification** — true number of independent bets
+
+        Useful for the "Is my portfolio really diversified?" question.
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+      responses:
+        "200":
+          description: Deep analytics report
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                duplication_index: 42.3
+                effective_bets: 8.2
+                total_holdings: 14
+                overlap_matrix:
+                  - pair: [HDFC Top 100 Fund, Mirae Asset Large Cap]
+                    overlap_pct: 68.4
+                    severity: high
+                  - pair: [Axis Bluechip Fund, ICICI Pru Bluechip Fund]
+                    overlap_pct: 71.2
+                    severity: high
+                overexposure_flags:
+                  - type: sector
+                    name: Financial Services
+                    exposure_pct: 31.2
+                    limit_pct: 25.0
+                  - type: amc
+                    name: HDFC AMC
+                    exposure_pct: 28.4
+                    limit_pct: 25.0
+
+  /api/portfolio/allocation-analysis:
+    get:
+      tags: [analytics]
+      operationId: portfolio_allocation_analysis
+      summary: AI look-through allocation analysis
+      description: |
+        Uses NIDP look-through data to compute the true underlying company and
+        sector allocation across all MF and equity holdings.
+
+        Flags concentration issues and provides AI-generated commentary on
+        diversification quality.
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: string
+          description: Set to `"true"` to bypass the 2-hour cache.
+      responses:
+        "200":
+          description: Look-through allocation with concentration flags
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                top_companies:
+                  - name: HDFC Bank
+                    effective_exposure_pct: 7.8
+                    direct_holding: true
+                    via_funds: [Mirae Asset Large Cap, HDFC Top 100]
+                  - name: Infosys
+                    effective_exposure_pct: 5.1
+                    direct_holding: false
+                    via_funds: [Mirae Asset Large Cap, Parag Parikh Flexi Cap]
+                sector_allocation:
+                  Financial Services: 31.2
+                  Information Technology: 18.7
+                concentration_flags:
+                  - sector: Financial Services
+                    exposure_pct: 31.2
+                    recommended_max_pct: 25.0
+                    severity: warning
+                ai_commentary: |
+                  Your portfolio has strong quality but significant Financial Services
+                  concentration. HDFC Bank alone represents 7.8% of effective exposure
+                  across 3 holdings. Consider adding exposure to Healthcare or FMCG
+                  to balance the sector mix.
+
+  /api/portfolio/refresh-prices:
+    post:
+      tags: [analytics]
+      operationId: portfolio_refresh_prices
+      summary: Refresh equity/ETF live prices
+      description: |
+        Fetches the latest market prices for all equity and ETF holdings in the portfolio.
+        Call this after market open or when the user wants current P&L figures.
+
+        MF NAV data is refreshed separately via `POST /api/nav/refresh`.
+      responses:
+        "200":
+          description: Refresh result with updated price count
+          content:
+            application/json:
+              example:
+                holdings_updated: 6
+                equity_holdings: 6
+                failed: []
+                refreshed_at: "2024-05-27T10:15:00Z"
+
+  /api/portfolio/refresh-stock-fundamentals:
+    post:
+      tags: [analytics]
+      operationId: portfolio_refresh_fundamentals
+      summary: Trigger Groww fundamentals refresh
+      description: |
+        Forces a re-fetch of fundamental data (P/E, P/B, EPS, revenue) from
+        the Groww data feed for all equity holdings.
+
+        Use this when fundamentals data appears stale (older than 24 hours).
+        This triggers a background job — response returns immediately.
+      responses:
+        "200":
+          description: Fundamentals refresh triggered
+          content:
+            application/json:
+              example:
+                status: triggered
+                holdings_queued: 6
+                estimated_completion_seconds: 30
+                message: Fundamentals refresh queued. Check back in ~30s.

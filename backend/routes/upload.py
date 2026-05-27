@@ -1,5 +1,5 @@
 """File upload routes: CAS PDF, CSV, Excel, CAS Connect SDK."""
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from datetime import datetime, timezone
 from typing import Dict
 import uuid
@@ -7,6 +7,8 @@ import asyncio
 import logging
 
 from deps import db, get_current_user
+from core.idempotency import IdempotencyState, check_idempotency, store_idempotency_result
+from helpers.upload_validation import validate_upload_async
 from helpers.parsing import (
     parse_csv_holdings, parse_excel_holdings, save_holdings
 )
@@ -101,9 +103,8 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
     user_id = user["user_id"]
 
     content = file.file.read()
-    # FR-UPLOAD-001/005: enforce size + magic-byte sniff before any parser
-    # touches the bytes. Raises 413/415 directly.
-    validate_upload(content, filename)
+    # FR-UPLOAD-001/005/007: size + magic-byte + malware scan before any parser.
+    await validate_upload_async(content, filename)
 
     if filename.endswith(".pdf"):
         raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
@@ -191,8 +192,8 @@ async def upload_portfolio_raw(request: Request):
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Magic-byte + extension validation (size already capped above)
-    validate_upload(content, filename)
+    # Magic-byte + extension + malware scan (size already capped above)
+    await validate_upload_async(content, filename)
 
     logger.info("Raw upload received: %s bytes, filename: %s", len(content), filename)
 
@@ -328,8 +329,18 @@ async def casparser_access_token(request: Request):
 
 
 @router.post("/portfolio/import-connect")
-async def portfolio_import_from_connect(request: Request):
-    """Ingest parsed portfolio from the CAS Connect widget."""
+async def portfolio_import_from_connect(
+    request: Request,
+    idem: IdempotencyState = Depends(check_idempotency),
+):
+    """Ingest parsed portfolio from the CAS Connect widget.
+
+    Supports the ``Idempotency-Key`` request header: if the same key is sent
+    twice within 24 hours the second call replays the first response without
+    re-importing holdings, preventing duplicate-import on network retries.
+    """
+    if idem.cached is not None:
+        return idem.cached
     user = await get_current_user(request)
     body = await request.json()
     parsed_data = body.get("data") if isinstance(body, dict) and "data" in body else body
@@ -390,7 +401,7 @@ async def portfolio_import_from_connect(request: Request):
         f"txns={sip_summary.get('transactions', 0)} sips={sip_summary.get('sips', 0)}"
     )
 
-    return {
+    result = {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",
         "count": len(saved),
         "holdings": saved,
@@ -399,6 +410,8 @@ async def portfolio_import_from_connect(request: Request):
         "transactions": sip_summary.get("transactions", 0),
         "sips_detected": sip_summary.get("sips", 0),
     }
+    await store_idempotency_result(idem, result)
+    return result
 
 
 # CAS PDF background processor removed — all PDF parsing now happens

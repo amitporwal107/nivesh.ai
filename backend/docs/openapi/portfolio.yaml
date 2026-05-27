@@ -1,0 +1,1612 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Portfolio API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    Core portfolio and holdings management — CRUD, CAS data, time-machine, SIPs,
+    builder, export, and diversification exposure.
+
+    | Group | Endpoints | Purpose |
+    |-------|-----------|---------|
+    | **Portfolios** | `/api/portfolios` | Create and list portfolios |
+    | **Holdings** | `/api/portfolio/holdings` | Add, update, delete positions |
+    | **Enriched view** | `/api/portfolio/holdings-enriched` | Holdings with V3 badges and weights |
+    | **Instrument search** | `/api/search/instruments` | Find equities and funds by name/ticker |
+    | **Switch candidates** | `/api/portfolio/switch-candidates` | AI replacement fund suggestions |
+    | **International** | `/api/portfolio/international-*` | FoF allocation recommendation |
+    | **Snapshots** | `/api/portfolio/snapshots`, `/api/portfolio/snapshot` | Time-machine — portfolio value history |
+    | **CAS snapshots** | `/api/portfolio/cas-snapshot*` | CAS-sourced performance and SIP data |
+    | **Transactions** | `/api/portfolio/transactions`, `/api/portfolio/sips` | Transaction history and detected SIPs |
+    | **Builder** | `/api/portfolio-builder/*` | AI portfolio builder with Monte Carlo |
+    | **Export** | `/api/portfolio/holdings/export` | Download holdings as CSV/XLSX |
+    | **Exposure** | `/api/portfolio/exposure/concentration` | AMC / sector / company concentration |
+
+    ## File Upload
+    CSV / Excel uploads are documented here; CAS PDF import uses the Connect SDK flow
+    documented in [login-onboarding.yaml](login-onboarding.yaml):
+    1. `POST /api/casparser/access-token` — mint widget token
+    2. Open `@cas-parser/connect` widget — user uploads PDF directly to casparser.in
+    3. `POST /api/portfolio/import-connect` — save parsed JSON into holdings
+
+    ## Portfolio vs Holdings
+    - A **portfolio** is a named container (e.g. "My Primary", "Spouse").
+    - **Holdings** are the individual positions inside a portfolio.
+    - One user can have multiple portfolios (family members, separate goals).
+
+    ## CAS vs Manual Holdings
+    Holdings can come from two sources:
+    - **Manual entry** — user adds holdings via the UI using `POST /api/portfolio/holdings`
+    - **CAS import** — automated via uploaded CAMS/Karvy PDF or Gmail scan
+
+    CAS snapshots are stored separately and provide a historical audit trail.
+    Use `POST /api/portfolio/cas-snapshot/{date}/activate` to load a past CAS snapshot
+    into the live holdings (e.g. after a reset).
+
+    ## Time-Machine
+    The portfolio time-machine records a daily snapshot of portfolio value.
+    Use `/api/portfolio/trend` for sparkline data and `/api/portfolio/compare`
+    to diff any two dates.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  parameters:
+    portfolio_id_query:
+      name: portfolio_id
+      in: query
+      schema:
+        type: string
+      description: Filter by portfolio ID. Omit to use the default/primary portfolio.
+    format_query:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [csv, xlsx]
+        default: csv
+      description: Export file format.
+
+  schemas:
+    Portfolio:
+      type: object
+      description: A named investment portfolio belonging to the user.
+      properties:
+        portfolio_id:
+          type: string
+          example: pf_7d4e1a
+        name:
+          type: string
+          example: My Primary Portfolio
+        member_name:
+          type: string
+          nullable: true
+          example: Rohan Sharma
+        relationship:
+          type: string
+          nullable: true
+          example: spouse
+        holdings_count:
+          type: integer
+          example: 12
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-03-15T08:30:00Z"
+
+    Holding:
+      type: object
+      description: A single equity or mutual fund position.
+      properties:
+        holding_id:
+          type: string
+          example: h_3c1f8d
+        portfolio_id:
+          type: string
+          example: pf_7d4e1a
+        name:
+          type: string
+          example: HDFC Mid-Cap Opportunities Fund
+        ticker:
+          type: string
+          nullable: true
+        asset_type:
+          type: string
+          enum: [equity, mutual_fund, etf, bond, gold, fd, other]
+          example: mutual_fund
+        quantity:
+          type: number
+          example: 250.456
+        buy_price:
+          type: number
+          example: 42.5
+        current_price:
+          type: number
+          example: 68.2
+        sector:
+          type: string
+          nullable: true
+          example: Financial Services
+        buy_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2022-01-15"
+
+    Error:
+      type: object
+      description: Standard error envelope.
+      properties:
+        detail:
+          type: string
+          example: Not authenticated
+        code:
+          type: string
+          nullable: true
+          example: RES-002
+
+    EnrichedHolding:
+      allOf:
+        - $ref: '#/components/schemas/Holding'
+      type: object
+      properties:
+        v3_score:
+          type: number
+          nullable: true
+          example: 82.1
+        v3_grade:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, F]
+          example: A
+        weight_pct:
+          type: number
+          example: 18.4
+        current_value_rs:
+          type: number
+          example: 172500
+        gain_rs:
+          type: number
+          example: 47200
+        gain_pct:
+          type: number
+          example: 37.6
+        xirr_pct:
+          type: number
+          nullable: true
+          example: 16.2
+        action_badge:
+          type: string
+          nullable: true
+          enum: [buy_more, hold, review, exit, null]
+          example: hold
+
+paths:
+
+  # ── Portfolios ─────────────────────────────────────────────────────────────
+
+  /api/portfolios:
+    get:
+      tags: [portfolio]
+      operationId: portfolios_list
+      summary: List all portfolios
+      description: |
+        Returns all portfolios owned by the authenticated user.
+        Most users have 1-3 portfolios (self + family members).
+        MFD users may have many client portfolios via the MFD workspace.
+      responses:
+        "200":
+          description: List of portfolios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Portfolio'
+              example:
+                - portfolio_id: pf_7d4e1a
+                  name: My Primary Portfolio
+                  member_name: null
+                  relationship: null
+                  holdings_count: 12
+                  created_at: "2024-03-15T08:30:00Z"
+                - portfolio_id: pf_8e5f2b
+                  name: Spouse Portfolio
+                  member_name: Rohan Sharma
+                  relationship: spouse
+                  holdings_count: 7
+                  created_at: "2024-04-01T10:00:00Z"
+
+    post:
+      tags: [portfolio]
+      operationId: portfolios_create
+      summary: Create a new portfolio
+      description: |
+        Creates a new named portfolio. Optionally tag it with a `member_name`
+        and `relationship` to indicate it belongs to a family member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                member_name:
+                  type: string
+                  nullable: true
+                relationship:
+                  type: string
+                  nullable: true
+            example:
+              name: Spouse Portfolio
+              member_name: Rohan Sharma
+              relationship: spouse
+      responses:
+        "200":
+          description: Created portfolio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+              example:
+                portfolio_id: pf_8e5f2b
+                name: Spouse Portfolio
+                member_name: Rohan Sharma
+                relationship: spouse
+                holdings_count: 0
+                created_at: "2024-05-27T10:00:00Z"
+
+  /api/portfolios/{portfolio_id}:
+    delete:
+      tags: [portfolio]
+      operationId: portfolios_delete
+      summary: Delete a portfolio and all its holdings
+      description: |
+        **Permanent** — deletes the portfolio and every holding inside it.
+        Plans and goals linked to this portfolio are also removed.
+        This cannot be undone.
+      parameters:
+        - name: portfolio_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: pf_8e5f2b
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              example:
+                status: ok
+                portfolio_id: pf_8e5f2b
+                holdings_deleted: 7
+
+  # ── Instrument Search ──────────────────────────────────────────────────────
+
+  /api/search/instruments:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_search_instruments
+      summary: Search equities and funds by name or ticker
+      description: |
+        Full-text search across stocks, ETFs, and mutual funds.
+        Used in the "Add holding" autocomplete input.
+
+        Returns a ranked list of matches with their asset type, ISIN, and sector.
+        Minimum 2 characters required.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search query — company name, fund name, NSE ticker, or ISIN.
+          example: HDFC Mid
+      responses:
+        "200":
+          description: Matching instruments
+          content:
+            application/json:
+              example:
+                - name: HDFC Mid-Cap Opportunities Fund - Direct Plan
+                  ticker: null
+                  isin: INF179K01VQ8
+                  asset_type: mutual_fund
+                  category: Mid Cap
+                  amc: HDFC AMC
+                - name: HDFC Bank Ltd
+                  ticker: HDFCBANK
+                  isin: INE040A01034
+                  asset_type: equity
+                  sector: Financial Services
+                - name: HDFC Life Insurance Company Ltd
+                  ticker: HDFCLIFE
+                  isin: INE795G01014
+                  asset_type: equity
+                  sector: Insurance
+
+  # ── Holdings CRUD ──────────────────────────────────────────────────────────
+
+  /api/portfolio/holdings:
+    get:
+      tags: [portfolio]
+      operationId: holdings_list
+      summary: List holdings filtered by portfolio and/or asset type
+      description: |
+        Returns all holdings for the authenticated user, optionally filtered
+        by portfolio and/or asset type.
+
+        Use this for the holdings table view. For the enriched view with V3 scores
+        and action badges, use `GET /api/portfolio/holdings-enriched`.
+      parameters:
+        - $ref: '#/components/parameters/portfolio_id_query'
+        - name: asset_type
+          in: query
+          schema:
+            type: string
+            enum: [equity, mutual_fund, etf, bond, gold, fd, other]
+          description: Filter to a specific asset type.
+          example: mutual_fund
+      responses:
+        "200":
+          description: Holdings list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Holding'
+              example:
+                - holding_id: h_3c1f8d
+                  portfolio_id: pf_7d4e1a
+                  name: HDFC Mid-Cap Opportunities Fund
+                  ticker: null
+                  asset_type: mutual_fund
+                  quantity: 250.456
+                  buy_price: 42.50
+                  current_price: 68.20
+                  sector: null
+                  buy_date: "2022-01-15"
+                - holding_id: h_9k1m3p
+                  portfolio_id: pf_7d4e1a
+                  name: Infosys Ltd
+                  ticker: INFY
+                  asset_type: equity
+                  quantity: 50
+                  buy_price: 1420.00
+                  current_price: 1780.00
+                  sector: Information Technology
+                  buy_date: "2021-06-10"
+
+    post:
+      tags: [portfolio]
+      operationId: holdings_add
+      summary: Add a new holding
+      description: |
+        Adds a single holding to a portfolio. If `portfolio_id` is omitted,
+        the holding is added to the user's primary (first created) portfolio.
+
+        For bulk CAS import use `POST /api/portfolio/upload` instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, asset_type, quantity, buy_price, current_price]
+              properties:
+                name:
+                  type: string
+                ticker:
+                  type: string
+                  nullable: true
+                asset_type:
+                  type: string
+                  enum: [equity, mutual_fund, etf, bond, gold, fd, other]
+                quantity:
+                  type: number
+                buy_price:
+                  type: number
+                current_price:
+                  type: number
+                sector:
+                  type: string
+                  nullable: true
+                buy_date:
+                  type: string
+                  format: date
+                  nullable: true
+                portfolio_id:
+                  type: string
+                  nullable: true
+            example:
+              name: Parag Parikh Flexi Cap Fund - Direct Plan
+              ticker: null
+              asset_type: mutual_fund
+              quantity: 500.123
+              buy_price: 58.40
+              current_price: 72.45
+              sector: null
+              buy_date: "2022-07-20"
+              portfolio_id: pf_7d4e1a
+      responses:
+        "200":
+          description: Created holding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Holding'
+              example:
+                holding_id: h_4d2e1f
+                portfolio_id: pf_7d4e1a
+                name: Parag Parikh Flexi Cap Fund - Direct Plan
+                ticker: null
+                asset_type: mutual_fund
+                quantity: 500.123
+                buy_price: 58.40
+                current_price: 72.45
+                sector: null
+                buy_date: "2022-07-20"
+
+  /api/portfolio/holdings/{holding_id}:
+    put:
+      tags: [portfolio]
+      operationId: holdings_update
+      summary: Update a holding
+      description: |
+        Partial update — only fields provided in the body are changed.
+        Useful for correcting a wrong buy price or updating the current price.
+      parameters:
+        - name: holding_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: h_3c1f8d
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: All fields are optional — only provided fields are updated.
+              properties:
+                name:
+                  type: string
+                ticker:
+                  type: string
+                quantity:
+                  type: number
+                buy_price:
+                  type: number
+                current_price:
+                  type: number
+                sector:
+                  type: string
+                buy_date:
+                  type: string
+                  format: date
+            example:
+              quantity: 300.0
+              buy_price: 44.20
+      responses:
+        "200":
+          description: Updated holding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Holding'
+              example:
+                holding_id: h_3c1f8d
+                portfolio_id: pf_7d4e1a
+                name: HDFC Mid-Cap Opportunities Fund
+                quantity: 300.0
+                buy_price: 44.20
+                current_price: 68.20
+
+    delete:
+      tags: [portfolio]
+      operationId: holdings_delete
+      summary: Delete a single holding
+      parameters:
+        - name: holding_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: h_3c1f8d
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              example:
+                status: ok
+                holding_id: h_3c1f8d
+
+  /api/portfolio/holdings-all:
+    delete:
+      tags: [portfolio]
+      operationId: holdings_delete_all
+      summary: Clear ALL holdings for the current user
+      description: |
+        **Destructive** — permanently deletes every holding across all portfolios
+        for the authenticated user. Used for a clean-slate reset before re-importing.
+      responses:
+        "200":
+          description: All holdings cleared
+          content:
+            application/json:
+              example:
+                status: ok
+                holdings_deleted: 14
+
+  /api/portfolio/holdings-enriched:
+    get:
+      tags: [portfolio]
+      operationId: holdings_enriched
+      summary: Holdings with V3 scores, action badges, and weight %
+      description: |
+        The primary endpoint for the holdings dashboard view. Returns every holding
+        enriched with:
+
+        - **V3 score** and grade (A-F) from the scoring engine
+        - **Action badge** — `buy_more`, `hold`, `review`, or `exit`
+        - **Weight %** — holding's share of total portfolio value
+        - **Current value** and **gain/loss** in ₹ and %
+        - **XIRR** (annualised return from buy date to today)
+
+        Results are cached for 30 minutes. Pass `fresh=true` to force a re-compute.
+      parameters:
+        - name: fresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force cache bypass — recomputes V3 scores live (~2-3s).
+      responses:
+        "200":
+          description: Enriched holdings list
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                total_value_rs: 842000
+                total_invested_rs: 620000
+                total_gain_pct: 35.8
+                holdings:
+                  - holding_id: h_4d2e1f
+                    name: Parag Parikh Flexi Cap Fund
+                    asset_type: mutual_fund
+                    quantity: 500.123
+                    current_price: 72.45
+                    current_value_rs: 362339
+                    gain_rs: 70338
+                    gain_pct: 24.1
+                    xirr_pct: 16.2
+                    weight_pct: 43.0
+                    v3_score: 88.5
+                    v3_grade: A
+                    action_badge: hold
+                  - holding_id: h_3c1f8d
+                    name: HDFC Mid-Cap Opportunities Fund
+                    asset_type: mutual_fund
+                    quantity: 300.0
+                    current_price: 68.20
+                    current_value_rs: 204600
+                    gain_rs: 72540
+                    gain_pct: 54.9
+                    xirr_pct: 19.8
+                    weight_pct: 24.3
+                    v3_score: 74.1
+                    v3_grade: B
+                    action_badge: buy_more
+                cached: true
+                generated_at: "2024-05-27T10:00:00Z"
+
+  # ── Switch Candidates & International ─────────────────────────────────────
+
+  /api/portfolio/switch-candidates:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_switch_candidates
+      summary: Top replacement funds for a holding
+      description: |
+        Returns the top 3 (or N) alternative funds to switch into, ranked by V3 score
+        improvement over the current holding.
+
+        Used in the "Switch to better fund" action flow. Each candidate includes
+        the overlap with the existing portfolio so the user can avoid duplication.
+      parameters:
+        - name: holding_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Holding ID to find replacements for.
+          example: h_3c1f8d
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 3
+      responses:
+        "200":
+          description: Switch candidates with score comparison
+          content:
+            application/json:
+              example:
+                current_holding:
+                  holding_id: h_3c1f8d
+                  name: HDFC Mid-Cap Opportunities Fund
+                  v3_score: 74.1
+                  expense_ratio_pct: 0.79
+                candidates:
+                  - isin: INF200K01LK0
+                    name: Axis Midcap Fund - Direct Plan
+                    category: Mid Cap
+                    v3_score: 86.3
+                    score_improvement: 12.2
+                    expense_ratio_pct: 0.52
+                    overlap_with_portfolio_pct: 14.2
+                    xirr_3y_pct: 22.4
+                    recommendation: Best fit — highest score, lower cost, low overlap
+                  - isin: INF903J01LM4
+                    name: Kotak Emerging Equity Fund - Direct Plan
+                    category: Mid Cap
+                    v3_score: 83.7
+                    score_improvement: 9.6
+                    expense_ratio_pct: 0.41
+                    overlap_with_portfolio_pct: 19.8
+                    xirr_3y_pct: 21.1
+                    recommendation: Strong alternative — lowest cost in category
+
+  /api/portfolio/international-recommendations:
+    get:
+      tags: [portfolio]
+      operationId: portfolio_intl_recommendations
+      summary: International FoF allocation recommendation
+      description: |
+        Returns the recommended international allocation (as % of total portfolio)
+        based on the user's risk profile, and the current international exposure.
+        Includes suggested fund bands (conservative/moderate/aggressive).
+      responses:
+        "200":
+          description: International allocation recommendation
+          content:
+            application/json:
+              example:
+                current_international_pct: 0.0
+                recommended_pct: 10.0
+                gap_pct: 10.0
+                rationale: Portfolio has zero international diversification. Adding 10% reduces correlation to Nifty 500.
+                fund_bands:
+                  conservative:
+                    - name: Franklin India Feeder - Franklin US Opportunities Fund
+                      isin: INF090I01GG7
+                      v3_score: 71.2
+                  moderate:
+                    - name: Mirae Asset NYSE FANG+ ETF FoF
+                      isin: INF769K01GL3
+                      v3_score: 78.4
+                  aggressive:
+                    - name: Edelweiss Greater China Equity Off-Shore Fund
+                      isin: INF754K01GM4
+                      v3_score: 62.1
+
+  /api/portfolio/international-funds/refresh:
+    post:
+      tags: [portfolio]
+      operationId: portfolio_intl_funds_refresh
+      summary: Refresh international fund data cache
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Cache refresh summary
+          content:
+            application/json:
+              example:
+                status: ok
+                funds_updated: 47
+                refreshed_at: "2024-05-27T10:05:00Z"
+
+  # ── Portfolio Snapshots (Time-Machine) ─────────────────────────────────────
+
+  /api/portfolio/snapshots:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_list_dates
+      summary: List available snapshot dates
+      description: |
+        Returns a list of dates for which portfolio value snapshots exist.
+        Used to populate the time-machine date picker.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 365
+          description: Maximum number of dates to return (most recent first).
+      responses:
+        "200":
+          description: Available snapshot dates
+          content:
+            application/json:
+              example:
+                dates:
+                  - "2024-05-27"
+                  - "2024-05-24"
+                  - "2024-05-23"
+                total: 245
+
+  /api/portfolio/snapshot:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_get
+      summary: Get portfolio snapshot for a date
+      description: |
+        Returns the portfolio value snapshot for a specific date, or the most
+        recent snapshot if `date` is omitted.
+
+        Each snapshot includes total value, invested amount, P&L, and the
+        holding-level breakdown at that point in time.
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Snapshot date (YYYY-MM-DD). Defaults to most recent.
+          example: "2024-05-24"
+      responses:
+        "200":
+          description: Snapshot document
+          content:
+            application/json:
+              example:
+                snapshot_date: "2024-05-24"
+                total_value_rs: 836500
+                total_invested_rs: 620000
+                total_gain_rs: 216500
+                total_gain_pct: 34.9
+                holdings_count: 12
+                top_holdings:
+                  - name: Parag Parikh Flexi Cap Fund
+                    value_rs: 358200
+                    weight_pct: 42.8
+
+    post:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_manual_trigger
+      summary: Manually trigger a portfolio snapshot
+      description: |
+        Forces a snapshot to be recorded immediately with current prices.
+        Snapshots are automatically taken daily at 6 PM IST after market close.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trigger:
+                  type: string
+                  default: manual
+      responses:
+        "200":
+          description: Snapshot recorded
+          content:
+            application/json:
+              example:
+                status: ok
+                snapshot_date: "2024-05-27"
+                total_value_rs: 842000
+                trigger: manual
+
+  /api/portfolio/trend:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_trend
+      summary: Portfolio value sparkline series
+      description: |
+        Returns a time-series of daily portfolio values for the past N days.
+        Used for the sparkline / area chart on the dashboard.
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Number of days to look back (max 365).
+          example: 90
+      responses:
+        "200":
+          description: Value trend series
+          content:
+            application/json:
+              example:
+                days: 90
+                series:
+                  - date: "2024-02-27"
+                    value_rs: 718000
+                  - date: "2024-03-31"
+                    value_rs: 745000
+                  - date: "2024-04-30"
+                    value_rs: 812000
+                  - date: "2024-05-27"
+                    value_rs: 842000
+                start_value_rs: 718000
+                end_value_rs: 842000
+                gain_pct: 17.3
+
+  /api/portfolio/compare:
+    get:
+      tags: [portfolio_snapshots]
+      operationId: snapshots_compare
+      summary: Diff two snapshots
+      description: |
+        Compares two portfolio snapshots to show what changed:
+        - Holdings added since `from`
+        - Holdings removed since `from`
+        - Value change per holding
+        - Overall P&L delta
+
+        If `from` is omitted, defaults to 30 days ago.
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date for comparison (YYYY-MM-DD).
+          example: "2024-04-27"
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date. Defaults to today.
+          example: "2024-05-27"
+      responses:
+        "200":
+          description: Snapshot comparison result
+          content:
+            application/json:
+              example:
+                from_date: "2024-04-27"
+                to_date: "2024-05-27"
+                from_value_rs: 795000
+                to_value_rs: 842000
+                delta_rs: 47000
+                delta_pct: 5.9
+                holdings_added:
+                  - name: Axis Midcap Fund
+                    value_rs: 52000
+                holdings_removed: []
+                holdings_changed:
+                  - name: Parag Parikh Flexi Cap Fund
+                    value_from_rs: 340000
+                    value_to_rs: 362000
+                    delta_pct: 6.5
+
+  # ── CAS Snapshots ─────────────────────────────────────────────────────────
+
+  /api/portfolio/cas-snapshots:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_snapshots_list
+      summary: List CAS snapshot dates
+      description: |
+        Returns dates for which CAMS/Karvy CAS snapshots have been imported.
+        Each date corresponds to one parsed CAS PDF or email.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 60
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: MFD client profile ID (for advisor view). Omit for self.
+      responses:
+        "200":
+          description: CAS snapshot date list
+          content:
+            application/json:
+              example:
+                total: 8
+                snapshots:
+                  - date: "2024-05-15"
+                    source: gmail
+                    imported_at: "2024-05-16T08:30:00Z"
+                    holdings_count: 14
+                  - date: "2024-04-15"
+                    source: upload
+                    imported_at: "2024-04-16T09:00:00Z"
+                    holdings_count: 13
+
+  /api/portfolio/cas-snapshot:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_snapshot_get
+      summary: Get full CAS snapshot with holdings
+      description: |
+        Returns the complete CAS snapshot for a given date including all fund
+        folios, units, NAV, and value as reported in the CAS document.
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: CAS snapshot date. Defaults to most recent.
+          example: "2024-05-15"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+        - name: include_holdings
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Include holding-level detail. Set false for summary-only.
+      responses:
+        "200":
+          description: CAS snapshot
+          content:
+            application/json:
+              example:
+                snapshot_date: "2024-05-15"
+                total_value_rs: 836500
+                total_invested_rs: 620000
+                xirr_pct: 14.2
+                holdings:
+                  - folio: "1234567/89"
+                    isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund - Direct Plan
+                    units: 500.123
+                    nav: 72.45
+                    value_rs: 36234
+                    invested_rs: 29200
+
+  /api/portfolio/cas-performance:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_performance
+      summary: Portfolio value and health line-chart series
+      description: |
+        Returns a date-series of portfolio value and portfolio health score
+        computed from CAS snapshots over a date range.
+        Used for the performance chart on the CAS dashboard.
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-01-01"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-05-27"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Performance series (value + health score over time)
+          content:
+            application/json:
+              example:
+                from_date: "2024-01-01"
+                to_date: "2024-05-27"
+                series:
+                  - date: "2024-01-15"
+                    value_rs: 741000
+                    health_score: 61
+                  - date: "2024-02-15"
+                    value_rs: 758000
+                    health_score: 63
+                  - date: "2024-05-15"
+                    value_rs: 836500
+                    health_score: 67
+
+  /api/portfolio/cas-sip-summary:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_sip_summary
+      summary: Monthly SIP bar-chart aggregates
+      description: |
+        Returns the total SIP amount invested each month over the date range.
+        Used for the SIP bar chart on the CAS dashboard.
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-01-01"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-05-27"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Monthly SIP aggregates
+          content:
+            application/json:
+              example:
+                monthly_totals:
+                  - month: "2024-01"
+                    total_sip_rs: 38000
+                    transaction_count: 4
+                  - month: "2024-02"
+                    total_sip_rs: 38000
+                    transaction_count: 4
+                  - month: "2024-05"
+                    total_sip_rs: 40000
+                    transaction_count: 5
+                average_monthly_sip_rs: 38800
+                total_invested_rs: 194000
+
+  /api/portfolio/cas-sip-breakdown:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_sip_breakdown
+      summary: Per-fund SIP drill-down for a specific month
+      description: |
+        Returns the individual fund-level SIP transactions for a given month.
+        Shown when the user clicks a month on the SIP bar chart.
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^\\d{4}-\\d{2}$"
+          description: Month in YYYY-MM format.
+          example: "2024-05"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Per-fund SIP breakdown for the month
+          content:
+            application/json:
+              example:
+                month: "2024-05"
+                total_rs: 40000
+                breakdown:
+                  - isin: INF769K01EW6
+                    name: Parag Parikh Flexi Cap Fund
+                    amount_rs: 15000
+                    units_purchased: 207.1
+                    nav: 72.45
+                    date: "2024-05-07"
+                  - isin: INF200K01RJ3
+                    name: Mirae Asset Large Cap Fund
+                    amount_rs: 10000
+                    units_purchased: 95.9
+                    nav: 104.23
+                    date: "2024-05-07"
+
+  /api/portfolio/cas-top-transactions:
+    get:
+      tags: [cas_snapshots]
+      operationId: cas_top_transactions
+      summary: Top-N transactions by value
+      description: Returns the largest transactions in a date range, sorted by amount.
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: n
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Number of top transactions to return.
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Top transactions
+          content:
+            application/json:
+              example:
+                transactions:
+                  - date: "2024-01-15"
+                    type: purchase
+                    fund: Parag Parikh Flexi Cap Fund
+                    amount_rs: 100000
+                    units: 1712.5
+                    nav: 58.40
+                  - date: "2024-03-10"
+                    type: purchase
+                    fund: Mirae Asset Large Cap Fund
+                    amount_rs: 50000
+                    units: 479.6
+                    nav: 104.23
+
+  /api/portfolio/cas-snapshot/{snapshot_date}/activate:
+    post:
+      tags: [cas_snapshots]
+      operationId: cas_snapshot_activate
+      summary: Load a CAS snapshot into live holdings
+      description: |
+        Replaces the current live holdings with the holdings from a specific CAS snapshot.
+        Use this to restore holdings after a `reset-portfolio` or to roll back to an
+        older snapshot.
+
+        **Note**: This overwrites current manual holdings. The old holdings are not preserved.
+      parameters:
+        - name: snapshot_date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-05-15"
+        - name: profile_id
+          in: query
+          schema:
+            type: string
+            nullable: true
+      responses:
+        "200":
+          description: Holdings loaded from CAS snapshot
+          content:
+            application/json:
+              example:
+                status: ok
+                snapshot_date: "2024-05-15"
+                holdings_loaded: 14
+                previous_holdings_replaced: 12
+
+  # ── Transactions & SIPs ────────────────────────────────────────────────────
+
+  /api/portfolio/transactions:
+    get:
+      tags: [cas_transactions]
+      operationId: transactions_list
+      summary: List CAS transactions
+      description: |
+        Returns all transactions from imported CAS statements.
+        Supports filtering by fund (ISIN) or folio number.
+
+        Includes purchase, redemption, switch-in, switch-out, dividend payout,
+        and dividend reinvestment transactions.
+      parameters:
+        - name: isin
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Filter by fund ISIN.
+          example: INF769K01EW6
+        - name: folio
+          in: query
+          schema:
+            type: string
+            nullable: true
+          description: Filter by folio number.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 500
+      responses:
+        "200":
+          description: Transactions with summary totals
+          content:
+            application/json:
+              example:
+                total: 48
+                total_invested_rs: 620000
+                total_redeemed_rs: 0
+                transactions:
+                  - date: "2024-05-07"
+                    type: purchase
+                    isin: INF769K01EW6
+                    fund: Parag Parikh Flexi Cap Fund
+                    folio: "1234567/89"
+                    amount_rs: 15000
+                    units: 207.1
+                    nav: 72.45
+                  - date: "2022-07-20"
+                    type: purchase
+                    isin: INF769K01EW6
+                    fund: Parag Parikh Flexi Cap Fund
+                    folio: "1234567/89"
+                    amount_rs: 100000
+                    units: 1712.5
+                    nav: 58.40
+
+  /api/portfolio/sips:
+    get:
+      tags: [cas_transactions]
+      operationId: sips_list
+      summary: List detected SIP schedules
+      description: |
+        Analyses transaction history to detect recurring SIP patterns.
+        Returns each detected SIP with monthly amount, fund, and next expected date.
+
+        Also returns the total monthly SIP outflow across all active SIPs.
+      responses:
+        "200":
+          description: Detected SIPs with monthly total
+          content:
+            application/json:
+              example:
+                total_monthly_sip_rs: 38000
+                sips:
+                  - isin: INF769K01EW6
+                    fund: Parag Parikh Flexi Cap Fund
+                    folio: "1234567/89"
+                    monthly_amount_rs: 15000
+                    day_of_month: 7
+                    last_transaction: "2024-05-07"
+                    next_expected: "2024-06-07"
+                    status: active
+                  - isin: INF200K01RJ3
+                    fund: Mirae Asset Large Cap Fund
+                    folio: "9876543/21"
+                    monthly_amount_rs: 10000
+                    day_of_month: 7
+                    last_transaction: "2024-05-07"
+                    next_expected: "2024-06-07"
+                    status: active
+
+  # ── Portfolio Builder ──────────────────────────────────────────────────────
+
+  /api/portfolio-builder/generate:
+    post:
+      tags: [portfolio_builder]
+      operationId: builder_generate
+      summary: Generate a proposed portfolio allocation
+      description: |
+        AI-powered portfolio builder. Given a monthly SIP amount and/or lumpsum,
+        generates a full portfolio proposal with:
+        - Suggested asset allocation (equity/debt/alternate)
+        - Specific fund recommendations per category
+        - Expected returns and risk profile
+        - Rationale for each suggested fund
+
+        Used in the "Build my portfolio" onboarding flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_sip_rs:
+                  type: number
+                  description: Monthly SIP amount in ₹.
+                lumpsum_rs:
+                  type: number
+                  description: One-time lumpsum to invest now.
+            example:
+              monthly_sip_rs: 30000
+              lumpsum_rs: 100000
+      responses:
+        "200":
+          description: Proposed portfolio with fund recommendations
+          content:
+            application/json:
+              example:
+                allocation:
+                  equity_pct: 65
+                  debt_pct: 25
+                  alternate_pct: 10
+                expected_return_pct: 12.5
+                risk_label: Moderate
+                monthly_sip_rs: 30000
+                lumpsum_rs: 100000
+                funds:
+                  - name: Parag Parikh Flexi Cap Fund
+                    category: Flexi Cap
+                    asset_type: equity
+                    sip_amount_rs: 10000
+                    lumpsum_rs: 40000
+                    rationale: Top-rated flexi cap with consistent outperformance and low overlap risk.
+                    v3_score: 88.5
+                  - name: ICICI Pru Short Term Fund
+                    category: Short Duration
+                    asset_type: bond
+                    sip_amount_rs: 8000
+                    lumpsum_rs: 25000
+                    rationale: Stable debt fund for the liquid portion of the portfolio.
+                    v3_score: 74.2
+
+  /api/portfolio-builder/simulate:
+    post:
+      tags: [portfolio_builder]
+      operationId: builder_simulate
+      summary: 4-scenario Monte Carlo simulation matrix
+      description: |
+        Runs a Monte Carlo simulation (10,000 paths) across 4 scenarios
+        (conservative/moderate/aggressive/custom) and returns projected corpus
+        at P10, P50, and P90 confidence levels.
+
+        Used for the "What will my portfolio be worth?" projection widget.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                starting_corpus_rs:
+                  type: number
+                monthly_sip_rs:
+                  type: number
+                years:
+                  type: integer
+                future_target_rs:
+                  type: number
+                  nullable: true
+                allocation:
+                  type: object
+                  description: Custom allocation to simulate (equity/debt/alternate %).
+            example:
+              starting_corpus_rs: 842000
+              monthly_sip_rs: 30000
+              years: 20
+              future_target_rs: 10000000
+              allocation:
+                equity_pct: 65
+                debt_pct: 25
+                alternate_pct: 10
+      responses:
+        "200":
+          description: Monte Carlo scenario matrix
+          content:
+            application/json:
+              example:
+                years: 20
+                scenarios:
+                  conservative:
+                    expected_return_pct: 9.0
+                    p10_rs: 5800000
+                    p50_rs: 8200000
+                    p90_rs: 11400000
+                    success_probability_pct: 74.2
+                  moderate:
+                    expected_return_pct: 12.5
+                    p10_rs: 7200000
+                    p50_rs: 11800000
+                    p90_rs: 18200000
+                    success_probability_pct: 88.6
+                  aggressive:
+                    expected_return_pct: 15.0
+                    p10_rs: 8500000
+                    p50_rs: 15400000
+                    p90_rs: 26000000
+                    success_probability_pct: 94.1
+                blended_return_pct: 12.5
+                blended_volatility_pct: 14.2
+
+  /api/risk-profile/start:
+    post:
+      tags: [portfolio_builder]
+      operationId: risk_profile_start
+      summary: Begin conversational risk-profile session
+      description: |
+        Starts a multi-turn risk profile questionnaire as a chat session.
+        Returns the first question and a `session_id` to use for subsequent answers.
+      responses:
+        "200":
+          description: First question with session ID
+          content:
+            application/json:
+              example:
+                session_id: rp_abc123
+                question_id: q1_investment_horizon
+                question: How long can you stay invested without needing this money?
+                options:
+                  - value: "<3 years"
+                    label: Less than 3 years
+                  - value: "3-5 years"
+                    label: 3 to 5 years
+                  - value: "5-10 years"
+                    label: 5 to 10 years
+                  - value: "10+ years"
+                    label: More than 10 years
+                progress: 1/8
+
+  /api/risk-profile/{session_id}/answer:
+    post:
+      tags: [portfolio_builder]
+      operationId: risk_profile_answer
+      summary: Submit an answer and advance the questionnaire
+      description: |
+        Submits an answer for the current question and returns the next question.
+        When all questions are answered, returns the computed risk profile instead.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: rp_abc123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_id, value]
+              properties:
+                question_id:
+                  type: string
+                value:
+                  type: string
+            example:
+              question_id: q1_investment_horizon
+              value: "10+ years"
+      responses:
+        "200":
+          description: Next question, or final risk profile when complete
+          content:
+            application/json:
+              example:
+                type: next_question
+                session_id: rp_abc123
+                question_id: q2_loss_tolerance
+                question: If your portfolio dropped 20% in a month, what would you do?
+                options:
+                  - value: sell_all
+                    label: Sell everything immediately
+                  - value: sell_some
+                    label: Sell some to reduce risk
+                  - value: hold
+                    label: Hold and wait for recovery
+                  - value: buy_more
+                    label: Buy more at lower prices
+                progress: 2/8
+
+  # ── Export ─────────────────────────────────────────────────────────────────
+
+  /api/portfolio/holdings/export:
+    get:
+      tags: [portfolio_export]
+      operationId: holdings_export
+      summary: Export holdings as CSV or XLSX
+      description: |
+        Downloads the user's portfolio holdings as a file.
+        Includes holding name, ISIN, asset type, quantity, buy price, current price,
+        gain/loss %, and weight %.
+
+        Pass `format=xlsx` for Excel format with formatted columns.
+      parameters:
+        - $ref: '#/components/parameters/format_query'
+      responses:
+        "200":
+          description: File download
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                Name,ISIN,Asset Type,Quantity,Buy Price,Current Price,Gain %,Weight %
+                Parag Parikh Flexi Cap Fund,INF769K01EW6,mutual_fund,500.123,58.40,72.45,24.1%,43.0%
+                Infosys Ltd,INE009A01021,equity,50,1420.00,1780.00,25.4%,10.6%
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  # ── Exposure / Concentration ────────────────────────────────────────────────
+
+  /api/portfolio/exposure/concentration:
+    get:
+      tags: [portfolio_exposure]
+      operationId: exposure_concentration
+      summary: AMC, sector, and company concentration analytics
+      description: |
+        Returns the portfolio's concentration breakdown across three dimensions:
+        - **AMC** — how much is held with each fund house (HDFC, ICICI, etc.)
+        - **Sector** — aggregated sector weights (Financial Services, IT, etc.)
+        - **Company** — effective stock-level exposure via look-through
+
+        Concentration flags are raised when any single AMC or sector exceeds
+        the recommended cap (25% for sector, 25% for AMC).
+      responses:
+        "200":
+          description: Concentration breakdown with flags
+          content:
+            application/json:
+              example:
+                total_value_rs: 842000
+                holdings_count: 12
+                amc:
+                  HDFC AMC:
+                    value_rs: 242000
+                    pct: 28.7
+                    flag: overweight
+                  PPFAS Mutual Fund:
+                    value_rs: 180000
+                    pct: 21.4
+                  ICICI Pru AMC:
+                    value_rs: 140000
+                    pct: 16.6
+                sector:
+                  Financial Services:
+                    value_rs: 263000
+                    pct: 31.2
+                    flag: overweight
+                  Information Technology:
+                    value_rs: 157000
+                    pct: 18.7
+                  Consumer Goods:
+                    value_rs: 98000
+                    pct: 11.6
+                company:
+                  HDFC Bank:
+                    effective_exposure_pct: 7.8
+                    held_via: [HDFC Top 100, Mirae Asset Large Cap, Direct Equity]
+                  Infosys:
+                    effective_exposure_pct: 5.1
+                    held_via: [Parag Parikh Flexi Cap, Direct Equity]
+                flags:
+                  - type: amc_overweight
+                    name: HDFC AMC
+                    exposure_pct: 28.7
+                    limit_pct: 25.0
+                  - type: sector_overweight
+                    name: Financial Services
+                    exposure_pct: 31.2
+                    limit_pct: 25.0

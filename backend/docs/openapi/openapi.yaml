@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Nivesh App API — Full Reference
+  version: 2.0.0
+  description: |
+    # Nivesh App API
+
+    REST API for the Nivesh.ai application — portfolio management, goal planning,
+    AI copilot, broker integration, MFD workspace, and admin controls.
+
+    ## Authentication
+
+    All endpoints (except `/api/auth/*` and `/api/public/*`) require a session cookie
+    set by `POST /api/auth/google`.
+
+    Admin endpoints additionally require `is_admin: true` on the account.
+
+    ## Base URLs
+
+    | Environment | URL |
+    |-------------|-----|
+    | Production  | `https://niveshcopilot.com` |
+    | Staging     | `https://staging.niveshcopilot.com` |
+
+    ## Domain Modules
+
+    This API is split into focused domain files for easier navigation:
+
+    | File | Domain | Key Endpoints |
+    |------|--------|---------------|
+    | [login-onboarding.yaml](login-onboarding.yaml) | Auth & Onboarding | `/api/auth/*`, `/api/user/*`, `/api/gmail/*`, `/api/portfolio/upload*`, `/api/casparser/*`, `/api/portfolio/import-connect`, `/api/compliance/*` |
+    | [portfolio.yaml](portfolio.yaml) | Portfolio & Holdings | `/api/portfolios`, `/api/portfolio/holdings*`, `/api/portfolio/cas-*`, `/api/portfolio-builder/*`, `/api/portfolio/exposure/*` |
+    | [insights.yaml](insights.yaml) | Portfolio Insights | `/api/insights/*` |
+    | [intelligence.yaml](intelligence.yaml) | Intelligence Layer | `/api/intelligence/*`, `/api/intelligence/sector-peers/*`, `/admin/ai/circuit*` |
+    | [recommendation.yaml](recommendation.yaml) | Action Plans & Goals | `/api/plans/*`, `/api/goals/*`, `/api/scenarios/*` |
+    | [action-board.yaml](action-board.yaml) | Action Board | `/api/action-board/*`, quick signals, rebalance plans |
+    | [goals.yaml](goals.yaml) | Goal Planning | `/api/goals/*`, Monte Carlo simulation, financial snapshot |
+    | [equity-scoring.yaml](equity-scoring.yaml) | Equity V3 Scoring | `/api/portfolio/stock-scores`, `/api/portfolio/analytics`, `/api/portfolio/deep-analytics` |
+    | [mf-scoring.yaml](mf-scoring.yaml) | MF V3 Scoring | `/api/insights/v3-portfolio`, `/api/portfolio/fund-performance`, `/api/mf-data/*`, `/api/nav/refresh` |
+    | [advisor.yaml](advisor.yaml) | Advisor & MFD Workspace | `/api/mfd/*`, `/api/advisor/*` |
+    | [admin.yaml](admin.yaml) | Admin Controls | `/api/admin/*`, `/api/data-health/*` |
+
+    ## Common Patterns
+
+    ### Error responses
+    All error responses use the standard envelope:
+    ```json
+    { "detail": "Human-readable error message" }
+    ```
+
+    ### Pagination
+    List endpoints that support pagination accept `limit` and `skip` query params.
+
+    ### Caching
+    Some analytics endpoints (e.g. `fund-performance`) have 2-hour server-side caches.
+    Pass `force=true` as a query parameter to bypass the cache.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      $ref: './security/session.yaml#/SessionCookie'
+
+  schemas:
+    UserProfile:
+      $ref: './schemas/common.yaml#/components/schemas/UserProfile'
+    Portfolio:
+      $ref: './schemas/common.yaml#/components/schemas/Portfolio'
+    Holding:
+      $ref: './schemas/common.yaml#/components/schemas/Holding'
+    Plan:
+      $ref: './schemas/common.yaml#/components/schemas/Plan'
+    Goal:
+      $ref: './schemas/common.yaml#/components/schemas/Goal'
+    Error:
+      $ref: './schemas/common.yaml#/components/schemas/Error'
+    UploadTask:
+      $ref: './schemas/common.yaml#/components/schemas/UploadTask'
+    ScannerHealth:
+      $ref: './schemas/common.yaml#/components/schemas/ScannerHealth'
+
+# ── Domain file references ──────────────────────────────────────────────────
+# Each domain file is a standalone valid OpenAPI 3.1 spec that can be used
+# independently or imported into API clients.
+#
+# To load a specific domain in Swagger UI or Postman:
+#   https://staging.niveshcopilot.com/api/admin/openapi/app.yaml
+#
+# Individual domain files live at:
+#   /backend/docs/openapi/
+#   ├── login-onboarding.yaml   — Auth, user profile, Gmail, upload, compliance
+#   ├── portfolio.yaml          — Portfolios, holdings CRUD, CAS snapshots, builder, export
+#   ├── insights.yaml           — Portfolio health, V3 scoring, analysis
+#   ├── intelligence.yaml       — Look-through, overlap, fund V3 drill-down
+#   ├── recommendation.yaml     — Action plans, goals, scenarios
+#   ├── equity-scoring.yaml     — Equity V3 scores, analytics, deep-analytics
+#   ├── mf-scoring.yaml         — MF V3 scores, NAV, fund performance
+#   ├── advisor.yaml            — MFD multi-client workspace, client profiles, advisor analytics
+#   ├── admin.yaml              — Whitelist, feature flags, secrets, users, pipeline, NIDP
+#   ├── schemas/
+#   │   └── common.yaml         — Shared schemas (UserProfile, Portfolio, Holding, Plan, Goal, Error)
+#   └── security/
+#       └── session.yaml        — SessionCookie security scheme definition

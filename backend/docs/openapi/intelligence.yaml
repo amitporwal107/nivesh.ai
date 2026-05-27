@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: Nivesh — Intelligence API
+  version: 2.0.0
+  description: |
+    ## What this covers
+    Deep portfolio intelligence powered by NIDP look-through data.
+
+    | Endpoint | Purpose |
+    |----------|---------|
+    | `GET /api/intelligence/portfolio` | Full look-through: underlying stocks, overlap matrix, AI narrative |
+    | `POST /api/intelligence/simulate` | What-if: preview impact of removing one or more funds |
+    | `GET /api/intelligence/v3-score/{instrument_id}` | V3 score + all 38 primitives for a single fund |
+
+    ## Look-Through Explained
+    Mutual funds hold underlying stocks. Look-through "sees through" the fund wrappers
+    to give you the true underlying equity exposure of the entire portfolio.
+
+    Example: If you hold Mirae Asset Large Cap (25%) and HDFC Top 100 (25%), both
+    holding HDFC Bank at ~8%, your true HDFC Bank exposure is ~4% — look-through shows this.
+
+    ## What-If Simulation
+    Before selling a fund, use `/api/intelligence/simulate` to preview how metrics
+    like beta, sector concentration, and overlap score would change.
+
+servers:
+  - url: https://niveshcopilot.com
+    description: Production
+  - url: https://staging.niveshcopilot.com
+    description: Staging
+
+security:
+  - SessionCookie: []
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Session cookie set by `POST /api/auth/google`.
+
+  schemas:
+    StockOverlap:
+      type: object
+      properties:
+        fund_a:
+          type: string
+          example: Mirae Asset Large Cap Fund
+        fund_b:
+          type: string
+          example: HDFC Top 100 Fund
+        overlap_pct:
+          type: number
+          example: 68.4
+          description: Percentage of top-10 holdings shared between the two funds.
+        shared_stocks:
+          type: array
+          items:
+            type: string
+          example: [HDFC Bank, Infosys, ICICI Bank, Reliance Industries, TCS]
+
+    LookThroughStock:
+      type: object
+      properties:
+        isin:
+          type: string
+          example: INE040A01034
+        name:
+          type: string
+          example: HDFC Bank
+        sector:
+          type: string
+          example: Financial Services
+        effective_exposure_pct:
+          type: number
+          example: 4.2
+          description: Weighted exposure across all funds holding this stock.
+        held_by_funds:
+          type: array
+          items:
+            type: string
+          example: [Mirae Asset Large Cap, HDFC Top 100]
+
+paths:
+
+  /api/intelligence/portfolio:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_portfolio
+      summary: Full portfolio intelligence with look-through and stock overlap
+      description: |
+        The most comprehensive portfolio intelligence endpoint. Returns:
+
+        - **Look-through holdings**: Every underlying stock across all funds,
+          with effective weighted exposure percentages.
+        - **Overlap matrix**: Pairwise fund overlap scores (shared holdings %).
+          High overlap (>60%) means you're paying double fees for the same stocks.
+        - **Sector concentration**: Aggregated sector weights from look-through.
+        - **AI narrative**: (when `narrate=true`) A 3-5 sentence CIO-style summary
+          of key risks, concentrations, and diversification gaps.
+
+        This is a heavy endpoint (1-3 seconds). Cache aggressively on the client.
+      parameters:
+        - name: narrate
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Include AI narrative insights (~500ms additional latency).
+      responses:
+        "200":
+          description: Full portfolio intelligence report
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                generated_at: "2024-05-27T10:00:00Z"
+                look_through:
+                  total_stocks: 87
+                  effective_stocks: 34
+                  top_holdings:
+                    - isin: INE040A01034
+                      name: HDFC Bank
+                      sector: Financial Services
+                      effective_exposure_pct: 7.8
+                      held_by_funds: [Mirae Asset Large Cap, HDFC Top 100, Axis Bluechip]
+                    - isin: INE009A01021
+                      name: Infosys
+                      sector: Information Technology
+                      effective_exposure_pct: 5.1
+                      held_by_funds: [Mirae Asset Large Cap, Parag Parikh Flexi Cap]
+                sector_allocation:
+                  Financial Services: 31.2
+                  Information Technology: 18.7
+                  Consumer Goods: 12.4
+                  Healthcare: 8.9
+                  Energy: 7.6
+                overlap_matrix:
+                  - fund_a: Mirae Asset Large Cap Fund
+                    fund_b: HDFC Top 100 Fund
+                    overlap_pct: 68.4
+                    severity: high
+                    shared_stocks: [HDFC Bank, Infosys, ICICI Bank, Reliance, TCS]
+                  - fund_a: Mirae Asset Large Cap Fund
+                    fund_b: Parag Parikh Flexi Cap Fund
+                    overlap_pct: 22.1
+                    severity: low
+                    shared_stocks: [Infosys, HCL Technologies]
+                concentration_flags:
+                  - type: sector_overweight
+                    sector: Financial Services
+                    exposure_pct: 31.2
+                    recommended_max_pct: 25
+                    severity: warning
+                narrative: |
+                  Your portfolio has strong large-cap quality but significant concentration risk.
+                  Financial Services accounts for 31% of effective exposure — 6 percentage points
+                  above the recommended cap. Mirae Asset Large Cap and HDFC Top 100 share 68% of
+                  their top holdings, meaning you're effectively paying 1.9% combined expense ratio
+                  for near-identical exposure. Consider consolidating one large-cap fund and
+                  adding a mid-cap or international fund for breadth.
+
+  /api/intelligence/simulate:
+    post:
+      tags: [intelligence]
+      operationId: intelligence_simulate
+      summary: What-if removal simulation
+      description: |
+        Preview the impact of removing one or more mutual funds from the portfolio
+        **without actually making any changes**.
+
+        Returns recomputed metrics (overlap, concentration, sector weights, beta)
+        after the hypothetical removal, so the investor can evaluate the trade-off
+        before executing.
+
+        **Use case**: "What happens to my overlap and sector concentration if I
+        sell HDFC Top 100 Fund?"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [remove_mf_ids]
+              properties:
+                remove_mf_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: List of instrument IDs (ISINs or Nivesh holding IDs) to remove.
+            example:
+              remove_mf_ids:
+                - INF200K01RJ3
+      responses:
+        "200":
+          description: Recomputed portfolio metrics after hypothetical removal
+          content:
+            application/json:
+              example:
+                simulation_type: fund_removal
+                removed_funds:
+                  - instrument_id: INF200K01RJ3
+                    name: HDFC Top 100 Fund
+                    weight_pct: 20.0
+                before:
+                  portfolio_beta: 0.92
+                  max_overlap_pct: 68.4
+                  financial_sector_pct: 31.2
+                  effective_stocks: 34
+                  health_score: 67
+                after:
+                  portfolio_beta: 0.88
+                  max_overlap_pct: 22.1
+                  financial_sector_pct: 27.4
+                  effective_stocks: 29
+                  health_score: 74
+                delta:
+                  beta: -0.04
+                  max_overlap_pct: -46.3
+                  financial_sector_pct: -3.8
+                  health_score: +7
+                recommendation: |
+                  Removing HDFC Top 100 reduces the large-cap overlap significantly
+                  and improves your health score by 7 points. Consider redeploying
+                  the ₹1.68L into a mid-cap or international fund to maintain growth exposure.
+
+  /api/intelligence/v3-score/{instrument_id}:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_v3_score
+      summary: Get V3 score and all primitives for a fund
+      description: |
+        Returns the full V3 scoring breakdown for a single mutual fund or equity.
+
+        V3 scores are computed across **38 primitives** grouped into 6 composite dimensions:
+
+        | Composite | Primitives |
+        |-----------|-----------|
+        | Returns | XIRR 1Y/3Y/5Y, alpha, rolling returns |
+        | Risk | Beta, Sharpe, Sortino, max drawdown, VaR |
+        | Cost | Expense ratio vs category peers, TER trend |
+        | Consistency | Category rank stability, information ratio |
+        | Portfolio Fit | Overlap with existing portfolio, sector balance |
+        | ESG Proxy | ESG score, controversy flag |
+
+        Set `refresh=true` to re-fetch live data from NIDP before scoring
+        (~2-3 additional seconds).
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ISIN or Nivesh instrument ID (e.g. `INF200K01RJ3`)
+          example: INF769K01EW6
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Force-refresh underlying data from NIDP before scoring.
+      responses:
+        "200":
+          description: V3 score with primitive breakdown
+          content:
+            application/json:
+              example:
+                instrument_id: INF769K01EW6
+                name: Parag Parikh Flexi Cap Fund
+                isin: INF769K01EW6
+                category: Flexi Cap
+                amc: PPFAS Mutual Fund
+                v3_score: 88.5
+                coverage_pct: 97.2
+                grade: A
+                composites:
+                  returns:
+                    score: 91.0
+                    primitives:
+                      xirr_1y: 24.3
+                      xirr_3y: 19.8
+                      xirr_5y: 22.1
+                      alpha_3y: 5.2
+                      category_rank_1y: 3
+                  risk:
+                    score: 82.0
+                    primitives:
+                      beta: 0.78
+                      sharpe_3y: 1.42
+                      sortino_3y: 1.89
+                      max_drawdown_pct: -18.4
+                      var_95_pct: -2.1
+                  cost:
+                    score: 95.0
+                    primitives:
+                      expense_ratio_pct: 0.59
+                      category_avg_er_pct: 1.12
+                      er_percentile: 95
+                  consistency:
+                    score: 88.0
+                    primitives:
+                      category_rank_stability_3y: 89.0
+                      information_ratio: 0.72
+                  portfolio_fit:
+                    score: 84.0
+                    primitives:
+                      overlap_with_portfolio_pct: 18.2
+                      sector_balance_score: 76.0
+                  esg_proxy:
+                    score: 78.0
+                    primitives:
+                      esg_score: 72.0
+                      controversy_flag: false
+                generated_at: "2024-05-27T10:00:00Z"
+        "404":
+          description: Instrument not found
+          content:
+            application/json:
+              example:
+                detail: Instrument INF999X01ABC not found in NIDP
+
+  /api/intelligence/v3-score/{instrument_id}/refresh-analytics:
+    post:
+      tags: [intelligence]
+      operationId: intelligence_v3_score_refresh
+      summary: Force-recompute analytics for a fund (admin)
+      description: |
+        Triggers a full data refresh from NIDP and recomputes all 38 V3 primitives
+        for the specified fund. Clears the Redis cache entry.
+
+        Used in the admin console after a scoring engine update or when scores
+        appear stale despite the nightly rescore.
+      parameters:
+        - name: instrument_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: INF769K01EW6
+      responses:
+        "200":
+          description: Analytics refreshed
+          content:
+            application/json:
+              example:
+                status: ok
+                instrument_id: INF769K01EW6
+                v3_score: 88.5
+                cache_cleared: true
+                refreshed_at: "2024-05-27T10:05:00Z"
+
+  /api/intelligence/sector-peers/{symbol}:
+    get:
+      tags: [intelligence]
+      operationId: intelligence_sector_peers
+      summary: List V3-ranked peers in the same sector as a stock
+      description: |
+        Returns a ranked list of equity instruments in the same sector as the
+        given stock symbol, ordered by V3 score descending.
+
+        Used to surface alternatives when an equity holding underperforms its peers.
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+          description: NSE ticker symbol (e.g. `HDFCBANK`)
+          example: HDFCBANK
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: Number of peers to return.
+      responses:
+        "200":
+          description: Sector peers ranked by V3 score
+          content:
+            application/json:
+              example:
+                symbol: HDFCBANK
+                sector: Financial Services
+                sector_v3_score_avg: 68.2
+                peers:
+                  - symbol: ICICIBANK
+                    name: ICICI Bank Ltd
+                    v3_score: 84.1
+                    grade: A
+                    rank: 1
+                  - symbol: KOTAKBANK
+                    name: Kotak Mahindra Bank Ltd
+                    v3_score: 79.4
+                    grade: B
+                    rank: 2
+                  - symbol: HDFCBANK
+                    name: HDFC Bank Ltd
+                    v3_score: 76.8
+                    grade: B
+                    rank: 3
+                    is_current: true
+
+  /api/admin/intelligence/portfolio/{user_id}:
+    get:
+      tags: [intelligence, admin]
+      operationId: intelligence_portfolio_admin
+      summary: Full portfolio intelligence for a specific user (admin)
+      description: |
+        Admin variant of `GET /api/intelligence/portfolio`. Returns the full
+        look-through intelligence report for any user, identified by `user_id`.
+
+        Useful for debugging advisor/client portfolio issues in the admin console.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: usr_9f3a2c
+        - name: narrate
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include AI narrative (slower).
+      responses:
+        "200":
+          description: Full portfolio intelligence report (same shape as user-facing endpoint)
+          content:
+            application/json:
+              example:
+                portfolio_id: pf_7d4e1a
+                user_id: usr_9f3a2c
+                generated_at: "2024-05-27T10:00:00Z"
+                look_through:
+                  total_stocks: 87
+                  effective_stocks: 34
+                overlap_matrix: []
+        "403":
+          description: Admin only
+
+  /admin/ai/circuit:
+    get:
+      tags: [intelligence, admin]
+      operationId: ai_circuit_status
+      summary: Check LLM circuit breaker state (admin)
+      description: |
+        Returns the current state of the LLM circuit breaker used by the
+        intelligence narrative generator and AI rating endpoints.
+
+        | State | Meaning |
+        |-------|---------|
+        | `closed` | Normal — LLM calls go through |
+        | `open` | Circuit tripped — LLM calls are blocked (too many failures) |
+        | `half_open` | Recovery probe — one call allowed to test if LLM is back |
+
+        The circuit opens after 5 consecutive LLM failures and resets after
+        60 seconds.
+      responses:
+        "200":
+          description: Circuit breaker state
+          content:
+            application/json:
+              example:
+                state: closed
+                failure_count: 0
+                last_failure_at: null
+                next_probe_at: null
+
+  /admin/ai/circuit/reset:
+    post:
+      tags: [intelligence, admin]
+      operationId: ai_circuit_reset
+      summary: Force-reset the LLM circuit breaker (admin)
+      description: |
+        Manually resets the circuit breaker to `closed` state regardless of
+        failure count. Use after fixing an upstream LLM outage or rate-limit issue.
+      responses:
+        "200":
+          description: Circuit breaker reset
+          content:
+            application/json:
+              example:
+                status: ok
+                state: closed
+                message: Circuit breaker reset to closed state.
+        "403":
+          description: Admin only

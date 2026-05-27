@@ -6,6 +6,8 @@ import logging
 
 from deps import db, get_current_user
 from models import PortfolioCreate, HoldingCreate, HoldingUpdate
+from core.exceptions import ResourceNotFoundException, ValidationException, SystemException
+from core.dto import clean, clean_list
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -14,7 +16,7 @@ router = APIRouter(prefix="/api")
 @router.get("/portfolios")
 async def list_portfolios(request: Request):
     user = await get_current_user(request)
-    portfolios = await db.portfolios.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(50)
+    portfolios = clean_list(await db.portfolios.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(50))
     for p in portfolios:
         count = await db.holdings.count_documents({"user_id": user["user_id"], "portfolio_id": p["portfolio_id"]})
         p["holdings_count"] = count
@@ -34,7 +36,7 @@ async def create_portfolio(request: Request, data: PortfolioCreate):
     }
     await db.portfolios.insert_one(doc)
     result = await db.portfolios.find_one({"portfolio_id": doc["portfolio_id"]}, {"_id": 0})
-    return result
+    return clean(result)
 
 
 @router.delete("/portfolios/{portfolio_id}")
@@ -42,7 +44,7 @@ async def delete_portfolio(request: Request, portfolio_id: str):
     user = await get_current_user(request)
     result = await db.portfolios.delete_one({"portfolio_id": portfolio_id, "user_id": user["user_id"]})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
+        raise ResourceNotFoundException("Portfolio not found", code="RES-002")
     deleted = await db.holdings.delete_many({"user_id": user["user_id"], "portfolio_id": portfolio_id})
     return {"message": f"Portfolio deleted with {deleted.deleted_count} holdings"}
 
@@ -140,9 +142,9 @@ async def get_enriched_holdings(request: Request, fresh: bool = False):
             }
         except Exception as inner:  # noqa: BLE001
             logger.exception("holdings-enriched fallback also failed: %s", inner)
-            raise HTTPException(
-                status_code=500,
-                detail="Portfolio enrichment temporarily unavailable. Try ?fresh=true.",
+            raise SystemException(
+                "Portfolio enrichment temporarily unavailable. Try ?fresh=true.",
+                code="SYS-001",
             )
 
 
@@ -191,7 +193,7 @@ async def switch_candidates(request: Request, holding_id: str, limit: int = 3):
         {"holding_id": holding_id, "user_id": user["user_id"]}, {"_id": 0},
     )
     if not holding:
-        raise HTTPException(status_code=404, detail="Holding not found")
+        raise ResourceNotFoundException("Holding not found", code="RES-003")
 
     from services import pg_client
     from services import portfolio_enrichment as _pe
@@ -342,6 +344,12 @@ async def get_holdings(request: Request, portfolio_id: str = "", asset_type: str
 @router.post("/portfolio/holdings")
 async def add_holding(request: Request, holding: HoldingCreate):
     user = await get_current_user(request)
+    if holding.portfolio_id:
+        pf = await db.portfolios.find_one(
+            {"portfolio_id": holding.portfolio_id, "user_id": user["user_id"]}
+        )
+        if not pf:
+            raise ResourceNotFoundException("Portfolio not found", code="RES-002")
     holding_doc = {
         "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
         "user_id": user["user_id"],
@@ -358,7 +366,7 @@ async def add_holding(request: Request, holding: HoldingCreate):
     }
     await db.holdings.insert_one(holding_doc)
     result = await db.holdings.find_one({"holding_id": holding_doc["holding_id"]}, {"_id": 0})
-    return result
+    return clean(result)
 
 
 @router.put("/portfolio/holdings/{holding_id}")
@@ -368,14 +376,14 @@ async def update_holding(request: Request, holding_id: str, holding: HoldingUpda
     # Without exclude_unset we couldn't distinguish "not passed" from "passed as null".
     update_data = holding.model_dump(exclude_unset=True)
     if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
+        raise ValidationException("No fields to update", code="VAL-001")
     await db.holdings.update_one(
         {"holding_id": holding_id, "user_id": user["user_id"]},
         {"$set": update_data}
     )
     result = await db.holdings.find_one({"holding_id": holding_id}, {"_id": 0})
     if not result:
-        raise HTTPException(status_code=404, detail="Holding not found")
+        raise ResourceNotFoundException("Holding not found", code="RES-003")
     return result
 
 
@@ -384,7 +392,7 @@ async def delete_holding(request: Request, holding_id: str):
     user = await get_current_user(request)
     result = await db.holdings.delete_one({"holding_id": holding_id, "user_id": user["user_id"]})
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Holding not found")
+        raise ResourceNotFoundException("Holding not found", code="RES-003")
     return {"message": "Holding deleted"}
 
 
