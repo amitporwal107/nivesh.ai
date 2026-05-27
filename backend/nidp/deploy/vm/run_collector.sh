@@ -19,10 +19,11 @@ NIDP_HOME="${NIDP_HOME:-/opt/nidp}"
 PYTHON="${PYTHON:-$NIDP_HOME/venv/bin/python}"
 SCRIPT="${SCRIPT:-/opt/nidp/repo/backend/nidp/deploy/vm/container_health_collector.py}"
 
-# Source the env file for NIDP_POSTGRES_URL and friends
+# Source the env file for NIDP_POSTGRES_URL and friends (best-effort;
+# falls back to collector's built-in default if file is unreadable).
 # shellcheck disable=SC1091
 set -a
-source "$NIDP_HOME/nidp.env"
+source "$NIDP_HOME/nidp.env" 2>/dev/null || true
 set +a
 
 exec "$PYTHON" "$SCRIPT"
