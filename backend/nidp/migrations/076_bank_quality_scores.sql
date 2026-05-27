@@ -68,3 +68,7 @@ COMMENT ON TABLE nidp.bank_metrics_daily IS
     'Intermediate bank-specific metrics extracted from nse_financials_quarterly.raw_data';
 COMMENT ON TABLE nidp.bank_quality_scores_daily IS
     'Bank-specific 5-pillar quality scores; asset_quality_score is null where GNPA is unavailable';
+
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('076_bank_quality_scores.sql')
+ON CONFLICT (filename) DO NOTHING;

@@ -22,6 +22,11 @@
 --   The Parquet files on MinIO are the only copy for dropped date ranges.
 --   Keep raw_archive_files rows (they point to MinIO objects) so replay still works.
 
+-- No-op: retention policies are deliberately inactive until parquet
+-- export is confirmed live. This statement exists only so asyncpg's
+-- conn.execute() gets a valid SQL result.
+SELECT 1;
+
 -- ============================================================
 -- UNCOMMENT BELOW ONLY AFTER PARQUET EXPORT IS CONFIRMED LIVE
 -- ============================================================
@@ -62,3 +67,7 @@ SELECT add_retention_policy(
 
 -- Verify policies after activation:
 -- SELECT * FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention';
+
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('075_parquet_retention_policies.sql')
+ON CONFLICT (filename) DO NOTHING;
