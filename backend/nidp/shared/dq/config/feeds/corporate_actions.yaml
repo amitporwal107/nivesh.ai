@@ -1,0 +1,24 @@
+feed:
+  name: corporate_actions
+  table: nidp.corporate_actions
+  owner: nidp-platform
+
+sla:
+  freshness:
+    warn_secs: 86400   # 24 h
+    error_secs: 172800 # 48 h
+    trading_days_only: false  # corp actions run on any day
+  completeness:
+    min_rows: 0  # 0 rows valid on quiet days — only freshness checked
+
+severity_overrides:
+  ex_date_before_announcement: P0
+  ratio_format_invalid: P1
+
+gates:
+  enabled_at: [gate1, gate2, gate3, gate7]
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only

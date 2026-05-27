@@ -64,13 +64,18 @@ if _AVAILABLE:
         "Kafka publish attempts by status",
         ["topic", "status"],
     )
+    GATE_VERDICTS = Counter(
+        "nidp_dq_gate_verdicts_total",
+        "DQ gate verdicts by gate, feed, and verdict",
+        ["gate", "feed", "verdict"],
+    )
 else:
     class _NoOp:
         def labels(self, *_, **__): return self
         def inc(self, *_, **__): pass
         def observe(self, *_, **__): pass
     INGESTER_RUNS = INGESTER_DURATION = INGESTER_ROWS = _NoOp()
-    SOURCE_FETCH = SOURCE_FETCH_DURATION = KAFKA_PUBLISH = _NoOp()
+    SOURCE_FETCH = SOURCE_FETCH_DURATION = KAFKA_PUBLISH = GATE_VERDICTS = _NoOp()
 
 
 @contextmanager

@@ -1,0 +1,32 @@
+feed:
+  name: mf_nav_daily
+  table: nidp.mf_nav_daily
+  owner: nidp-platform
+
+sla:
+  freshness:
+    expected_arrival: "23:00 IST"
+    grace_period_minutes: 60
+    trading_days_only: true
+    warn_secs: 86400   # 24 h
+    error_secs: 172800 # 48 h
+  completeness:
+    min_rows: 4500
+    band_from_history_days: 30
+    band_tolerance_pct: 2.0
+
+severity_overrides:
+  scheme_count_drop: P0
+  nav_change_band: P0
+  duplicate_scheme_date: P0
+
+gates:
+  enabled_at: [gate1, gate2, gate3, gate4, gate7]
+
+dependencies:
+  scheme_ref: nidp.mf_scheme_master
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only

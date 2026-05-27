@@ -1,0 +1,33 @@
+feed:
+  name: bhavcopy
+  table: nidp.bhavcopy
+  owner: nidp-platform
+
+sla:
+  freshness:
+    expected_arrival: "17:45 IST"
+    grace_period_minutes: 30
+    trading_days_only: true
+    warn_secs: 7200    # 2 h
+    error_secs: 14400  # 4 h
+  completeness:
+    min_rows: 1800
+    max_rows: 2200
+    band_from_history_days: 30
+    band_tolerance_pct: 2.0
+
+severity_overrides:
+  ohlc_sanity: P0
+  zero_volume_rate: P2
+  cardinality_drift: P1
+
+gates:
+  enabled_at: [gate1, gate2, gate3, gate7]
+
+dependencies:
+  symbol_master: ref.sector_master
+
+notifications:
+  p0_channel: pagerduty:nidp-oncall
+  p1_channel: "slack:#nidp-dq"
+  p2_channel: log_only
