@@ -1,9 +1,15 @@
 /**
- * Analytics adapter — concentration, diversification, risk.
+ * Analytics adapter — concentration, diversification (overlap), risk.
  *
- *   GET /api/portfolio/exposure/concentration
- *   GET /api/dashboards/diversification   → correlation matrix + overlap pairs
- *   GET /api/dashboards/risk              → VaR, vol, drawdown, stress scenarios
+ * Endpoint availability per integration docs (2026-05-28):
+ *   GET /api/portfolio/exposure/concentration    → LIVE
+ *   GET /api/intelligence/portfolio?narrate=true → LIVE (overlap_matrix field used for overlap())
+ *   /api/dashboards/diversification              → NOT YET (correlation stays mock-only)
+ *   /api/dashboards/risk                         → NOT YET (risk stays mock-only)
+ *
+ * `correlation()` and `risk()` on the real adapter return graceful empty stubs
+ * so the UI degrades rather than throwing. The mock adapter still provides
+ * plausible data for local dev / staging.
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -14,8 +20,17 @@ import type { RiskSnapshot } from "@/types/risk";
 
 export interface AnalyticsAdapter {
   concentration(): Promise<ConcentrationSnapshot>;
-  correlation(): Promise<CorrelationMatrix>;
+  /** Fund-pair overlap % — real data from /api/intelligence/portfolio. */
   overlap(): Promise<FundOverlapPair[]>;
+  /**
+   * Stock-level ρ matrix — no backend endpoint yet; real adapter returns
+   * an empty stub derived from overlap pairs. Mock returns plausible data.
+   */
+  correlation(): Promise<CorrelationMatrix>;
+  /**
+   * VaR / drawdown / beta — no backend endpoint yet; real adapter returns
+   * empty stub. Mock returns plausible data.
+   */
   risk(): Promise<RiskSnapshot>;
 }
 
@@ -27,42 +42,48 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
     return mapConcentration(parsed.data);
   },
 
-  async correlation() {
-    const res = await http({ path: "/api/dashboards/diversification" });
-    const bd = (res.data as { breakdown?: unknown }).breakdown ?? {};
-    return mapCorrelation(bd as Record<string, unknown>);
-  },
-
+  /**
+   * Real source: GET /api/intelligence/portfolio → overlap_matrix
+   * The field gives fund-to-fund overlap based on shared top-10 holdings.
+   */
   async overlap() {
-    const res = await http({ path: "/api/dashboards/diversification" });
-    const bd = (res.data as { breakdown?: unknown }).breakdown ?? {};
-    return mapOverlap((bd as Record<string, unknown>).overlap);
+    const res = await http({ path: "/api/intelligence/portfolio", query: { narrate: true } });
+    const body = res.data as { overlap_matrix?: unknown };
+    return mapOverlap(body.overlap_matrix);
   },
 
-  async risk() {
-    const res = await http({ path: "/api/dashboards/risk" });
-    const bd = (res.data as { breakdown?: unknown }).breakdown ?? {};
-    return mapRisk(bd as Record<string, unknown>);
+  /**
+   * No backend endpoint yet — return a minimal stub so the UI renders
+   * with empty tickers/matrix rather than crashing. KPIs show 0.
+   */
+  async correlation(): Promise<CorrelationMatrix> {
+    return {
+      tickers: [],
+      values: [],
+      hotPairs: [],
+      avgCrossCorrelation: 0,
+      effectiveN: 0,
+      redundantPairs: 0,
+    };
+  },
+
+  /**
+   * No backend endpoint yet — return a zeroed stub. The Risk page renders
+   * "N/A" states gracefully when values are 0.
+   */
+  async risk(): Promise<RiskSnapshot> {
+    return {
+      vaR95Pct: 0,
+      vaR95Paise: 0,
+      annualVolPct: 0,
+      benchmarkVolPct: 0,
+      maxDrawdownPct: 0,
+      beta: 0,
+      riskDrivers: [],
+      stressScenarios: [],
+    };
   },
 };
-
-function mapCorrelation(bd: Record<string, unknown>): CorrelationMatrix {
-  const raw = (bd.correlation ?? {}) as Record<string, unknown>;
-  const tickers = Array.isArray(raw.tickers) ? raw.tickers as string[] : [];
-  const values = Array.isArray(raw.values) ? raw.values as number[][] : [];
-  const hotPairs = Array.isArray(raw.hot_pairs)
-    ? (raw.hot_pairs as Array<Record<string, unknown>>).map((p) => ({ a: String(p.a ?? ""), b: String(p.b ?? ""), rho: Number(p.rho ?? 0) }))
-    : [];
-  return {
-    tickers,
-    values,
-    hotPairs,
-    avgCrossCorrelation: Number(raw.avg_cross_correlation ?? 0),
-    effectiveN: Number(raw.effective_n ?? tickers.length),
-    redundantPairs: Number(raw.redundant_pairs ?? 0),
-    overlapWasteRs: bd.overlap_waste_rs != null ? Number(bd.overlap_waste_rs) : undefined,
-  };
-}
 
 function mapOverlap(raw: unknown): FundOverlapPair[] {
   if (!Array.isArray(raw)) return [];
@@ -70,32 +91,10 @@ function mapOverlap(raw: unknown): FundOverlapPair[] {
     fundA: String(p.fund_a ?? p.fundA ?? ""),
     fundB: String(p.fund_b ?? p.fundB ?? ""),
     overlapPct: Number(p.overlap_pct ?? p.overlapPct ?? 0),
-    status: (["redundant", "related", "diversifying"].includes(String(p.status)) ? p.status : "diversifying") as FundOverlapPair["status"],
+    status: (["redundant", "related", "diversifying"].includes(String(p.status))
+      ? p.status
+      : "diversifying") as FundOverlapPair["status"],
   }));
-}
-
-function mapRisk(bd: Record<string, unknown>): RiskSnapshot {
-  const drivers = Array.isArray(bd.risk_drivers)
-    ? (bd.risk_drivers as Array<Record<string, unknown>>).map((d) => ({ name: String(d.name ?? ""), sharePct: Number(d.share_pct ?? 0) }))
-    : [];
-  const stress = Array.isArray(bd.stress_scenarios)
-    ? (bd.stress_scenarios as Array<Record<string, unknown>>).map((s) => ({
-        name: String(s.name ?? ""),
-        portfolioPct: Number(s.portfolio_pct ?? 0),
-        benchPct: Number(s.bench_pct ?? 0),
-        recovery: String(s.recovery ?? ""),
-      }))
-    : [];
-  return {
-    vaR95Pct: Number(bd.var_95_pct ?? 0),
-    vaR95Paise: Number(bd.var_95_rs ?? 0) * 100,
-    annualVolPct: Number(bd.annual_vol_pct ?? 0),
-    benchmarkVolPct: Number(bd.benchmark_vol_pct ?? 0),
-    maxDrawdownPct: Number(bd.max_drawdown_pct ?? 0),
-    beta: Number(bd.beta ?? 1),
-    riskDrivers: drivers,
-    stressScenarios: stress,
-  };
 }
 
 /**
