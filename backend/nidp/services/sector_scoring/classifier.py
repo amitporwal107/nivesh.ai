@@ -62,7 +62,12 @@ _SECTOR_MAP: list[tuple[str, str]] = [
     ("defence",           CAPGOODS),
     ("aerospace",         CAPGOODS),
 
-    # Cyclicals
+    # FMCG / Consumer (check before generic "consumer" matches)
+    ("consumer durable",   FMCG),
+    ("consumer electronic", FMCG),
+
+    # Cyclicals — more specific keywords FIRST (before shorter substrings)
+    ("construction material", CYCLICAL),  # before "construction" → CAPGOODS
     ("metal",             CYCLICAL),
     ("mining",            CYCLICAL),
     ("cement",            CYCLICAL),
@@ -70,13 +75,18 @@ _SECTOR_MAP: list[tuple[str, str]] = [
     ("auto",              CYCLICAL),
     ("chemical",          CYCLICAL),
     ("real estate",       CYCLICAL),
-    ("construction material", CYCLICAL),
     ("oil",               CYCLICAL),
     ("gas",               CYCLICAL),
     ("power",             CYCLICAL),
     ("steel",             CYCLICAL),
     ("aluminium",         CYCLICAL),
     ("realty",            CYCLICAL),
+    ("textile",           CYCLICAL),
+    ("paper",             CYCLICAL),
+    ("plastic",           CYCLICAL),
+
+    # Capital Goods / Infrastructure — "construction" after "construction material"
+    ("construction",      CAPGOODS),
 ]
 
 
