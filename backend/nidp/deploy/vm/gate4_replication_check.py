@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gate 4 — Replication Integrity Check.
 
-Runs as a cron job on nivesh-app-vm every minute.  Probes:
+Runs as a cron job on nidp-stack-vm every minute.  Probes:
 
   G4-CONT-001  WAL replay_lag < 30 seconds on all standbys          (P0)
   G4-CONT-002  Standby is in recovery mode (pg_is_in_recovery=true)  (P0)
@@ -22,9 +22,9 @@ Exit codes:
   1 — at least one P0 failure
   2 — cannot connect to primary or standby
 
-Crontab (on nivesh-app-vm):
-  * * * * *    /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4/gate4.log 2>&1
-  0 1  * * *   /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4/gate4_daily.log 2>&1
+Crontab (on nidp-stack-vm — same host as primary + standby containers):
+  * * * * *    /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4/gate4.log 2>&1
+  0 1  * * *   /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4/gate4_daily.log 2>&1
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ logger = logging.getLogger("gate4")
 
 PRIMARY_DSN  = os.environ.get(
     "NIDP_PG_PRIMARY_DSN",
-    "postgresql://nidp:nidp@10.160.0.3:5433/nidp",
+    "postgresql://nidp:nidp@localhost:5433/nidp",
 )
 STANDBY_DSN  = os.environ.get(
     "NIDP_PG_STANDBY_DSN",
