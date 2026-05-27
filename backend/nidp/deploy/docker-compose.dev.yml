@@ -60,7 +60,11 @@ services:
       - --smp=1
       - --memory=512M
       - --reserve-memory=0M
-      - --overprovisioned
+      # --overprovisioned removed: it enables enterprise-only
+      # partition_auto_balancing_continuous + core_balancing_continuous.
+      # Use --unsafe-bypass-fsync instead for the same dev-perf benefit
+      # while staying on Community Edition (no license required).
+      - --unsafe-bypass-fsync
       - --node-id=0
       - --check=false
       # Two listeners: PLAINTEXT (intra-docker) on 29092; PLAINTEXT_HOST
@@ -74,6 +78,8 @@ services:
     ports:
       - "9092:9092"
       - "9644:9644"
+    volumes:
+      - nidp-redpanda-data:/var/lib/redpanda/data
     healthcheck:
       test: ["CMD", "rpk", "cluster", "info"]
       interval: 10s
@@ -190,6 +196,7 @@ volumes:
   nidp-prom-data:
   nidp-grafana-data:
   nidp-loki-data:
+  nidp-redpanda-data:
 
 # Default network is `nidp_default`; rename via `name:` in
 # top-level networks if running alongside other compose stacks.
