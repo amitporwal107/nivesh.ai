@@ -40,11 +40,11 @@ UPDATE nidp.mf_amc_source_registry SET
 WHERE amc_id = 'hdfc';
 
 UPDATE nidp.mf_amc_source_registry SET
-    ter_discovery_url       = 'https://mf.nipponindiaim.com/investor-service/downloads/factsheet-portfolio-and-other-disclosures',
+    ter_discovery_url       = 'https://mf.nipponindiaim.com/investor-services/downloads/total-expense-ratio-of-mutual-fund-schemes',
     portfolio_discovery_url = 'https://mf.nipponindiaim.com/investor-service/downloads/factsheet-portfolio-and-other-disclosures',
     extraction_strategy     = 'static_html',
     render_mode             = 'static',
-    regex_pattern           = '.*(portfolio|factsheet|expense|ter).*\.(pdf|xlsx)',
+    regex_pattern           = '.*(TotalExpenseRatio|expense.ratio|ter|portfolio).*\.(pdf|xlsx)',
     validation_strategy     = 'mime',
     tier                    = 'T1',
     updated_at              = NOW()
