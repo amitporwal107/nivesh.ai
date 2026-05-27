@@ -210,6 +210,13 @@ MF_AMC_TOP10: Final[tuple[str, ...]] = (
     "absl", "uti", "axis", "tata", "mirae",
 )
 
+# Tier-2 AMCs with working portfolio adapters (added 2026-05-27).
+# Included in nightly mf_holdings run alongside MF_AMC_TOP10.
+MF_AMC_TIER2: Final[tuple[str, ...]] = (
+    "quant",
+    "jm_financial",
+)
+
 # ── Per-ingester source-class metadata (mirrors schema seed) ────────
 SOURCE_REGISTRY: Final[list[dict]] = [
     # name, ingester, url-pattern, class, confidence, freq

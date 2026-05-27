@@ -17,7 +17,7 @@ from typing import Optional
 
 import aiohttp
 
-from nidp.shared.config import DEFAULT_UA, HTTP_TIMEOUT_S, MF_AMC_TOP10
+from nidp.shared.config import DEFAULT_UA, HTTP_TIMEOUT_S, MF_AMC_TOP10, MF_AMC_TIER2
 from nidp.shared.logging_setup import bind_context
 from nidp.shared.metrics import (
     INGESTER_ROWS, INGESTER_RUNS, time_ingester,
@@ -64,7 +64,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
                 from nidp.shared.archive import archive_raw
                 import json as _json
-                for amc_id in MF_AMC_TOP10:
+                for amc_id in (*MF_AMC_TOP10, *MF_AMC_TIER2):
                     fn = ADAPTERS.get(amc_id)
                     if fn is None:
                         adapters_missing += 1
@@ -119,7 +119,7 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
             #              silently saying "PARTIAL/PASSED" while writing 0 rows
             #              (the AMC-URL-rot loophole that hid mf_holdings being
             #              empty for weeks — see project_amc_scrapers_broken.md).
-            total_adapters = len(MF_AMC_TOP10)
+            total_adapters = len(MF_AMC_TOP10) + len(MF_AMC_TIER2)
             no_data = len(all_rows) == 0 or n == 0
             if no_data:
                 final = "FAILED"

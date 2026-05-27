@@ -733,17 +733,437 @@ async def mirae(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("mirae", http, m)
 
 
+# ── quant MF ─────────────────────────────────────────────────────────────────
+# ASP.NET WebMethod two-step API (discovered 2026-05-27 via Playwright XHR).
+#
+# Step 1: POST /statutorydisclosures.aspx/displaydisclouser1
+#           body: {"id": "<year>", "cat": "MONTHLY PORTFOLIO - FUND - WISE"}
+#           response: JSON {d: "<HTML with option tags>"} — month list
+#
+# Step 2: POST /statutorydisclosures.aspx/displaydisclouser2
+#           body: {"id": "<month_id>", "cat": "MONTHLY PORTFOLIO - FUND - WISE",
+#                  "tab": "<year>"}
+#           response: JSON {d: "<HTML with <a href=...xlsx> per fund>"} — file links
+#
+# Weight column "% to nav" is already a percentage (no ×100 needed).
+# Market-value column "market value(rs.in lakhs)" is in INR lakhs.
+
+_QUANT_BASE = "https://www.quantmutual.com"
+_QUANT_CAT  = "MONTHLY PORTFOLIO - FUND - WISE"
+_QUANT_HDRS = {
+    "Content-Type": "application/json; charset=UTF-8",
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": f"{_QUANT_BASE}/statutory-disclosures",
+}
+
+
+async def _quant_get_month_id(http: aiohttp.ClientSession, year: str) -> Optional[str]:
+    """Return the month_id for the latest available month for a given year."""
+    url = f"{_QUANT_BASE}/statutorydisclosures.aspx/displaydisclouser1"
+    import json as _json
+    payload = _json.dumps({"id": year, "cat": _QUANT_CAT})
+    try:
+        async with http.post(url, data=payload, headers=_QUANT_HDRS) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+            html = data.get("d", "")
+        soup = BeautifulSoup(html, "lxml")
+        options = soup.find_all("option")
+        # First option = most recent month; value is the month_id
+        return options[0]["value"] if options else None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[quant]: month lookup failed: %s", e)
+        return None
+
+
+async def _quant_get_xlsx_links(
+    http: aiohttp.ClientSession, month_id: str, year: str,
+) -> list[tuple[str, str]]:
+    """Return [(fund_name, absolute_xlsx_url), ...] for the given month."""
+    import json as _json
+    url = f"{_QUANT_BASE}/statutorydisclosures.aspx/displaydisclouser2"
+    payload = _json.dumps({"id": month_id, "cat": _QUANT_CAT, "tab": year})
+    try:
+        async with http.post(url, data=payload, headers=_QUANT_HDRS) as resp:
+            if resp.status != 200:
+                logger.warning("mf_holdings[quant]: displaydisclouser2 status=%d", resp.status)
+                return []
+            data = await resp.json(content_type=None)
+            html = data.get("d", "")
+        soup = BeautifulSoup(html, "lxml")
+        results = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            if not href.lower().endswith((".xlsx", ".xls")):
+                continue
+            if not href.startswith("http"):
+                href = _QUANT_BASE + ("" if href.startswith("/") else "/") + href
+            fund_name = a.get_text(strip=True)
+            results.append((fund_name, href))
+        return results
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[quant]: xlsx-link fetch failed: %s", e)
+        return []
+
+
+def _parse_quant_xlsx(data: bytes, fund_name: str, as_of_month: date, source_url: str) -> list[dict]:
+    """Parse a quant per-fund xlsx into holding rows."""
+    import io, openpyxl
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[quant]: openpyxl failed for %s: %s", fund_name, e)
+        return []
+
+    # Find header row (contains 'isin' or 'name of the instrument')
+    header_idx = None
+    for i, row in enumerate(rows):
+        cells = [str(c or "").lower().strip() for c in row]
+        if any("isin" in c or "name of the instrument" in c for c in cells):
+            header_idx = i
+            break
+    if header_idx is None:
+        return []
+
+    headers = [str(c or "").lower().strip() for c in rows[header_idx]]
+
+    def _col(*frags: str) -> Optional[int]:
+        for frag in frags:
+            for i, h in enumerate(headers):
+                if frag in h:
+                    return i
+        return None
+
+    col_isin   = _col("isin")
+    col_name   = _col("name of the instrument")
+    col_rating = _col("rating")
+    col_sector = _col("industry")
+    col_qty    = _col("quantity")
+    col_mv     = _col("market value")
+    col_wt     = _col("% to nav", "% to net")
+
+    if col_name is None:
+        return []
+
+    def _f(row: tuple, idx: Optional[int]) -> Optional[float]:
+        if idx is None or idx >= len(row):
+            return None
+        v = row[idx]
+        if v is None:
+            return None
+        try:
+            return float(str(v).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return None
+
+    month_str = as_of_month.strftime("%Y-%m-01")
+    result = []
+    for row in rows[header_idx + 1:]:
+        if not row or all(v is None for v in row):
+            continue
+        name = str(row[col_name] or "").strip() if col_name is not None else ""
+        if not name or name.lower() in ("total", "grand total", "sub total"):
+            continue
+        isin_raw = str(row[col_isin] or "").strip() if col_isin is not None else ""
+        isin = isin_raw if re.match(r"IN[A-Z0-9]{10}", isin_raw) else None
+        wt = _f(row, col_wt)
+        mv_lakh = _f(row, col_mv)
+        result.append({
+            "scheme_code":      fund_name,   # resolved later
+            "as_of_month":      month_str,
+            "security_isin":    isin,
+            "security_name":    name,
+            "instrument_type":  None,
+            "sector":           str(row[col_sector] or "").strip() if col_sector is not None else None,
+            "rating":           str(row[col_rating] or "").strip() if col_rating is not None else None,
+            "quantity":         _f(row, col_qty),
+            "market_value_inr": mv_lakh * 1e5 if mv_lakh is not None else None,
+            "weight_pct":       wt,
+            "source":           "QUANT_MF_PORTFOLIO_XLSX",
+            "source_url":       source_url,
+        })
+    return result
+
+
+async def quant(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    """quant MF portfolio adapter — ASP.NET WebMethod API."""
+    from nidp.shared.storage.pg import get_pool
+
+    year = str(m.year)
+    month_id = await _quant_get_month_id(http, year)
+    if not month_id:
+        logger.warning("mf_holdings[quant]: no month_id for year=%s", year)
+        return []
+
+    links = await _quant_get_xlsx_links(http, month_id, year)
+    if not links:
+        logger.warning("mf_holdings[quant]: no xlsx links for month_id=%s", month_id)
+        return []
+
+    logger.info("mf_holdings[quant]: %d fund xlsx links found", len(links))
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = 'quant'",
+        )
+
+    import re as _re
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower()
+        base = _re.split(r"\s*[-–(]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 8:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve(fund_name: str) -> list[str]:
+        nm = fund_name.lower().strip()
+        base = _re.split(r"\s*[-–(]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 8 and (n in base or base in n)
+                for c in codes][:1]
+
+    all_rows: list[dict] = []
+    for fund_name, xlsx_url in links:
+        try:
+            async with http.get(xlsx_url) as resp:
+                if resp.status != 200:
+                    logger.warning("mf_holdings[quant]: %s → status=%d", xlsx_url, resp.status)
+                    continue
+                data = await resp.read()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("mf_holdings[quant]: download failed %s: %s", xlsx_url, e)
+            continue
+
+        raw = _parse_quant_xlsx(data, fund_name, m, xlsx_url)
+        codes = _resolve(fund_name)
+        if not codes:
+            logger.warning("mf_holdings[quant]: unresolved fund name=%r", fund_name)
+            # Still include rows with the raw fund name so holdings aren't lost
+            all_rows.extend(raw)
+        else:
+            for code in codes:
+                all_rows.extend({**r, "scheme_code": code} for r in raw)
+
+    logger.info("mf_holdings[quant]: %d total holding rows from %d funds", len(all_rows), len(links))
+    return all_rows
+
+
+# ── JM Financial ─────────────────────────────────────────────────────────────
+# Static CMS path: discovered 2026-05-27.
+# Latest fortnightly files are listed on the AMC registry page; we discover
+# them by scanning the CMS index for xlsx links matching the as_of_month.
+# Headers: isin | name of instrument | rating/industry | quantity |
+#          market value (in rs. lakh) | % to net assets
+
+_JM_BASE       = "https://www.jmfinancialmf.com"
+_JM_CMS_PREFIX = "/CMS/downloads/Portfolio%20Disclosure/Fortnightly%20Portfolio%20of%20Schemes/"
+_JM_LISTING    = f"{_JM_BASE}/statutory-disclosure/portfolio-disclosure"
+
+
+async def _jm_discover_xlsx_links(
+    http: aiohttp.ClientSession, as_of_month: date,
+) -> list[str]:
+    """Scrape JM listing page for fortnightly xlsx links matching as_of_month."""
+    month_patterns = [
+        as_of_month.strftime("%B %Y").lower(),          # "april 2026"
+        as_of_month.strftime("%b %Y").lower(),           # "apr 2026"
+        as_of_month.strftime("%B,%Y").lower(),
+    ]
+    try:
+        async with http.get(_JM_LISTING) as resp:
+            if resp.status != 200:
+                return []
+            html = await resp.text(errors="replace")
+    except Exception:
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if not href.lower().endswith((".xlsx", ".xls")):
+            continue
+        text = (a.get_text() + href).lower()
+        if not any(p in text for p in month_patterns):
+            continue
+        if not href.startswith("http"):
+            href = _JM_BASE + ("" if href.startswith("/") else "/") + href
+        # Fix malformed URLs (missing slash between domain and CMS)
+        href = re.sub(r"(jmfinancialmf\.com)([A-Z/])", r"\1/\2", href)
+        links.append(href)
+    return links
+
+
+def _parse_jm_xlsx(data: bytes, as_of_month: date, source_url: str) -> list[dict]:
+    """Parse a JM Financial fortnightly xlsx into holding rows."""
+    import io, openpyxl
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_holdings[jm_financial]: openpyxl failed %s: %s", source_url, e)
+        return []
+
+    header_idx = None
+    for i, row in enumerate(rows):
+        cells = [str(c or "").lower() for c in row]
+        if any("isin" in c for c in cells):
+            header_idx = i
+            break
+    if header_idx is None:
+        return []
+
+    headers = [str(c or "").lower().strip() for c in rows[header_idx]]
+
+    def _col(*frags: str) -> Optional[int]:
+        for frag in frags:
+            for i, h in enumerate(headers):
+                if frag in h:
+                    return i
+        return None
+
+    col_isin   = _col("isin")
+    col_name   = _col("name of instrument", "name")
+    col_rating = _col("rating")
+    col_qty    = _col("quantity")
+    col_mv     = _col("market value")
+    col_wt     = _col("% to net", "% to nav")
+
+    if col_name is None:
+        return []
+
+    def _f(row: tuple, idx: Optional[int]) -> Optional[float]:
+        if idx is None or idx >= len(row):
+            return None
+        v = row[idx]
+        if v is None:
+            return None
+        try:
+            return float(str(v).replace(",", "").strip())
+        except (ValueError, TypeError):
+            return None
+
+    month_str = as_of_month.strftime("%Y-%m-01")
+    result = []
+    for row in rows[header_idx + 1:]:
+        if not row or all(v is None for v in row):
+            continue
+        name = str(row[col_name] or "").strip() if col_name is not None else ""
+        if not name or name.lower() in ("total", "grand total"):
+            continue
+        isin_raw = str(row[col_isin] or "").strip() if col_isin is not None else ""
+        isin = isin_raw if re.match(r"IN[A-Z0-9]{10}", isin_raw) else None
+        rating_sector = str(row[col_rating] or "").strip() if col_rating is not None else ""
+        mv_lakh = _f(row, col_mv)
+        result.append({
+            "scheme_code":      "",            # resolved by caller
+            "as_of_month":      month_str,
+            "security_isin":    isin,
+            "security_name":    name,
+            "instrument_type":  None,
+            "sector":           rating_sector or None,
+            "rating":           rating_sector or None,
+            "quantity":         _f(row, col_qty),
+            "market_value_inr": mv_lakh * 1e5 if mv_lakh is not None else None,
+            "weight_pct":       _f(row, col_wt),
+            "source":           "JM_FINANCIAL_MF_PORTFOLIO_XLSX",
+            "source_url":       source_url,
+        })
+    return result
+
+
+async def jm_financial(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    """JM Financial MF portfolio adapter — static CMS fortnightly xlsx files."""
+    from nidp.shared.storage.pg import get_pool
+
+    links = await _jm_discover_xlsx_links(http, m)
+    if not links:
+        # Fallback: try known CMS path pattern for end-of-month
+        month_name = m.strftime("%B")
+        day = m.strftime("%d").lstrip("0")
+        year = m.strftime("%Y")
+        candidates = [
+            f"{_JM_BASE}{_JM_CMS_PREFIX}Fortnightly%20Portfolio-%20JM%20Liquid%20Fund%20-%20{month_name}%20{day},%20{year}.xlsx",
+        ]
+        links = [u for u in candidates]
+        logger.info("mf_holdings[jm_financial]: listing discovery found 0 links; trying %d fallbacks", len(links))
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = 'jm_financial'",
+        )
+
+    import re as _re
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower()
+        base = _re.split(r"\s*[-–(]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 8:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_from_url(xlsx_url: str) -> list[str]:
+        """Extract fund name from URL path and resolve to scheme codes."""
+        from urllib.parse import unquote
+        fname = unquote(xlsx_url.split("/")[-1])
+        # "Fortnightly Portfolio- JM Short Duration Fund - May 15, 2026.xlsx"
+        m2 = re.search(r"JM\s+(.+?)\s*(?:-\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)|\d{4})", fname, re.IGNORECASE)
+        if not m2:
+            return []
+        fund_part = ("jm " + m2.group(1)).lower().strip().rstrip(" -")
+        base_key = _re.split(r"\s*[-–(]\s*", fund_part, maxsplit=1)[0].strip()
+        if base_key in base_to_codes:
+            return base_to_codes[base_key]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 8 and (n in fund_part or fund_part in n)
+                for c in codes][:1]
+
+    all_rows: list[dict] = []
+    for xlsx_url in links:
+        try:
+            async with http.get(xlsx_url) as resp:
+                if resp.status != 200:
+                    logger.warning("mf_holdings[jm_financial]: %s → status=%d", xlsx_url, resp.status)
+                    continue
+                data = await resp.read()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("mf_holdings[jm_financial]: download failed %s: %s", xlsx_url, e)
+            continue
+
+        raw = _parse_jm_xlsx(data, m, xlsx_url)
+        codes = _resolve_from_url(xlsx_url)
+        if not codes:
+            logger.warning("mf_holdings[jm_financial]: unresolved fund from url=%s", xlsx_url)
+            all_rows.extend(raw)
+        else:
+            for code in codes:
+                all_rows.extend({**r, "scheme_code": code} for r in raw)
+
+    logger.info("mf_holdings[jm_financial]: %d total holding rows", len(all_rows))
+    return all_rows
+
+
 ADAPTERS: dict[str, AdapterFn] = {
-    "sbi":       sbi,
-    "icici_pru": icici_pru,
-    "hdfc":      hdfc,
-    "nippon":    nippon,
-    "kotak":     kotak,
-    "absl":      absl,
-    "uti":       uti,
-    "axis":      axis,
-    "tata":      tata,
-    "mirae":     mirae,
+    "sbi":          sbi,
+    "icici_pru":    icici_pru,
+    "hdfc":         hdfc,
+    "nippon":       nippon,
+    "kotak":        kotak,
+    "absl":         absl,
+    "uti":          uti,
+    "axis":         axis,
+    "tata":         tata,
+    "mirae":        mirae,
+    # Tier 2
+    "quant":        quant,
+    "jm_financial": jm_financial,
 }
 
 
