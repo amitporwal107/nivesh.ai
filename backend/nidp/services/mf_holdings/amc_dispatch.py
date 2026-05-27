@@ -28,10 +28,12 @@ PARTIAL until each is filled in.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import date
 from typing import Awaitable, Callable, Optional
+from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -125,55 +127,71 @@ _URL_TEMPLATES: dict[str, list[str]] = {
 # fail for an AMC, the amc_urls_drift_check daily job alerts ops the
 # next morning so the gap is bounded by 24h, not 30 days.
 _PORTFOLIO_PAGE_CANDIDATES: dict[str, list[str]] = {
+    # ── Verified working URLs (2026-05-27) listed first ──────────────
     "sbi": [
+        "https://www.sbimf.com/en-us/portfolios",           # VERIFIED ✓
         "https://www.sbimf.com/portfolios",
         "https://www.sbimf.com/downloads/portfolio-disclosure",
         "https://www.sbimf.com/scheme-documents/portfolio-disclosure",
     ],
-    "icici_pru": [
-        "https://www.icicipruamc.com/portfolio-disclosure",
-        "https://www.icicipruamc.com/downloads/portfolio-disclosure",
-        "https://www.icicipruamc.com/forms-and-downloads/portfolio-disclosure",
-    ],
     "hdfc": [
+        "https://www.hdfcfund.com/statutory-disclosure/portfolio/monthly-portfolio",  # VERIFIED ✓
+        "https://www.hdfcfund.com/statutory-disclosure/portfolio",
         "https://www.hdfcfund.com/downloads",
         "https://www.hdfcfund.com/downloads/portfolio-disclosures",
         "https://www.hdfcfund.com/our-funds/portfolio-disclosure",
     ],
     "nippon": [
+        "https://mf.nipponindiaim.com/investor-service/downloads/factsheet-portfolio-and-other-disclosures",  # VERIFIED ✓
         "https://mf.nipponindiaim.com/InvestorCorner/Downloads",
         "https://mf.nipponindiaim.com/downloads/portfolio-disclosure",
         "https://mf.nipponindiaim.com/InvestorCorner/PortfolioDisclosure",
     ],
+    "tata": [
+        "https://www.tatamutualfund.com/schemes-related/portfolio",     # VERIFIED ✓
+        "https://www.tatamutualfund.com/statutory-disclosures",
+        "https://www.tatamutualfund.com/portfolio-disclosure",
+        "https://www.tatamutualfund.com/downloads/portfolio-disclosure",
+        "https://www.tatamutualfund.com/our-funds/portfolio-disclosure",
+        "https://www.tatamutualfund.com/scheme-documents/portfolio-disclosure",
+    ],
+    "axis": [
+        "https://www.axismf.com/statutory-disclosures",                 # VERIFIED ✓ (nested)
+        "https://www.axismf.com/downloads",
+        "https://www.axismf.com/downloads/portfolio-disclosure",
+        "https://www.axismf.com/investor-services/portfolio-disclosure",
+    ],
+    # ── Not yet verified — original candidates kept as fallbacks ─────
+    "icici_pru": [
+        "https://www.icicipruamc.com/news-and-media/downloads?currentTabFilter=OtherSchemeDisclosures&subCatTabFilter=Monthly+Portfolio+Disclosures",
+        "https://www.icicipruamc.com/portfolio-disclosure",
+        "https://www.icicipruamc.com/downloads/portfolio-disclosure",
+        "https://www.icicipruamc.com/forms-and-downloads/portfolio-disclosure",
+    ],
     "kotak": [
+        "https://www.kotakmf.com/Information/about-mutual-funds/statutory-disclosure",
         "https://www.kotakmf.com/portfolio-disclosure",
         "https://www.kotakmf.com/downloads/portfolio-disclosure",
         "https://www.kotakmf.com/investor-services/portfolio-disclosure",
         "https://www.kotakmf.com/forms-and-downloads/portfolio-disclosure",
     ],
     "absl": [
+        "https://mutualfund.adityabirlacapital.com/downloads",
+        "https://mutualfund.adityabirlacapital.com/resources",
         "https://mutualfund.adityabirlacapital.com/portfolio-disclosure",
         "https://mutualfund.adityabirlacapital.com/downloads/portfolio-disclosure",
         "https://mutualfund.adityabirlacapital.com/investor-education/portfolio-disclosure",
         "https://mutualfund.adityabirlacapital.com/forms-and-downloads/portfolio-disclosure",
     ],
     "uti": [
+        "https://www.utimf.com/forms-and-downloads/",
+        "https://www.utimf.com/factsheets/",
         "https://www.utimf.com/portfolio-disclosure",
         "https://www.utimf.com/downloads/portfolio-disclosure",
         "https://www.utimf.com/forms-and-downloads/portfolio-disclosure",
     ],
-    "axis": [
-        "https://www.axismf.com/downloads",
-        "https://www.axismf.com/downloads/portfolio-disclosure",
-        "https://www.axismf.com/investor-services/portfolio-disclosure",
-    ],
-    "tata": [
-        "https://www.tatamutualfund.com/portfolio-disclosure",
-        "https://www.tatamutualfund.com/downloads/portfolio-disclosure",
-        "https://www.tatamutualfund.com/our-funds/portfolio-disclosure",
-        "https://www.tatamutualfund.com/scheme-documents/portfolio-disclosure",
-    ],
     "mirae": [
+        "https://www.miraeassetmf.co.in/investor-services/statutory-disclosures",
         "https://www.miraeassetmf.co.in/downloads",
         "https://www.miraeassetmf.co.in/downloads/portfolio-disclosure",
         "https://www.miraeassetmf.co.in/forms-and-downloads/portfolio-disclosure",
@@ -196,54 +214,103 @@ def _render_url(template: str, m: date) -> str:
 
 
 def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:
-    """Scan the AMC portfolio listing page for an xlsx link matching `m`.
+    """Scan the AMC portfolio listing page for an xlsx/xls link matching `m`.
 
-    Match on month-name (full or abbreviated, case-insensitive) AND year.
-    Returns the first match; AMCs typically list most-recent-first.
+    Supports two extraction modes:
+      1. Standard <a href> links (most AMCs)
+      2. JSON-embedded URLs (Next.js SPAs like HDFC, Tata) —
+         looks for "url":"https://...xlsx" patterns in raw HTML
+
+    Scoring (higher wins):
+      +3  href/text has month name (long or short, case-insensitive)
+      +2  href/text has year (4-digit or 2-digit short form)
+      +2  href/text contains "portfolio" (preferred over TER/risk files)
+      +1  href ends with .xlsx (preferred over .xls)
 
     Also logs format-drift telemetry when only PDF/CSV links match the
-    target month — strong signal the AMC switched format. (No attempt to
-    download; downstream parser handles xlsx only.)
+    target month — strong signal the AMC switched format.
     """
-    month_long  = m.strftime("%B").lower()
-    month_short = m.strftime("%b").lower()
-    year_full   = m.strftime("%Y")
-    year_short  = m.strftime("%y")
+    month_long  = m.strftime("%B").lower()   # "april"
+    month_short = m.strftime("%b").lower()   # "apr"
+    year_full   = m.strftime("%Y")           # "2026"
+    year_short  = m.strftime("%y")           # "26"
 
-    def _match(token_source: str) -> bool:
-        has_month = month_long in token_source or month_short in token_source
-        has_year  = year_full in token_source or year_short in token_source
-        return has_month and has_year
+    # Use urlparse to get origin so /abs-paths resolve correctly
+    _parsed = urlparse(base_url)
+    _origin = f"{_parsed.scheme}://{_parsed.netloc}"
 
     def _absolutise(href: str) -> str:
-        if href.startswith("//"):
-            return "https:" + href
-        if href.startswith("/"):
-            return base_url.rstrip("/") + href
-        if not href.startswith("http"):
-            return base_url.rstrip("/") + "/" + href.lstrip("/")
-        return href
+        return urljoin(_origin + "/", href.lstrip("/")) if href.startswith("/") else urljoin(base_url, href)
+
+    def _score(token_source: str, href: str) -> int:
+        score = 0
+        has_month = month_long in token_source or month_short in token_source
+        has_year  = year_full in token_source or year_short in token_source
+        if has_month:
+            score += 3
+        if has_year:
+            score += 2
+        if "portfolio" in token_source:
+            score += 2
+        if href.lower().endswith(".xlsx") or ".xlsx?" in href.lower():
+            score += 1
+        return score
 
     soup = BeautifulSoup(html, "lxml")
+    xlsx_candidates: list[tuple[int, str]] = []  # (score, abs_href)
     alt_format_hits: list[str] = []
+
+    # ── Pass 1: standard <a href> extraction ─────────────────────────
     for a in soup.find_all("a", href=True):
-        href = a["href"]
+        href = a["href"].strip()
+        if not href or href.startswith("#") or href.startswith("mailto:"):
+            continue
         token_source = (href + " " + a.get_text(" ", strip=True)).lower()
 
         if re.search(r"\.xlsx?($|\?)", href, re.IGNORECASE):
-            if _match(token_source):
-                return _absolutise(href)
+            sc = _score(token_source, href)
+            if sc >= 5:  # must have at least month + year match
+                xlsx_candidates.append((sc, _absolutise(href)))
             continue
 
         # Format-drift telemetry: PDF/CSV matching the target month.
-        if re.search(r"\.(pdf|csv)($|\?)", href, re.IGNORECASE) and _match(token_source):
+        has_month = month_long in token_source or month_short in token_source
+        has_year  = year_full in token_source or year_short in token_source
+        if re.search(r"\.(pdf|csv)($|\?)", href, re.IGNORECASE) and has_month and has_year:
             alt_format_hits.append(href)
 
+    # ── Pass 2: JSON-embedded URL extraction (Next.js / Drupal SPAs) ─
+    # Finds "url":"https://cdn.../april-2026.xlsx" patterns in raw HTML
+    if not xlsx_candidates:
+        for m_json in re.finditer(
+            r'"url"\s*:\s*"(https?://[^"]+\.xlsx?[^"]*)"',
+            html,
+            re.IGNORECASE,
+        ):
+            href = m_json.group(1)
+            # Also grab context for title/filename scoring
+            start = max(0, m_json.start() - 200)
+            context = html[start : m_json.end() + 200].lower()
+            token_source = (href + " " + context).lower()
+            sc = _score(token_source, href)
+            if sc >= 5:
+                xlsx_candidates.append((sc, href))
+
+    if xlsx_candidates:
+        xlsx_candidates.sort(key=lambda x: x[0], reverse=True)
+        logger.debug(
+            "mf_holdings: %d xlsx candidates at %s; best: %s (score=%d)",
+            len(xlsx_candidates), base_url,
+            xlsx_candidates[0][1][-60:], xlsx_candidates[0][0],
+        )
+        return xlsx_candidates[0][1]
+
     if alt_format_hits:
+        _abs0 = _absolutise(alt_format_hits[0])
         logger.info(
             "mf_holdings: format-drift detected at %s — %d non-xlsx link(s) "
             "match target month (first: %s). Add a parser to consume.",
-            base_url, len(alt_format_hits), _absolutise(alt_format_hits[0]),
+            base_url, len(alt_format_hits), _abs0,
         )
     return None
 
@@ -368,45 +435,198 @@ async def _amfi_holdings_adapter(
             """
             SELECT m.scheme_code, m.scheme_name
               FROM nidp.mf_scheme_master m
-              JOIN nidp.mf_amc_master    a ON a.id = m.amc_id
-             WHERE a.amc_id = $1
+             WHERE m.amc_id = $1
             """,
             amc_id,
         )
-    name_to_code: dict[str, str] = {
-        r["scheme_name"].lower(): r["scheme_code"] for r in db_schemes
-    }
+    # Build two lookup maps:
+    #  1. exact:  DB name (lower) → [scheme_code, ...]   (fast path)
+    #  2. prefix: DB name base (before " - " plan suffix) → [scheme_code, ...]
+    #
+    # AMC Excel files emit ONE holding block per fund family (covering all
+    # plan variants: Regular/Direct × Growth/IDCW). We expand each Excel
+    # block to ALL plan-level scheme_codes sharing the same base fund name.
+    import re as _re
+
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        # Strip parenthetical descriptions in Excel names, e.g.:
+        #   "Nippon India Growth Mid Cap Fund (Mid cap fund-...)" → base
+        # Strip plan suffixes in DB names, e.g.:
+        #   "Nippon India Growth Mid Cap Fund - Regular Plan - Growth Option" → base
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:  # guard against over-stripping
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_codes(raw_scheme_name: str) -> list[str]:
+        nm = raw_scheme_name.lower().strip()
+        # 1. Exact match
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        # 2. Strip parenthetical/descriptor from Excel name, match as prefix
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        # 3. Substring containment (fallback)
+        matches = [c for n, codes in base_to_codes.items()
+                   if len(n) >= 10 and (n in base or base in n)
+                   for c in codes]
+        return matches[:1]  # take first match only to avoid over-expansion
 
     resolved: list[dict] = []
     unmapped: set[str] = set()
     for row in raw_rows:
-        raw_name = (row["scheme_code"] or "").lower().strip()
-        code = name_to_code.get(raw_name)
-        if code is None:
-            for name, c in name_to_code.items():
-                if raw_name and (raw_name in name or name in raw_name):
-                    code = c
-                    break
-        if code is None:
+        codes = _resolve_codes(row["scheme_code"] or "")
+        if not codes:
             unmapped.add(row["scheme_code"])
             continue
-        resolved.append({**row, "scheme_code": code})
+        for code in codes:
+            resolved.append({**row, "scheme_code": code})
 
     if unmapped:
         logger.warning(
-            "mf_holdings[%s]: %d scheme names unresolved to AMFI codes: %s",
-            amc_id, len(unmapped), list(unmapped)[:5],
+            "mf_holdings[%s]: %d Excel scheme names unresolved to DB codes: %s",
+            amc_id, len(unmapped), sorted(unmapped)[:5],
         )
-    logger.info("mf_holdings[%s]: %d/%d rows resolved from %s",
-                amc_id, len(resolved), len(raw_rows), used_url)
+    resolved_schemes = len({r["scheme_code"] for r in resolved})
+    logger.info(
+        "mf_holdings[%s]: %d raw rows → %d resolved rows across %d scheme_codes (from %s)",
+        amc_id, len(raw_rows), len(resolved), resolved_schemes, used_url,
+    )
     return resolved
 
 
 async def icici_pru(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("icici_pru", http, m)
 
+async def _hdfc_multi_file_adapter(
+    http: aiohttp.ClientSession,
+    as_of_month: date,
+) -> list[dict]:
+    """HDFC publishes one xlsx file per fund (109+ files for April 2026).
+    Extract all xlsx URLs from the JSON-embedded page, download concurrently
+    with a semaphore, parse each, then resolve scheme codes.
+    """
+    from .sbi_parser import parse_portfolio_xlsx
+    from nidp.shared.storage.pg import get_pool
+
+    amc_id = "hdfc"
+    listing_url = "https://www.hdfcfund.com/statutory-disclosure/portfolio/monthly-portfolio"
+
+    # Fetch listing page and extract all April xlsx URLs from JSON
+    html = None
+    for page_url in _PORTFOLIO_PAGE_CANDIDATES["hdfc"]:
+        try:
+            async with http.get(page_url, allow_redirects=True) as resp:
+                if resp.status == 200:
+                    html = await resp.text(errors="replace")
+                    listing_url = page_url
+                    break
+        except Exception:
+            continue
+    if html is None:
+        logger.warning("mf_holdings[hdfc]: all listing pages failed")
+        return []
+
+    month_long  = as_of_month.strftime("%B").lower()   # "april"
+    month_short = as_of_month.strftime("%b").lower()   # "apr"
+    year_full   = as_of_month.strftime("%Y")           # "2026"
+
+    # Extract JSON-embedded xlsx URLs matching the target month
+    all_urls = re.findall(r'"url"\s*:\s*"(https?://[^"]+\.xlsx[^"]*)"', html, re.IGNORECASE)
+    target_urls = [
+        u for u in all_urls
+        if (month_long in u.lower() or month_short in u.lower())
+        and year_full in u.lower()
+    ]
+    if not target_urls:
+        logger.warning("mf_holdings[hdfc]: no %s %s xlsx URLs in listing page", month_long, year_full)
+        return []
+
+    # Deduplicate (same URL may appear multiple times in JSON)
+    target_urls = list(dict.fromkeys(target_urls))
+    logger.info("mf_holdings[hdfc]: downloading %d fund xlsx files", len(target_urls))
+
+    # Download with concurrency limit (HDFC CDN is stable but don't hammer it)
+    sem = asyncio.Semaphore(8)
+    source_tag = "HDFC_MF_PORTFOLIO_XLSX"
+    all_raw_rows: list[dict] = []
+
+    async def _fetch_one(url: str) -> None:
+        async with sem:
+            try:
+                async with http.get(url, allow_redirects=True) as resp:
+                    if resp.status != 200:
+                        return
+                    ct = resp.headers.get("content-type", "").lower()
+                    if "html" in ct:
+                        return
+                    data = await resp.read()
+                    if len(data) < 1024:
+                        return
+                rows = parse_portfolio_xlsx(data, as_of_month, source_url=url, source_tag=source_tag)
+                if rows:
+                    all_raw_rows.extend(rows)
+            except Exception as e:
+                logger.debug("mf_holdings[hdfc]: %s → %s: %s", url[-60:], type(e).__name__, e)
+
+    await asyncio.gather(*[_fetch_one(u) for u in target_urls])
+    logger.info("mf_holdings[hdfc]: parsed %d raw rows from %d files", len(all_raw_rows), len(target_urls))
+
+    if not all_raw_rows:
+        return []
+
+    # Reuse generic scheme-code resolution
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            amc_id,
+        )
+
+    import re as _re
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_codes(raw_name: str) -> list[str]:
+        nm = raw_name.lower().strip()
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 10 and (n in base or base in n)
+                for c in codes][:1]
+
+    resolved: list[dict] = []
+    unmapped: set[str] = set()
+    for row in all_raw_rows:
+        codes = _resolve_codes(row["scheme_code"] or "")
+        if not codes:
+            unmapped.add(row["scheme_code"])
+        else:
+            for code in codes:
+                resolved.append({**row, "scheme_code": code})
+
+    if unmapped:
+        logger.warning("mf_holdings[hdfc]: %d unresolved fund names: %s", len(unmapped), sorted(unmapped)[:5])
+    resolved_schemes = len({r["scheme_code"] for r in resolved})
+    logger.info("mf_holdings[hdfc]: %d raw → %d resolved across %d scheme_codes", len(all_raw_rows), len(resolved), resolved_schemes)
+    return resolved
+
+
 async def hdfc(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("hdfc", http, m)
+    return await _hdfc_multi_file_adapter(http, m)
 
 async def nippon(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("nippon", http, m)

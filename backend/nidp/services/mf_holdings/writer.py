@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import date as _date
 from typing import Any
 
 from nidp.shared.storage.pg import get_pool
@@ -15,7 +16,7 @@ INSERT INTO nidp.mf_holdings_monthly
     (scheme_code, as_of_month, security_isin, security_name,
      instrument_type, sector, rating, quantity, market_value_inr,
      weight_pct, source, source_url, source_run_id, ingested_at)
-VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
 ON CONFLICT (scheme_code, as_of_month, security_name, source) DO UPDATE SET
     security_isin    = EXCLUDED.security_isin,
     instrument_type  = EXCLUDED.instrument_type,
@@ -33,8 +34,13 @@ ON CONFLICT (scheme_code, as_of_month, security_name, source) DO UPDATE SET
 async def upsert_holdings(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
+    def _as_date(v: Any) -> _date:
+        if isinstance(v, _date):
+            return v
+        return _date.fromisoformat(str(v))
+
     args = [
-        (r["scheme_code"], r["as_of_month"], r.get("security_isin"),
+        (r["scheme_code"], _as_date(r["as_of_month"]), r.get("security_isin"),
          r["security_name"], r.get("instrument_type"), r.get("sector"),
          r.get("rating"), r.get("quantity"), r.get("market_value_inr"),
          r.get("weight_pct"), r["source"], r.get("source_url"), run_id)
