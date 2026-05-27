@@ -20,7 +20,7 @@
       "title": "Daily Chain Status",
       "description": "Gate 3 snapshot completion status for today",
       "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {
         "colorMode": "background",
         "graphMode": "none",
@@ -53,7 +53,7 @@
       "type": "stat",
       "title": "Snapshot Date",
       "gridPos": {"h": 5, "w": 4, "x": 6, "y": 0},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {"colorMode": "none", "graphMode": "none", "textMode": "auto"},
       "fieldConfig": {"defaults": {"unit": "dateTimeFromNow"}, "overrides": []},
       "targets": [{
@@ -68,7 +68,7 @@
       "type": "stat",
       "title": "Feeds Ready",
       "gridPos": {"h": 5, "w": 4, "x": 10, "y": 0},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {"defaults": {"color": {"fixedColor": "green", "mode": "fixed"}}, "overrides": []},
       "targets": [{
@@ -83,7 +83,7 @@
       "type": "stat",
       "title": "Feeds Blocked",
       "gridPos": {"h": 5, "w": 4, "x": 14, "y": 0},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {
         "defaults": {
@@ -106,7 +106,7 @@
       "type": "stat",
       "title": "DLQ Pending",
       "gridPos": {"h": 5, "w": 4, "x": 18, "y": 0},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {
         "defaults": {
@@ -130,7 +130,7 @@
       "type": "table",
       "title": "Feed Health Matrix — Gate 3 (last 7 days)",
       "gridPos": {"h": 12, "w": 24, "x": 0, "y": 5},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {
         "cellHeight": "sm",
         "footer": {"show": false},
@@ -211,7 +211,7 @@
       "type": "table",
       "title": "DLQ Findings — PENDING",
       "gridPos": {"h": 8, "w": 24, "x": 0, "y": 25},
-      "datasource": {"type": "postgres", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "postgres", "uid": "NIDP-Staging"},
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
       "targets": [{
         "rawSql": "SELECT id::text, gate_id, feed, target_date::text, failure_reason, severity, created_at FROM dq.dlq_findings WHERE replay_status = 'PENDING' ORDER BY created_at DESC LIMIT 50",

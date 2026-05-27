@@ -30,6 +30,9 @@ cp "$SRC/dashboards.yml"  "$DST/dashboards/dashboards.yml"
 log "Installing dashboard JSON: NIDP Job Health"
 cp "$SRC/dashboards/nidp_job_health.json" "$DST/dashboards/nidp_job_health.json"
 
+log "Installing dashboard JSON: NIDP DQ Chain Status"
+cp "$SRC/dashboards/dq_chain_status.json" "$DST/dashboards/dq_chain_status.json"
+
 # Ensure the grafana container can read everything
 chmod -R a+rX "$DST"
 
