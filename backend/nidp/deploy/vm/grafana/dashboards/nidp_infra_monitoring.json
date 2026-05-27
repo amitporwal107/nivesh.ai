@@ -13,7 +13,7 @@
       "type": "stat",
       "title": "Total Containers",
       "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none", "textMode": "auto"},
       "fieldConfig": {"defaults": {"color": {"fixedColor": "blue", "mode": "fixed"}}, "overrides": []},
       "targets": [{"rawSql": "SELECT COUNT(DISTINCT container_name) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health)", "format": "table", "refId": "A"}]
@@ -24,7 +24,7 @@
       "type": "stat",
       "title": "Running",
       "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {"defaults": {"color": {"fixedColor": "green", "mode": "fixed"}}, "overrides": []},
       "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND status = 'running'", "format": "table", "refId": "A"}]
@@ -35,7 +35,7 @@
       "type": "stat",
       "title": "Unhealthy / Stopped",
       "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {
         "defaults": {
@@ -54,7 +54,7 @@
       "type": "stat",
       "title": "Prod Containers",
       "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {"defaults": {"color": {"fixedColor": "purple", "mode": "fixed"}}, "overrides": []},
       "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment = 'prod' AND status = 'running'", "format": "table", "refId": "A"}]
@@ -65,7 +65,7 @@
       "type": "stat",
       "title": "Staging Containers",
       "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "value", "graphMode": "none"},
       "fieldConfig": {"defaults": {"color": {"fixedColor": "orange", "mode": "fixed"}}, "overrides": []},
       "targets": [{"rawSql": "SELECT COUNT(*) FROM monitoring.container_health WHERE collected_at = (SELECT MAX(collected_at) FROM monitoring.container_health) AND environment = 'staging' AND status = 'running'", "format": "table", "refId": "A"}]
@@ -76,7 +76,7 @@
       "type": "stat",
       "title": "Last Collection",
       "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"colorMode": "none", "graphMode": "none", "textMode": "auto"},
       "fieldConfig": {"defaults": {"unit": "dateTimeFromNow"}, "overrides": []},
       "targets": [{"rawSql": "SELECT MAX(collected_at) FROM monitoring.container_health", "format": "table", "refId": "A"}]
@@ -87,7 +87,7 @@
       "type": "table",
       "title": "All Containers — Current Status",
       "gridPos": {"h": 12, "w": 24, "x": 0, "y": 4},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true, "sortBy": [{"displayName": "environment", "desc": false}]},
       "fieldConfig": {
         "defaults": {},
@@ -142,7 +142,7 @@
       "type": "timeseries",
       "title": "Running Container Count — Last 24h",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
       "fieldConfig": {"defaults": {"custom": {"fillOpacity": 10}}, "overrides": []},
       "targets": [{
@@ -157,7 +157,7 @@
       "type": "timeseries",
       "title": "Unhealthy / Stopped Events — Last 24h",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi"}},
       "fieldConfig": {"defaults": {"custom": {"fillOpacity": 20, "drawStyle": "bars"}, "color": {"mode": "palette-classic"}}, "overrides": []},
       "targets": [{
@@ -172,7 +172,7 @@
       "type": "table",
       "title": "Service Run Health — Last 24h (from job_log)",
       "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
-      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-TimescaleDB"},
+      "datasource": {"type": "grafana-postgresql-datasource", "uid": "NIDP-Staging"},
       "options": {"cellHeight": "sm", "footer": {"show": false}, "showHeader": true},
       "fieldConfig": {
         "defaults": {},

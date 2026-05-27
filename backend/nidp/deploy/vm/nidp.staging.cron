@@ -101,3 +101,12 @@ NIDP_HOME=/opt/nidp-staging
 # 15 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_goals_sync
 # 20 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence_layer
 # 30 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_intelligence_sync
+
+# ── Container health collector (ENABLED — infra monitoring) ───────
+# Prereq: nidp-staging in docker group (bootstrap-staging.sh step 1b).
+* * * * *  nidp-staging  NIDP_HOME=/opt/nidp-staging PYTHON=/opt/nidp-staging/venv/bin/python SCRIPT=/opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/container_health_collector.py /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_collector.sh >> /opt/nidp-staging/logs/container_health.log 2>&1
+
+# ── Gate 4: Replication integrity check (ENABLED — infra) ─────────
+# Both prod (5433) + staging (5434) Postgres are Docker containers on this VM.
+* * * * *  nidp-staging  /opt/nidp-staging/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp-staging/logs/gate4.log 2>&1
+0 1 * * *  nidp-staging  /opt/nidp-staging/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp-staging/logs/gate4_daily.log 2>&1

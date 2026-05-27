@@ -138,7 +138,9 @@ MAILTO=""
 
 # ── Container health collector (infra monitoring dashboard) ───────
 # Writes docker ps status to monitoring.container_health every minute.
-* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/container_health_collector.py >> /opt/nidp/logs/container_health.log 2>&1
+# Prereq: nidp user must be in the docker group:
+#   sudo usermod -aG docker nidp  (then restart cron or re-login)
+* * * * *      nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_collector.sh >> /opt/nidp/logs/container_health.log 2>&1
 
 # ── Gate 4: Replication integrity check ───────────────────────────
 # Continuous: WAL lag + standby recovery check every minute.
