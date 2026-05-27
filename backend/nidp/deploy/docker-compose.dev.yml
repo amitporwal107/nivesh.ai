@@ -67,10 +67,8 @@ services:
       - --unsafe-bypass-fsync
       - --node-id=0
       - --check=false
-      # Explicitly set community-safe partition balancing (node_add = on new
-      # node joins only). Without this, Redpanda defaults to 'continuous'
-      # which requires an Enterprise license.
-      - --set=redpanda.partition_autobalancing_mode=node_add
+      # partition_autobalancing_mode is set to 'node_add' via
+      # `rpk cluster config set` after first boot (persists in data volume).
       # Two listeners: PLAINTEXT (intra-docker) on 29092; PLAINTEXT_HOST
       # (host-side / Cloud Run) on 9092. The advertised address per
       # listener must match what each client population can reach.
