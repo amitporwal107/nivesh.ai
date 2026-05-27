@@ -247,8 +247,30 @@ async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
         # Check for valid financial data section FIRST — if present, the session is
         # authenticated and functional regardless of nav-bar login links.
         if html and len(html) > 1000 and 'id="quarters"' in html:
-            logger.info("fetch_screener_quarters: found %s on Screener.in (consolidated=%s)", symbol, consolidated)
-            return html, consolidated
+            # Verify that the quarterly table has actual column data.
+            # On consolidated pages for large established companies, Screener.in
+            # renders the row labels server-side but leaves columns empty (JavaScript
+            # lazy-loads the values in a browser). The standalone page always has
+            # server-rendered data. We detect this by checking for data-date-key=
+            # within the first 6 KB after the quarters section start.
+            q_start = html.find('id="quarters"')
+            # Scope the check to the quarters section only (end at next </section>
+            # to avoid false-positives from annual P&L which immediately follows
+            # and also contains data-date-key attributes).
+            q_end = html.find('</section>', q_start)
+            q_chunk = html[q_start: q_end if q_end != -1 else q_start + 6000]
+            # Check for recent data: at least one data-date-key within the last 4 years.
+            # Some consolidated pages have data-date-key but only for old historical
+            # periods (e.g. 2012-2015); prefer standalone page for recent data.
+            recent_dates = re.findall(r'data-date-key="(20(?:2[2-9]|3\d)-\d{2}-\d{2})"', q_chunk)
+            if recent_dates:
+                logger.info("fetch_screener_quarters: found %s on Screener.in (consolidated=%s)", symbol, consolidated)
+                return html, consolidated
+            logger.debug(
+                "fetch_screener_quarters: %s quarters section present but no recent data "
+                "(consolidated=%s) — trying next URL",
+                symbol, consolidated,
+            )
         # Financial data absent — now check if it's a hard block or just not found.
         if _screener_is_rate_limited(html):
             raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
