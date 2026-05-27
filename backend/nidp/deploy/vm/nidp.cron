@@ -15,40 +15,40 @@ CRON_TZ=Asia/Kolkata
 MAILTO=""
 
 # ── Daily NSE EOD (post-close, 19:00–19:30 IST staggered) ─────────
-0  19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh bhavcopy
-0  19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh index_close
-30 19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh fii_dii
-30 19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh bulk_deals
-30 19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh block_deals
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bhavcopy
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh index_close
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fii_dii
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bulk_deals
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh block_deals
 
 # ── T+1 next morning ──────────────────────────────────────────────
-30 10 * * 2-6  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh delivery
+30 10 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh delivery
 
 # ── Daily / weekday data ──────────────────────────────────────────
-0  20 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh corporate_actions
-30 20 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh rbi_yields
-0  21 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh fred_macro
+0  20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_actions
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh rbi_yields
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fred_macro
 
 # ── Monthly ───────────────────────────────────────────────────────
-0  6  1 * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh nse_calendar
-30 6  1 * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh index_constituents
+0  6  1 * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_calendar
+30 6  1 * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh index_constituents
 
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
-30 19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh fno_bhavcopy
-30 20 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh nse_financials
+30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fno_bhavcopy
+30 20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials
 # Bank NPA patch: fetches standalone Screener pages to get NPA data for large
 # banks (HDFCBANK, ICICIBANK, SBIN etc.) whose consolidated pages omit NPA.
 # Runs 30 min after nse_financials so the latest quarterly data is in place.
 # Requires SCREENER_SESSION_COOKIE in nidp.env.
-0  21 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh nse_financials.bank_npa_patch
-0  21 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh nse_shareholding
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials.bank_npa_patch
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_shareholding
 
 # ── Phase 1B weekly + derivation ──────────────────────────────────
-0  7  * * 0    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh nse_equity_master
-30 22 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh price_adjuster
+0  7  * * 0    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_equity_master
+30 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh price_adjuster
 
 # ── End-of-day snapshot (after all daily ingesters) ───────────────
-0  22 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh snapshot_builder
+0  22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh snapshot_builder
 
 # ── Derived analytics engines (Action Matrix scoring inputs) ──────
 # Run order is load-bearing: each reads from the prior tier.
@@ -58,44 +58,44 @@ MAILTO=""
 #                                  for vol_1y / drawdown_1y / beta_1y / return_252d
 #   fundamental_engine          ← depends on stock_features_daily rows from TI
 #                                  (Piotroski / Altman / sector_median_pe)
-30 20 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh mf_analytics_engine
-35 22 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh technical_indicator_engine
-5  23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh fundamental_engine
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_analytics_engine
+35 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh technical_indicator_engine
+5  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fundamental_engine
 
 # ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
-*/10 9-23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh corporate_announcements_nse
-*/10 9-23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh corporate_announcements_bse
+*/10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_nse
+*/10 9-23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh corporate_announcements_bse
 
 # ── S4: Haiku event/impact classifier (every 30 min, all week) ────
-*/30 *    * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh announcement_classifier
+*/30 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh announcement_classifier
 
 # ── S5: document parser (every 15 min, all day) ───────────────────
-*/15 *    * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh document_parser
+*/15 *    * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh document_parser
 
 # ── Mutual fund feeds ─────────────────────────────────────────────
-0  20 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh amfi_nav
-0  9  * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh amfi_circulars
-0  10 12 * *   nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh mf_disclosure_snapshot
-0  11 12 * *   nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh mf_holdings
+0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav
+0  9  * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_circulars
+0  10 12 * *   nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_disclosure_snapshot
+0  11 12 * *   nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_holdings
 # amfi_nav_history is a one-time backfill — run manually:
-#   sudo -u nidp /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh amfi_nav_history
+#   sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amfi_nav_history
 
 # ── MF derived analytics refresh (post-NAV, post-holdings) ────────
 # Calls nidp.refresh_mf_derived_analytics(): consistency, downside
 # capture, AUM trend, turnover, credit & duration risk. Function has
 # its own 7-day skip so nightly invocation is cheap.
-50 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
+50 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
 
 # ── Bank-specific quality scoring ────────────────────────────────
 # Runs AFTER nse_financials (20:30) + bank_npa_patch (21:00) so NPA data is fresh.
 # Writes bank_metrics_daily + bank_quality_scores_daily (5-pillar PSU/private model).
-30 21 * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh bank_scoring
+30 21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bank_scoring
 
 # ── V3 composite scoring (Quality + Health, persisted) ────────────
 # Runs AFTER mf_derived_refresh (23:50) and AFTER fundamental_engine (23:05)
 # + technical_indicator_engine (22:35). Writes Q+H per scheme/symbol to
 # nidp.v3_{mf,stock}_scores_daily; served by /v1/{mf,stocks}/scores/*.
-55 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh v3_scores_engine
+55 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh v3_scores_engine
 
 # ── Analytics performance layer (T12 fix) ─────────────────────────
 # Populates analytics.stock_card + analytics.sector_snapshot and
@@ -103,44 +103,44 @@ MAILTO=""
 # mv_sector_heatmap, mv_fund_category_top10).
 # Runs AFTER v3_scores_engine (23:55) to ensure stock_features_daily
 # and stock_daily_snapshot are fully updated for the date.
-10 0 * * 2-6  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh analytics_refresh
+10 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh analytics_refresh
 
 # ── AMC URL drift check (daily 08:00 IST) ─────────────────────────
 # Pings every AMC + AMFI listing-page candidate. Marks the JobRun
 # FAILED on first AMC with zero healthy candidates so the next-morning
 # alert pipeline catches URL rot at hour 0 instead of month 0.
-0  8  * * *    nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh amc_urls_drift_check
+0  8  * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh amc_urls_drift_check
 
 # ── Corporate event intelligence pipeline ─────────────────────────
-30 6  * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh event_calendar
-30 20 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh event_calendar
-*/5  9-16 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh event_day_poller
-0  19 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh d1_prep
-0  20 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh intelligence
+30 6  * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
+30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_calendar
+*/5  9-16 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh event_day_poller
+0  19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh d1_prep
+0  20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence
 
 # ── Post-ingestion quality gate ───────────────────────────────────
-30 22 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh quality_gate
+30 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh quality_gate
 
 # ── Intelligence layer (materializer + per-user portfolio sync) ───
 # Order is load-bearing: holdings → transactions → goals → intelligence pass.
 # The intelligence sync joins all three datasets, so they must land first.
-0  23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh portfolio_holdings_sync
-10 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh portfolio_transactions_sync
-15 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh portfolio_goals_sync
-20 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh intelligence_layer
-30 23 * * 1-5  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
+0  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_holdings_sync
+10 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_transactions_sync
+15 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_goals_sync
+20 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
+30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
 
 # ── Parquet WARM-layer export (runs after analytics_refresh) ──────
 # Exports stock_features_daily + nse_financials_quarterly to MinIO
 # as partitioned Parquet for DuckDB historical queries and AI datasets.
 # Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
-30 0 * * 2-6  nidp  /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh parquet_exporter
+30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
 
 # ── Gate 4: Replication integrity check ───────────────────────────
 # Continuous: WAL lag + standby recovery check every minute.
 # Daily (01:00): row-count parity across 4 key tables (primary↔standby).
 # Both primary (:5433) and standby (:5434) are Docker containers on this VM.
-* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4.log 2>&1
-0 1 * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
+* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4.log 2>&1
+0 1 * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
 
 # yfinance_backfill is event-driven (manual run only) — not scheduled.

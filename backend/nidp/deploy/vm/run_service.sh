@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_service.sh — single-entrypoint wrapper invoked by cron.
 #
-#   /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/run_service.sh <service> [args...]
+#   /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh <service> [args...]
 #
 # Responsibilities:
 #   1. Load /opt/nidp/nidp.env into the environment
@@ -35,7 +35,7 @@ set -a
 source "$NIDP_HOME/nidp.env"
 set +a
 
-cd "$NIDP_HOME/dev-repo/nivesh.ai/backend"
+cd "$NIDP_HOME/repo/backend"
 
 # flock -n: bail immediately if another invocation holds the lock.
 # fd 9 keeps the lock alive for the duration of the python process.
