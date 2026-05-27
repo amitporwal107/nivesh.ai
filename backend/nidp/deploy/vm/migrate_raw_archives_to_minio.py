@@ -94,14 +94,14 @@ def run(dry_run: bool, batch_size: int) -> None:
 
     while True:
         cur.execute(f"""
-            SELECT id, file_path, ingester
+            SELECT archive_id, file_path, ingester
             FROM nidp.raw_archive_files
             WHERE NOT (
                 starts_with(file_path, 'minio://')
                 OR starts_with(file_path, 's3://')
                 OR starts_with(file_path, 'gs://')
             )
-            ORDER BY id
+            ORDER BY archive_id
             LIMIT {int(batch_size)} OFFSET {int(offset)}
         """)
         rows = cur.fetchall()
@@ -150,8 +150,8 @@ def run(dry_run: bool, batch_size: int) -> None:
                 with conn:
                     with conn.cursor() as uc:
                         uc.execute(
-                            "UPDATE nidp.raw_archive_files SET file_path = %s WHERE id = %s",
-                            (minio_uri, row["id"]),
+                            "UPDATE nidp.raw_archive_files SET file_path = %s WHERE archive_id = %s",
+                            (minio_uri, row["archive_id"]),
                         )
             migrated += 1
 
