@@ -33,7 +33,9 @@ from typing import Optional
 
 import asyncpg
 
-from nidp.shared.dq.gate import BaseGate, CheckResult, Severity
+from nidp.shared.dq.gate import (
+    BaseGate, CheckResult, GateCheckFailed, GateResult, Severity, Verdict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +401,107 @@ class SnapshotCompletionGate(BaseGate):
                 else f"{len(failing)} symbols have shareholding totals outside 100 ± 0.5%"
             ),
             details={"failing_symbols": failing[:10]},  # cap to 10 in details
+        )
+
+    # ── Snapshot status population ───────────────────────────────────────────
+
+    # Maps check rule ID → canonical feed name used in dq.snapshot_status arrays.
+    _CHECK_TO_FEED: dict[str, str] = {
+        "G3-PRES-001": "bhavcopy",
+        "G3-PRES-002": "delivery",
+        "G3-PRES-003": "index_close",
+        "G3-PRES-004": "fii_dii",
+        "G3-PRES-005": "mf_nav_daily",
+        "G3-PRES-006": "corporate_actions",
+    }
+
+    async def run(
+        self,
+        conn: asyncpg.Connection,
+        target_date: date,
+        job_run_id: Optional[uuid.UUID] = None,
+    ) -> GateResult:
+        """Run Gate 3 and populate dq.snapshot_status regardless of verdict."""
+        exc_to_reraise: Optional[GateCheckFailed] = None
+        try:
+            result = await super().run(conn, target_date, job_run_id)
+        except GateCheckFailed as exc:
+            result = exc.result
+            exc_to_reraise = exc
+
+        try:
+            await self._update_snapshot_status(conn, target_date, result)
+        except Exception:                                       # noqa: BLE001
+            logger.exception(
+                "Gate 3: snapshot_status update failed (target=%s) — non-fatal",
+                target_date,
+            )
+
+        if exc_to_reraise is not None:
+            raise exc_to_reraise
+        return result
+
+    async def _update_snapshot_status(
+        self,
+        conn: asyncpg.Connection,
+        target_date: date,
+        result: GateResult,
+    ) -> None:
+        """UPSERT dq.snapshot_status row for target_date from Gate 3 outcome."""
+        feeds_ready:   list[str] = []
+        feeds_blocked: list[str] = []
+        feeds_amber:   list[str] = []
+
+        for check in result.checks:
+            feed = self._CHECK_TO_FEED.get(check.name)
+            if feed is None:
+                continue
+            if check.passed:
+                feeds_ready.append(feed)
+            elif check.severity == Severity.P0:
+                feeds_blocked.append(feed)
+            else:
+                feeds_amber.append(feed)
+
+        if result.verdict == Verdict.FAIL:
+            status = "BLOCKED"
+        elif result.verdict == Verdict.AMBER:
+            status = "PARTIAL"
+        else:
+            status = "PASS"
+
+        first_p0 = next(
+            (c.message for c in result.failed_checks if c.severity == Severity.P0),
+            None,
+        )
+
+        await conn.execute(
+            """
+            INSERT INTO dq.snapshot_status
+                (target_date, status, feeds_ready, feeds_blocked, feeds_amber,
+                 block_reason, gate_verdict_id, evaluated_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+            ON CONFLICT (target_date) DO UPDATE
+               SET status         = EXCLUDED.status,
+                   feeds_ready    = EXCLUDED.feeds_ready,
+                   feeds_blocked  = EXCLUDED.feeds_blocked,
+                   feeds_amber    = EXCLUDED.feeds_amber,
+                   block_reason   = EXCLUDED.block_reason,
+                   gate_verdict_id= EXCLUDED.gate_verdict_id,
+                   updated_at     = NOW()
+            """,
+            target_date,
+            status,
+            feeds_ready,
+            feeds_blocked,
+            feeds_amber,
+            first_p0,
+            result.verdict_id,
+        )
+        logger.info(
+            "Gate 3: snapshot_status UPSERT for %s: status=%s ready=%d blocked=%d amber=%d",
+            target_date, status,
+            len(feeds_ready), len(feeds_blocked), len(feeds_amber),
         )
 
     # ── SLA helper ────────────────────────────────────────────────────────────
