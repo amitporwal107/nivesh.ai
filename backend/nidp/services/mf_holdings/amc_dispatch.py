@@ -43,8 +43,79 @@ logger = logging.getLogger(__name__)
 AdapterFn = Callable[[aiohttp.ClientSession, date], Awaitable[list[dict]]]
 
 
+async def _sbi_multisheet_adapter(
+    http: aiohttp.ClientSession,
+    as_of_month: date,
+) -> list[dict]:
+    """SBI publishes a single multi-sheet xlsx (one sheet per base fund).
+    Uses the SBI-specific parser instead of the generic single-sheet parser.
+    """
+    from .sbi_parser import parse_sbi_multisheet_xlsx
+    from nidp.shared.storage.pg import get_pool
+
+    amc_id = "sbi"
+    data, used_url = await _fetch_portfolio(amc_id, http, as_of_month)
+    if data is None:
+        return []
+
+    source_tag = "SBI_MF_PORTFOLIO_XLSX"
+    raw_rows = parse_sbi_multisheet_xlsx(data, as_of_month,
+                                         source_url=used_url or "",
+                                         source_tag=source_tag)
+    if not raw_rows:
+        logger.warning("mf_holdings[sbi]: parse_sbi_multisheet_xlsx returned 0 rows")
+        return []
+
+    # Resolve fund-base-name (from Index sheet) → AMFI scheme_codes
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_schemes = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            amc_id,
+        )
+
+    import re as _re
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_schemes:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if len(base) >= 10:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve_codes(raw_name: str) -> list[str]:
+        nm = raw_name.lower().strip()
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for n, codes in base_to_codes.items()
+                if len(n) >= 10 and (n in base or base in n)
+                for c in codes][:1]
+
+    resolved: list[dict] = []
+    unmapped: set[str] = set()
+    for row in raw_rows:
+        codes = _resolve_codes(row["scheme_code"] or "")
+        if not codes:
+            unmapped.add(row["scheme_code"])
+        else:
+            for code in codes:
+                resolved.append({**row, "scheme_code": code})
+
+    if unmapped:
+        logger.warning("mf_holdings[sbi]: %d fund names unresolved: %s",
+                       len(unmapped), sorted(unmapped)[:5])
+    resolved_schemes = len({r["scheme_code"] for r in resolved})
+    logger.info("mf_holdings[sbi]: %d raw rows → %d resolved across %d scheme_codes (from %s)",
+                len(raw_rows), len(resolved), resolved_schemes, used_url)
+    return resolved
+
+
 async def sbi(http: aiohttp.ClientSession, as_of_month: date) -> list[dict]:
-    return await _amfi_holdings_adapter("sbi", http, as_of_month)
+    return await _sbi_multisheet_adapter(http, as_of_month)
 
 
 # ── URL-candidate registries ─────────────────────────────────────────
@@ -58,11 +129,12 @@ async def sbi(http: aiohttp.ClientSession, as_of_month: date) -> list[dict]:
 
 _URL_TEMPLATES: dict[str, list[str]] = {
     "sbi": [
+        # VERIFIED 2026-05 — stable CDN URL with ordinal day suffix
+        "https://www.sbimf.com/docs/default-source/scheme-portfolios/all-schemes-monthly-portfolio---as-on-{dom_ord}-{month}-{yyyy}.xlsx",
         "https://www.sbimf.com/docs/default-source/portfolios/portfolio-disclosure-{month}-{yyyy}.xlsx",
         "https://www.sbimf.com/docs/default-source/portfolios/portfolio-{month}-{yyyy}.xlsx",
         "https://www.sbimf.com/docs/default-source/portfolios/portfolio-disclosure-{Month}-{yyyy}.xlsx",
         "https://www.sbimf.com/docs/default-source/portfolios/portfolio{mm}{yyyy}.xlsx",
-        "https://www.sbimf.com/docs/default-source/portfolios/sbi-mf-portfolio-{month}-{yyyy}.xlsx",
     ],
     "icici_pru": [
         "https://www.icicipruamc.com/downloads/portfolio-{month}-{yyyy}.xlsx",
@@ -205,12 +277,23 @@ _PORTFOLIO_PAGE: dict[str, str] = {
 }
 
 
+def _ordinal_suffix(n: int) -> str:
+    """Return ordinal suffix for an integer (1→'1st', 2→'2nd', ...)."""
+    if n in (11, 12, 13):
+        return f"{n}th"
+    s = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{s}"
+
+
 def _render_url(template: str, m: date) -> str:
+    import calendar
+    last_day = calendar.monthrange(m.year, m.month)[1]
     return (template
             .replace("{month}", m.strftime("%B").lower())
             .replace("{Month}", m.strftime("%B"))
             .replace("{mm}",    m.strftime("%m"))
-            .replace("{yyyy}",  m.strftime("%Y")))
+            .replace("{yyyy}",  m.strftime("%Y"))
+            .replace("{dom_ord}", _ordinal_suffix(last_day)))
 
 
 def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:

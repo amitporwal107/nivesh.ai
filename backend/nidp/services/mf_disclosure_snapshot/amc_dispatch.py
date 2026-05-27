@@ -36,6 +36,7 @@ Architecture: docs/NIDP_FEEDS/AMC_DISCLOSURES_AND_TER_REPORTS_STARTEGY.md
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable, Optional
 
@@ -345,8 +346,237 @@ async def _parse_nippon_ter_xlsx(amc_id: str, data: bytes) -> dict[str, tuple]:
 async def tata(http: aiohttp.ClientSession) -> list[dict]:
     return await _t1_adapter("tata", http)
 
+
+async def _fetch_uti_ter(http: aiohttp.ClientSession) -> dict[str, tuple]:
+    """Fetch TER for UTI from their statutory disclosure API.
+
+    UTI's TER page is JS-rendered; they expose it via:
+      https://www.utimf.com/api/statutory-disclosure/total-expense-ratio-ter-revised-format
+    Returns name → (ter_regular_pct, ter_direct_pct).
+    """
+    import xlrd as _xlrd
+
+    api_url = ("https://www.utimf.com/api/statutory-disclosure/"
+               "total-expense-ratio-ter-revised-format?&page=")
+    try:
+        async with http.get(api_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            resp.raise_for_status()
+            doc = await resp.json(content_type=None)
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: TER API error: %s", e)
+        return {}
+
+    rows = doc.get("rows") or []
+    if not rows:
+        return {}
+    # Take most recent file (rows are newest-first)
+    file_url = rows[0].get("file_url", "")
+    if not file_url:
+        return {}
+
+    try:
+        async with http.get(file_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            resp.raise_for_status()
+            data = await resp.read()
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: TER download error: %s", e)
+        return {}
+
+    # Parse .xls: col2=name, col8=Regular TER, col13=Direct TER
+    try:
+        wb = _xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        result: dict[str, tuple] = {}
+        for i in range(1, ws.nrows):
+            name = str(ws.cell_value(i, 2) or "").strip()
+            if not name:
+                continue
+            ter_r = ws.cell_value(i, 8)
+            ter_d = ws.cell_value(i, 13)
+            try:
+                ter_r = float(ter_r) if ter_r else None
+            except (ValueError, TypeError):
+                ter_r = None
+            try:
+                ter_d = float(ter_d) if ter_d else None
+            except (ValueError, TypeError):
+                ter_d = None
+            result[name] = (ter_r, ter_d)
+        logger.info("mf_disclosure_snapshot[uti]: parsed %d TER entries from %s",
+                    len(result), file_url[-60:])
+        return result
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: TER xls parse error: %s", e)
+        return {}
+
+
+async def _fetch_uti_aum(http: aiohttp.ClientSession) -> dict[str, float]:
+    """Fetch AAUM (scheme-wise) for UTI from their statutory disclosure API.
+
+    Returns scheme_base_name → aum_inr_crore.
+    """
+    import xlrd as _xlrd
+    from datetime import date as _date
+
+    today = _date.today()
+    api_url = (
+        f"https://www.utimf.com/api/statutory-disclosure/"
+        f"aum-disclosure-scheme-wisestate-wise-monthly-average"
+        f"?month={today.month}&year={today.year}&page="
+    )
+    try:
+        async with http.get(api_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            resp.raise_for_status()
+            doc = await resp.json(content_type=None)
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: AUM API error: %s", e)
+        return {}
+
+    rows = doc.get("rows") or []
+    # Pick the 'Schemewise' file (not statewise)
+    scheme_row = next(
+        (r for r in rows if "schemewise" in r.get("title", "").lower()),
+        None,
+    )
+    if not scheme_row:
+        logger.warning("mf_disclosure_snapshot[uti]: no schemewise AUM file in API response")
+        return {}
+
+    file_url = scheme_row.get("file_url", "")
+    try:
+        async with http.get(file_url, headers={"User-Agent": "Mozilla/5.0"}) as resp:
+            resp.raise_for_status()
+            data = await resp.read()
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: AUM download error: %s", e)
+        return {}
+
+    # Parse .xls: col1=scheme name, col62=Grand Total AAUM (Rs. Crore)
+    _SKIP = {"sub-total", "total", "grand total", "grand"}
+    try:
+        wb = _xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        result: dict[str, float] = {}
+        for i in range(10, ws.nrows):
+            name = str(ws.cell_value(i, 1) or "").strip()
+            if not name or name.startswith("("):
+                continue
+            if any(s in name.lower() for s in _SKIP):
+                continue
+            try:
+                aum = float(ws.cell_value(i, 62) or 0)
+            except (ValueError, TypeError):
+                aum = 0.0
+            if aum > 0:
+                result[name] = aum
+        logger.info("mf_disclosure_snapshot[uti]: parsed %d AUM entries", len(result))
+        return result
+    except Exception as e:
+        logger.warning("mf_disclosure_snapshot[uti]: AUM xls parse error: %s", e)
+        return {}
+
+
 async def uti(http: aiohttp.ClientSession) -> list[dict]:
-    return await _t1_adapter("uti", http)
+    """UTI adapter: TER from statutory disclosure API + AUM from schemewise file.
+
+    UTI's forms-and-downloads page is a JS-rendered Angular SPA with no
+    static xlsx links. Instead their API at /api/statutory-disclosure/…
+    lists files that are downloadable directly from CloudFront.
+    Name-based resolution maps UTI base-fund names → AMFI scheme_codes.
+    """
+    import re as _re
+    from .amfi_central import fetch_risk_all
+
+    AMC_ID = "uti"
+
+    ter_name_map, aum_name_map = await asyncio.gather(
+        _fetch_uti_ter(http),
+        _fetch_uti_aum(http),
+        return_exceptions=True,
+    )
+    if isinstance(ter_name_map, Exception):
+        logger.warning("mf_disclosure_snapshot[uti]: TER fetch failed: %s", ter_name_map)
+        ter_name_map = {}
+    if isinstance(aum_name_map, Exception):
+        logger.warning("mf_disclosure_snapshot[uti]: AUM fetch failed: %s", aum_name_map)
+        aum_name_map = {}
+
+    try:
+        risk_map = await fetch_risk_all(http)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("mf_disclosure_snapshot[uti]: risk fetch error: %s", e)
+        risk_map = {}
+
+    if not ter_name_map and not aum_name_map and not risk_map:
+        logger.warning("mf_disclosure_snapshot[uti]: all data sources empty")
+        return []
+
+    # Load scheme master for name → code resolution
+    from nidp.shared.storage.pg import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        db_rows = await conn.fetch(
+            "SELECT scheme_code, scheme_name FROM nidp.mf_scheme_master WHERE amc_id = $1",
+            AMC_ID,
+        )
+
+    name_to_codes: dict[str, list[str]] = {}
+    base_to_codes: dict[str, list[str]] = {}
+    for r in db_rows:
+        nm = r["scheme_name"].lower().strip()
+        name_to_codes.setdefault(nm, []).append(r["scheme_code"])
+        base = _re.split(r"\s*[\(\-]\s*", nm, maxsplit=1)[0].strip().rstrip(" -.")
+        if len(base) >= 8:
+            base_to_codes.setdefault(base, []).append(r["scheme_code"])
+
+    def _resolve(name: str) -> list[str]:
+        nm = name.lower().strip().rstrip(" -.")
+        if nm in name_to_codes:
+            return name_to_codes[nm]
+        # Strip common UTI prefixes: "UTI - " or "UTI- "
+        nm2 = _re.sub(r"^uti\s*[-–]\s*", "", nm).strip()
+        if nm2 in name_to_codes:
+            return name_to_codes[nm2]
+        base = _re.split(r"\s*[\(\-]\s*", nm2, maxsplit=1)[0].strip().rstrip(" -.")
+        if base in base_to_codes:
+            return base_to_codes[base]
+        return [c for b, codes in base_to_codes.items()
+                if len(b) >= 8 and (b in base or base in b)
+                for c in codes][:4]
+
+    # Build per-scheme-code maps
+    code_ter: dict[str, tuple] = {}
+    for name, vals in ter_name_map.items():
+        for code in _resolve(name):
+            code_ter.setdefault(code, vals)
+
+    code_aum: dict[str, float] = {}
+    for name, aum in aum_name_map.items():
+        for code in _resolve(name):
+            code_aum.setdefault(code, aum)
+
+    all_codes = await _get_amc_schemes(AMC_ID)
+    result = []
+    for code in all_codes:
+        ter_pct, ter_pct_direct = code_ter.get(code, (None, None))
+        aum = code_aum.get(code)
+        risk = risk_map.get(code)
+        if ter_pct is None and ter_pct_direct is None and aum is None and risk is None:
+            continue
+        result.append({
+            "scheme_code":       code,
+            "ter_pct":           ter_pct,
+            "ter_pct_direct":    ter_pct_direct,
+            "risk_o_meter":      risk,
+            "primary_manager":   None,
+            "secondary_manager": None,
+            "aum_inr_crore":     aum,
+            "source_url":        "https://www.utimf.com/statutory-disclosures/",
+        })
+
+    logger.info("mf_disclosure_snapshot[uti]: produced %d rows (TER=%d, AUM=%d codes)",
+                len(result), len(code_ter), len(code_aum))
+    return result
 
 # T3/T4 — deferred; uses AMFI central fallback (returns [] currently)
 async def icici_pru(http: aiohttp.ClientSession) -> list[dict]:
