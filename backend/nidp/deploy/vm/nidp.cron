@@ -36,6 +36,11 @@ MAILTO=""
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fno_bhavcopy
 30 20 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials
+# Bank NPA patch: fetches standalone Screener pages to get NPA data for large
+# banks (HDFCBANK, ICICIBANK, SBIN etc.) whose consolidated pages omit NPA.
+# Runs 30 min after nse_financials so the latest quarterly data is in place.
+# Requires SCREENER_SESSION_COOKIE in nidp.env.
+0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_financials.bank_npa_patch
 0  21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh nse_shareholding
 
 # ── Phase 1B weekly + derivation ──────────────────────────────────
@@ -80,6 +85,11 @@ MAILTO=""
 # capture, AUM trend, turnover, credit & duration risk. Function has
 # its own 7-day skip so nightly invocation is cheap.
 50 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_derived_refresh
+
+# ── Bank-specific quality scoring ────────────────────────────────
+# Runs AFTER nse_financials (20:30) + bank_npa_patch (21:00) so NPA data is fresh.
+# Writes bank_metrics_daily + bank_quality_scores_daily (5-pillar PSU/private model).
+30 21 * * *    nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh bank_scoring
 
 # ── V3 composite scoring (Quality + Health, persisted) ────────────
 # Runs AFTER mf_derived_refresh (23:50) and AFTER fundamental_engine (23:05)
