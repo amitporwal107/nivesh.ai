@@ -103,8 +103,8 @@ SHAREHOLDING_SUM = InternalConsistencyRule(
 DELIVERY_RANGE = InternalConsistencyRule(
     name="equity.delivery_range",
     sql="""
-        SELECT count(*) FROM nidp.delivery_positions
-         WHERE trade_date = $1
+        SELECT count(*) FROM nidp.delivery_data
+         WHERE as_of_date = $1
            AND (deliverable_qty > traded_qty
              OR deliverable_qty < 0
              OR traded_qty       < 0)
@@ -112,8 +112,8 @@ DELIVERY_RANGE = InternalConsistencyRule(
     sample_sql="""
         SELECT symbol, traded_qty, deliverable_qty,
                round((deliverable_qty::numeric / NULLIF(traded_qty,0) * 100), 2) AS delivery_pct
-          FROM nidp.delivery_positions
-         WHERE trade_date = $1
+          FROM nidp.delivery_data
+         WHERE as_of_date = $1
            AND (deliverable_qty > traded_qty
              OR deliverable_qty < 0
              OR traded_qty       < 0)
