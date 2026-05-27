@@ -209,4 +209,4 @@ zipp==3.23.0
 kiteconnect==5.2.0  # Zerodha Kite Connect — read-only holdings/positions/funds
 
 # Malware scanning
-pyclamd==0.4.1      # ClamAV client — talks to clamd daemon over Unix/TCP socket
+pyclamd==0.4.0      # ClamAV client — talks to clamd daemon over Unix/TCP socket
