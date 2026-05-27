@@ -188,33 +188,63 @@ async def fetch_nse_integrated_filing(symbol: str) -> Optional[str]:
 
 
 def _screener_is_rate_limited(html: Optional[str]) -> bool:
-    """Return True if Screener.in returned a rate-limit / captcha / login wall."""
+    """Return True if Screener.in returned a hard rate-limit / captcha / auth wall.
+
+    NOTE: Screener.in always includes a "Log In" link in the page navigation, so
+    the word "login" appears in every page HTML — authenticated or not.  We check
+    only for signals that indicate the page itself is a blocking wall, NOT the
+    mere presence of a login nav-link.
+
+    This function should be called ONLY when id="quarters" is absent from the page
+    (i.e. the financial data section didn't load), because an authenticated page
+    with financial data cannot be rate-limited by definition.
+    """
     if not html:
         return False
     lower = html.lower()
-    return any(k in lower for k in ("captcha", "rate limit", "too many requests",
-                                    "login", "sign in to continue", "please verify"))
+    # High-confidence block signals — these appear in actual blocking responses, not nav links
+    if any(k in lower for k in ("captcha", "rate limit", "too many requests",
+                                 "sign in to continue", "please verify")):
+        return True
+    # "Login" in the page title (not just nav) indicates a login-wall redirect
+    if "<title>" in lower:
+        title_start = lower.index("<title>")
+        title_end = lower.find("</title>", title_start)
+        if title_end > title_start:
+            title = lower[title_start:title_end]
+            if "login" in title or "sign in" in title:
+                return True
+    return False
 
 
 async def fetch_screener_quarters(symbol: str) -> Optional[tuple[str, bool]]:
     """Fetch Screener.in company page for the given NSE symbol.
 
-    Tries standalone first, then consolidated. Returns (html, is_consolidated)
+    Tries consolidated first, then standalone. Returns (html, is_consolidated)
     or None if the company is not found on Screener.in.
 
     Raises RuntimeError if Screener.in signals rate-limiting so callers can
     detect the difference between "symbol doesn't exist" and "we're blocked".
+
+    Detection order:
+      1. If id="quarters" is in the HTML → valid authenticated page, return it.
+      2. Else if the page signals a hard block (captcha/rate-limit/login wall) →
+         raise RuntimeError so the caller can halt the run.
+      3. Else → company not found / no financial data, return None.
     """
     slug = _SCREENER_SLUG_MAP.get(symbol, symbol)
     for consolidated in (True, False):  # consolidated first — matches NSE XBRL backfill rows
         path = "consolidated/" if consolidated else ""
         url = f"https://www.screener.in/company/{slug}/{path}"
         html = await _get_text(url)
-        if _screener_is_rate_limited(html):
-            raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
+        # Check for valid financial data section FIRST — if present, the session is
+        # authenticated and functional regardless of nav-bar login links.
         if html and len(html) > 1000 and 'id="quarters"' in html:
             logger.info("fetch_screener_quarters: found %s on Screener.in (consolidated=%s)", symbol, consolidated)
             return html, consolidated
+        # Financial data absent — now check if it's a hard block or just not found.
+        if _screener_is_rate_limited(html):
+            raise RuntimeError(f"Screener.in rate-limit detected for {symbol}")
     logger.debug("fetch_screener_quarters: %s not found on Screener.in", symbol)
     return None
 
