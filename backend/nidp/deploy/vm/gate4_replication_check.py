@@ -23,8 +23,8 @@ Exit codes:
   2 — cannot connect to primary or standby
 
 Crontab (on nidp-stack-vm — same host as primary + standby containers):
-  * * * * *    /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4/gate4.log 2>&1
-  0 1  * * *   /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4/gate4_daily.log 2>&1
+  * * * * *    /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py >> /opt/nidp/logs/gate4.log 2>&1
+  0 1  * * *   /opt/nidp/venv/bin/python /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/gate4_replication_check.py --mode=daily >> /opt/nidp/logs/gate4_daily.log 2>&1
 """
 from __future__ import annotations
 
