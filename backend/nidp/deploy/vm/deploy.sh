@@ -2,7 +2,7 @@
 # deploy.sh — pull latest code into the VM and reinstall deps.
 #
 # Run as the `nidp` user:
-#   sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh [--branch=main]
+#   sudo -u nidp /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/deploy.sh [--branch=dev]
 #
 # Idempotent. Does NOT touch /opt/nidp/nidp.env (secrets) or
 # /etc/cron.d/nidp (cron schedule). Touching cron requires root, so a
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 NIDP_HOME=/opt/nidp
-BRANCH="main"
+BRANCH="dev"
 
 for arg in "$@"; do
     case "$arg" in
@@ -29,7 +29,7 @@ if [[ "$(whoami)" != "nidp" ]]; then
     exit 1
 fi
 
-cd "$NIDP_HOME/repo"
+cd "$NIDP_HOME/dev-repo/nivesh.ai"
 
 OLD_SHA=$(git rev-parse --short HEAD)
 log "current HEAD: $OLD_SHA"
@@ -53,7 +53,7 @@ if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/requirements.txt'; then
     log "requirements changed — reinstalling"
     "$NIDP_HOME/venv/bin/pip" install --quiet --upgrade \
-        -r "$NIDP_HOME/repo/backend/nidp/deploy/requirements.txt"
+        -r "$NIDP_HOME/dev-repo/nivesh.ai/backend/nidp/deploy/requirements.txt"
 else
     log "requirements unchanged — skipping pip"
 fi
@@ -62,7 +62,7 @@ fi
 if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/vm/nidp.cron'; then
     echo "⚠  nidp.cron changed in this commit — root must run:" >&2
-    echo "   sudo install -m 644 /opt/nidp/repo/backend/nidp/deploy/vm/nidp.cron /etc/cron.d/nidp" >&2
+    echo "   sudo install -m 644 /opt/nidp/dev-repo/nivesh.ai/backend/nidp/deploy/vm/nidp.cron /etc/cron.d/nidp" >&2
 fi
 
 # Refresh Cloud Logging Ops Agent config if it changed. Needs root, so this
@@ -71,12 +71,13 @@ fi
 if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
         grep -q 'backend/nidp/deploy/vm/ops-agent-config.yaml'; then
     echo "⚠  ops-agent-config.yaml changed in this commit — root must run:" >&2
-    echo "   sudo bash $NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
+    echo "   sudo bash $NIDP_HOME/dev-repo/nivesh.ai/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
 fi
 
 # Run pending SQL migrations (idempotent — each file self-registers in
 # nidp.schema_migrations, so re-running is a no-op for applied files).
 log "running pending DB migrations"
+cd "$NIDP_HOME/dev-repo/nivesh.ai/backend"
 "$NIDP_HOME/venv/bin/python" -m nidp.cli migrate && \
     log "migrations complete" || \
     { echo "❌ migrations FAILED — aborting deploy" >&2; exit 1; }
