@@ -18,11 +18,18 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 # Screener.in uses its own slugs — most match NSE symbols, exceptions listed here.
-# Covers all current Nifty 50 constituents (May 2026).
+# Covers all current Nifty 500 constituents (May 2026).
+#
+# Rules:
+#  - Symbols with '&' in the NSE ticker MUST have a slug override (URL-safe)
+#  - Holding companies with no quarterly P&L section on Screener.in are kept here
+#    as a record; fetch_screener_quarters will return None for them (expected)
+#  - Rebranded companies: Screener.in keeps the OLD slug after rename
 _SCREENER_SLUG_MAP: dict[str, str] = {
     "M&M": "M-AND-M",
-    "BAJAJFINSV": "BAJAJ-FINSERV",
-    "TATAMOTORS": "TMCV",          # Tata Motors listed as TMCV on Screener.in
+    "BAJAJFINSV": "BAJAJ-FINSERV",  # holding co — page exists but no id="quarters" section
+    "TATAMOTORS": "TMCV",           # Tata Motors; Screener.in uses TMCV (CV division page)
+    "GVT&D": "GE-TD",              # GE Vernova T&D India; NSE '&' breaks URL — slug is GE-TD
 }
 
 _HEADERS = {
