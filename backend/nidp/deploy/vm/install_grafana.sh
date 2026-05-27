@@ -23,21 +23,18 @@ mkdir -p "$DST/datasources" "$DST/dashboards"
 log "Installing datasource: NIDP-TimescaleDB"
 cp "$SRC/datasources.yml" "$DST/datasources/datasources.yml"
 
-log "Installing dashboard provider: NIDP"
+log "Installing dashboard providers: NIDP Prod + NIDP Staging"
 cp "$SRC/dashboards.yml"  "$DST/dashboards/dashboards.yml"
 
-# ── 3. Copy dashboards ─────────────────────────────────────────────
-log "Installing dashboard JSON: NIDP Job Health"
-cp "$SRC/dashboards/nidp_job_health.json" "$DST/dashboards/nidp_job_health.json"
+# ── 3. Copy dashboards (prod/ and staging/ sub-folders) ───────────
+mkdir -p "$DST/dashboards/prod" "$DST/dashboards/staging"
 
-log "Installing dashboard JSON: NIDP DQ Chain Status"
-cp "$SRC/dashboards/dq_chain_status.json" "$DST/dashboards/dq_chain_status.json"
-
-log "Installing dashboard JSON: NIDP Infrastructure Monitoring"
-cp "$SRC/dashboards/nidp_infra_monitoring.json" "$DST/dashboards/nidp_infra_monitoring.json"
-
-log "Installing dashboard JSON: NIDP Quality Gate Analytics"
-cp "$SRC/dashboards/nidp_dq_analytics.json" "$DST/dashboards/nidp_dq_analytics.json"
+for dash in job_health infra dq_chain dq_analytics feed_sched; do
+    log "  prod/$dash.json"
+    cp "$SRC/dashboards/prod/$dash.json" "$DST/dashboards/prod/$dash.json"
+    log "  staging/$dash.json"
+    cp "$SRC/dashboards/staging/$dash.json" "$DST/dashboards/staging/$dash.json"
+done
 
 # Ensure the grafana container can read everything
 chmod -R a+rX "$DST"
