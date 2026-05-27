@@ -121,6 +121,126 @@ def _normalise_weights(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def parse_sbi_multisheet_xlsx(
+    data: bytes,
+    as_of_month: date,
+    source_url: str,
+    source_tag: str = SOURCE_TAG,
+) -> list[dict]:
+    """Parse SBI MF multi-sheet portfolio xlsx.
+
+    SBI publishes one sheet per base fund.  An 'Index' sheet maps:
+      col 1 (Scheme Short code) → col 2 (Scheme Name).
+
+    Each scheme sheet has:
+      Row 0: empty
+      Row 1: ['', '', 'SBI Mutual Fund', <code>, ...]
+      Row 2: ['', '', 'SCHEME NAME :', <scheme_name>, ...]
+      Row 5: header row with 'Name of the Instrument', 'ISIN', etc.
+      Row 6: blank (would reset header_map in generic parser — skip here)
+      Row 7+: section labels + data rows
+
+    We detect the header once per sheet and do NOT reset on blank rows,
+    since every sheet is a single scheme.
+    """
+    import io as _io
+    as_of_str = date(as_of_month.year, as_of_month.month, 1).isoformat()
+    result: list[dict] = []
+
+    try:
+        wb = openpyxl.load_workbook(_io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as e:
+        logger.warning("sbi_parser: cannot open xlsx: %s", e)
+        return []
+
+    # Read Index: shortcode → full scheme name
+    shortcode_to_name: dict[str, str] = {}
+    if "Index" in wb.sheetnames:
+        for row in list(wb["Index"].iter_rows(values_only=True))[2:]:
+            if row[1] and row[2]:
+                shortcode_to_name[str(row[1]).strip()] = str(row[2]).strip()
+
+    for sheet_name in wb.sheetnames:
+        if sheet_name == "Index":
+            continue
+        scheme_name = shortcode_to_name.get(sheet_name, sheet_name)
+        ws = wb[sheet_name]
+        all_rows = list(ws.iter_rows(values_only=True))
+
+        # Find header row (contains 'name of instrument' / 'isin')
+        header_map: dict[int, str] = {}
+        header_idx = -1
+        for idx, row in enumerate(all_rows):
+            candidate: dict[int, str] = {}
+            for i, cell in enumerate(row):
+                cl = str(cell or "").lower().strip()
+                for alias, field in _COL_ALIASES:
+                    if alias in cl:
+                        if field not in candidate.values():
+                            candidate[i] = field
+                        break
+            if "security_name" in candidate.values():
+                header_map = candidate
+                header_idx = idx
+                break
+
+        if not header_map or header_idx < 0:
+            continue
+
+        isin_col = next((i for i, f in header_map.items() if f == "security_isin"), None)
+        val_col  = next((i for i, f in header_map.items() if f == "market_value_inr"), None)
+        name_col = next((i for i, f in header_map.items() if f == "security_name"), None)
+
+        for row in all_rows[header_idx + 1:]:
+            str_cells = [str(c or "").strip() for c in row]
+            non_empty  = [c for c in str_cells if c]
+            if not non_empty:
+                continue  # blank row — skip but do NOT reset header
+
+            isin_val = str_cells[isin_col] if isin_col is not None and isin_col < len(str_cells) else ""
+            val_val  = str_cells[val_col]  if val_col  is not None and val_col  < len(str_cells) else ""
+            if not isin_val and not val_val:
+                continue  # section header / annotation
+
+            if name_col is None or name_col >= len(str_cells) or not str_cells[name_col]:
+                continue
+            sec_name = str_cells[name_col]
+            if sec_name.lower() in _HEADER_REPEAT_NAMES:
+                continue
+
+            def _get(field: str, _sc=str_cells, _hm=header_map) -> Optional[str]:
+                for ci, fn in _hm.items():
+                    if fn == field and ci < len(_sc) and _sc[ci]:
+                        return _sc[ci]
+                return None
+
+            isin    = _get("security_isin")
+            sector  = _get("sector")
+            rating  = _get("rating")
+            qty     = _to_float(_get("quantity"))
+            mkt_val = _to_float(_get("market_value_inr"))
+            if mkt_val is not None:
+                mkt_val *= 100_000  # Lakhs → INR
+            weight  = _to_float(_get("weight_pct"))
+
+            result.append({
+                "scheme_code":      scheme_name,
+                "as_of_month":      as_of_str,
+                "security_isin":    isin if (isin and isin not in {"-", "N.A.", "NA"}) else None,
+                "security_name":    sec_name,
+                "instrument_type":  _guess_itype(sec_name, sector),
+                "sector":           sector,
+                "rating":           rating,
+                "quantity":         qty,
+                "market_value_inr": mkt_val,
+                "weight_pct":       weight,
+                "source":           source_tag,
+                "source_url":       source_url,
+            })
+
+    return _normalise_weights(result)
+
+
 def parse_portfolio_xlsx(
     data: bytes,
     as_of_month: date,
