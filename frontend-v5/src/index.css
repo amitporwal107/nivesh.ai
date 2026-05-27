@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────
+   Design tokens — Nivesh
+   Map: rgb(r g b) so Tailwind's <alpha-value> opacity works.
+   ───────────────────────────────────────────────────────── */
+@layer base {
+  :root,
+  :root[data-theme="light"] {
+    --bg: 250 250 247;
+    --surface-1: 255 255 255;
+    --surface-2: 241 239 233;
+    --surface-3: 229 226 215;
+
+    --ink: 15 23 42;
+    --ink-2: 63 74 96;
+    --ink-3: 116 128 154;
+    --ink-4: 181 187 198;
+
+    --accent: 67 56 202;        /* slate-indigo */
+    --accent-fg: 255 255 255;
+    --accent-soft: 234 232 252;
+
+    --pos: 46 125 91;           /* keep */
+    --neg: 163 85 58;           /* reduce */
+    --warm: 181 132 31;         /* add */
+
+    --line: 15 23 42;           /* alpha applied via /<a> in utilities below */
+  }
+
+  :root[data-theme="dark"] {
+    --bg: 11 14 20;
+    --surface-1: 17 20 28;
+    --surface-2: 24 29 41;
+    --surface-3: 35 41 56;
+
+    --ink: 236 238 243;
+    --ink-2: 183 189 203;
+    --ink-3: 122 131 156;
+    --ink-4: 78 85 107;
+
+    --accent: 129 119 232;
+    --accent-fg: 11 14 20;
+    --accent-soft: 39 36 78;
+
+    --pos: 106 220 158;
+    --neg: 240 145 117;
+    --warm: 235 188 90;
+
+    --line: 255 255 255;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+    letter-spacing: -0.005em;
+  }
+  /* Tabular numerals for any class .num */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Visible focus ring across the board for a11y. */
+  :where(button, a, [role="button"], input, select, textarea):focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* Convenience: 1px hairline border using the line token at low alpha. */
+@layer utilities {
+  .border-hairline { border-color: rgb(var(--line) / 0.08); }
+  .border-hairline-2 { border-color: rgb(var(--line) / 0.16); }
+  .bg-card { background-color: rgb(var(--surface-1) / 1); }
+  .text-on-accent { color: rgb(var(--accent-fg) / 1); }
+}

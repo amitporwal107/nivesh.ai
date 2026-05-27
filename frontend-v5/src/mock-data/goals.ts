@@ -1,0 +1,40 @@
+import type { Goal } from "@/types/goal";
+
+export const mockGoals: Goal[] = [
+  {
+    id: "goal-home",
+    icon: "🏠",
+    name: "Home down payment",
+    targetDate: "2029-12-31",
+    targetAmount: 40_00_000_00,
+    currentAmount: 35_20_000_00,
+    monthlySip: 12_400_00,
+    onTrack: true,
+    progress: 0.88,
+    message: "Almost there!",
+  },
+  {
+    id: "goal-college",
+    icon: "🎓",
+    name: "Daughter's college",
+    targetDate: "2034-06-30",
+    targetAmount: 85_00_000_00,
+    currentAmount: 34_85_000_00,
+    monthlySip: 7_200_00,
+    onTrack: false,
+    progress: 0.41,
+    message: "Add ₹4,000 / month to catch up",
+  },
+  {
+    id: "goal-retirement",
+    icon: "🌴",
+    name: "Retirement",
+    targetDate: "2046-12-31",
+    targetAmount: 4_20_00_000_00,
+    currentAmount: 2_60_40_000_00,
+    monthlySip: 18_500_00,
+    onTrack: true,
+    progress: 0.62,
+    message: "On track for 2046",
+  },
+];

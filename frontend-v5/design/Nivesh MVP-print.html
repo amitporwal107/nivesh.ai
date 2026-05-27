@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" data-mtheme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nivesh · MVP · Print</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
+<link rel="stylesheet" href="nivesh-mvp-tokens.css" />
+<style>
+  /* ─── print page setup ─── */
+  @page {
+    size: A4 landscape;
+    margin: 1cm;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    background: #ECECE8;
+    font-family: "Inter Tight", system-ui, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+  }
+  #root { min-height: 100vh; }
+
+  /* per-page layout */
+  .print-page {
+    width: 1047px;          /* matches PAGE_W in JSX (A4 landscape minus 1cm margins) */
+    height: 718px;          /* matches PAGE_H in JSX */
+    background: #FFFFFF;
+    margin: 24px auto;
+    box-shadow: 0 12px 40px -16px rgba(0,0,0,0.18);
+    border: 1px solid rgba(0,0,0,0.06);
+    display: grid;
+    grid-template-rows: 40px 1fr;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .print-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 20px;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    background: #FAFAF7;
+    font-family: "Inter Tight", system-ui, sans-serif;
+    font-size: 12px;
+    color: #74809A;
+  }
+  .print-mark {
+    display: inline-grid; place-items: center;
+    width: 22px; height: 22px;
+    background: #0F172A; color: #FFFFFF;
+    border-radius: 6px;
+    font-family: "Instrument Serif", Georgia, serif;
+    font-size: 14px; line-height: 1;
+  }
+  .print-title {
+    font-family: "Instrument Serif", Georgia, serif;
+    color: #0F172A;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+  .print-divider { color: #B5BBC6; }
+  .print-label {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #3F4A60;
+  }
+  .print-platform {
+    margin-left: auto;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    color: #74809A;
+    border: 1px solid rgba(15, 23, 42, 0.10);
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+
+  .print-stage {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .print-frame-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px -10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.04);
+  }
+  .print-frame {
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* Mobile artboards: round the frame harder to look phone-like */
+  .print-page:has(.print-platform:not(:empty)) {}
+
+  /* hide live UI bits that would clutter the print */
+  .twk-panel, .twk-fab, [data-tweaks-panel] { display: none !important; }
+
+  /* ─── print media ─── */
+  @media print {
+    body { background: #FFFFFF; }
+    .print-page {
+      margin: 0;
+      box-shadow: none;
+      border: none;
+      page-break-after: always;
+      break-after: page;
+    }
+    .print-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="screens-mvp.jsx"></script>
+
+<script type="text/babel" src="mvp-print.jsx"></script>
+</body>
+</html>
