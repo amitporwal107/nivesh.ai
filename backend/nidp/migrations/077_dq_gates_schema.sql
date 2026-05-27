@@ -144,3 +144,7 @@ COMMENT ON TABLE dq.feed_sla         IS 'Per-feed SLO definitions: freshness win
 COMMENT ON TABLE dq.feed_signatures  IS 'Daily statistical fingerprint per feed for drift detection.';
 COMMENT ON TABLE dq.snapshot_status  IS 'Gate 3 outcome per date: which feeds are ready/blocked.';
 COMMENT ON TABLE dq.dlq_findings     IS 'Messages quarantined at gate 1 or 2 with replay support.';
+
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('077_dq_gates_schema.sql')
+ON CONFLICT (filename) DO NOTHING;

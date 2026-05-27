@@ -81,3 +81,7 @@ ORDER BY missing_pct DESC, primitive_name;
 COMMENT ON VIEW nidp.v_scoring_feed_gaps IS
     'Latest scoring run: per-primitive coverage gaps with owning feed. '
     'Use to identify which ingesters to fix when primitives are missing.';
+
+INSERT INTO nidp.schema_migrations (filename)
+VALUES ('079_sector_scoring_schema.sql')
+ON CONFLICT (filename) DO NOTHING;

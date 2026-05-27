@@ -74,5 +74,12 @@ if git diff --name-only "$OLD_SHA" "$NEW_SHA" | \
     echo "   sudo bash $NIDP_HOME/repo/backend/nidp/deploy/vm/install-ops-agent.sh" >&2
 fi
 
+# Run pending SQL migrations (idempotent — each file self-registers in
+# nidp.schema_migrations, so re-running is a no-op for applied files).
+log "running pending DB migrations"
+"$NIDP_HOME/venv/bin/python" -m nidp.cli migrate && \
+    log "migrations complete" || \
+    { echo "❌ migrations FAILED — aborting deploy" >&2; exit 1; }
+
 ok "deploy complete: $NEW_SHA"
 echo "$(date -Iseconds)  $OLD_SHA → $NEW_SHA" >> "$NIDP_HOME/logs/deploy.log"
