@@ -138,6 +138,24 @@ services:
       retries: 5
       start_period: 30s
 
+  # ── frontend-v5 (Vite + React 18, served at /v5/) ────────────────────────
+
+  app-frontend-v5:
+    build:
+      context: ../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
+      args:
+        VITE_BASE: /v5/
+        VITE_API_URL: https://staging.niveshcopilot.com
+        VITE_USE_MOCK_API: "false"
+    image: nivesh/frontend-v5:staging
+    container_name: nivesh-staging-app-frontend-v5
+    restart: unless-stopped
+    networks: [nivesh-staging]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
   # ── Main app frontend (React build baked with staging backend URL) ───────
 
   app-frontend:
