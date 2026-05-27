@@ -133,16 +133,48 @@ async def extract_financials(
 
 
 def _screener_quarter_label_to_date(label: str) -> Optional[str]:
-    """Convert Screener.in quarter label to ISO date string.
+    """Convert Screener.in quarter label to ISO date string (period-end date).
 
-    Examples: 'Mar 2025' → '2025-03-31', 'Dec 2024' → '2024-12-31'
+    Handles multiple formats that Screener.in uses across different companies:
+      'Mar 2025'  → '2025-03-31'   (standard monthly label, most common)
+      'Dec 2024'  → '2024-12-31'
+      'Q1 FY24'   → '2023-06-30'   (Indian FY: Q1=Apr-Jun, FY24 ends Mar 2024)
+      'Q2 FY24'   → '2023-09-30'
+      'Q3 FY24'   → '2023-12-31'
+      'Q4 FY24'   → '2024-03-31'
+      'FY24'      → '2024-03-31'   (annual period ending March of the FY year)
+      'TTM'       → None (skip — not a fixed period end)
     """
     _MONTH_END = {
         "jan": (1, 31), "feb": (2, 28), "mar": (3, 31), "apr": (4, 30),
         "may": (5, 31), "jun": (6, 30), "jul": (7, 31), "aug": (8, 31),
         "sep": (9, 30), "oct": (10, 31), "nov": (11, 30), "dec": (12, 31),
     }
-    parts = label.strip().split()
+    # Indian FY quarter → (month, day) of period-end
+    _Q_PERIOD_END = {1: (6, 30), 2: (9, 30), 3: (12, 31), 4: (3, 31)}
+
+    raw = label.strip()
+
+    # Format: "Q{N} FY{YY}" or "Q{N} FY{YYYY}" or "Q{N}FY{YY/YYYY}"
+    m_qfy = re.match(r"Q([1-4])\s*FY(\d{2,4})$", raw, re.IGNORECASE)
+    if m_qfy:
+        q = int(m_qfy.group(1))
+        fy_raw = int(m_qfy.group(2))
+        fy = fy_raw + 2000 if fy_raw < 100 else fy_raw  # 24 → 2024
+        mo, d = _Q_PERIOD_END[q]
+        # Q1-Q3: calendar year = fy - 1; Q4: calendar year = fy
+        cal_year = fy - 1 if q <= 3 else fy
+        return f"{cal_year}-{mo:02d}-{d:02d}"
+
+    # Format: "FY{YY}" or "FY{YYYY}" — annual period ending March of that year
+    m_fy = re.match(r"FY(\d{2,4})$", raw, re.IGNORECASE)
+    if m_fy:
+        fy_raw = int(m_fy.group(1))
+        fy = fy_raw + 2000 if fy_raw < 100 else fy_raw
+        return f"{fy}-03-31"
+
+    # Standard "Mon YYYY" format (most common)
+    parts = raw.split()
     if len(parts) != 2:
         return None
     mon = parts[0].lower()[:3]
@@ -152,8 +184,8 @@ def _screener_quarter_label_to_date(label: str) -> Optional[str]:
         return None
     if mon not in _MONTH_END:
         return None
-    m, d = _MONTH_END[mon]
-    return f"{year}-{m:02d}-{d:02d}"
+    mo, d = _MONTH_END[mon]
+    return f"{year}-{mo:02d}-{d:02d}"
 
 
 def _parse_screener_section(
@@ -520,6 +552,89 @@ def parse_screener_balance_sheet(
     logger.info(
         "parse_screener_balance_sheet: %s — %d annual entries (consolidated=%s)",
         symbol, len(output), consolidated,
+    )
+    return output
+
+
+def parse_screener_profit_loss(
+    symbol: str,
+    html: str,
+    consolidated: bool = False,
+    since_year: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Parse Screener.in #profit-loss section → list of annual dicts.
+
+    Each entry covers a fiscal year-end (March 31) and contains P&L fields
+    sufficient to compute revenue_growth_3y_cagr, profit_margin_trend, and
+    earnings_consistency primitives.
+
+    Screener reports all figures in ₹ Crore — no unit conversion needed.
+    Column labels are "Mar 2018" etc.; converted to ISO "2018-03-31".
+    Returns [] if the section is absent or no parseable rows are found.
+    """
+    result = _parse_screener_section(html, "profit-loss")
+    if not result:
+        logger.debug("parse_screener_profit_loss: no #profit-loss section for %s", symbol)
+        return []
+
+    col_labels, raw_table = result
+
+    def _row(*keys: str) -> list[Optional[float]]:
+        for k in keys:
+            for label, vals in raw_table.items():
+                if k in label:
+                    return vals
+        return [None] * len(col_labels)
+
+    sales_vals        = _row("sales")
+    expenses_vals     = _row("expenses")
+    op_profit_vals    = _row("operating profit")
+    other_income_vals = _row("other income")
+    interest_vals     = _row("interest")
+    dep_vals          = _row("depreciation")
+    pbt_vals          = _row("profit before tax")
+    pat_vals          = _row("net profit")
+    eps_vals          = _row("eps in rs", "eps")
+
+    output: list[dict[str, Any]] = []
+    for i, label in enumerate(col_labels):
+        period_end = _screener_quarter_label_to_date(label)
+        if not period_end:
+            continue
+        try:
+            year = int(period_end[:4])
+        except ValueError:
+            continue
+        if since_year and year < since_year:
+            continue
+
+        def _v(vals: list, idx: int = i) -> Optional[float]:
+            return vals[idx] if idx < len(vals) else None
+
+        revenue = _v(sales_vals)
+        pat     = _v(pat_vals)
+        # Skip completely empty years (all key fields null)
+        if revenue is None and pat is None and _v(eps_vals) is None:
+            continue
+
+        output.append({
+            "period_end":           period_end,
+            "period_type":          "annual",
+            "consolidated":         consolidated,
+            "revenue_from_ops_cr":  revenue,
+            "total_expenses_cr":    _v(expenses_vals),
+            "ebitda_cr":            _v(op_profit_vals),
+            "other_income_cr":      _v(other_income_vals),
+            "finance_costs_cr":     _v(interest_vals),
+            "depreciation_cr":      _v(dep_vals),
+            "pbt_cr":               _v(pbt_vals),
+            "pat_cr":               pat,
+            "eps_basic":            _v(eps_vals),
+        })
+
+    logger.info(
+        "parse_screener_profit_loss: %s — %d annual entries (consolidated=%s, since_year=%s)",
+        symbol, len(output), consolidated, since_year,
     )
     return output
 
