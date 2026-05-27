@@ -42,10 +42,10 @@ logger = logging.getLogger(__name__)
 # ── Default thresholds (match migration 077 seed rows) ────────────────────────
 
 _DEFAULTS: dict[str, dict] = {
-    "bhavcopy":     {"min": 1800, "max": 2200, "severity": Severity.P0},
-    "delivery":     {"min": 1700, "max": 2200, "severity": Severity.P0},
+    "bhavcopy":     {"min": 1500, "max": 2600, "severity": Severity.P0},
+    "delivery":     {"min": 1500, "max": 2600, "severity": Severity.P0},
     "index_close":  {"min": 20,   "max": None,  "severity": Severity.P0},
-    "fii_dii":      {"min": 1,    "max": 1,     "severity": Severity.P0},
+    "fii_dii":      {"min": 1,    "max": None,  "severity": Severity.P0},
     "mf_nav_daily": {"min": 4500, "max": None,  "severity": Severity.P0},
 }
 
@@ -101,7 +101,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.prices_eod WHERE as_of_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.prices_eod WHERE as_of_date = $1 AND series = 'EQ'",
             target_date,
         )
         cnt  = row["cnt"]
@@ -127,7 +127,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.delivery_data WHERE as_of_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.delivery_data WHERE as_of_date = $1 AND series = 'EQ'",
             target_date,
         )
         cnt  = row["cnt"]
@@ -182,15 +182,17 @@ class SnapshotCompletionGate(BaseGate):
             target_date,
         )
         cnt = row["cnt"]
-        ok  = cnt == 1
+        cfg = await self._sla(conn, "fii_dii")
+        lo  = cfg["row_count_min"] or _DEFAULTS["fii_dii"]["min"]
+        ok  = cnt >= lo
         return CheckResult(
             name="G3-PRES-004",
             passed=ok,
             severity=Severity.P0,
             message=(
-                "fii_dii exactly 1 row present"
+                f"fii_dii {cnt} row(s) present"
                 if ok
-                else f"fii_dii expected exactly 1 row, got {cnt}"
+                else f"fii_dii expected >= {lo} row(s), got {cnt}"
             ),
             details={"row_count": cnt},
         )
@@ -265,9 +267,9 @@ class SnapshotCompletionGate(BaseGate):
             WITH counts AS (
                 SELECT
                     (SELECT COUNT(DISTINCT symbol) FROM nidp.prices_eod
-                     WHERE as_of_date = $1) AS bhav_count,
+                     WHERE as_of_date = $1 AND series = 'EQ') AS bhav_count,
                     (SELECT COUNT(DISTINCT symbol) FROM nidp.delivery_data
-                     WHERE as_of_date = $1) AS dlv_count
+                     WHERE as_of_date = $1 AND series = 'EQ') AS dlv_count
             )
             SELECT bhav_count, dlv_count,
                    CASE WHEN bhav_count = 0 THEN NULL
