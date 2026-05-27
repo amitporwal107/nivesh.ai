@@ -1,0 +1,2909 @@
+openapi: 3.1.0
+
+info:
+  title: NIDP DaaS API
+  version: "1.0"
+  description: |
+    **NIDP Data-as-a-Service (DaaS) API** — the external-facing data plane for the
+    Nivesh Intelligence Data Platform.
+
+    Provides programmatic access to Indian equity and mutual-fund market data:
+    EOD prices, corporate actions, F&O chains, FII/DII flows, fundamentals,
+    shareholding patterns, macro indicators, corporate announcements, ML-derived
+    features, V3 stock/MF scores, and the intelligence graph.
+
+    ## Authentication
+    Every request (except `/health`) requires an API key sent in **one** of:
+    - `X-API-Key: nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+    - `Authorization: Bearer nvd_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
+
+    Admin endpoints additionally require a separate internal bearer token
+    (`NIDP_DAAS_INTERNAL_TOKEN`).
+
+    ## Plans & Rate Limits
+    | Plan | RPM | Daily |
+    |------|-----|-------|
+    | free | 60 | 1 000 |
+    | standard | 300 | 50 000 |
+    | pro | 1 500 | 500 000 |
+    | internal | 6 000 | unlimited |
+
+    Rate-limit state is returned in every response:
+    `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`,
+    `X-Daily-Limit`, `X-Daily-Remaining`.
+
+    ## Data Quality Headers
+    Every authenticated response carries:
+    - `X-DQ-Status: GREEN | AMBER | RED` — overall data certification status
+    - `X-DQ-As-Of-Date` — date the DQ snapshot was computed
+    - `X-DQ-Snapshot-Id` — snapshot reference ID
+
+    ## Pagination
+    List endpoints accept `limit` (default 100, max 500) and `offset`.
+    Responses wrap data in `{ data, count, pagination, as_of }`.
+
+servers:
+  - url: https://data.niveshcopilot.com/daas
+    description: Production
+
+tags:
+  - name: system
+    description: Health and key identity
+  - name: admin
+    description: API key lifecycle (internal bearer token required)
+  - name: prices
+    description: EOD OHLCV, adjusted prices, delivery, index series
+  - name: corporate-actions
+    description: Dividends, splits, bonuses, buybacks, mergers
+  - name: indices
+    description: Index universe and constituent snapshots
+  - name: reference
+    description: Symbol master, sector taxonomy, market holidays
+  - name: financials
+    description: Quarterly P&L, balance sheet, shareholding pattern
+  - name: fno
+    description: F&O bhavcopy, option chains, expiry calendars
+  - name: flows
+    description: FII/DII institutional flows, bulk/block deals
+  - name: announcements
+    description: NSE/BSE corporate announcements with AI classification
+  - name: macro
+    description: RBI G-Sec yields, FRED global macro series
+  - name: snapshots
+    description: Pre-aggregated daily market and stock snapshots
+  - name: features
+    description: ML-engineered technical and quantitative features
+  - name: events
+    description: Corporate event calendar and AI-derived signals
+  - name: mutual-funds
+    description: AMC/scheme master, NAV history, holdings, MF scores
+  - name: scores
+    description: V3 stock screener scores and MF quality/health scores
+  - name: intelligence
+    description: Reference securities, entity graph, DQ scores
+  - name: dq
+    description: Data quality gate verdicts and dead-letter queue
+  - name: replay
+    description: Historical replay and backtesting engine
+
+# ── SECURITY ──────────────────────────────────────────────────────────────────
+
+security:
+  - ApiKeyHeader: []
+  - ApiKeyBearer: []
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: "API key prefixed `nvd_`. Preferred auth method."
+    ApiKeyBearer:
+      type: http
+      scheme: bearer
+      description: "Pass the same `nvd_` API key as a Bearer token."
+    AdminBearer:
+      type: http
+      scheme: bearer
+      description: "Internal admin token (NIDP_DAAS_INTERNAL_TOKEN). Required for /admin/* endpoints."
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      description: Max rows to return.
+    offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+      description: Number of rows to skip.
+    start:
+      name: start
+      in: query
+      schema: { type: string, format: date }
+      description: "Inclusive start date (YYYY-MM-DD)."
+    end:
+      name: end
+      in: query
+      schema: { type: string, format: date }
+      description: "Inclusive end date (YYYY-MM-DD)."
+
+  schemas:
+    Pagination:
+      type: object
+      properties:
+        limit:    { type: integer }
+        offset:   { type: integer }
+        total:    { type: integer, nullable: true }
+        next_offset: { type: integer, nullable: true }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            status:     { type: integer }
+            message:    { type: string }
+            details:    { type: array, items: {} }
+            request_id: { type: string }
+
+    # ── Domain schemas ────────────────────────────────────────────────────────
+
+    ApiKey:
+      type: object
+      properties:
+        key_id:          { type: string }
+        key_prefix:      { type: string, example: "nvd_ab12" }
+        name:            { type: string }
+        owner_email:     { type: string }
+        plan:            { type: string, enum: [free, standard, pro, internal] }
+        status:          { type: string, enum: [active, revoked, expired] }
+        rate_limit_rpm:  { type: integer }
+        daily_quota:     { type: integer, nullable: true }
+        created_at:      { type: string, format: date-time }
+        expires_at:      { type: string, format: date-time, nullable: true }
+        notes:           { type: string, nullable: true }
+
+    NewKeyRequest:
+      type: object
+      required: [name, owner_email, plan]
+      properties:
+        name:             { type: string }
+        owner_email:      { type: string, format: email }
+        plan:             { type: string, enum: [free, standard, pro, internal] }
+        rate_limit_rpm:   { type: integer, nullable: true }
+        daily_quota:      { type: integer, nullable: true }
+        expires_in_days:  { type: integer, nullable: true }
+        notes:            { type: string }
+
+    NewKeyResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          properties:
+            cleartext_token: { type: string, description: "Shown once only." }
+
+    EodRow:
+      type: object
+      properties:
+        as_of_date:   { type: string, format: date }
+        symbol:       { type: string }
+        series:       { type: string }
+        isin:         { type: string }
+        prev_close:   { type: number }
+        open_price:   { type: number }
+        high_price:   { type: number }
+        low_price:    { type: number }
+        close_price:  { type: number }
+        last_price:   { type: number }
+        avg_price:    { type: number }
+        volume:       { type: integer }
+        turnover:     { type: number }
+        trades:       { type: integer }
+        deliv_qty:    { type: integer }
+        deliv_pct:    { type: number }
+
+    AdjustedRow:
+      type: object
+      properties:
+        symbol:                  { type: string }
+        as_of_date:              { type: string, format: date }
+        raw_open:                { type: number }
+        raw_high:                { type: number }
+        raw_low:                 { type: number }
+        raw_close:               { type: number }
+        raw_volume:              { type: integer }
+        adj_open:                { type: number }
+        adj_high:                { type: number }
+        adj_low:                 { type: number }
+        adj_close:               { type: number }
+        adj_volume:              { type: integer }
+        tret_close:              { type: number }
+        cumulative_adj_factor:   { type: number }
+        cumulative_tret_factor:  { type: number }
+        last_event_ex_date:      { type: string, format: date, nullable: true }
+        last_event_type:         { type: string, nullable: true }
+
+    CorporateAction:
+      type: object
+      properties:
+        symbol:            { type: string }
+        series:            { type: string }
+        action_type:       { type: string, enum: [DIVIDEND, SPLIT, BONUS, RIGHTS, MERGER, DEMERGER, BUYBACK, AGM, BOARD_MEETING, OTHER] }
+        action_subtype:    { type: string, nullable: true }
+        purpose:           { type: string }
+        ratio:             { type: string, nullable: true }
+        face_value_pre:    { type: number, nullable: true }
+        face_value_post:   { type: number, nullable: true }
+        dividend_amount:   { type: number, nullable: true }
+        record_date:       { type: string, format: date, nullable: true }
+        ex_date:           { type: string, format: date, nullable: true }
+        bc_start_date:     { type: string, format: date, nullable: true }
+        bc_end_date:       { type: string, format: date, nullable: true }
+        announcement_date: { type: string, format: date, nullable: true }
+
+    Symbol:
+      type: object
+      properties:
+        symbol:        { type: string }
+        company_name:  { type: string }
+        series:        { type: string }
+        isin:          { type: string }
+        listing_date:  { type: string, format: date }
+        face_value:    { type: number }
+        market_lot:    { type: integer }
+        sector:        { type: string }
+        industry:      { type: string }
+
+    FinancialRow:
+      type: object
+      properties:
+        symbol:                  { type: string }
+        period_end:              { type: string, format: date }
+        period_start:            { type: string, format: date }
+        period_type:             { type: string, enum: [Q, H, A] }
+        consolidated:            { type: boolean }
+        audited:                 { type: boolean }
+        revenue_from_ops_cr:     { type: number, nullable: true }
+        other_income_cr:         { type: number, nullable: true }
+        total_income_cr:         { type: number, nullable: true }
+        total_expenses_cr:       { type: number, nullable: true }
+        ebitda_cr:               { type: number, nullable: true }
+        finance_costs_cr:        { type: number, nullable: true }
+        depreciation_cr:         { type: number, nullable: true }
+        pbt_before_exc_cr:       { type: number, nullable: true }
+        exceptional_items_cr:    { type: number, nullable: true }
+        pbt_cr:                  { type: number, nullable: true }
+        tax_expense_cr:          { type: number, nullable: true }
+        pat_cr:                  { type: number, nullable: true }
+        pat_attrib_owners_cr:    { type: number, nullable: true }
+        eps_basic:               { type: number, nullable: true }
+        eps_diluted:             { type: number, nullable: true }
+        face_value:              { type: number, nullable: true }
+        total_equity_cr:         { type: number, nullable: true }
+        long_term_debt_cr:       { type: number, nullable: true }
+        short_term_debt_cr:      { type: number, nullable: true }
+        cash_and_equiv_cr:       { type: number, nullable: true }
+        broadcast_at:            { type: string, format: date-time }
+
+    ShareholdingRow:
+      type: object
+      properties:
+        symbol:                       { type: string }
+        period_end:                   { type: string, format: date }
+        promoter_pct:                 { type: number, nullable: true }
+        promoter_pledged_pct:         { type: number, nullable: true }
+        promoter_pledged_to_total_pct: { type: number, nullable: true }
+        fii_pct:                      { type: number, nullable: true }
+        dii_pct:                      { type: number, nullable: true }
+        mf_pct:                       { type: number, nullable: true }
+        insurance_pct:                { type: number, nullable: true }
+        bank_fi_pct:                  { type: number, nullable: true }
+        govt_holding_pct:             { type: number, nullable: true }
+        public_pct:                   { type: number, nullable: true }
+        individual_pct:               { type: number, nullable: true }
+        nri_pct:                      { type: number, nullable: true }
+        bodies_corporate_pct:         { type: number, nullable: true }
+        total_shares:                 { type: integer, nullable: true }
+        broadcast_at:                 { type: string, format: date-time }
+
+    FnoRow:
+      type: object
+      properties:
+        as_of_date:       { type: string, format: date }
+        ticker_symbol:    { type: string }
+        instrument_type:  { type: string, enum: [FUTIDX, FUTSTK, OPTIDX, OPTSTK] }
+        expiry_date:      { type: string, format: date }
+        strike_price:     { type: number, nullable: true }
+        option_type:      { type: string, enum: [CE, PE], nullable: true }
+        open_price:       { type: number }
+        high_price:       { type: number }
+        low_price:        { type: number }
+        close_price:      { type: number }
+        settle_price:     { type: number }
+        underlying_price: { type: number }
+        open_interest:    { type: integer }
+        change_in_oi:     { type: integer }
+        traded_volume:    { type: integer }
+        traded_value:     { type: number }
+        num_trades:       { type: integer }
+
+    FiiDiiRow:
+      type: object
+      properties:
+        as_of_date:     { type: string, format: date }
+        category:       { type: string, enum: [FII, DII, PROP, CLIENT] }
+        segment:        { type: string }
+        buy_value_cr:   { type: number }
+        sell_value_cr:  { type: number }
+        net_value_cr:   { type: number }
+        buy_contracts:  { type: integer, nullable: true }
+        sell_contracts: { type: integer, nullable: true }
+        net_contracts:  { type: integer, nullable: true }
+        open_interest:  { type: integer, nullable: true }
+
+    DealRow:
+      type: object
+      properties:
+        as_of_date:   { type: string, format: date }
+        symbol:       { type: string }
+        client_name:  { type: string }
+        deal_type:    { type: string, enum: [BUY, SELL] }
+        quantity:     { type: integer }
+        avg_price:    { type: number }
+        deal_seq:     { type: integer }
+        remarks:      { type: string, nullable: true }
+
+    Announcement:
+      type: object
+      properties:
+        announcement_id:   { type: string }
+        source:            { type: string, enum: [NSE_ANN, BSE_ANN] }
+        ticker_symbol:     { type: string, nullable: true }
+        isin:              { type: string, nullable: true }
+        scrip_code:        { type: string, nullable: true }
+        company_name:      { type: string }
+        filed_at:          { type: string, format: date-time }
+        broadcast_at:      { type: string, format: date-time }
+        subject:           { type: string }
+        raw_category:      { type: string }
+        attachment_url:    { type: string, nullable: true }
+        event_category:    { type: string, nullable: true }
+        impact_score:      { type: number, nullable: true }
+        sentiment:         { type: string, enum: [positive, neutral, negative], nullable: true }
+        classifier_version: { type: string, nullable: true }
+        classified_at:     { type: string, format: date-time, nullable: true }
+
+    RbiYieldRow:
+      type: object
+      properties:
+        as_of_date:  { type: string, format: date }
+        tenor:       { type: string, enum: [OVERNIGHT, "91D", "364D", 1Y, 5Y, 10Y] }
+        instrument:  { type: string }
+        yield_pct:   { type: number }
+
+    FredRow:
+      type: object
+      properties:
+        as_of_date:   { type: string, format: date }
+        series_id:    { type: string }
+        series_name:  { type: string }
+        value:        { type: number, nullable: true }
+        units:        { type: string }
+        frequency:    { type: string }
+
+    StockFeatureRow:
+      type: object
+      properties:
+        symbol:              { type: string }
+        as_of_date:          { type: string, format: date }
+        close:               { type: number }
+        sma20:               { type: number, nullable: true }
+        sma50:               { type: number, nullable: true }
+        sma100:              { type: number, nullable: true }
+        sma200:              { type: number, nullable: true }
+        sma50_slope:         { type: number, nullable: true }
+        dist_200dma_pct:     { type: number, nullable: true }
+        dist_52w_high_pct:   { type: number, nullable: true }
+        dist_52w_low_pct:    { type: number, nullable: true }
+        rsi14:               { type: number, nullable: true }
+        macd:                { type: number, nullable: true }
+        macd_signal:         { type: number, nullable: true }
+        macd_hist:           { type: number, nullable: true }
+        return_5d_pct:       { type: number, nullable: true }
+        return_20d_pct:      { type: number, nullable: true }
+        return_60d_pct:      { type: number, nullable: true }
+        atr14:               { type: number, nullable: true }
+        atr_pct:             { type: number, nullable: true }
+        bb_width:            { type: number, nullable: true }
+        bb_pos:              { type: number, nullable: true }
+        avg_volume_20:       { type: number, nullable: true }
+        vol_z20:             { type: number, nullable: true }
+        deliv_pct_avg_20:    { type: number, nullable: true }
+        deliv_trend10:       { type: number, nullable: true }
+        accumulation_score:  { type: number, nullable: true }
+
+    StockScore:
+      type: object
+      properties:
+        symbol:                    { type: string }
+        as_of_date:                { type: string, format: date }
+        sector:                    { type: string }
+        industry:                  { type: string }
+        market_cap_bucket:         { type: string, enum: [LARGE_CAP, MID_CAP, SMALL_CAP, MICRO_CAP] }
+        market_cap_cr:             { type: number }
+        roe_pct:                   { type: number, nullable: true }
+        debt_to_equity:            { type: number, nullable: true }
+        eps_growth_3y_cagr_pct:    { type: number, nullable: true }
+        earnings_consistency_score: { type: number, nullable: true }
+        promoter_holding_pct:      { type: number, nullable: true }
+        revenue_growth_3y_cagr_pct: { type: number, nullable: true }
+        profit_margin_trend_pct:   { type: number, nullable: true }
+        debt_trend_pct:            { type: number, nullable: true }
+        volatility_1y_pct:         { type: number, nullable: true }
+        dividend_yield_pct:        { type: number, nullable: true }
+        pe_overvaluation_pct:      { type: number, nullable: true }
+        earnings_decline_flag:     { type: boolean, nullable: true }
+        debt_spike_flag:           { type: boolean, nullable: true }
+        liquidity_score:           { type: number, nullable: true }
+        momentum_score:            { type: number, nullable: true }
+        pe_ttm:                    { type: number, nullable: true }
+        pb:                        { type: number, nullable: true }
+        roce_pct:                  { type: number, nullable: true }
+        interest_coverage:         { type: number, nullable: true }
+        profit_margin_pct:         { type: number, nullable: true }
+        ev_ebitda:                 { type: number, nullable: true }
+        return_252d_pct:           { type: number, nullable: true }
+        beta_1y:                   { type: number, nullable: true }
+        max_drawdown_1y_pct:       { type: number, nullable: true }
+        rsi14:                     { type: number, nullable: true }
+        accumulation_score:        { type: number, nullable: true }
+        promoter_pct:              { type: number, nullable: true }
+        fii_pct:                   { type: number, nullable: true }
+        dii_pct:                   { type: number, nullable: true }
+        promoter_pledged_pct:      { type: number, nullable: true }
+        fii_pct_change_qoq:        { type: number, nullable: true }
+        promoter_pct_change_qoq:   { type: number, nullable: true }
+
+    MfScheme:
+      type: object
+      properties:
+        scheme_code:        { type: string }
+        scheme_name:        { type: string }
+        amc_id:             { type: string }
+        amc_name:           { type: string }
+        isin_growth:        { type: string, nullable: true }
+        isin_idcw:          { type: string, nullable: true }
+        scheme_type:        { type: string }
+        scheme_category:    { type: string }
+        status:             { type: string, enum: [active, inactive] }
+        latest_nav:         { type: number, nullable: true }
+        latest_nav_date:    { type: string, format: date, nullable: true }
+        launch_date:        { type: string, format: date, nullable: true }
+
+    MfSchemeDetail:
+      allOf:
+        - $ref: '#/components/schemas/MfScheme'
+        - type: object
+          properties:
+            registrar:              { type: string, nullable: true }
+            benchmark_id:           { type: string, nullable: true }
+            benchmark_name:         { type: string, nullable: true }
+            benchmark_index_code:   { type: string, nullable: true }
+            ter_pct:                { type: number, nullable: true }
+            ter_pct_direct:         { type: number, nullable: true }
+            risk_o_meter:           { type: string, nullable: true }
+            primary_manager:        { type: string, nullable: true }
+            secondary_manager:      { type: string, nullable: true }
+            disclosed_aum_inr_crore: { type: number, nullable: true }
+
+    MfNavRow:
+      type: object
+      properties:
+        nav_date:         { type: string, format: date }
+        scheme_code:      { type: string }
+        nav:              { type: number }
+        reinvestment_nav: { type: number, nullable: true }
+        repurchase_nav:   { type: number, nullable: true }
+
+    MfHoldingRow:
+      type: object
+      properties:
+        as_of_month:   { type: string, example: "2026-05" }
+        scheme_code:   { type: string }
+        security_name: { type: string }
+        isin:          { type: string, nullable: true }
+        quantity:      { type: number, nullable: true }
+        value_cr:      { type: number, nullable: true }
+        weight_pct:    { type: number, nullable: true }
+
+    MfScore:
+      type: object
+      properties:
+        as_of_date:          { type: string, format: date }
+        isin:                { type: string }
+        scheme_code:         { type: string }
+        scheme_name:         { type: string }
+        fund_category:       { type: string }
+        sub_category:        { type: string }
+        quality_score:       { type: number, nullable: true }
+        quality_components:  { type: object }
+        quality_coverage_pct: { type: number }
+        health_score:        { type: number, nullable: true }
+        health_components:   { type: object }
+        health_coverage_pct: { type: number }
+        engine_version:      { type: string }
+        computed_at:         { type: string, format: date-time }
+
+    MfPerformance:
+      type: object
+      properties:
+        scheme_code:          { type: string }
+        rank_date:            { type: string, format: date }
+        scheme_name:          { type: string }
+        category:             { type: string }
+        sub_category:         { type: string }
+        amc_code:             { type: string }
+        return_1m:            { type: number, nullable: true }
+        return_3m:            { type: number, nullable: true }
+        return_6m:            { type: number, nullable: true }
+        return_1y:            { type: number, nullable: true }
+        return_2y:            { type: number, nullable: true }
+        return_3y:            { type: number, nullable: true }
+        return_5y:            { type: number, nullable: true }
+        return_ytd:           { type: number, nullable: true }
+        return_since_launch_cagr: { type: number, nullable: true }
+        volatility_1y:        { type: number, nullable: true }
+        sharpe_1y:            { type: number, nullable: true }
+        sortino_1y:           { type: number, nullable: true }
+        max_drawdown_1y:      { type: number, nullable: true }
+        alpha_1y:             { type: number, nullable: true }
+        beta_1y:              { type: number, nullable: true }
+        ter:                  { type: number, nullable: true }
+        return_1y_rank:       { type: integer, nullable: true }
+        return_3y_rank:       { type: integer, nullable: true }
+        sharpe_rank:          { type: integer, nullable: true }
+        composite_rank:       { type: integer, nullable: true }
+
+    DQStatus:
+      type: object
+      properties:
+        as_of_date:     { type: string, format: date }
+        dq_status:      { type: string, enum: [GREEN, AMBER, RED] }
+        snapshot_id:    { type: string, nullable: true }
+        feeds_ready:    { type: array, items: { type: string } }
+        feeds_blocked:  { type: array, items: { type: string } }
+        feeds_amber:    { type: array, items: { type: string } }
+        degraded_feeds:
+          type: array
+          items:
+            type: object
+            properties:
+              feed:               { type: string }
+              last_successful_run: { type: string, format: date-time, nullable: true }
+              staleness_days:     { type: number, nullable: true }
+              impact:             { type: string }
+        gate_verdicts_uri: { type: string }
+
+    StartReplayRequest:
+      type: object
+      required: [start_date, end_date]
+      properties:
+        start_date:       { type: string, format: date }
+        end_date:         { type: string, format: date }
+        domains:          { type: array, items: { type: string }, default: [mf, equity] }
+        policy_version:   { type: string, default: v1 }
+        parallel:         { type: integer, minimum: 1, maximum: 32, default: 4 }
+        inject_failures:  { type: boolean, default: false }
+        reset_data:       { type: boolean, default: false }
+        failure_seed:     { type: integer, nullable: true }
+        failure_rate:     { type: number, minimum: 0, maximum: 1, default: 0.10 }
+        skip_weekends:    { type: boolean, default: true }
+
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              status: 401
+              message: invalid_api_key
+              request_id: req-abc123
+
+    Forbidden:
+      description: Valid key but insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+    RateLimitExceeded:
+      description: Rate limit or daily quota exceeded
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds until the rate limit window resets
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+# ── PATHS ─────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── SYSTEM ──────────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      tags: [system]
+      summary: Service health
+      security: []
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:              { type: boolean }
+                  db_ok:           { type: boolean }
+                  db_latency_ms:   { type: number }
+                  service:         { type: string }
+                  error:           { type: string, nullable: true }
+
+  /v1/me:
+    get:
+      tags: [system]
+      summary: Current key identity and quota
+      operationId: getMe
+      responses:
+        "200":
+          description: Key metadata + live quota
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id:      { type: string }
+                  key_prefix:  { type: string }
+                  name:        { type: string }
+                  owner_email: { type: string }
+                  plan:        { type: string }
+                  rate_limit:
+                    type: object
+                    properties:
+                      limit_rpm:      { type: integer }
+                      remaining_rpm:  { type: integer }
+                      reset_seconds:  { type: integer }
+                  daily_quota:
+                    type: object
+                    properties:
+                      limit:     { type: integer, nullable: true }
+                      used:      { type: integer }
+                      remaining: { type: integer, nullable: true }
+                  expires_at:  { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/me/usage:
+    get:
+      tags: [system]
+      summary: API usage time-series for this key
+      operationId: getMyUsage
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+      responses:
+        "200":
+          description: Daily usage breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id:  { type: string }
+                  days:    { type: integer }
+                  totals:
+                    type: object
+                    properties:
+                      requests: { type: integer }
+                      errors:   { type: integer }
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        day:             { type: string, format: date }
+                        requests:        { type: integer }
+                        errors:          { type: integer }
+                        last_request_at: { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/catalog:
+    get:
+      tags: [system]
+      summary: Public dataset catalog with row counts and date ranges
+      operationId: getCatalog
+      responses:
+        "200":
+          description: Dataset index
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  as_of:  { type: string, format: date-time }
+                  totals:
+                    type: object
+                    properties:
+                      datasets: { type: integer }
+                  by_domain:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        domain:   { type: string }
+                        datasets: { type: integer }
+                        rows:     { type: integer }
+                  datasets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:       { type: string }
+                        table:      { type: string }
+                        date_col:   { type: string }
+                        domain:     { type: string }
+                        endpoints:  { type: array, items: { type: string } }
+                        description: { type: string }
+                        rows:       { type: integer }
+                        first_at:   { type: string, format: date, nullable: true }
+                        last_at:    { type: string, format: date, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── ADMIN ───────────────────────────────────────────────────────────────────
+
+  /admin/keys:
+    get:
+      tags: [admin]
+      summary: List all API keys
+      operationId: listAdminKeys
+      security: [{ AdminBearer: [] }]
+      responses:
+        "200":
+          description: All keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items: { $ref: '#/components/schemas/ApiKey' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      tags: [admin]
+      summary: Issue a new API key
+      operationId: createAdminKey
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewKeyRequest' }
+      responses:
+        "201":
+          description: Key issued — cleartext_token shown once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NewKeyResponse' }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/keys/{key_id}:
+    delete:
+      tags: [admin]
+      summary: Revoke an API key (idempotent)
+      operationId: revokeAdminKey
+      security: [{ AdminBearer: [] }]
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean }
+                  key_id:  { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── PRICES ──────────────────────────────────────────────────────────────────
+
+  /v1/prices/eod/{symbol}:
+    get:
+      tags: [prices]
+      summary: EOD OHLCV for a symbol
+      operationId: getPricesEod
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string, example: TCS }
+        - name: series
+          in: query
+          schema: { type: string, enum: [EQ, BE, BZ], default: EQ }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: EOD rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  as_of:      { type: string, format: date }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { $ref: '#/components/schemas/EodRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/prices/adjusted/{symbol}:
+    get:
+      tags: [prices]
+      summary: Split/dividend adjusted + total-return prices
+      operationId: getPricesAdjusted
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Adjusted price rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  note:       { type: string }
+                  data:       { type: array, items: { $ref: '#/components/schemas/AdjustedRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/prices/latest/{symbol}:
+    get:
+      tags: [prices]
+      summary: Latest EOD snapshot for a symbol
+      operationId: getPricesLatest
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest price row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/EodRow' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/prices/delivery/{symbol}:
+    get:
+      tags: [prices]
+      summary: Delivery volume and percentage series
+      operationId: getPricesDelivery
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Delivery rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        as_of_date: { type: string, format: date }
+                        symbol:     { type: string }
+                        deliv_qty:  { type: integer }
+                        deliv_pct:  { type: number }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/prices/index/{index_name}:
+    get:
+      tags: [prices]
+      summary: Index EOD series (e.g. NIFTY 50, NIFTY BANK)
+      operationId: getPricesIndex
+      parameters:
+        - name: index_name
+          in: path
+          required: true
+          schema: { type: string, example: "NIFTY 50" }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Index EOD rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        as_of_date:  { type: string, format: date }
+                        index_name:  { type: string }
+                        open_price:  { type: number }
+                        high_price:  { type: number }
+                        low_price:   { type: number }
+                        close_price: { type: number }
+                        return_pct:  { type: number, nullable: true }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── CORPORATE ACTIONS ────────────────────────────────────────────────────────
+
+  /v1/corporate-actions:
+    get:
+      tags: [corporate-actions]
+      summary: Corporate actions — all symbols
+      operationId: listCorporateActions
+      parameters:
+        - name: symbol
+          in: query
+          schema: { type: string }
+        - name: action_type
+          in: query
+          schema: { type: string, enum: [DIVIDEND, SPLIT, BONUS, RIGHTS, MERGER, DEMERGER, BUYBACK, AGM, BOARD_MEETING, OTHER] }
+        - name: ex_from
+          in: query
+          schema: { type: string, format: date }
+        - name: ex_to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Corporate action rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/CorporateAction' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/corporate-actions/{symbol}:
+    get:
+      tags: [corporate-actions]
+      summary: Corporate actions for a single symbol
+      operationId: getCorporateActions
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: action_type
+          in: query
+          schema: { type: string, enum: [DIVIDEND, SPLIT, BONUS, RIGHTS, MERGER, DEMERGER, BUYBACK, AGM, BOARD_MEETING, OTHER] }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Actions for symbol
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  data:       { type: array, items: { $ref: '#/components/schemas/CorporateAction' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── INDICES ──────────────────────────────────────────────────────────────────
+
+  /v1/indices:
+    get:
+      tags: [indices]
+      summary: All tracked indices with date coverage
+      operationId: listIndices
+      responses:
+        "200":
+          description: Index list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index_name:   { type: string }
+                        days_tracked: { type: integer }
+                        first_date:   { type: string, format: date }
+                        latest_date:  { type: string, format: date }
+                  count: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/indices/{index_name}/constituents:
+    get:
+      tags: [indices]
+      summary: Index constituents on a given date
+      operationId: getIndexConstituents
+      parameters:
+        - name: index_name
+          in: path
+          required: true
+          schema: { type: string, example: "NIFTY 50" }
+        - name: 'on'
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Constituent rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  index_name: { type: string }
+                  as_of:      { type: string, format: date }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        as_of_date:   { type: string, format: date }
+                        index_name:   { type: string }
+                        symbol:       { type: string }
+                        isin:         { type: string }
+                        company_name: { type: string }
+                        industry:     { type: string }
+                        weight_pct:   { type: number, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── REFERENCE DATA ───────────────────────────────────────────────────────────
+
+  /v1/symbols:
+    get:
+      tags: [reference]
+      summary: Full symbol master
+      operationId: listSymbols
+      parameters:
+        - name: sector
+          in: query
+          schema: { type: string }
+        - name: series
+          in: query
+          schema: { type: string, default: EQ }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/Symbol' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/symbols/search:
+    get:
+      tags: [reference]
+      summary: Full-text symbol / company search
+      operationId: searchSymbols
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, example: TCS }
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  query: { type: string }
+                  count: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:       { type: string }
+                        company_name: { type: string }
+                        sector:       { type: string }
+                        industry:     { type: string }
+                        isin:         { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/symbols/{symbol}:
+    get:
+      tags: [reference]
+      summary: Symbol master detail
+      operationId: getSymbol
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Symbol detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Symbol' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/sectors:
+    get:
+      tags: [reference]
+      summary: Sector taxonomy with symbol counts
+      operationId: listSectors
+      responses:
+        "200":
+          description: Sector list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sector:             { type: string }
+                        symbols:            { type: integer }
+                        industries_resolved: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/holidays:
+    get:
+      tags: [reference]
+      summary: NSE/BSE exchange holiday calendar
+      operationId: listHolidays
+      parameters:
+        - name: segment
+          in: query
+          schema: { type: string, enum: [CM, FO, CD, COM, DEBT, MF], default: CM }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Holiday rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  segment:    { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        holiday_date: { type: string, format: date }
+                        segment:      { type: string }
+                        description:  { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── FINANCIALS & SHAREHOLDING ─────────────────────────────────────────────────
+
+  /v1/financials/{symbol}:
+    get:
+      tags: [financials]
+      summary: Quarterly / annual financial results
+      operationId: getFinancials
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: consolidated
+          in: query
+          schema: { type: boolean, default: true }
+        - name: period_from
+          in: query
+          schema: { type: string, format: date }
+        - name: period_to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Financial rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { $ref: '#/components/schemas/FinancialRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/shareholding/{symbol}:
+    get:
+      tags: [financials]
+      summary: Quarterly shareholding pattern
+      operationId: getShareholding
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: period_from
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Shareholding rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { $ref: '#/components/schemas/ShareholdingRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── F&O ─────────────────────────────────────────────────────────────────────
+
+  /v1/fno/{symbol}:
+    get:
+      tags: [fno]
+      summary: F&O bhavcopy rows for a symbol
+      operationId: getFno
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: 'on'
+          in: query
+          schema: { type: string, format: date }
+        - name: instrument_type
+          in: query
+          schema: { type: string, enum: [FUTIDX, FUTSTK, OPTIDX, OPTSTK] }
+        - name: expiry
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: F&O rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  as_of:      { type: string, format: date }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { $ref: '#/components/schemas/FnoRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/fno/{symbol}/chain:
+    get:
+      tags: [fno]
+      summary: Option chain for a symbol and expiry
+      operationId: getFnoChain
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: expiry
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Option chain
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:       { type: string }
+                  as_of:        { type: string, format: date }
+                  expiry:       { type: string, format: date }
+                  strike_count: { type: integer }
+                  strikes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        strike: { type: number }
+                        CE:     { type: object }
+                        PE:     { type: object }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/fno/{symbol}/expiries:
+    get:
+      tags: [fno]
+      summary: Available expiry dates for a symbol
+      operationId: getFnoExpiries
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Expiry list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol: { type: string }
+                  count:  { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        expiry_date:     { type: string, format: date }
+                        ce_count:        { type: integer }
+                        pe_count:        { type: integer }
+                        futures_count:   { type: integer }
+                        latest_seen:     { type: string, format: date }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── FLOWS ────────────────────────────────────────────────────────────────────
+
+  /v1/flows/fii-dii:
+    get:
+      tags: [flows]
+      summary: FII/DII institutional flows
+      operationId: getFiiDiiFlows
+      parameters:
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - name: category
+          in: query
+          schema: { type: string, enum: [FII, DII, PROP, CLIENT] }
+        - name: segment
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Flow rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/FiiDiiRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/flows/bulk-deals:
+    get:
+      tags: [flows]
+      summary: NSE bulk deal transactions
+      operationId: getBulkDeals
+      parameters:
+        - name: symbol
+          in: query
+          schema: { type: string }
+        - name: client
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Bulk deal rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/DealRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/flows/block-deals:
+    get:
+      tags: [flows]
+      summary: NSE block deal transactions
+      operationId: getBlockDeals
+      parameters:
+        - name: symbol
+          in: query
+          schema: { type: string }
+        - name: client
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Block deal rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/DealRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── ANNOUNCEMENTS ────────────────────────────────────────────────────────────
+
+  /v1/announcements:
+    get:
+      tags: [announcements]
+      summary: Corporate announcements with AI classification
+      operationId: listAnnouncements
+      parameters:
+        - name: symbol
+          in: query
+          schema: { type: string }
+        - name: impact
+          in: query
+          schema: { type: string, enum: [high, medium, low] }
+        - name: category
+          in: query
+          schema: { type: string, example: earnings }
+        - name: sentiment
+          in: query
+          schema: { type: string, enum: [positive, neutral, negative] }
+        - name: source
+          in: query
+          schema: { type: string, enum: [NSE_ANN, BSE_ANN] }
+        - name: filed_from
+          in: query
+          schema: { type: string, format: date }
+        - name: filed_to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Announcement list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/Announcement' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/announcements/{announcement_id}:
+    get:
+      tags: [announcements]
+      summary: Single announcement detail (with description)
+      operationId: getAnnouncement
+      parameters:
+        - name: announcement_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Announcement detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/Announcement'
+                      - type: object
+                        properties:
+                          description:  { type: string, nullable: true }
+                          ingested_at:  { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── MACRO ─────────────────────────────────────────────────────────────────────
+
+  /v1/macro/rbi-yields:
+    get:
+      tags: [macro]
+      summary: RBI Government Securities yield curve
+      operationId: getRbiYields
+      parameters:
+        - name: tenor
+          in: query
+          schema: { type: string, enum: [OVERNIGHT, "91D", "364D", 1Y, 5Y, 10Y] }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Yield rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/RbiYieldRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/macro/fred:
+    get:
+      tags: [macro]
+      summary: FRED macro series observations
+      operationId: getFredSeries
+      parameters:
+        - name: series_id
+          in: query
+          required: true
+          schema: { type: string, example: DGS10 }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: FRED rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/FredRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/macro/fred/series:
+    get:
+      tags: [macro]
+      summary: Available FRED series index
+      operationId: listFredSeries
+      responses:
+        "200":
+          description: FRED series catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        series_id:     { type: string }
+                        series_name:   { type: string }
+                        units:         { type: string }
+                        frequency:     { type: string }
+                        observations:  { type: integer }
+                        first_date:    { type: string, format: date }
+                        last_date:     { type: string, format: date }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── SNAPSHOTS ─────────────────────────────────────────────────────────────────
+
+  /v1/snapshots/market:
+    get:
+      tags: [snapshots]
+      summary: Daily market-level snapshot
+      operationId: getMarketSnapshot
+      parameters:
+        - name: 'on'
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Market snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      as_of_date:           { type: string, format: date }
+                      nifty50_close:        { type: number }
+                      nifty50_pct_change:   { type: number }
+                      nifty500_close:       { type: number }
+                      bank_nifty_close:     { type: number }
+                      india_vix:            { type: number, nullable: true }
+                      fii_cash_net_cr:      { type: number, nullable: true }
+                      dii_cash_net_cr:      { type: number, nullable: true }
+                      advances_count:       { type: integer, nullable: true }
+                      declines_count:       { type: integer, nullable: true }
+                      unchanged_count:      { type: integer, nullable: true }
+                      total_traded_value_cr: { type: number, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/snapshots/market/recent:
+    get:
+      tags: [snapshots]
+      summary: Recent market snapshots series
+      operationId: getMarketSnapshotsRecent
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, default: 30 }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Recent snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:       { type: integer }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/snapshots/stock/{symbol}:
+    get:
+      tags: [snapshots]
+      summary: Daily stock snapshot (combined OHLCV + delivery + features)
+      operationId: getStockSnapshot
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: 'on'
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Stock snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      symbol:      { type: string }
+                      as_of_date:  { type: string, format: date }
+                      open_price:  { type: number }
+                      high_price:  { type: number }
+                      low_price:   { type: number }
+                      close_price: { type: number }
+                      volume:      { type: integer }
+                      turnover:    { type: number }
+                      deliv_pct:   { type: number, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── FEATURES ─────────────────────────────────────────────────────────────────
+
+  /v1/features/stocks/{symbol}:
+    get:
+      tags: [features]
+      summary: ML-engineered features time-series for a symbol
+      operationId: getStockFeatures
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Feature rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { $ref: '#/components/schemas/StockFeatureRow' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/features/stocks/{symbol}/latest:
+    get:
+      tags: [features]
+      summary: Latest feature row for a symbol
+      operationId: getStockFeaturesLatest
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Latest feature row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/StockFeatureRow' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ── EVENTS ───────────────────────────────────────────────────────────────────
+
+  /v1/events/calendar:
+    get:
+      tags: [events]
+      summary: Corporate event calendar (results, AGMs, ex-dates)
+      operationId: getEventCalendar
+      parameters:
+        - name: from_date
+          in: query
+          schema: { type: string, format: date }
+        - name: to_date
+          in: query
+          schema: { type: string, format: date }
+        - name: event_type
+          in: query
+          schema: { type: string, example: quarterly_results }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Calendar events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from_date:  { type: string, format: date }
+                  to_date:    { type: string, format: date }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:       { type: string }
+                        company_name: { type: string }
+                        event_type:   { type: string }
+                        event_date:   { type: string, format: date }
+                        period:       { type: string, nullable: true }
+                        purpose:      { type: string, nullable: true }
+                        ex_date:      { type: string, format: date, nullable: true }
+                        record_date:  { type: string, format: date, nullable: true }
+                        source:       { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/events/{symbol}:
+    get:
+      tags: [events]
+      summary: Events for a single symbol
+      operationId: getSymbolEvents
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - name: event_type
+          in: query
+          schema: { type: string }
+        - name: from_date
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/signals/latest:
+    get:
+      tags: [events]
+      summary: Latest AI-derived signals across all symbols
+      operationId: getLatestSignals
+      parameters:
+        - name: sentiment
+          in: query
+          schema: { type: string, enum: [bullish, neutral, bearish] }
+        - name: event_type
+          in: query
+          schema: { type: string }
+        - name: min_confidence
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 100 }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Latest signals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { type: object } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/signals/{symbol}:
+    get:
+      tags: [events]
+      summary: AI signals for a single symbol
+      operationId: getSymbolSignals
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Symbol signals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:     { type: string }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:       { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── MUTUAL FUNDS ─────────────────────────────────────────────────────────────
+
+  /v1/mf/amcs:
+    get:
+      tags: [mutual-funds]
+      summary: AMC master list
+      operationId: listAmcs
+      responses:
+        "200":
+          description: AMC list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        amc_id:          { type: string }
+                        amc_name:        { type: string }
+                        registrar:       { type: string, nullable: true }
+                        in_top_n:        { type: boolean }
+                        aum_inr_crore:   { type: number, nullable: true }
+                        website:         { type: string, nullable: true }
+                        active_schemes:  { type: integer }
+                        total_schemes:   { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/schemes:
+    get:
+      tags: [mutual-funds]
+      summary: MF scheme master with filters
+      operationId: listMfSchemes
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: amc_id
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string, example: "Large Cap" }
+        - name: scheme_type
+          in: query
+          schema: { type: string, example: "Open Ended" }
+        - name: isin
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, inactive] }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Scheme list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/MfScheme' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/schemes/{scheme_code}:
+    get:
+      tags: [mutual-funds]
+      summary: Full scheme detail
+      operationId: getMfScheme
+      parameters:
+        - name: scheme_code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Scheme detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MfSchemeDetail' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/mf/nav/{scheme_code}:
+    get:
+      tags: [mutual-funds]
+      summary: NAV time-series for a scheme
+      operationId: getMfNav
+      parameters:
+        - name: scheme_code
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/start'
+        - $ref: '#/components/parameters/end'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: NAV rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/MfNavRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/nav/latest:
+    get:
+      tags: [mutual-funds]
+      summary: Latest NAV for all active schemes
+      operationId: getMfNavLatest
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Latest NAVs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/MfNavRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/holdings/{scheme_code}:
+    get:
+      tags: [mutual-funds]
+      summary: Monthly portfolio holdings for a scheme
+      operationId: getMfHoldings
+      parameters:
+        - name: scheme_code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: as_of_month
+          in: query
+          schema: { type: string, example: "2026-05" }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Holding rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/MfHoldingRow' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/holdings/overlap:
+    get:
+      tags: [mutual-funds]
+      summary: Portfolio overlap across scheme list
+      operationId: getMfHoldingsOverlap
+      parameters:
+        - name: scheme_codes
+          in: query
+          required: true
+          schema: { type: string }
+          description: "Comma-separated scheme codes."
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Overlap securities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        security_name:   { type: string }
+                        isin:            { type: string, nullable: true }
+                        overlap_schemes: { type: array, items: { type: string } }
+                        total_weight_pct: { type: number }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/schemes/{scheme_code}/disclosure:
+    get:
+      tags: [mutual-funds]
+      summary: Latest SID/SAI disclosure snapshot (TER, AUM, manager)
+      operationId: getMfDisclosure
+      parameters:
+        - name: scheme_code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Disclosure snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      snapshot_date:   { type: string, format: date }
+                      ter_pct:         { type: number, nullable: true }
+                      ter_pct_direct:  { type: number, nullable: true }
+                      risk_o_meter:    { type: string, nullable: true }
+                      primary_manager: { type: string, nullable: true }
+                      aum_inr_crore:   { type: number, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/circulars:
+    get:
+      tags: [mutual-funds]
+      summary: AMFI circulars and regulatory notices
+      operationId: listMfCirculars
+      parameters:
+        - name: from_date
+          in: query
+          schema: { type: string, format: date }
+        - name: to_date
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Circular list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        circular_id:  { type: string }
+                        published_at: { type: string, format: date-time }
+                        title:        { type: string }
+                        body_text:    { type: string, nullable: true }
+                        source_url:   { type: string, nullable: true }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── SCORES ───────────────────────────────────────────────────────────────────
+
+  /v1/stocks/{symbol}/score:
+    get:
+      tags: [scores]
+      summary: V3 screener score for a symbol (latest)
+      operationId: getStockScore
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Stock score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/StockScore' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/stocks/screener:
+    get:
+      tags: [scores]
+      summary: Multi-factor screener with quantitative filters
+      operationId: runScreener
+      parameters:
+        - name: sector
+          in: query
+          schema: { type: string }
+        - name: market_cap
+          in: query
+          schema: { type: string, enum: [LARGE_CAP, MID_CAP, SMALL_CAP, MICRO_CAP] }
+        - name: min_roe
+          in: query
+          schema: { type: number }
+        - name: max_de
+          in: query
+          schema: { type: number }
+        - name: min_eps_cagr_3y
+          in: query
+          schema: { type: number }
+        - name: min_rev_cagr_3y
+          in: query
+          schema: { type: number }
+        - name: min_rsi
+          in: query
+          schema: { type: number }
+        - name: max_rsi
+          in: query
+          schema: { type: number }
+        - name: max_pe_vs_sector
+          in: query
+          schema: { type: number }
+        - name: sort_by
+          in: query
+          schema: { type: string, default: momentum_score }
+        - name: sort_desc
+          in: query
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Screener results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:       { type: array, items: { $ref: '#/components/schemas/StockScore' } }
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/stocks/screener/top:
+    get:
+      tags: [scores]
+      summary: Top N stocks by a single metric
+      operationId: getTopStocks
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema: { type: string, example: momentum_score }
+        - name: market_cap
+          in: query
+          schema: { type: string, enum: [LARGE_CAP, MID_CAP, SMALL_CAP, MICRO_CAP] }
+        - $ref: '#/components/parameters/limit'
+      responses:
+        "200":
+          description: Top stocks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metric: { type: string }
+                  count:  { type: integer }
+                  data:   { type: array, items: { $ref: '#/components/schemas/StockScore' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/performance/{scheme_code}:
+    get:
+      tags: [scores]
+      summary: MF performance analytics and category rank
+      operationId: getMfPerformance
+      parameters:
+        - name: scheme_code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Performance analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MfPerformance' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/mf/performance/category/{category}:
+    get:
+      tags: [scores]
+      summary: Category performance leaderboard
+      operationId: getMfCategoryLeaderboard
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema: { type: string, example: "Large Cap" }
+        - name: metric
+          in: query
+          schema: { type: string, default: composite_rank }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Category leaderboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category:  { type: string }
+                  rank_date: { type: string, format: date }
+                  sorted_by: { type: string }
+                  count:     { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:      { type: array, items: { $ref: '#/components/schemas/MfPerformance' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/scores/{isin}:
+    get:
+      tags: [scores]
+      summary: V3 quality and health score for a MF (by ISIN)
+      operationId: getMfScore
+      parameters:
+        - name: isin
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: MF score
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MfScore' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/mf/scores/{isin}/history:
+    get:
+      tags: [scores]
+      summary: MF score history (last N days)
+      operationId: getMfScoreHistory
+      parameters:
+        - name: isin
+          in: path
+          required: true
+          schema: { type: string }
+        - name: days
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        "200":
+          description: Score history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isin:    { type: string }
+                  days:    { type: integer }
+                  count:   { type: integer }
+                  history: { type: array, items: { $ref: '#/components/schemas/MfScore' } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/mf/scores/bulk:
+    post:
+      tags: [scores]
+      summary: Bulk MF scores by ISIN list
+      operationId: getMfScoresBulk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isins]
+              properties:
+                isins:
+                  type: array
+                  items: { type: string }
+                  maxItems: 200
+      responses:
+        "200":
+          description: Scores keyed by ISIN
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                additionalProperties:
+                  $ref: '#/components/schemas/MfScore'
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── INTELLIGENCE ─────────────────────────────────────────────────────────────
+
+  /v1/intelligence/reference/securities:
+    get:
+      tags: [intelligence]
+      summary: Canonical security reference universe
+      operationId: listRefSecurities
+      parameters:
+        - name: entity_type
+          in: query
+          schema: { type: string, enum: [EQUITY, MUTUAL_FUND, INDEX, COMMODITY, CURRENCY] }
+        - name: asset_class
+          in: query
+          schema: { type: string }
+        - name: symbol
+          in: query
+          schema: { type: string }
+        - name: isin
+          in: query
+          schema: { type: string }
+        - name: amfi_scheme_code
+          in: query
+          schema: { type: string }
+        - name: sector
+          in: query
+          schema: { type: string }
+        - name: is_active
+          in: query
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Reference securities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        security_id:      { type: string, format: uuid }
+                        entity_type:      { type: string }
+                        asset_class:      { type: string }
+                        symbol:           { type: string, nullable: true }
+                        isin:             { type: string, nullable: true }
+                        nse_symbol:       { type: string, nullable: true }
+                        bse_code:         { type: string, nullable: true }
+                        amfi_scheme_code: { type: string, nullable: true }
+                        security_name:    { type: string }
+                        sector:           { type: string, nullable: true }
+                        industry:         { type: string, nullable: true }
+                        is_active:        { type: boolean }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/intelligence/dq/scores:
+    get:
+      tags: [intelligence]
+      summary: Data quality scores per dataset (accuracy, freshness, consistency, completeness)
+      operationId: getIntelligenceDqScores
+      parameters:
+        - name: target_date
+          in: query
+          schema: { type: string, format: date }
+        - name: dataset_name
+          in: query
+          schema: { type: string }
+        - name: quality_tier
+          in: query
+          schema: { type: string, enum: [GOLD, SILVER, BRONZE, UNVERIFIED] }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: DQ score rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        score_id:           { type: string }
+                        target_date:        { type: string, format: date }
+                        dataset_name:       { type: string }
+                        freshness_score:    { type: number }
+                        accuracy_score:     { type: number }
+                        consistency_score:  { type: number }
+                        completeness_score: { type: number }
+                        overall_score:      { type: number }
+                        quality_tier:       { type: string }
+                        computed_at:        { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/intelligence/graph/correlations:
+    get:
+      tags: [intelligence]
+      summary: Correlation edges for a security
+      operationId: getCorrelations
+      parameters:
+        - name: security_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: relationship_type
+          in: query
+          schema: { type: string, enum: [STOCK_STOCK, STOCK_INDEX, STOCK_MF] }
+        - name: window_days
+          in: query
+          schema: { type: integer, default: 252 }
+        - name: as_of_date
+          in: query
+          schema: { type: string, format: date }
+        - name: min_abs_corr
+          in: query
+          schema: { type: number, minimum: 0, maximum: 1, default: 0.5 }
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Correlation edges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        correlation_id:      { type: string }
+                        as_of_date:          { type: string, format: date }
+                        window_days:         { type: integer }
+                        left_security_id:    { type: string, format: uuid }
+                        right_security_id:   { type: string, format: uuid }
+                        relationship_type:   { type: string }
+                        correlation_value:   { type: number }
+                        abs_correlation:     { type: number }
+                        method:              { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/intelligence/graph/correlations/bulk:
+    post:
+      tags: [intelligence]
+      summary: Correlation sub-graph for a portfolio of securities
+      operationId: getCorrelationsBulk
+      parameters:
+        - name: min_abs_corr
+          in: query
+          schema: { type: number, default: 0.5 }
+        - name: window_days
+          in: query
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [security_ids]
+              properties:
+                security_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+                  maxItems: 50
+      responses:
+        "200":
+          description: Portfolio correlation graph
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  data:  { type: array, items: { type: object } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/intelligence/snapshots/market:
+    get:
+      tags: [intelligence]
+      summary: Intelligence-layer market snapshot (regime signals)
+      operationId: getIntelligenceMarketSnapshot
+      parameters:
+        - name: 'on'
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Intelligence market snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      as_of_date:         { type: string, format: date }
+                      nifty50_close:      { type: number }
+                      market_regime:      { type: string, nullable: true }
+                      fii_flow_signal:    { type: string, nullable: true }
+                      dii_flow_signal:    { type: string, nullable: true }
+                      volatility_regime:  { type: string, nullable: true }
+                      breadth_signal:     { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── DQ GATE ──────────────────────────────────────────────────────────────────
+
+  /v1/dq/status:
+    get:
+      tags: [dq]
+      summary: Current data quality gate status
+      operationId: getDqStatus
+      parameters:
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: DQ status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DQStatus' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/dq/verdicts:
+    get:
+      tags: [dq]
+      summary: Gate verdict log
+      operationId: listDqVerdicts
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        "200":
+          description: Verdict rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:      { type: integer }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:          { type: string }
+                        gate_id:     { type: integer }
+                        feed:        { type: string, nullable: true }
+                        target_date: { type: string, format: date }
+                        verdict:     { type: string, enum: [PASS, REVIEW, FAIL] }
+                        severity:    { type: string }
+                        created_at:  { type: string, format: date-time }
+                        details:     {}
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/dq/dlq:
+    get:
+      tags: [dq]
+      summary: Dead-letter queue — failed gate findings pending replay
+      operationId: getDqDlq
+      responses:
+        "200":
+          description: DLQ items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:             { type: string }
+                        gate_id:        { type: integer }
+                        feed:           { type: string }
+                        target_date:    { type: string, format: date, nullable: true }
+                        failure_reason: { type: string }
+                        severity:       { type: string }
+                        replay_status:  { type: string, enum: [pending, replaying, resolved, abandoned] }
+                        created_at:     { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── REPLAY ───────────────────────────────────────────────────────────────────
+
+  /v1/replay/policies:
+    get:
+      tags: [replay]
+      summary: Available replay policies
+      operationId: listReplayPolicies
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source: { type: string }
+                  policies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        policy_id:   { type: string }
+                        name:        { type: string }
+                        version:     { type: string }
+                        description: { type: string }
+                        parameters:  { type: object }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/replay/start:
+    post:
+      tags: [replay]
+      summary: Start a historical replay run
+      operationId: startReplay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartReplayRequest' }
+      responses:
+        "200":
+          description: Replay started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:        { type: boolean }
+                  replay_id: { type: string }
+                  status:    { type: string }
+                  message:   { type: string }
+        "400": { $ref: '#/components/responses/BadRequest' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/replay/{replay_id}:
+    get:
+      tags: [replay]
+      summary: Replay run status
+      operationId: getReplay
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Replay status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:        { type: boolean }
+                  replay_id: { type: string }
+                  status:    { type: string, enum: [queued, running, completed, failed] }
+                  progress:  { type: object, nullable: true }
+                  result:    { type: object, nullable: true }
+                  error:     { type: string, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  /v1/replay/{replay_id}/results:
+    get:
+      tags: [replay]
+      summary: Detailed replay results and timeline
+      operationId: getReplayResults
+      parameters:
+        - name: replay_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Replay results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  replay_id: { type: string }
+                  status:    { type: string }
+                  summary:
+                    type: object
+                    properties:
+                      start_date:   { type: string, format: date }
+                      end_date:     { type: string, format: date }
+                      domains:      { type: array, items: { type: string } }
+                      days_run:     { type: integer }
+                      days_failed:  { type: integer }
+                  timeline:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:    { type: string, format: date }
+                        status:  { type: string }
+                        message: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
