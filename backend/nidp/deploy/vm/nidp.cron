@@ -136,6 +136,10 @@ MAILTO=""
 # Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
 30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
 
+# ── Container health collector (infra monitoring dashboard) ───────
+# Writes docker ps status to monitoring.container_health every minute.
+* * * * *      nidp  /opt/nidp/venv/bin/python /opt/nidp/repo/backend/nidp/deploy/vm/container_health_collector.py >> /opt/nidp/logs/container_health.log 2>&1
+
 # ── Gate 4: Replication integrity check ───────────────────────────
 # Continuous: WAL lag + standby recovery check every minute.
 # Daily (01:00): row-count parity across 4 key tables (primary↔standby).

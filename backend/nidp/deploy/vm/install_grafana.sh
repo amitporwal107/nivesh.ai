@@ -33,6 +33,12 @@ cp "$SRC/dashboards/nidp_job_health.json" "$DST/dashboards/nidp_job_health.json"
 log "Installing dashboard JSON: NIDP DQ Chain Status"
 cp "$SRC/dashboards/dq_chain_status.json" "$DST/dashboards/dq_chain_status.json"
 
+log "Installing dashboard JSON: NIDP Infrastructure Monitoring"
+cp "$SRC/dashboards/nidp_infra_monitoring.json" "$DST/dashboards/nidp_infra_monitoring.json"
+
+log "Installing dashboard JSON: NIDP Quality Gate Analytics"
+cp "$SRC/dashboards/nidp_dq_analytics.json" "$DST/dashboards/nidp_dq_analytics.json"
+
 # Ensure the grafana container can read everything
 chmod -R a+rX "$DST"
 
