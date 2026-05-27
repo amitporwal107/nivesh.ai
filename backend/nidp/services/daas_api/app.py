@@ -40,6 +40,7 @@ from nidp.shared.storage.pg import close_pool, get_pool
 from nidp.services.daas_api.middleware import RequestContextMiddleware
 from nidp.services.daas_api.routers import (
     admin,
+    analytics,
     announcements,
     backfill,
     catalog,
@@ -315,3 +316,4 @@ app.include_router(mf_performance.router, prefix=v1_prefix)
 app.include_router(mf_scores.router, prefix=v1_prefix)
 app.include_router(stock_scores.router, prefix=v1_prefix)
 app.include_router(stock_v3_scores.router, prefix=v1_prefix)
+app.include_router(analytics.router, prefix=v1_prefix)

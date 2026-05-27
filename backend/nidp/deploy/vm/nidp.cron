@@ -120,4 +120,10 @@ MAILTO=""
 20 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
 
+# ── Parquet WARM-layer export (runs after analytics_refresh) ──────
+# Exports stock_features_daily + nse_financials_quarterly to MinIO
+# as partitioned Parquet for DuckDB historical queries and AI datasets.
+# Requires NIDP_MINIO_ENDPOINT / NIDP_MINIO_ACCESS_KEY / NIDP_S3_BUCKET in nidp.env.
+30 0 * * 2-6  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh parquet_exporter
+
 # yfinance_backfill is event-driven (manual run only) — not scheduled.
