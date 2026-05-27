@@ -4,11 +4,14 @@ Exports:
     nidp.stock_features_daily       → parquet/stock_features_daily/year=YYYY/month=MM/
     nidp.nse_financials_quarterly   → parquet/nse_financials_quarterly/year=YYYY/quarter=Q/
 
-Designed to run daily after price feed. Exports yesterday's partition (or a
-specified date range). Idempotent: skips partitions already present in MinIO.
+Gate 5 — Warm-Tier Export Gate:
+    1. Export to   _tmp/{date}.parquet
+    2. Verify row count matches source TimescaleDB query
+    3. Verify file is valid (pyarrow can read it)
+    4. Atomic rename: _tmp/{date}.parquet → {date}.parquet
+    5. On failure: delete _tmp file + record FAIL verdict
 
-This is the WARM layer — once exported, TimescaleDB retention policies can
-drop old chunks and queries route to DuckDB → MinIO Parquet instead.
+Idempotent: skips partitions whose final key already exists in MinIO.
 """
 from __future__ import annotations
 
@@ -33,25 +36,33 @@ async def run(target_date: Optional[date] = None) -> dict:
     except ImportError as e:
         raise RuntimeError("parquet_exporter requires pyarrow. pip install pyarrow") from e
 
-    s3 = _get_minio_client()
+    s3     = _get_minio_client()
     bucket = os.environ.get("NIDP_S3_BUCKET", "nidp-raw")
     _ensure_bucket(s3, bucket)
 
+    # Gate 5 verifier — uses a DB connection for verdict persistence
+    from nidp.shared.storage.pg import get_pool
+    from nidp.shared.dq.gate5_parquet import ParquetExportGate
+    pool = await get_pool()
+
     results: dict[str, int] = {}
 
-    results["stock_features_daily"] = await _export_stock_features(
-        s3, bucket, pa, pq, export_date
-    )
-    results["nse_financials_quarterly"] = await _export_nse_financials(
-        s3, bucket, pa, pq, export_date
-    )
+    async with pool.acquire() as conn:
+        gate5 = ParquetExportGate(s3, bucket, conn)
+
+        results["stock_features_daily"] = await _export_stock_features(
+            s3, bucket, pa, pq, export_date, gate5,
+        )
+        results["nse_financials_quarterly"] = await _export_nse_financials(
+            s3, bucket, pa, pq, export_date, gate5,
+        )
 
     total_rows = sum(results.values())
     log.info("Parquet export complete: %s total_rows=%d", results, total_rows)
     return {"exported": results, "date": str(export_date), "total_rows": total_rows}
 
 
-async def _export_stock_features(s3, bucket, pa, pq, export_date: date) -> int:
+async def _export_stock_features(s3, bucket, pa, pq, export_date: date, gate5) -> int:
     from nidp.shared.storage.pg import get_pool
 
     pool = await get_pool()
@@ -73,23 +84,37 @@ async def _export_stock_features(s3, bucket, pa, pq, export_date: date) -> int:
         log.info("stock_features_daily: no rows for %s, skipping", export_date)
         return 0
 
-    key = (
+    base   = (
         f"parquet/stock_features_daily/"
         f"year={export_date.year}/month={export_date.month:02d}/"
-        f"{export_date.isoformat()}.parquet"
     )
+    final_key = base + f"{export_date.isoformat()}.parquet"
+    tmp_key   = base + f"_tmp/{export_date.isoformat()}.parquet"
 
-    if _object_exists(s3, bucket, key):
-        log.info("stock_features_daily: %s already in MinIO, skipping", key)
+    if _object_exists(s3, bucket, final_key):
+        log.info("stock_features_daily: %s already in MinIO, skipping", final_key)
         return len(rows)
 
+    # Write to tmp
     table = pa.Table.from_pylist([dict(r) for r in rows])
-    _upload_parquet(s3, bucket, key, table, pq)
-    log.info("stock_features_daily: exported %d rows → minio://%s/%s", len(rows), bucket, key)
+    _upload_parquet(s3, bucket, tmp_key, table, pq)
+    log.info(
+        "stock_features_daily: wrote %d rows to tmp %s — verifying",
+        len(rows), tmp_key,
+    )
+
+    # Gate 5: verify + rename (raises on failure)
+    await gate5.verify_and_finalize(
+        table="stock_features_daily",
+        tmp_key=tmp_key,
+        final_key=final_key,
+        expected_rows=len(rows),
+        export_date=export_date,
+    )
     return len(rows)
 
 
-async def _export_nse_financials(s3, bucket, pa, pq, export_date: date) -> int:
+async def _export_nse_financials(s3, bucket, pa, pq, export_date: date, gate5) -> int:
     """Export nse_financials_quarterly rows whose ingested_at falls on export_date."""
     from nidp.shared.storage.pg import get_pool
 
@@ -110,21 +135,34 @@ async def _export_nse_financials(s3, bucket, pa, pq, export_date: date) -> int:
         log.info("nse_financials_quarterly: no new rows for ingested_at=%s", export_date)
         return 0
 
-    # Partition by year/quarter of period_end
-    quarter = (export_date.month - 1) // 3 + 1
-    key = (
+    quarter   = (export_date.month - 1) // 3 + 1
+    base      = (
         f"parquet/nse_financials_quarterly/"
         f"year={export_date.year}/quarter=Q{quarter}/"
-        f"ingested_{export_date.isoformat()}.parquet"
     )
+    final_key = base + f"ingested_{export_date.isoformat()}.parquet"
+    tmp_key   = base + f"_tmp/ingested_{export_date.isoformat()}.parquet"
 
-    if _object_exists(s3, bucket, key):
-        log.info("nse_financials_quarterly: %s already in MinIO, skipping", key)
+    if _object_exists(s3, bucket, final_key):
+        log.info("nse_financials_quarterly: %s already in MinIO, skipping", final_key)
         return len(rows)
 
+    # Write to tmp
     table = pa.Table.from_pylist([dict(r) for r in rows])
-    _upload_parquet(s3, bucket, key, table, pq)
-    log.info("nse_financials_quarterly: exported %d rows → minio://%s/%s", len(rows), bucket, key)
+    _upload_parquet(s3, bucket, tmp_key, table, pq)
+    log.info(
+        "nse_financials_quarterly: wrote %d rows to tmp %s — verifying",
+        len(rows), tmp_key,
+    )
+
+    # Gate 5: verify + rename (raises on failure)
+    await gate5.verify_and_finalize(
+        table="nse_financials_quarterly",
+        tmp_key=tmp_key,
+        final_key=final_key,
+        expected_rows=len(rows),
+        export_date=export_date,
+    )
     return len(rows)
 
 

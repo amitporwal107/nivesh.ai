@@ -1,0 +1,191 @@
+---
+# NIDP Data Quality Gates — Prometheus recording rules and SLO alerts
+# Gate 7: Observability Gate
+#
+# Load via prometheus.yml rule_files: directive.
+# Burn-rate alerting replaces threshold-based alerts:
+#   Fast burn  (2% budget in 1h)  → page
+#   Slow burn  (10% budget in 24h) → ticket / Slack
+
+groups:
+
+  # ── Recording rules — SLO compliance windows ───────────────────────────────
+  - name: nidp_dq_slo_recording
+    interval: 60s
+    rules:
+
+      # Gate 1 — ingester pass rate per service (1m window)
+      - record: nidp:gate1_pass_rate_1m
+        expr: |
+          rate(nidp_ingester_runs_total{status="OK"}[1m])
+          /
+          (rate(nidp_ingester_runs_total[1m]) + 1e-9)
+
+      # Gate 3 — snapshot completion rate per trading day
+      # Uses GATE_VERDICTS counter: nidp_dq_gate_verdicts_total{gate="3",verdict="pass"}
+      - record: nidp:gate3_pass_rate_5m
+        expr: |
+          rate(nidp_dq_gate_verdicts_total{gate="3",verdict="pass"}[5m])
+          /
+          (rate(nidp_dq_gate_verdicts_total{gate="3"}[5m]) + 1e-9)
+
+      # Gate 3 — daily success rate (30-day window for SLO reporting)
+      - record: nidp:gate3_pass_rate_30d
+        expr: |
+          increase(nidp_dq_gate_verdicts_total{gate="3",verdict="pass"}[30d])
+          /
+          (increase(nidp_dq_gate_verdicts_total{gate="3"}[30d]) + 1e-9)
+
+      # Gate 5 — parquet export success rate
+      - record: nidp:gate5_pass_rate_30d
+        expr: |
+          increase(nidp_dq_gate_verdicts_total{gate="5",verdict="pass"}[30d])
+          /
+          (increase(nidp_dq_gate_verdicts_total{gate="5"}[30d]) + 1e-9)
+
+      # Ingester freshness — seconds since last successful run per service
+      - record: nidp:ingester_seconds_since_last_ok
+        expr: |
+          time()
+          - on(service) group_left()
+            max by(service) (
+              nidp_ingester_last_success_timestamp_seconds
+            )
+
+      # DLQ pending count per feed (requires DLQ metric exposed by quality_gate service)
+      - record: nidp:dlq_pending_count
+        expr: nidp_dq_dlq_pending_total
+
+  # ── SLO burn-rate alerts ────────────────────────────────────────────────────
+  - name: nidp_dq_slo_alerts
+    rules:
+
+      # ── Gate 3: Snapshot completion ──────────────────────────────────────
+      # Fast burn: consuming 2% of monthly error budget in 1h
+      - alert: NIDPGate3SnapshotFastBurn
+        expr: |
+          (1 - nidp:gate3_pass_rate_5m) > (14.4 * (1 - 0.99))
+        for: 5m
+        labels:
+          severity: pager
+          gate: "3"
+          team: nidp-platform
+        annotations:
+          summary: "Gate 3 snapshot completion fast burn rate"
+          description: >
+            Gate 3 (Snapshot Completion) is failing at a rate that would
+            exhaust the monthly error budget within 1 hour.
+            Current pass rate: {{ $value | humanizePercentage }}.
+            Check dq.gate_verdicts or run: curl /v1/dq/status
+
+      # Slow burn: 10% of monthly budget in 24h
+      - alert: NIDPGate3SnapshotSlowBurn
+        expr: |
+          (1 - nidp:gate3_pass_rate_30d) > (1.0 * (1 - 0.99))
+        for: 60m
+        labels:
+          severity: ticket
+          gate: "3"
+          team: nidp-platform
+        annotations:
+          summary: "Gate 3 snapshot completion slow burn (30-day SLO at risk)"
+          description: >
+            Gate 3 30-day pass rate {{ $value | humanizePercentage }}
+            is below 99% SLO target. Open investigation ticket.
+
+      # ── Gate 1: Ingester failure ──────────────────────────────────────────
+      - alert: NIDPIngesterFailed
+        expr: |
+          increase(nidp_ingester_runs_total{status="FAILED"}[30m]) > 0
+        labels:
+          severity: warning
+          gate: "1"
+          team: nidp-platform
+        annotations:
+          summary: "Ingester {{ $labels.service }} failed"
+          description: >
+            Ingester {{ $labels.service }} had a FAILED run in the last 30 minutes.
+            Check dq.dlq_findings for DLQ entries.
+
+      - alert: NIDPIngesterGate1P0
+        expr: |
+          increase(nidp_dq_gate_verdicts_total{gate="1",verdict="fail"}[30m]) > 0
+        labels:
+          severity: pager
+          gate: "1"
+          team: nidp-platform
+        annotations:
+          summary: "Gate 1 P0 failure for feed {{ $labels.feed }}"
+          description: >
+            Feed {{ $labels.feed }} failed Gate 1 ingestion check.
+            Data was NOT persisted. Check dq.dlq_findings for the batch.
+
+      # ── Gate 4: Replication lag ───────────────────────────────────────────
+      - alert: NIDPReplicationLagHigh
+        expr: |
+          increase(nidp_dq_gate_verdicts_total{gate="4",verdict="fail"}[5m]) > 0
+        for: 2m
+        labels:
+          severity: pager
+          gate: "4"
+          team: nidp-platform
+        annotations:
+          summary: "Gate 4 replication integrity failure"
+          description: >
+            Gate 4 detected replication lag > 30s or row-count parity failure.
+            DaaS reads may be routing to a lagging standby.
+            Run: python gate4_replication_check.py --mode=daily
+
+      # ── Gate 5: Parquet export ────────────────────────────────────────────
+      - alert: NIDPParquetExportFailed
+        expr: |
+          increase(nidp_dq_gate_verdicts_total{gate="5",verdict="fail"}[1h]) > 0
+        labels:
+          severity: warning
+          gate: "5"
+          team: nidp-platform
+        annotations:
+          summary: "Gate 5 Parquet export failure for {{ $labels.feed }}"
+          description: >
+            Parquet export for {{ $labels.feed }} failed Gate 5 verification.
+            The _tmp file was deleted; the partition is unchanged.
+
+      # ── DLQ backlog ───────────────────────────────────────────────────────
+      - alert: NIDPDLQBacklogHigh
+        expr: nidp:dlq_pending_count > 5
+        for: 30m
+        labels:
+          severity: warning
+          team: nidp-platform
+        annotations:
+          summary: "DLQ backlog high: {{ $value }} pending messages"
+          description: >
+            {{ $value }} messages are sitting in dq.dlq_findings with
+            replay_status=PENDING for > 30 minutes.
+            Review via GET /v1/dq/dlq or query dq.dlq_findings.
+
+      # ── Feed staleness ────────────────────────────────────────────────────
+      - alert: NIDPBhavcopyStalenessHigh
+        expr: nidp:ingester_seconds_since_last_ok{service="bhavcopy"} > 86400
+        labels:
+          severity: pager
+          feed: bhavcopy
+          team: nidp-platform
+        annotations:
+          summary: "Bhavcopy feed not updated in > 24h"
+          description: >
+            nidp_ingester_last_success_timestamp_seconds for bhavcopy is
+            {{ $value | humanizeDuration }} ago.
+            This will block Gate 3 and halt V3 score generation.
+
+      - alert: NIDPMFNavStalenessHigh
+        expr: nidp:ingester_seconds_since_last_ok{service="amfi_nav"} > 172800
+        labels:
+          severity: pager
+          feed: mf_nav_daily
+          team: nidp-platform
+        annotations:
+          summary: "AMFI NAV feed not updated in > 48h"
+          description: >
+            nidp_ingester_last_success_timestamp_seconds for amfi_nav is
+            {{ $value | humanizeDuration }} ago.
