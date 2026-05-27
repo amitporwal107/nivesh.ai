@@ -80,9 +80,9 @@ def run(dry_run: bool, batch_size: int) -> None:
     # Count work
     cur.execute("""
         SELECT count(*) AS n FROM nidp.raw_archive_files
-        WHERE file_path NOT LIKE 'minio://%'
-          AND file_path NOT LIKE 's3://%'
-          AND file_path NOT LIKE 'gs://%'
+        WHERE file_path NOT LIKE 'minio://%%'
+          AND file_path NOT LIKE 's3://%%'
+          AND file_path NOT LIKE 'gs://%%'
     """)
     total = cur.fetchone()["n"]
     log.info("Found %d local raw archive rows to migrate", total)
