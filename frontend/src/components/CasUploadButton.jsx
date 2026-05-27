@@ -82,6 +82,9 @@ export default function CasUploadButton({
 
       // 4. Persist on backend (forward portfolio_id so multi-portfolio
       //    users get their holdings tagged correctly).
+      // Idempotency-Key: one UUID per import attempt so network retries
+      // don't create duplicate holdings (backend dedupes within 24h).
+      const idempotencyKey = crypto.randomUUID();
       const importRes = await axios.post(
         `${API}/portfolio/import-connect`,
         {
@@ -89,7 +92,10 @@ export default function CasUploadButton({
           metadata: result?.metadata || {},
           portfolio_id: portfolioId || "",
         },
-        { withCredentials: true }
+        {
+          withCredentials: true,
+          headers: { "Idempotency-Key": idempotencyKey },
+        }
       );
       const count = importRes.data?.count ?? 0;
       const investor = importRes.data?.investor;
