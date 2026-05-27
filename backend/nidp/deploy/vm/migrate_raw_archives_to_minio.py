@@ -89,26 +89,26 @@ def run(dry_run: bool, batch_size: int) -> None:
     total = cur.fetchone()["n"]
     log.info("Found %d local raw archive rows to migrate", total)
 
+    # Pre-fetch ALL pending rows into memory to avoid OFFSET-drift pagination bug
+    # (migrated rows get removed from the WHERE result set mid-pagination).
+    cur.execute("""
+        SELECT archive_id, file_path, ingester
+        FROM nidp.raw_archive_files
+        WHERE NOT (
+            starts_with(file_path, 'minio://')
+            OR starts_with(file_path, 's3://')
+            OR starts_with(file_path, 'gs://')
+        )
+        ORDER BY archive_id
+    """)
+    all_rows = cur.fetchall()
+    log.info("Fetched %d rows to process", len(all_rows))
+
     migrated = skipped_missing = skipped_already = errors = 0
-    offset = 0
 
-    while True:
-        cur.execute(f"""
-            SELECT archive_id, file_path, ingester
-            FROM nidp.raw_archive_files
-            WHERE NOT (
-                starts_with(file_path, 'minio://')
-                OR starts_with(file_path, 's3://')
-                OR starts_with(file_path, 'gs://')
-            )
-            ORDER BY archive_id
-            LIMIT {int(batch_size)} OFFSET {int(offset)}
-        """)
-        rows = cur.fetchall()
-        if not rows:
-            break
-
-        for row in rows:
+    for i in range(0, len(all_rows), batch_size):
+        batch = all_rows[i: i + batch_size]
+        for row in batch:
             local_path = Path(row["file_path"])
             if not local_path.exists():
                 log.warning("Missing local file, skipping: %s", local_path)
@@ -155,7 +155,6 @@ def run(dry_run: bool, batch_size: int) -> None:
                         )
             migrated += 1
 
-        offset += batch_size
         log.info(
             "Progress: migrated=%d skipped_missing=%d skipped_already=%d errors=%d / %d total",
             migrated, skipped_missing, skipped_already, errors, total,
