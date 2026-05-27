@@ -73,7 +73,7 @@ async def _export_stock_features(s3, bucket, pa, pq, export_date: date, gate5) -
                    sma50_slope, dist_200dma_pct, dist_52w_high_pct, dist_52w_low_pct,
                    rsi14, macd, macd_signal, macd_hist,
                    return_5d_pct, return_20d_pct, return_60d_pct,
-                   volatility_20d, beta_nifty_60d, volume, avg_volume_20d,
+                   volatility_1y_pct, beta_1y, avg_volume_20,
                    source, source_run_id, ingested_at
             FROM nidp.stock_features_daily
             WHERE as_of_date = $1
@@ -121,10 +121,13 @@ async def _export_nse_financials(s3, bucket, pa, pq, export_date: date, gate5) -
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT symbol, period_end, period_type,
-                   revenue, expenses, profit_after_tax, eps,
-                   roe, debt_to_equity, profit_margin,
-                   revenue_growth_yoy, pat_growth_yoy,
+            SELECT symbol, period_end, period_type, consolidated,
+                   revenue_from_ops_cr AS revenue,
+                   total_expenses_cr   AS expenses,
+                   pat_cr              AS profit_after_tax,
+                   eps_basic           AS eps,
+                   ebitda_cr,
+                   pbt_cr,
                    source, source_run_id, ingested_at
             FROM nidp.nse_financials_quarterly
             WHERE ingested_at::date = $1

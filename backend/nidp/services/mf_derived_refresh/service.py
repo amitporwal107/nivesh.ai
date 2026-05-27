@@ -53,7 +53,7 @@ async def run(
                   AND NOT EXISTS (
                       SELECT 1 FROM nidp.mf_derived_analytics da
                       WHERE da.scheme_code = sm.scheme_code
-                        AND da.as_of_date > $1 - 7
+                        AND da.as_of_date > $1::date - 7
                   )
                 ORDER BY sm.scheme_code
                 """,

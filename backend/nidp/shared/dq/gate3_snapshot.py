@@ -101,7 +101,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.bhavcopy WHERE trade_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.prices_eod WHERE as_of_date = $1",
             target_date,
         )
         cnt  = row["cnt"]
@@ -127,7 +127,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.delivery WHERE trade_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.delivery_data WHERE as_of_date = $1",
             target_date,
         )
         cnt  = row["cnt"]
@@ -153,7 +153,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.index_close WHERE trade_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.index_eod WHERE as_of_date = $1",
             target_date,
         )
         cnt  = row["cnt"]
@@ -178,7 +178,7 @@ class SnapshotCompletionGate(BaseGate):
         self, conn: asyncpg.Connection, target_date: date
     ) -> CheckResult:
         row = await conn.fetchrow(
-            "SELECT COUNT(*) AS cnt FROM nidp.fii_dii WHERE trade_date = $1",
+            "SELECT COUNT(*) AS cnt FROM nidp.fii_dii_flows WHERE as_of_date = $1",
             target_date,
         )
         cnt = row["cnt"]
@@ -227,7 +227,7 @@ class SnapshotCompletionGate(BaseGate):
     ) -> CheckResult:
         row = await conn.fetchrow(
             """
-            SELECT EXTRACT(EPOCH FROM (NOW() - MAX(created_at)))::INT AS age_secs
+            SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ingested_at)))::INT AS age_secs
             FROM nidp.corporate_actions
             """,
         )
@@ -264,10 +264,10 @@ class SnapshotCompletionGate(BaseGate):
             """
             WITH counts AS (
                 SELECT
-                    (SELECT COUNT(DISTINCT symbol) FROM nidp.bhavcopy
-                     WHERE trade_date = $1) AS bhav_count,
-                    (SELECT COUNT(DISTINCT symbol) FROM nidp.delivery
-                     WHERE trade_date = $1) AS dlv_count
+                    (SELECT COUNT(DISTINCT symbol) FROM nidp.prices_eod
+                     WHERE as_of_date = $1) AS bhav_count,
+                    (SELECT COUNT(DISTINCT symbol) FROM nidp.delivery_data
+                     WHERE as_of_date = $1) AS dlv_count
             )
             SELECT bhav_count, dlv_count,
                    CASE WHEN bhav_count = 0 THEN NULL
@@ -373,18 +373,16 @@ class SnapshotCompletionGate(BaseGate):
                    (COALESCE(promoter_pct, 0)
                     + COALESCE(fii_pct, 0)
                     + COALESCE(dii_pct, 0)
-                    + COALESCE(public_pct, 0)
-                    + COALESCE(others_pct, 0)) AS total_pct
+                    + COALESCE(public_pct, 0)) AS total_pct
             FROM nidp.shareholding_pattern
-            WHERE quarter_end = (
-                SELECT MAX(quarter_end) FROM nidp.shareholding_pattern
+            WHERE period_end = (
+                SELECT MAX(period_end) FROM nidp.shareholding_pattern
             )
               AND ABS(
                   (COALESCE(promoter_pct, 0)
                    + COALESCE(fii_pct, 0)
                    + COALESCE(dii_pct, 0)
-                   + COALESCE(public_pct, 0)
-                   + COALESCE(others_pct, 0)) - 100
+                   + COALESCE(public_pct, 0)) - 100
               ) > 0.5
             LIMIT 20
             """

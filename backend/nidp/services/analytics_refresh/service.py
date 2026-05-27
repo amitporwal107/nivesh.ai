@@ -5,6 +5,7 @@ before re-inserting, so reruns are safe.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from typing import Optional
@@ -25,10 +26,16 @@ async def run(target_date: Optional[date] = None) -> dict:
             target_date,
         )
 
-    summary = dict(result["summary"]) if result and result["summary"] else {}
-    stock_rows   = int(summary.get("stock_card_rows", 0))
-    sector_rows  = int(summary.get("sector_snapshot_rows", 0))
-    elapsed_ms   = summary.get("elapsed_ms")
+    raw = result["summary"] if result else None
+    if raw is None:
+        summary = {}
+    elif isinstance(raw, dict):
+        summary = raw
+    else:
+        summary = json.loads(raw)
+    stock_rows   = int(summary.get("stock_cards", summary.get("stock_card_rows", 0)))
+    sector_rows  = int(summary.get("sectors", summary.get("sector_snapshot_rows", 0)))
+    elapsed_ms   = summary.get("duration_ms", summary.get("elapsed_ms"))
 
     logger.info(
         "analytics_refresh as_of=%s stock_card=%d sector_snapshot=%d elapsed_ms=%s",

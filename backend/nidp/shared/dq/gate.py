@@ -9,6 +9,7 @@ Every gate:
 from __future__ import annotations
 
 import abc
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -183,7 +184,7 @@ async def _persist_verdict(
         job_run_id,
         result.verdict.value,
         result.severity.value,
-        details,
+        json.dumps(details, default=str),
     )
     return verdict_id
 
