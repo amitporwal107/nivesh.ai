@@ -208,7 +208,8 @@ def _parse_screener_section(
         return None
 
     soup = BeautifulSoup(html, "lxml")
-    section = soup.find("section", {"id": section_id})
+    # Screener.in uses <section id="..."> on some pages and <div id="..."> on others
+    section = soup.find("section", {"id": section_id}) or soup.find(id=section_id)
     if not section:
         return None
     table = section.find("table", class_="data-table")
