@@ -29,7 +29,7 @@ _SCREENER_SLUG_MAP: dict[str, str] = {
     "M&M": "M-AND-M",
     "BAJAJFINSV": "BAJAJ-FINSERV",  # holding co — page exists but no id="quarters" section
     "TATAMOTORS": "TMCV",           # Tata Motors; Screener.in uses TMCV (CV division page)
-    "GVT&D": "GE-TD",              # GE Vernova T&D India; NSE '&' breaks URL — slug is GE-TD
+    "GVT&D": "GVT%26D",            # GE Vernova T&D India; '&' must be %-encoded in URL path
 }
 
 _HEADERS = {
