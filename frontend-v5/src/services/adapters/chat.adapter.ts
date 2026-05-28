@@ -48,7 +48,7 @@ export const realChatAdapter: ChatAdapter = {
       const d = parsed.data;
       // Real shape: {ai_message: {content, ...}, user_message: {...}}
       const reply = d.ai_message?.content ?? d.reply ?? d.message?.content ?? "";
-      const sid = d.ai_message?.session_id ?? d.user_message?.session_id ?? d.session_id ?? sessionId;
+      const sid: string | undefined = d.session_id ?? sessionId;
       return { reply, sessionId: sid };
     }
     return { reply: typeof res.data === "string" ? res.data : "" };
