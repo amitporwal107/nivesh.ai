@@ -531,10 +531,11 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
     isin = (row.get("isin") or "").strip()
     name = (row.get("scheme_name") or row.get("name") or "").strip()
     units = _num(row.get("units") or row.get("quantity"))
-    nav = _num(row.get("nav") or row.get("price"))
+    avg_cost_nav = _num(row.get("avg_cost") or row.get("average_cost") or row.get("nav") or row.get("price"))
     value = _num(row.get("value") or row.get("market_value"))
-    if nav == 0 and units > 0 and value > 0:
-        nav = round(value / units, 4)
+    # current_price = current market NAV = market_value / units (authoritative)
+    # buy_price     = avg cost NAV (cost basis)
+    current_nav = round(value / units, 4) if units > 0 and value > 0 else avg_cost_nav
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -545,8 +546,8 @@ def _holding_from_demat_mf(row: dict) -> Optional[Dict]:
         "ticker": isin,
         "asset_type": "etf" if is_etf else "mutual_fund",
         "quantity": round(units, 4),
-        "buy_price": round(nav, 4),
-        "current_price": round(nav, 4),
+        "buy_price": round(avg_cost_nav, 4),
+        "current_price": round(current_nav, 4),
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
@@ -595,8 +596,9 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
     avg_cost = _num(row.get("avg_cost") or row.get("average_cost"))
     if avg_cost == 0 and total_cost > 0 and units > 0:
         avg_cost = round(total_cost / units, 4)
-    if nav == 0 and units > 0 and value > 0:
-        nav = round(value / units, 4)
+    # current_price = current market NAV derived from market value (authoritative).
+    # `nav` from casparser may be the average cost NAV, not the current NAV.
+    current_nav = round(value / units, 4) if units > 0 and value > 0 else nav
     if not isin or not name:
         return None
     plan, option = _classify_mf(name)
@@ -608,7 +610,7 @@ def _holding_from_mf_scheme(row: dict) -> Optional[Dict]:
         "asset_type": "etf" if is_etf else "mutual_fund",
         "quantity": round(units, 4),
         "buy_price": round(avg_cost or nav, 4),
-        "current_price": round(nav, 4),
+        "current_price": round(current_nav, 4),
         "sector": _classify_sector(name),
         "plan": plan,
         "option": option,
