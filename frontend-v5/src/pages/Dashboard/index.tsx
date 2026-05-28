@@ -57,10 +57,21 @@ export default function DashboardPage() {
     );
   }
 
-  // Prefer canonical /insights/analysis health score when resolved.
-  const dashSummary = v3.data && !v3.isError
-    ? { ...summary.data, healthScore: v3.data.health.health_score || v3.data.health.score || summary.data.healthScore }
-    : summary.data;
+  const nav = navHistory.data ?? [];
 
-  return <Dashboard summary={dashSummary} navHistory={navHistory.data ?? []} />;
+  // Prefer canonical /insights/analysis health score when resolved.
+  let dashSummary = v3.data && !v3.isError
+    ? { ...summary.data!, healthScore: v3.data.health.health_score || v3.data.health.score || summary.data!.healthScore }
+    : summary.data!;
+
+  // Portfolio value fallback: enriched totals are 0 when live NAV hasn't been
+  // fetched yet. Use the last trend data point (from portfolio snapshots) which
+  // reflects the value at statement time and is always more current than the
+  // holdings-enriched computation.
+  if (dashSummary.totalValue === 0 && nav.length > 0) {
+    const lastPoint = nav[nav.length - 1];
+    dashSummary = { ...dashSummary, totalValue: lastPoint.value };
+  }
+
+  return <Dashboard summary={dashSummary} navHistory={nav} />;
 }
