@@ -41,7 +41,7 @@ export default function LoginPage() {
     try {
       const credential = await gis.signIn();
       await google.mutateAsync(credential);
-      navigate("/onboarding");
+      navigate("/dashboard");
     } catch (err) {
       pushToast({
         kind: "error",
