@@ -47,8 +47,8 @@ export default {
         xl: "22px",
       },
       boxShadow: {
-        card: "0 1px 0 rgb(255 255 255 / 0.4) inset, 0 18px 36px -22px rgb(15 23 42 / 0.18)",
-        pop: "0 24px 60px -24px rgb(15 23 42 / 0.20), 0 0 0 1px rgb(15 23 42 / 0.04)",
+        card: "0 1px 0 rgb(255 255 255 / 0.04) inset, 0 24px 48px -24px rgb(0 0 0 / 0.6)",
+        pop: "0 1px 0 rgb(255 255 255 / 0.06) inset, 0 40px 80px -32px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04)",
       },
       letterSpacing: { tightish: "-0.02em" },
       keyframes: {

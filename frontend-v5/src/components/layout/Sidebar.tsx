@@ -57,7 +57,7 @@ export function Sidebar({ className }: { className?: string }) {
       )}
     >
       <div className="flex items-center gap-3 px-3 pb-7">
-        <span className="grid place-items-center h-8 w-8 rounded-md bg-ink text-on-accent font-display text-[19px] leading-none">
+        <span className="nv-mark" style={{ width: 32, height: 32, fontSize: 19 }}>
           न
         </span>
         <span className="font-display text-[19px] tracking-tightish">Nivesh</span>
