@@ -99,7 +99,7 @@ services:
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
       REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
       DB_NAME:      nivesh_staging
-      CORS_ORIGINS: "https://staging.niveshcopilot.com"
+      CORS_ORIGINS: "https://staging.niveshcopilot.com,https://staging.niveshcopilot.com:8443"
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: "lax"
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
