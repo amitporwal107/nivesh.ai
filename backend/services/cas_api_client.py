@@ -612,6 +612,51 @@ def map_api_response_to_holdings(data: dict) -> List[Dict]:
     return holdings
 
 
+def extract_statement_period(data: dict) -> Optional[str]:
+    """Return statement end-date as 'MMM/YYYY' from a raw casparser.in response.
+
+    Probes all known field paths — the API layout varies across CAS types
+    (NSDL / CDSL / CAMS / KFintech). Returns None if nothing is found.
+    """
+    if not data:
+        return None
+
+    def _dig(src: dict, *keys: str) -> Optional[str]:
+        cur = src
+        for k in keys:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(k)
+        return cur if isinstance(cur, str) else None
+
+    meta    = data.get("meta") or {}
+    summary = data.get("summary") or {}
+
+    candidates = [
+        _dig(meta,    "statement_period", "to"),
+        _dig(summary, "statement_period", "to"),
+        _dig(data,    "statement_period", "to"),
+        _dig(meta,    "to_date"),
+        _dig(meta,    "period_to"),
+        _dig(meta,    "statement_to"),
+        _dig(data,    "period"),  # some SDK versions hoist "Feb/2026" here
+    ]
+
+    date_fmts = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y")
+    from datetime import datetime as _dt
+    for raw in candidates:
+        if not raw:
+            continue
+        if len(raw) <= 8 and "/" in raw:  # already "Feb/2026"
+            return raw
+        for fmt in date_fmts:
+            try:
+                return _dt.strptime(raw.strip(), fmt).strftime("%b/%Y")
+            except ValueError:
+                continue
+    return None
+
+
 def parse_cas_via_api(content: bytes, password: str = "") -> List[Dict]:
     """
     Convenience: call API and return holdings in internal format.

@@ -206,10 +206,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         # Server-side parse. parse_cas_via_api returns [] on any failure
         # (bad password, scanned PDF too large, API down, etc.).
         try:
-            holdings = cas_api_client.parse_cas_via_api(content, password=pan)
+            holdings, raw_data, _ = cas_api_client.parse_cas_via_api_with_data(content, password=pan)
         except Exception as e:  # noqa: BLE001
             logger.exception("parse_cas_via_api crashed for %s: %s", filename, e)
-            holdings = []
+            holdings, raw_data = [], None
 
         if not holdings:
             parse_errors += 1
@@ -220,10 +220,12 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
+        statement_period = cas_api_client.extract_statement_period(raw_data) if raw_data else None
         all_holdings.extend(holdings)
         per_file.append({
             "message_id": msg_id, "filename": filename,
             "status": "completed", "holdings_count": len(holdings),
+            "statement_period": statement_period,
         })
 
     # ── Step 4: persist ──────────────────────────────────────────────
@@ -251,14 +253,20 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
 
     # ── Step 6: mark onboarding complete if anything imported ────────
     imported_files = sum(1 for f in per_file if f["status"] == "completed")
+    statement_period = next(
+        (f["statement_period"] for f in per_file if f.get("statement_period")), None
+    )
     if imported_files > 0:
+        profile_update: dict = {
+            "onboarding_completed": True,
+            "journey_type": "existing_investor",
+            "updated_at": now,
+        }
+        if statement_period:
+            profile_update["cas_statement_period"] = statement_period
         await db.user_profiles.update_one(
             {"user_id": user_id},
-            {"$set": {
-                "onboarding_completed": True,
-                "journey_type": "existing_investor",
-                "updated_at": now,
-            }, "$setOnInsert": {"user_id": user_id, "created_at": now}},
+            {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
             upsert=True,
         )
 
@@ -310,36 +318,39 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
 
     try:
-        holdings = cas_api_client.parse_cas_via_api(content, password=pan)
+        holdings, raw_data, _ = cas_api_client.parse_cas_via_api_with_data(content, password=pan)
     except Exception as e:  # noqa: BLE001
         logger.exception("upload_cas_pdf parse crashed: %s", e)
-        holdings = []
+        holdings, raw_data = [], None
 
     if not holdings:
-        # Likely wrong PAN, scanned PDF, or non-CAS file. Surface 422 so
-        # the frontend distinguishes parse-failed from auth errors.
         raise HTTPException(
             422,
             "Couldn't parse this CAS PDF. Check that the PAN matches and the file "
             "is a recent CAMS / KFintech / NSDL / CDSL statement.",
         )
 
+    statement_period = cas_api_client.extract_statement_period(raw_data) if raw_data else None
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 
     now = _now_iso()
+    profile_update: dict = {
+        "onboarding_completed": True,
+        "journey_type": "existing_investor",
+        "updated_at": now,
+    }
+    if statement_period:
+        profile_update["cas_statement_period"] = statement_period
     await db.user_profiles.update_one(
         {"user_id": user_id},
-        {"$set": {
-            "onboarding_completed": True,
-            "journey_type": "existing_investor",
-            "updated_at": now,
-        }, "$setOnInsert": {"user_id": user_id, "created_at": now}},
+        {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
         upsert=True,
     )
     return {
         "ok": True,
         "imported_holdings": len(holdings),
+        "statement_period": statement_period,
         "filename": filename,
     }
 
@@ -355,4 +366,5 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
         "onboarding_completed": bool(profile.get("onboarding_completed")),
         "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
         "gmail_connected": bool(token_doc),
+        "cas_statement_period": profile.get("cas_statement_period"),  # "Mar/2025" or null
     }

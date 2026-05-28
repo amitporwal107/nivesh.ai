@@ -1,4 +1,6 @@
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { RefreshCw, Upload } from "lucide-react";
 import type { PortfolioSummary, NavPoint } from "@/types/portfolio";
 import { PortfolioValueCard } from "./PortfolioValueCard";
 import { HealthScoreCard } from "./HealthScoreCard";
@@ -18,11 +20,61 @@ function healthLabel(score: number): { phrase: string; tone: string } {
   return { phrase: "needs attention", tone: "text-neg" };
 }
 
+function useCasState() {
+  return useQuery({
+    queryKey: ["onboarding", "state"],
+    queryFn: async () => {
+      const res = await fetch("/api/onboarding/state", { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json() as Promise<{ cas_statement_period?: string | null; gmail_connected?: boolean }>;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
+  period: string | null | undefined;
+  gmailConnected: boolean;
+  onSync: () => void;
+  onUpload: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-md bg-surface-1 border border-hairline px-4 py-2.5 text-[12.5px] text-ink-2 mb-6">
+      <span className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 shrink-0">Last CAS</span>
+      <span className="font-medium text-ink">
+        {period ?? "—"}
+      </span>
+      <span className="text-ink-4 mx-1">·</span>
+      <span className="text-ink-3 flex-1">Update if you have a newer statement</span>
+      <div className="flex items-center gap-2 ml-auto shrink-0">
+        {gmailConnected && (
+          <button
+            onClick={onSync}
+            className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Sync Gmail
+          </button>
+        )}
+        <span className="text-ink-4">·</span>
+        <button
+          onClick={onUpload}
+          className="flex items-center gap-1.5 text-ink-2 hover:text-accent hover:underline text-[12px]"
+        >
+          <Upload className="h-3 w-3" />
+          Upload file
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Dashboard — main view (data already resolved at this point).
  */
 export function Dashboard({ summary, navHistory }: DashboardProps) {
   const navigate = useNavigate();
+  const casState = useCasState();
   const { phrase, tone } = healthLabel(summary.healthScore);
   const insightCount = summary.topInsights.length;
   // Target score = current + expected gain from applying all insights (capped at 99)
@@ -38,6 +90,14 @@ export function Dashboard({ summary, navHistory }: DashboardProps) {
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
+      {/* CAS statement date banner */}
+      <CasStatementBanner
+        period={casState.data?.cas_statement_period}
+        gmailConnected={casState.data?.gmail_connected ?? false}
+        onSync={() => navigate("/onboarding?sync=gmail")}
+        onUpload={() => navigate("/onboarding?tab=upload")}
+      />
+
       {/* eyebrow + headline */}
       <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">
         Dashboard
