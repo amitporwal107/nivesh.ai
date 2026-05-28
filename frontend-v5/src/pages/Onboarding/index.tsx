@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Stepper } from "@/components/shared/Stepper";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,19 +107,22 @@ function MethodCard({ no, active, onSelect, icon, title, sub, time }: MethodCard
   );
 }
 
-type GmailState = "idle" | "authorizing" | "scanning" | "done" | "error";
+// Gmail import flow:
+//   idle → authorizing (redirect to Google) → pan_entry (return from OAuth, collect PAN)
+//   → importing (POST /api/onboarding/gmail/auto-import) → done | error
+type GmailState = "idle" | "authorizing" | "pan_entry" | "importing" | "done" | "error";
 
 function GmailPanel() {
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [state, setState] = useState<GmailState>("idle");
+  const [pan, setPan] = useState("");
+  const [panError, setPanError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ source?: string; holdings?: number } | null>(null);
   const navigate = useNavigate();
 
-  // Detect return from Gmail OAuth — backend appends ?gmail_code=xxx on success
-  // or ?gmail_error=xxx on failure.
+  // Detect return from Gmail OAuth
   useEffect(() => {
-    const gmailCode = searchParams.get("gmail_code");
     const gmailError = searchParams.get("gmail_error");
     if (gmailError) {
       setError(`Google authorization failed: ${gmailError.replace(/_/g, " ")}`);
@@ -127,31 +130,20 @@ function GmailPanel() {
       setSearchParams({}, { replace: true });
       return;
     }
-    if (!gmailCode) return;
-    // Clear the query param from the URL
-    setSearchParams({}, { replace: true });
-    // Trigger Gmail scan now that tokens are stored
-    setState("scanning");
-    fetch("/api/gmail/scan", { method: "POST", credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Scan failed: ${r.status}`);
-        return r.json();
-      })
-      .then(() => setState("done"))
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "Scan failed");
-        setState("error");
-      });
+    if (searchParams.get("gmail_code")) {
+      setSearchParams({}, { replace: true });
+      setState("pan_entry");   // Gmail connected — now collect PAN before importing
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAuthorize = async () => {
     setState("authorizing");
     setError(null);
     try {
-      const returnTo = window.location.pathname;
-      const res = await fetch(`/api/gmail/connect?return_to=${encodeURIComponent(returnTo)}`, {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/gmail/connect?return_to=${encodeURIComponent(window.location.pathname)}`,
+        { credentials: "include" },
+      );
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json() as { auth_url?: string };
       if (!data.auth_url) throw new Error("No auth URL returned");
@@ -162,27 +154,116 @@ function GmailPanel() {
     }
   };
 
+  const handleImport = async () => {
+    const panVal = pan.trim().toUpperCase();
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panVal)) {
+      setPanError("PAN must be 10 characters — e.g. ABCDE1234F");
+      return;
+    }
+    setPanError(null);
+    setState("importing");
+    try {
+      // Save PAN first (needed to unlock CAS PDFs)
+      const panRes = await fetch("/api/onboarding/pan", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pan: panVal }),
+      });
+      if (!panRes.ok) throw new Error(`PAN save failed: ${panRes.status}`);
+
+      // Run the auto-import (picks latest CAS by source priority NSDL > CDSL > CAMS > KFintech)
+      const importRes = await fetch("/api/onboarding/gmail/auto-import", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await importRes.json() as {
+        ok?: boolean; message?: string;
+        source_used?: string; imported_holdings?: number;
+      };
+      if (!importRes.ok || !data.ok) {
+        throw new Error(data.message || `Import failed: ${importRes.status}`);
+      }
+      setResult({ source: data.source_used, holdings: data.imported_holdings });
+      setState("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+      setState("error");
+    }
+  };
+
   if (state === "done") {
     return (
       <div className="p-6 flex flex-col items-center justify-center gap-4 min-h-[320px]">
         <CheckCircle2 className="h-12 w-12 text-pos" />
-        <div className="font-display text-[22px] tracking-tightish text-center">Gmail scan complete</div>
+        <div className="font-display text-[22px] tracking-tightish text-center">Holdings imported</div>
         <p className="text-[13.5px] text-ink-2 text-center max-w-[320px] leading-relaxed">
-          We've imported your CAS emails. Your holdings will appear in the dashboard shortly.
+          {result?.source && <span className="uppercase font-mono text-[11px] text-accent">{result.source} eCAS · </span>}
+          {result?.holdings ?? 0} holdings imported from your latest CAS statement.
         </p>
         <Button variant="accent" className="mt-2" onClick={() => navigate("/dashboard")}>
-          Continue to dashboard →
+          Go to dashboard →
         </Button>
       </div>
     );
   }
 
-  if (state === "scanning") {
+  if (state === "importing") {
     return (
       <div className="p-6 flex flex-col items-center justify-center gap-4 min-h-[320px]">
         <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-        <div className="font-display text-[20px] tracking-tightish">Scanning Gmail inbox…</div>
-        <p className="text-[13px] text-ink-2 text-center">Looking for CAS emails from CAMS, KFintech, NSDL, CDSL</p>
+        <div className="font-display text-[20px] tracking-tightish">Importing your CAS…</div>
+        <p className="text-[13px] text-ink-2 text-center">
+          Finding latest statement · downloading PDF · parsing holdings
+        </p>
+      </div>
+    );
+  }
+
+  // PAN entry — shown after returning from Gmail OAuth
+  if (state === "pan_entry") {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <CheckCircle2 className="h-6 w-6 text-pos" />
+          <div>
+            <div className="font-display text-[20px] tracking-tightish">Gmail connected</div>
+            <div className="font-mono text-[10.5px] uppercase tracking-[.04em] text-ink-3 mt-0.5">
+              one more step · unlock your CAS PDF
+            </div>
+          </div>
+        </div>
+        <p className="text-[13.5px] text-ink-2 leading-relaxed">
+          CAS PDFs from CAMS and KFintech are password-locked with your PAN.
+          Enter it so we can parse the statement.
+        </p>
+        <div className="mt-5">
+          <CardLabel>Your PAN</CardLabel>
+          <input
+            type="text"
+            value={pan}
+            onChange={(e) => setPan(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === "Enter" && handleImport()}
+            maxLength={10}
+            placeholder="e.g. ABCDE1234F"
+            className="mt-1.5 w-full px-3.5 h-12 rounded-md bg-bg border border-hairline-2 font-mono text-[14px] uppercase tracking-widest outline-none focus:border-accent"
+          />
+          {panError && <div className="text-[12px] text-neg mt-1.5">{panError}</div>}
+        </div>
+        <div className="mt-2 text-[11.5px] text-ink-3">
+          Used only to decrypt your CAS PDF — never stored in plain text or shared.
+        </div>
+        {error && (
+          <div className="mt-4 text-[12.5px] text-neg bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.20)] rounded-md px-3.5 py-2.5">
+            {error}
+            <button className="ml-2 underline" onClick={() => { setError(null); setState("idle"); }}>
+              Start over
+            </button>
+          </div>
+        )}
+        <Button variant="accent" className="w-full mt-5" onClick={handleImport}>
+          Import my holdings →
+        </Button>
       </div>
     );
   }

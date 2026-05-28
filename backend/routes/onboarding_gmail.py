@@ -39,6 +39,7 @@ from helpers.parsing import save_holdings
 from helpers.upload_validation import validate_upload
 from services import cas_api_client
 from services.gmail_service import (
+    SOURCE_PRIORITY,
     build_gmail_service,
     download_attachment,
     get_gmail_credentials,
@@ -160,12 +161,23 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             "message": "No CAS emails found in this Gmail account.",
         }
 
-    # ── Step 3: download + parse each attachment ─────────────────────
+    # ── Step 3: pick the single best email (highest-priority source) ──
+    # scan_for_cas_emails returns emails sorted by SOURCE_PRIORITY so the
+    # first item is already the preferred source (NSDL > CDSL > CAMS > KFintech).
+    best_email = emails[0]
+    logger.info(
+        "auto-import: using %s email — '%s' (%s); %d other source(s) found but skipped",
+        best_email.get("source", "unknown"),
+        best_email.get("subject", "")[:50],
+        best_email.get("date", "")[:20],
+        len(emails) - 1,
+    )
+
     all_holdings: List[Dict[str, Any]] = []
     per_file: List[Dict[str, Any]] = []
     parse_errors = 0
 
-    for email in emails:
+    for email in [best_email]:
         msg_id = email.get("message_id")
         first_att = (email.get("attachments") or [{}])[0]
         att_id = email.get("attachment_id") or first_att.get("attachment_id")
@@ -261,6 +273,8 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     return {
         "ok": imported_files > 0,
         "scanned": len(emails),
+        "source_used": best_email.get("source", "unknown"),
+        "sources_available": [e.get("source") for e in emails],
         "imported_files": imported_files,
         "imported_holdings": len(all_holdings),
         "parse_errors": parse_errors,

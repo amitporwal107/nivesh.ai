@@ -122,88 +122,147 @@ def build_gmail_service(creds: Credentials):
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-def scan_for_cas_emails(service, max_results: int = 30) -> list:
-    """Scan Gmail for CAS-related emails with PDF attachments.
-    Returns list of email metadata with attachment info."""
+# Preference order: lower index = higher priority.
+# auto-import picks the highest-priority source that has a parseable email.
+SOURCE_PRIORITY = ["nsdl", "cdsl", "cams", "kfintech"]
 
-    # Use simple Gmail search — multiple queries to maximize recall
-    queries = [
-        "from:NSDL-CAS@nsdl.co.in has:attachment filename:pdf",
-        "from:nsdl.co.in has:attachment filename:pdf",
-        "from:cdsl has:attachment filename:pdf",
-        "from:cams has:attachment filename:pdf",
-        "from:camsonline.com has:attachment filename:pdf",
-        "from:kfintech has:attachment filename:pdf",
-        "from:karvy has:attachment filename:pdf",
-        "subject:\"NSDL CAS\" has:attachment filename:pdf",
-        "subject:\"consolidated account statement\" has:attachment filename:pdf",
-        "subject:\"e-CAS\" has:attachment filename:pdf",
-    ]
+# One Gmail query per source — Gmail returns results newest-first so
+# maxResults=3 gives us the 3 most recent emails per sender to maximise
+# the chance of finding a PDF, without processing stale history.
+_SOURCE_QUERIES: list[tuple[str, str]] = [
+    ("nsdl",     "from:nsdl.co.in has:attachment filename:pdf"),
+    ("nsdl",     "from:NSDL-CAS@nsdl.co.in has:attachment filename:pdf"),
+    ("cdsl",     "from:cdslindia.com has:attachment filename:pdf"),
+    ("cdsl",     "from:cdsl has:attachment filename:pdf"),
+    ("cams",     "from:camsonline.com has:attachment filename:pdf"),
+    ("cams",     "from:cams has:attachment filename:pdf"),
+    ("kfintech", "from:kfintech.com has:attachment filename:pdf"),
+    ("kfintech", "from:karvy has:attachment filename:pdf"),
+]
 
-    all_message_ids = set()
-    all_messages = []
 
-    for query in queries:
+def _classify_source(sender: str, subject: str) -> str:
+    """Return the canonical source key for an email."""
+    s = sender.lower()
+    if "nsdl" in s:
+        return "nsdl"
+    if "cdsl" in s or "cdslindia" in s:
+        return "cdsl"
+    if "cams" in s or "camsonline" in s:
+        return "cams"
+    if "kfintech" in s or "karvy" in s:
+        return "kfintech"
+    # Subject fallback
+    subj = subject.lower()
+    if "nsdl" in subj:
+        return "nsdl"
+    if "cdsl" in subj:
+        return "cdsl"
+    if "cams" in subj:
+        return "cams"
+    if "kfintech" in subj or "karvy" in subj:
+        return "kfintech"
+    return "unknown"
+
+
+def _parse_email_date(date_str: str) -> datetime:
+    """Parse an RFC 2822 email Date header to a UTC datetime."""
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(date_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def scan_for_cas_emails(service, max_results: int = 30) -> list:  # noqa: ARG001 (max_results kept for API compat)
+    """Scan Gmail for CAS emails.
+
+    Returns at most one email per source (NSDL / CDSL / CAMS / KFintech),
+    the most recent one with a PDF attachment, sorted by SOURCE_PRIORITY so
+    callers can simply take the first item for the preferred source.
+    """
+    seen_ids: set[str] = set()
+    # latest_by_source[source] = best email dict found so far
+    latest_by_source: dict[str, dict] = {}
+
+    for source, query in _SOURCE_QUERIES:
         try:
             results = service.users().messages().list(
                 userId="me",
                 q=query,
-                maxResults=10,
+                maxResults=3,   # newest 3 per sender; first parseable wins
             ).execute()
-            for m in results.get("messages", []):
-                if m["id"] not in all_message_ids:
-                    all_message_ids.add(m["id"])
-                    all_messages.append(m)
         except Exception as e:
             logger.warning("Gmail search failed for query '%s': %s", query, e)
+            continue
 
-    logger.info("Gmail scan: %s unique emails found from %s queries", len(all_messages), len(queries))
+        for msg_meta in results.get("messages", []):
+            if msg_meta["id"] in seen_ids:
+                continue
+            seen_ids.add(msg_meta["id"])
 
-    if not all_messages:
-        return []
-
-    cas_emails = []
-    for msg_meta in all_messages[:max_results]:
-        try:
-            msg = service.users().messages().get(
-                userId="me", id=msg_meta["id"], format="full",
-            ).execute()
-
-            headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
-            sender = headers.get("from", "")
-            subject = headers.get("subject", "")
-            date = headers.get("date", "")
-
-            # Check for PDF attachments
-            attachments = _find_pdf_attachments(msg.get("payload", {}))
-            if not attachments:
-                logger.debug("Email '%s' from '%s' has no PDF attachments, skipping", subject[:40], sender[:30])
+            # Skip if we already have a candidate for this source — Gmail
+            # returns newest-first so the first PDF-bearing email wins.
+            if source in latest_by_source:
                 continue
 
-            # Score confidence
-            confidence = _score_cas_confidence(sender, subject)
+            try:
+                msg = service.users().messages().get(
+                    userId="me", id=msg_meta["id"], format="full",
+                ).execute()
+            except Exception as e:
+                logger.warning("Failed to fetch email %s: %s", msg_meta["id"], e)
+                continue
 
-            # Flatten first attachment to top-level for client convenience
-            # (most CAS emails have exactly one PDF). Keep the full array
-            # for any consumer that wants multi-PDF support.
-            first = attachments[0] if attachments else {}
-            cas_emails.append({
+            headers = {
+                h["name"].lower(): h["value"]
+                for h in msg.get("payload", {}).get("headers", [])
+            }
+            sender  = headers.get("from", "")
+            subject = headers.get("subject", "")
+            date    = headers.get("date", "")
+
+            attachments = _find_pdf_attachments(msg.get("payload", {}))
+            if not attachments:
+                continue
+
+            first = attachments[0]
+            canonical_source = _classify_source(sender, subject) or source
+            latest_by_source[canonical_source] = {
                 "message_id": msg_meta["id"],
-                "sender": sender,
-                "subject": subject,
-                "date": date,
+                "sender":     sender,
+                "subject":    subject,
+                "date":       date,
+                "date_dt":    _parse_email_date(date),
+                "source":     canonical_source,
                 "attachments": attachments,
                 "attachment_id": first.get("attachment_id"),
-                "filename": first.get("filename"),
-                "size": first.get("size", 0),
-                "confidence": confidence,
-            })
-        except Exception as e:
-            logger.warning("Failed to process email %s: %s", msg_meta['id'], e)
+                "filename":   first.get("filename"),
+                "size":       first.get("size", 0),
+                "confidence": _score_cas_confidence(sender, subject),
+            }
+            logger.info(
+                "Gmail scan: found %s email — '%s' from '%s' (%s)",
+                canonical_source, subject[:50], sender[:40], date[:20],
+            )
 
-    # Sort by confidence then date
-    cas_emails.sort(key=lambda x: x["confidence"], reverse=True)
-    return cas_emails
+    # Return in preference order; unknown sources appended last.
+    ordered: list[dict] = []
+    for src in SOURCE_PRIORITY:
+        if src in latest_by_source:
+            ordered.append(latest_by_source[src])
+    for src, email in latest_by_source.items():
+        if src not in SOURCE_PRIORITY:
+            ordered.append(email)
+
+    logger.info(
+        "Gmail scan complete: %d sources found (%s)",
+        len(ordered), ", ".join(e["source"] for e in ordered),
+    )
+    return ordered
 
 
 def _find_pdf_attachments(payload: dict) -> list:
