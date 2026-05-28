@@ -18,7 +18,6 @@ extra Vision API cost is a one-time per-user expense.
 from __future__ import annotations
 
 import base64
-import io
 import json
 import logging
 import os
@@ -26,14 +25,6 @@ import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-# PII patterns to redact before sending to OpenAI
-_PII_PATTERNS = [
-    (re.compile(r'[A-Z]{5}[0-9]{4}[A-Z]'),               "XXXXXXXXXX"),  # PAN
-    (re.compile(r'\b[6-9]\d{9}\b'),                        "XXXXXXXXXX"),  # mobile
-    (re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z]{2,}'), "XXX@XXX.XXX"),  # email
-    (re.compile(r'\b\d{8,16}\b'),                          "XXXXXXXX"),    # account/folio numbers
-]
 
 _EXTRACTION_PROMPT = """
 You are extracting structured data from an Indian CAS (Consolidated Account Statement) PDF page.
@@ -75,15 +66,19 @@ def _get_openai_key() -> str:
     return key
 
 
-def _pdf_pages_to_images(content: bytes, max_pages: int = 3) -> list[bytes]:
-    """Render first N pages of a PDF to PNG bytes using PyMuPDF."""
+def _pdf_pages_to_images(content: bytes, start_page: int = 1, end_page: int = 3) -> list[bytes]:
+    """Render pages [start_page, end_page) of a PDF to PNG bytes using PyMuPDF.
+
+    The CAS Summary section (monthly movement table) is always on pages 2-3.
+    Page 1 contains investor details (PII) and is skipped entirely.
+    """
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(stream=content, filetype="pdf")
         images = []
-        for i in range(min(max_pages, len(doc))):
+        for i in range(start_page, min(end_page, len(doc))):
             page = doc[i]
-            mat = fitz.Matrix(1.5, 1.5)  # 1.5× zoom — good quality without huge files
+            mat = fitz.Matrix(1.2, 1.2)  # 1.2× zoom — enough for table text
             pix = page.get_pixmap(matrix=mat)
             images.append(pix.tobytes("png"))
         doc.close()
@@ -93,45 +88,6 @@ def _pdf_pages_to_images(content: bytes, max_pages: int = 3) -> list[bytes]:
         return []
 
 
-def _redact_pii_from_text(text: str) -> str:
-    """Apply regex redaction to text (used for OCR result sanity check)."""
-    for pattern, replacement in _PII_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
-
-
-def _redact_pii_from_image(png_bytes: bytes) -> bytes:
-    """
-    Redact PII from a PDF page image by painting white rectangles over
-    investor name / PAN areas. We use a simple heuristic: the top 15% of
-    the first page typically contains investor details. For subsequent pages
-    we skip redaction (they contain table data, not PII).
-
-    A more robust approach would be to run Tesseract + regex and paint over
-    matched bounding boxes, but that requires tessdata on the image. The
-    top-strip approach is good enough for the Summary page which has a fixed
-    layout in NSDL / CDSL / CAMS eCAS PDFs.
-    """
-    try:
-        import fitz
-        # Re-open as image document to draw white rectangle
-        doc = fitz.open(stream=png_bytes, filetype="png")
-        page = doc[0]
-        rect = page.rect
-        # Paint white over top 12% (investor name, PAN, address) and
-        # bottom 5% (signature/footer with account numbers)
-        redact_top = fitz.Rect(0, 0, rect.width, rect.height * 0.12)
-        redact_bot = fitz.Rect(0, rect.height * 0.95, rect.width, rect.height)
-        page.add_redact_annot(redact_top, fill=(1, 1, 1))
-        page.add_redact_annot(redact_bot, fill=(1, 1, 1))
-        page.apply_redactions()
-        out = io.BytesIO()
-        page.get_pixmap().save(out, "png")
-        doc.close()
-        return out.getvalue()
-    except Exception as e:
-        logger.debug("cas_summary_vision: PII redaction failed (%s), using original", e)
-        return png_bytes
 
 
 def extract_portfolio_summary(pdf_bytes: bytes) -> Optional[dict]:
@@ -151,13 +107,13 @@ def extract_portfolio_summary(pdf_bytes: bytes) -> Optional[dict]:
         logger.warning("cas_summary_vision: OPENAI_API_KEY not set — skipping vision extraction")
         return None
 
-    images = _pdf_pages_to_images(pdf_bytes, max_pages=3)
+    # Pages 2-3 only — the Summary tab with monthly movement table is always
+    # there. Page 1 (investor name, PAN, address) is skipped entirely so we
+    # send zero PII to OpenAI.
+    images = _pdf_pages_to_images(pdf_bytes, start_page=1, end_page=3)
     if not images:
-        logger.warning("cas_summary_vision: could not render PDF pages")
+        logger.warning("cas_summary_vision: could not render PDF pages 2-3")
         return None
-
-    # Redact PII from first page (investor details are there)
-    images[0] = _redact_pii_from_image(images[0])
 
     # Build image content blocks for the API
     image_blocks = []
@@ -172,7 +128,7 @@ def extract_portfolio_summary(pdf_bytes: bytes) -> Optional[dict]:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5",
             messages=[{
                 "role": "user",
                 "content": image_blocks + [{"type": "text", "text": _EXTRACTION_PROMPT}],
