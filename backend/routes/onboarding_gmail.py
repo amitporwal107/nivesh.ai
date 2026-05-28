@@ -59,11 +59,11 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _extract_vision_summary(pdf_bytes: bytes) -> Optional[dict]:
+def _extract_vision_summary(pdf_bytes: bytes, password: str = "") -> Optional[dict]:
     """Call Vision API to extract monthly portfolio value table from CAS PDF."""
     try:
         from services.cas_summary_vision import extract_portfolio_summary
-        return extract_portfolio_summary(pdf_bytes)
+        return extract_portfolio_summary(pdf_bytes, password=password)
     except Exception as e:
         logger.warning("Vision summary extraction failed: %s", e)
         return None
@@ -257,7 +257,8 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         cas_total_value    = _extract_portfolio_value(raw_data)
         cas_statement_date = _extract_statement_date(raw_data)
         # Vision API: extract monthly portfolio values from the CAS Summary page
-        vision = _extract_vision_summary(content)
+        # Pass PAN as PDF password (NSDL/CAMS CAS PDFs are PAN-locked)
+        vision = _extract_vision_summary(content, password=pan)
         if vision:
             if vision.get("current_value_rs"):
                 cas_total_value = float(vision["current_value_rs"])
@@ -331,6 +332,17 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             {"$set": {"auto_import_enabled": True, "last_auto_import_at": now}},
         )
 
+    # Auto-generate action plan after successful import so dashboard
+    # action matrix is immediately populated without user having to navigate
+    # to /recommendations first.
+    if imported_files > 0:
+        try:
+            from services.action_plan_manager import ActionPlanManager
+            await ActionPlanManager().generate_plan(user_id)
+            logger.info("auto-import: action plan generated for %s", user_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("auto-import: plan generation failed: %s", e)
+
     return {
         "ok": imported_files > 0,
         "scanned": len(emails),
@@ -386,7 +398,7 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     statement_period    = cas_api_client.extract_statement_period(raw_data) if raw_data else None
     cas_portfolio_value = _extract_portfolio_value(raw_data)
     cas_statement_date  = _extract_statement_date(raw_data)
-    vision              = _extract_vision_summary(content)
+    vision              = _extract_vision_summary(content, password=pan)
     if vision:
         if vision.get("current_value_rs"):
             cas_portfolio_value = float(vision["current_value_rs"])

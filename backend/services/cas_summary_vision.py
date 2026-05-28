@@ -66,15 +66,26 @@ def _get_openai_key() -> str:
     return key
 
 
-def _pdf_pages_to_images(content: bytes, start_page: int = 1, end_page: int = 3) -> list[bytes]:
+def _pdf_pages_to_images(content: bytes, start_page: int = 1, end_page: int = 3,
+                          password: str = "") -> list[bytes]:
     """Render pages [start_page, end_page) of a PDF to PNG bytes using PyMuPDF.
 
     The CAS Summary section (monthly movement table) is always on pages 2-3.
     Page 1 contains investor details (PII) and is skipped entirely.
+    NSDL/CAMS CAS PDFs are password-protected with the investor's PAN.
     """
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(stream=content, filetype="pdf")
+        if doc.is_encrypted:
+            # Try PAN as password (standard for CAS PDFs), then empty string
+            for pwd in ([password] if password else []) + [""]:
+                if doc.authenticate(pwd) != 0:
+                    break
+            else:
+                logger.warning("cas_summary_vision: could not decrypt PDF (wrong PAN?)")
+                doc.close()
+                return []
         images = []
         for i in range(start_page, min(end_page, len(doc))):
             page = doc[i]
@@ -90,7 +101,7 @@ def _pdf_pages_to_images(content: bytes, start_page: int = 1, end_page: int = 3)
 
 
 
-def extract_portfolio_summary(pdf_bytes: bytes) -> Optional[dict]:
+def extract_portfolio_summary(pdf_bytes: bytes, password: str = "") -> Optional[dict]:
     """
     Extract monthly portfolio value table from a CAS PDF using Vision API.
 
@@ -109,8 +120,8 @@ def extract_portfolio_summary(pdf_bytes: bytes) -> Optional[dict]:
 
     # Pages 2-3 only — the Summary tab with monthly movement table is always
     # there. Page 1 (investor name, PAN, address) is skipped entirely so we
-    # send zero PII to OpenAI.
-    images = _pdf_pages_to_images(pdf_bytes, start_page=1, end_page=3)
+    # send zero PII to OpenAI. Pass PAN to decrypt password-protected PDFs.
+    images = _pdf_pages_to_images(pdf_bytes, start_page=1, end_page=3, password=password)
     if not images:
         logger.warning("cas_summary_vision: could not render PDF pages 2-3")
         return None
