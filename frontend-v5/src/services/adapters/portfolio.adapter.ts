@@ -99,20 +99,45 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const [trendRes, casState] = await Promise.all([
       http({ path: "/api/portfolio/trend", query: { days } }),
       fetch("/api/onboarding/state", { credentials: "include" })
-        .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
+        .then((r) => r.ok ? r.json() as Promise<{
+          cas_portfolio_value_rs?: number | null;
+          cas_statement_date?: string | null;
+          cas_monthly_values?: Array<{ month: string; value_rs: number }> | null;
+        }> : null)
         .catch(() => null),
     ]);
     const parsed = TrendRes.safeParse(trendRes.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.getNavHistory: ${parsed.error.message}`);
-    const series = parsed.data.series.map((p) => ({
+    const trendSeries = parsed.data.series.map((p) => ({
       date:  p.snapshot_date,
       value: Math.round(p.total_value * 100),
     }));
-    // If no trend history, synthesise a single point from the CAS statement date + value
-    if (series.length === 0 && casState?.cas_statement_date && casState?.cas_portfolio_value_rs) {
+
+    // Prefer CAS monthly values (from Vision API) when available — they are
+    // the authoritative time-series straight from the PDF Summary section.
+    const monthly = casState?.cas_monthly_values;
+    if (monthly && monthly.length > 0) {
+      // Convert "Apr 2025" → ISO date "2025-04-01" for the chart
+      const MONTHS: Record<string, string> = {
+        Jan:"01", Feb:"02", Mar:"03", Apr:"04", May:"05", Jun:"06",
+        Jul:"07", Aug:"08", Sep:"09", Oct:"10", Nov:"11", Dec:"12",
+      };
+      const casSeries = monthly.map(({ month, value_rs }) => {
+        const [m, y] = month.split(" ");
+        const mm = MONTHS[m] ?? "01";
+        return { date: `${y}-${mm}-01`, value: Math.round(value_rs * 100) };
+      });
+      return casSeries;
+    }
+
+    // Trend series from portfolio snapshots (good once daily cron runs)
+    if (trendSeries.length > 0) return trendSeries;
+
+    // Last resort: single data point from CAS statement date + value
+    if (casState?.cas_statement_date && casState?.cas_portfolio_value_rs) {
       return [{ date: casState.cas_statement_date, value: Math.round(casState.cas_portfolio_value_rs * 100) }];
     }
-    return series;
+    return [];
   },
 
   async searchInstruments(q) {

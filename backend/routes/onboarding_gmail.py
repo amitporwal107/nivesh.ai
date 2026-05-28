@@ -59,6 +59,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _extract_vision_summary(pdf_bytes: bytes) -> Optional[dict]:
+    """Call Vision API to extract monthly portfolio value table from CAS PDF."""
+    try:
+        from services.cas_summary_vision import extract_portfolio_summary
+        return extract_portfolio_summary(pdf_bytes)
+    except Exception as e:
+        logger.warning("Vision summary extraction failed: %s", e)
+        return None
+
+
 def _extract_portfolio_value(raw_data: Optional[dict]) -> Optional[float]:
     """Extract total portfolio value (rupees) from casparser SDK response summary."""
     if not raw_data:
@@ -243,9 +253,16 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             })
             continue
 
-        statement_period = cas_api_client.extract_statement_period(raw_data) if raw_data else None
-        cas_total_value  = _extract_portfolio_value(raw_data)
+        statement_period   = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+        cas_total_value    = _extract_portfolio_value(raw_data)
         cas_statement_date = _extract_statement_date(raw_data)
+        # Vision API: extract monthly portfolio values from the CAS Summary page
+        vision = _extract_vision_summary(content)
+        if vision:
+            if vision.get("current_value_rs"):
+                cas_total_value = float(vision["current_value_rs"])
+            if vision.get("statement_date"):
+                cas_statement_date = vision["statement_date"]
         all_holdings.extend(holdings)
         per_file.append({
             "message_id": msg_id, "filename": filename,
@@ -253,6 +270,7 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             "statement_period": statement_period,
             "portfolio_value_rs": cas_total_value,
             "statement_date": cas_statement_date,
+            "monthly_values": vision.get("monthly_values") if vision else None,
         })
 
     # ── Step 4: persist ──────────────────────────────────────────────
@@ -281,9 +299,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     # ── Step 6: mark onboarding complete if anything imported ────────
     imported_files = sum(1 for f in per_file if f["status"] == "completed")
     best_file = next((f for f in per_file if f.get("status") == "completed"), None)
-    statement_period   = best_file.get("statement_period") if best_file else None
+    statement_period    = best_file.get("statement_period") if best_file else None
     cas_portfolio_value = best_file.get("portfolio_value_rs") if best_file else None
     cas_statement_date  = best_file.get("statement_date") if best_file else None
+    monthly_values      = best_file.get("monthly_values") if best_file else None
     if imported_files > 0:
         profile_update: dict = {
             "onboarding_completed": True,
@@ -296,6 +315,8 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
         if cas_statement_date:
             profile_update["cas_statement_date"] = cas_statement_date
+        if monthly_values:
+            profile_update["cas_monthly_values"] = monthly_values
         await db.user_profiles.update_one(
             {"user_id": user_id},
             {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
@@ -365,6 +386,12 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     statement_period    = cas_api_client.extract_statement_period(raw_data) if raw_data else None
     cas_portfolio_value = _extract_portfolio_value(raw_data)
     cas_statement_date  = _extract_statement_date(raw_data)
+    vision              = _extract_vision_summary(content)
+    if vision:
+        if vision.get("current_value_rs"):
+            cas_portfolio_value = float(vision["current_value_rs"])
+        if vision.get("statement_date"):
+            cas_statement_date = vision["statement_date"]
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 
@@ -380,6 +407,8 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
     if cas_statement_date:
         profile_update["cas_statement_date"] = cas_statement_date
+    if vision and vision.get("monthly_values"):
+        profile_update["cas_monthly_values"] = vision["monthly_values"]
     await db.user_profiles.update_one(
         {"user_id": user_id},
         {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
@@ -405,6 +434,7 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
         "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
         "gmail_connected": bool(token_doc),
         "cas_statement_period": profile.get("cas_statement_period"),       # "Mar/2025" or null
-        "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # total value in ₹ or null
-        "cas_statement_date": profile.get("cas_statement_date"),           # "YYYY-MM-DD" or null
+        "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # current value in ₹ or null
+        "cas_statement_date": profile.get("cas_statement_date"),           # "DD-MMM-YYYY" or null
+        "cas_monthly_values": profile.get("cas_monthly_values"),           # [{month, value_rs}] or null
     }
