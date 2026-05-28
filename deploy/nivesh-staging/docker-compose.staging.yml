@@ -225,6 +225,7 @@ services:
     # once `gcloud compute firewall-rules create allow-staging-https` is in.
     ports:
       - "${PI_NGINX_BIND_ADDR:-127.0.0.1}:${PI_NGINX_PORT:-8443}:8443"
+      - "127.0.0.1:8444:8444"   # HTTP-only, for prod-nginx → staging proxy
     volumes:
       - ./nginx-staging.conf:/etc/nginx/conf.d/staging.conf:ro
       - /opt/nivesh/ssl:/etc/nginx/ssl:ro            # reuse prod's Cloudflare origin cert
