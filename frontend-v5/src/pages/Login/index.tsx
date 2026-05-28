@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { GoogleMark } from "@/components/shared/GoogleMark";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useGoogleSignIn, useMagicLink, useMe } from "@/hooks/use-auth";
@@ -24,7 +23,6 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const google = useGoogleSignIn();
   const magic = useMagicLink();
-  const gis = useGoogleIdentity();
   const pushToast = useToastStore((s) => s.push);
 
   // Fetch user context for returning users (may be null if not logged in)
@@ -32,14 +30,11 @@ export default function LoginPage() {
   const { data: summary } = usePortfolioSummary();
   const { data: health } = useHealthAnalysis();
 
-  const isAllowed = email ? authService.isAllowedDomain(email) : true;
-  const userName = me?.name?.split(" ")[0] ?? null;
-  const healthScore = (health as any)?.health_score ?? (summary as any)?.healthScore ?? null;
-  const aum = summary?.totalValue ? formatRs(summary.totalValue) : null;
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
-  const handleGoogle = async () => {
+  // When Google returns a credential (via renderButton click), complete the sign-in
+  const handleCredential = useCallback(async (credential: string) => {
     try {
-      const credential = await gis.signIn();
       const user = await google.mutateAsync(credential);
       navigate(user.onboardingCompleted ? "/dashboard" : "/onboarding");
     } catch (err) {
@@ -49,7 +44,21 @@ export default function LoginPage() {
         description: err instanceof Error ? err.message : "Try again",
       });
     }
-  };
+  }, [google, navigate, pushToast]);
+
+  const gis = useGoogleIdentity(handleCredential);
+
+  const isAllowed = email ? authService.isAllowedDomain(email) : true;
+  const userName = me?.name?.split(" ")[0] ?? null;
+  const healthScore = (health as any)?.health_score ?? (summary as any)?.healthScore ?? null;
+  const aum = summary?.totalValue ? formatRs(summary.totalValue) : null;
+
+  // Render Google's native sign-in button
+  useEffect(() => {
+    if (gis.ready && googleBtnRef.current) {
+      gis.renderButton(googleBtnRef.current);
+    }
+  }, [gis.ready, gis.renderButton]);
 
   const handleMagic = async () => {
     try {
@@ -127,18 +136,19 @@ export default function LoginPage() {
             inbox. Read-only — we never send mail or read anything else.
           </p>
 
-          {/* Google CTA */}
-          <button
-            onClick={handleGoogle}
-            disabled={!gis.ready || google.isPending}
-            className="w-full mt-6 inline-flex items-center justify-center gap-3 h-12 rounded-md bg-white text-[#1F1F1F] border border-[#E5E5E5] text-sm font-medium hover:bg-[#F8F8F8] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <GoogleMark size={18} />
-            {google.isPending ? "Signing in…" : gis.ready ? "Continue with Google" : "Loading…"}
-          </button>
-          {gis.loadError && (
-            <div className="font-mono text-[11px] text-neg mt-2">Google Sign-In failed to load.</div>
-          )}
+          {/* Google Sign-In — native rendered button */}
+          <div className="mt-6">
+            {gis.ready ? (
+              <div ref={googleBtnRef} className="flex justify-center" />
+            ) : gis.loadError ? (
+              <div className="font-mono text-[11px] text-neg mt-2">Google Sign-In failed to load. Check your browser's popup/cookie settings.</div>
+            ) : (
+              <div className="h-12 rounded-md bg-surface-2 animate-pulse" />
+            )}
+            {google.isPending && (
+              <div className="font-mono text-[11px] text-ink-3 mt-2 text-center">Signing in…</div>
+            )}
+          </div>
 
           <div className="flex items-center gap-3 my-6 text-ink-4">
             <div className="flex-1 h-px bg-[rgb(var(--line)/0.10)]" />
