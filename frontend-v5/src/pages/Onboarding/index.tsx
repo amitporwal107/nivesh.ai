@@ -148,7 +148,7 @@ function GmailPanel() {
     setState("authorizing");
     setError(null);
     try {
-      const returnTo = location.pathname;
+      const returnTo = window.location.pathname;
       const res = await fetch(`/api/gmail/connect?return_to=${encodeURIComponent(returnTo)}`, {
         credentials: "include",
       });
