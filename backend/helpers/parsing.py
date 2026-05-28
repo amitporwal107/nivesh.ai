@@ -16,24 +16,55 @@ logger = logging.getLogger(__name__)
 
 
 def classify_mf_sector(scheme_name: str) -> str:
-    """Classify mutual fund into sector based on scheme name."""
+    """Classify mutual fund into sector/category based on scheme name."""
     name = scheme_name.lower()
-    if any(k in name for k in ["index", "nifty", "sensex", "etf"]): return "Index"
-    if any(k in name for k in ["small cap", "smallcap"]): return "Small Cap"
-    if any(k in name for k in ["mid cap", "midcap"]): return "Mid Cap"
-    if any(k in name for k in ["large cap", "largecap", "bluechip", "large & mid"]): return "Large Cap"
-    if any(k in name for k in ["flexi cap", "flexicap", "multi cap", "multicap"]): return "Flexi Cap"
-    if any(k in name for k in ["balanced", "hybrid", "advantage", "dynamic"]): return "Balanced"
-    if any(k in name for k in ["elss", "tax"]): return "ELSS"
-    if any(k in name for k in ["debt", "bond", "gilt", "liquid", "money market", "overnight", "short", "credit", "duration", "arbitrage"]): return "Debt"
-    if any(k in name for k in ["gold", "sgb", "sovereign"]): return "Gold"
-    if any(k in name for k in ["international", "global", "us ", "nasdaq", "fang", "nyse"]): return "International"
-    if any(k in name for k in ["banking", "financial"]): return "Banking & Financial"
-    if any(k in name for k in ["pharma", "health"]): return "Healthcare"
-    if any(k in name for k in ["technology", "digital", "it "]): return "IT / Technology"
+    # Index / Passive
+    if any(k in name for k in ["index", "nifty", "sensex", "bees", "etf", "exchange traded"]): return "Index"
+    # Debt / Fixed Income
+    if any(k in name for k in ["debt", "bond", "gilt", "liquid", "money market", "overnight",
+                                "credit risk", "duration", "arbitrage", "banking and psu",
+                                "corporate bond", "floating rate", "ultra short", "low duration",
+                                "short duration", "medium duration", "dynamic bond",
+                                "constant maturity", "g-sec", "gsec"]): return "Debt"
+    # Gold
+    if any(k in name for k in ["gold", "sgb", "sovereign gold"]): return "Gold"
+    # International
+    if any(k in name for k in ["international", "global", " us ", "nasdaq", "fang", "nyse",
+                                "overseas", "world", "emerging market", "china", "europe"]): return "International"
+    # ELSS / Tax saving
+    if any(k in name for k in ["elss", "tax saver", "tax saving", "long term equity",
+                                "tax advantage", "linked savings"]): return "ELSS"
+    # Small Cap
+    if any(k in name for k in ["small cap", "smallcap", "small & mid", "small-mid"]): return "Small Cap"
+    # Mid Cap
+    if any(k in name for k in ["mid cap", "midcap", "mid-cap"]): return "Mid Cap"
+    # Large Cap
+    if any(k in name for k in ["large cap", "largecap", "bluechip", "blue chip",
+                                "top 100", "top100", "large & mid", "large and mid"]): return "Large Cap"
+    # Flexi / Multi Cap
+    if any(k in name for k in ["flexi cap", "flexicap", "flexi-cap",
+                                "multi cap", "multicap", "multi-cap"]): return "Flexi Cap"
+    # Thematic / Sectoral
+    if any(k in name for k in ["banking", "financial service", "financi"]): return "Banking & Financial"
+    if any(k in name for k in ["pharma", "health", "healthcare", "hospital"]): return "Healthcare"
+    if any(k in name for k in ["technology", "digital", "it fund", "infotech", "tech"]): return "IT / Technology"
+    if any(k in name for k in ["infra", "infrastructure", "construction"]): return "Infrastructure"
+    if any(k in name for k in ["energy", "power", "utilities", "oil", "gas"]): return "Energy"
+    if any(k in name for k in ["auto", "automobile", "vehicle"]): return "Automobile"
+    if any(k in name for k in ["fmcg", "consumer", "consumption", "retail"]): return "Consumption"
+    if any(k in name for k in ["realty", "real estate", "reit"]): return "Real Estate"
+    if any(k in name for k in ["psu", "public sector", "defence", "defense", "manufacture",
+                                "manufacturing", "esi"]): return "PSU / Manufacturing"
+    # Hybrid / Multi Asset
+    if any(k in name for k in ["multi asset", "asset allocation"]): return "Multi Asset"
+    if any(k in name for k in ["balanced", "hybrid", "advantage", "equity savings",
+                                "dynamic asset", "conservative", "aggressive hybrid",
+                                "equity hybrid", "retirement", "children", "pension"]): return "Hybrid"
+    # Style
     if any(k in name for k in ["contra", "value"]): return "Value"
-    if any(k in name for k in ["focused", "opportunities"]): return "Focused"
-    if any(k in name for k in ["multi asset"]): return "Multi Asset"
+    if any(k in name for k in ["focused", "concentration", "best ideas"]): return "Focused"
+    if any(k in name for k in ["dividend yield", "dividend"]): return "Dividend Yield"
+    if any(k in name for k in ["momentum", "quant", "factor", "alpha"]): return "Factor / Quant"
     return "Other"
 
 

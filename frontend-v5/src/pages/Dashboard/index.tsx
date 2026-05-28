@@ -8,7 +8,7 @@
  * score-only refetch doesn't invalidate holdings / nav-history.
  */
 import { useNavigate } from "react-router-dom";
-import { usePortfolioSummary, usePortfolioNavHistory } from "@/hooks/use-portfolio";
+import { usePortfolioSummary, usePortfolioNavHistory, useHoldings } from "@/hooks/use-portfolio";
 import { useV3Portfolio } from "@/hooks/use-insights";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const summary = usePortfolioSummary();
   const navHistory = usePortfolioNavHistory("1y");
+  const holdings = useHoldings();        // count gate — totalValue can be 0 if NAV not fetched yet
   const v3 = useV3Portfolio();           // independent; not blocking
 
   if (summary.isPending || navHistory.isPending) {
@@ -42,7 +43,11 @@ export default function DashboardPage() {
     );
   }
 
-  if (!summary.data || summary.data.totalValue === 0) {
+  // Show empty state only when there are genuinely no holdings.
+  // totalValue can be 0 if NAV hasn't been fetched yet after import — don't
+  // gate on that or users see empty dashboard right after onboarding.
+  const hasHoldings = (holdings.data?.length ?? 0) > 0;
+  if (!summary.data && !hasHoldings) {
     return (
       <EmptyState
         title="Connect your investments to begin"

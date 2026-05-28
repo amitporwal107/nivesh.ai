@@ -26,8 +26,8 @@ export const EstimatedImpactC = z.object({
 
 export const PlanActionC = z.object({
   action_id:    z.string(),
-  action_type:  ActionTypeC.or(z.string()),
-  priority:     z.number().int().optional(),
+  action_type:  ActionTypeC.or(z.string()).optional(),
+  priority:     z.union([z.number(), z.string().transform(Number)]).optional(),
   rule_triggered: z.string().optional(),
   holding_name: z.string().optional(),
   asset_name:   z.string().optional(),
