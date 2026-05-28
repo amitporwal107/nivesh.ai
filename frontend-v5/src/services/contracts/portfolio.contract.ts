@@ -55,28 +55,52 @@ export const HoldingAddReq = z.object({
 
 export const HoldingUpdateReq = HoldingAddReq.partial();
 
+export const ActionBadgeObjectC = z.object({
+  action: z.string(),
+  tone:   z.string(),
+  emoji:  z.string().optional(),
+  reason: z.string().optional(),
+}).passthrough();
+
 export const EnrichedHoldingC = z.object({
   holding_id:       z.string(),
   name:             z.string(),
   asset_type:       z.string(),
   quantity:         z.number(),
   current_price:    z.number(),
-  current_value_rs: z.number(),
-  gain_rs:          z.number(),
-  gain_pct:         z.number(),
+  value_rs:         z.number().optional(),
+  invested_rs:      z.number().optional(),
+  pnl_rs:           z.number().optional(),
+  pnl_pct:          z.number().optional(),
   xirr_pct:         z.number().nullable().optional(),
-  weight_pct:       z.number(),
-  v3_score:         z.number().nullable().optional(),
-  v3_grade:         z.enum(["A","B","C","D","F"]).or(z.string()).nullable().optional(),
-  action_badge:     z.enum(["buy_more","hold","review","exit"]).or(z.string()).nullable().optional(),
+  weight_pct:       z.number().optional(),
+  target_weight_pct: z.number().optional(),
+  isin:             z.string().optional(),
+  nse_symbol:       z.string().optional(),
+  sector:           z.string().nullable().optional(),
+  category:         z.string().nullable().optional(),
+  buy_price:        z.number().optional(),
+  buy_date:         z.string().nullable().optional(),
+  cost_basis_source: z.string().optional(),
+  action_badge:     z.union([z.string(), ActionBadgeObjectC]).nullable().optional(),
 }).passthrough();
 
 export const EnrichedHoldingsRes = z.object({
-  portfolio_id:       z.string(),
-  total_value_rs:     z.number(),
-  total_invested_rs:  z.number(),
-  total_gain_pct:     z.number(),
   holdings:           z.array(EnrichedHoldingC),
+  totals:             z.object({
+    count:        z.number().optional(),
+    value_rs:     z.number().optional(),
+    invested_rs:  z.number().optional(),
+    pnl_rs:       z.number().optional(),
+    pnl_pct:      z.number().optional(),
+    xirr_pct:     z.number().optional(),
+  }).passthrough().optional(),
+  alerts:             z.array(z.unknown()).optional(),
+  health:             z.unknown().optional(),
+  coverage_pct:       z.number().optional(),
+  allocation_actual:  z.unknown().optional(),
+  allocation_ideal:   z.unknown().optional(),
+  portfolio_impact:   z.unknown().optional(),
   cached:             z.boolean().optional(),
   generated_at:       z.string().optional(),
 }).passthrough();
@@ -84,8 +108,12 @@ export type EnrichedHoldingsRes = z.infer<typeof EnrichedHoldingsRes>;
 
 /** /api/portfolio/trend — sparkline series. */
 export const TrendPointC = z.object({
-  date:     z.string(),
-  value_rs: z.number(),
+  snapshot_date: z.string(),
+  total_value:   z.number(),
+  health_score:  z.number().optional(),
+  allocation:    z.unknown().optional(),
+  scores:        z.unknown().optional(),
+  return_pct:    z.number().optional(),
 }).passthrough();
 
 export const TrendRes = z.object({

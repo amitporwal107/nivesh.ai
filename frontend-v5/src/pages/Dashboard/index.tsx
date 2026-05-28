@@ -54,7 +54,7 @@ export default function DashboardPage() {
 
   // Prefer canonical /insights/analysis health score when resolved.
   const dashSummary = v3.data && !v3.isError
-    ? { ...summary.data, healthScore: v3.data.health.score || summary.data.healthScore }
+    ? { ...summary.data, healthScore: v3.data.health.health_score || v3.data.health.score || summary.data.healthScore }
     : summary.data;
 
   return <Dashboard summary={dashSummary} navHistory={navHistory.data ?? []} />;

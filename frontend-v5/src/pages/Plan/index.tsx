@@ -27,17 +27,18 @@ const COLUMNS: Col[] = [
 ];
 
 function actionSeverity(type: string): "warm" | "accent" | "good" | "neg" {
-  if (["sell", "switch", "reduce"].includes(type)) return "neg";
-  if (["buy", "sip_increase", "add"].includes(type)) return "good";
-  if (["sip_decrease"].includes(type)) return "warm";
+  const t = type.toLowerCase();
+  if (["sell", "switch", "reduce", "trim", "exit"].includes(t)) return "neg";
+  if (["buy", "sip_increase", "add"].includes(t)) return "good";
+  if (["sip_decrease"].includes(t)) return "warm";
   return "accent";
 }
 
 function PlanCard({ action }: { action: PlanActionC }) {
-  const tone = actionSeverity(String(action.action_type ?? ""));
+  const tone = actionSeverity(String(action.action_type ?? "").toLowerCase());
   const label = String(action.action_type ?? "action").replace(/_/g, " ").toUpperCase();
   const impact = action.estimated_impact;
-  const isDone = ["done", "completed"].includes(String(action.status ?? ""));
+  const isDone = ["done", "completed"].includes(String(action.status ?? "pending").toLowerCase());
 
   return (
     <div className={`rounded-lg bg-surface-1 border border-hairline p-3.5 mb-2.5 ${isDone ? "opacity-60" : ""}`}>
@@ -50,11 +51,11 @@ function PlanCard({ action }: { action: PlanActionC }) {
         )}
       </div>
       <div className="text-[13px] font-medium leading-[1.35]">
-        {action.holding_name ?? "Action"}
+        {action.holding_name ?? action.asset_name ?? "Action"}
         {action.suggested_alternative ? ` → ${action.suggested_alternative}` : ""}
       </div>
-      {action.rationale && (
-        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">{action.rationale}</p>
+      {(action.rationale ?? action.reason_text) && (
+        <p className="mt-1.5 text-[12px] text-ink-3 leading-relaxed line-clamp-2">{action.rationale ?? action.reason_text}</p>
       )}
       {/* meta row */}
       <div className="mt-2 flex items-center gap-2 text-[10px] font-mono text-ink-4">
@@ -90,7 +91,7 @@ function PlanKanban({ plan }: { plan: PlanC }) {
 
   // Assign actions to columns. Actions without explicit column status go to backlog.
   const colActions = (col: Col) => {
-    const matched = actions.filter((a) => col.statuses.includes(String(a.status ?? "pending")));
+    const matched = actions.filter((a) => col.statuses.includes(String(a.status ?? "pending").toLowerCase()));
     return matched;
   };
 

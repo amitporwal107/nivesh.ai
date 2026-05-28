@@ -36,9 +36,13 @@ export const realGoalsAdapter: GoalsAdapter = {
     const res = await http({ path: "/api/goals" });
     const parsed = GoalsListRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`goals.list: ${parsed.error.message}`);
+    const goals = parsed.data.goals;
+    const total = parsed.data.total || goals.length;
+    const onTrack = parsed.data.on_track || goals.filter((g) => (g.on_track_pct ?? 0) >= 70).length;
+    const atRisk = parsed.data.at_risk || (total - onTrack);
     return {
-      goals: mapGoals(parsed.data.goals),
-      totals: { total: parsed.data.total, onTrack: parsed.data.on_track, atRisk: parsed.data.at_risk },
+      goals: mapGoals(goals),
+      totals: { total, onTrack, atRisk },
     };
   },
 

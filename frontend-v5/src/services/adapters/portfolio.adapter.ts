@@ -67,8 +67,8 @@ export const realPortfolioAdapter: PortfolioAdapter = {
       realInsightsAdapter.analysis().catch(() => null),
     ]);
 
-    const totalValue = (enriched?.total_value_rs ?? 0) * 100;          // paise
-    const totalCost  = (enriched?.total_invested_rs ?? 0) * 100;
+    const totalValue = (enriched?.totals?.value_rs ?? 0) * 100;          // paise
+    const totalCost  = (enriched?.totals?.invested_rs ?? 0) * 100;
     const pnl    = totalValue - totalCost;
     const pnlPct = totalCost === 0 ? 0 : pnl / totalCost;
 
@@ -78,7 +78,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
       dayChange:  { abs: 0, pct: 0 },
       weekChange: { abs: 0, pct: 0 },
       yearChange: { abs: pnl, pct: pnlPct },
-      healthScore: health?.health.score ?? 0,
+      healthScore: health?.health.health_score ?? health?.health.score ?? 0,
       riskBucket: "moderate",
       riskBucketIndex: 3,
       allocation: [],
@@ -92,8 +92,8 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const parsed = TrendRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.getNavHistory: ${parsed.error.message}`);
     return parsed.data.series.map((p) => ({
-      date:  p.date,
-      value: Math.round(p.value_rs * 100),                              // rupees → paise
+      date:  p.snapshot_date,
+      value: Math.round(p.total_value * 100),                           // rupees → paise
     }));
   },
 

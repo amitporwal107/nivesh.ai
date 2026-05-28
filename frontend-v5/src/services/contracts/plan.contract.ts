@@ -13,10 +13,11 @@ import { z } from "zod";
 
 export const ActionTypeC = z.enum([
   "sell", "buy", "switch", "sip_increase", "sip_decrease", "hold",
+  "TRIM", "EXIT", "SWITCH", "ADD", "KEEP", "REDUCE", "SIP_INCREASE", "SIP_DECREASE",
 ]);
 export type ActionTypeC = z.infer<typeof ActionTypeC>;
 
-export const ActionStatusC = z.enum(["pending", "done", "skipped"]);
+export const ActionStatusC = z.enum(["pending", "done", "skipped", "PENDING", "COMPLETED", "SKIPPED"]);
 
 export const EstimatedImpactC = z.object({
   health_score_delta: z.number().nullable().optional(),
@@ -29,8 +30,11 @@ export const PlanActionC = z.object({
   priority:     z.number().int().optional(),
   rule_triggered: z.string().optional(),
   holding_name: z.string().optional(),
+  asset_name:   z.string().optional(),
   holding_id:   z.string().nullable().optional(),
   rationale:    z.string().optional(),
+  reason_text:  z.string().optional(),
+  amount_rs:    z.number().optional(),
   suggested_alternative:      z.string().nullable().optional(),
   suggested_alternative_isin: z.string().nullable().optional(),
   estimated_impact: EstimatedImpactC.nullable().optional(),
@@ -41,7 +45,7 @@ export type PlanActionC = z.infer<typeof PlanActionC>;
 
 export const PlanC = z.object({
   plan_id:                z.string(),
-  version:                z.string().optional(),
+  version:                z.union([z.string(), z.number()]).optional(),
   status:                 z.enum(["preview", "active", "archived"]).or(z.string()),
   health_score_before:    z.number().optional(),
   health_score_projected: z.number().optional(),

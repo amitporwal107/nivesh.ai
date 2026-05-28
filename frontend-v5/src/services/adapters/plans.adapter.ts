@@ -39,7 +39,15 @@ export const realPlansAdapter: PlansAdapter = {
     const res = await http({ path: "/api/plans/active" });
     const parsed = PlanActiveRes.safeParse(res.data);
     if (!parsed.success) throw ApiError.contractDrift(`plans.active: ${parsed.error.message}`);
-    return parsed.data.plan;
+    const plan = parsed.data.plan;
+    if (plan) {
+      // Backend may return total_actions/completed_actions/pending_actions
+      const raw = plan as Record<string, unknown>;
+      if (plan.actions_total == null && raw.total_actions != null) plan.actions_total = Number(raw.total_actions);
+      if (plan.actions_done == null && raw.completed_actions != null) plan.actions_done = Number(raw.completed_actions);
+      if (plan.actions_pending == null && raw.pending_actions != null) plan.actions_pending = Number(raw.pending_actions);
+    }
+    return plan;
   },
 
   async getPlan(planId) {
@@ -149,20 +157,23 @@ export const realPlansAdapter: PlansAdapter = {
  *   hold                          → KEEP
  */
 function mapActionToRecommendation(a: PlanActionC): Recommendation {
+  const at = String(a.action_type ?? "").toLowerCase();
   const recAction: RecAction =
-    a.action_type === "sell" || a.action_type === "switch" || a.action_type === "sip_decrease" ? "reduce" :
-    a.action_type === "buy"  || a.action_type === "sip_increase" ? "add" :
-    a.action_type === "hold" ? "keep" :
+    at === "sell" || at === "switch" || at === "sip_decrease" || at === "trim" || at === "exit" || at === "reduce" ? "reduce" :
+    at === "buy"  || at === "sip_increase" || at === "add" ? "add" :
+    at === "hold" || at === "keep" ? "keep" :
     "add";
 
   const annualSavingsRs = a.estimated_impact?.annual_savings_rs;
   const healthDelta = a.estimated_impact?.health_score_delta;
+  const displayName = a.holding_name ?? a.asset_name;
+  const displayRationale = a.rationale ?? a.reason_text;
 
   return {
     id: a.action_id,
     action: recAction,
-    title: a.holding_name ? `${verbLabel(String(a.action_type))} ${a.holding_name}` : verbLabel(String(a.action_type)),
-    why: a.rationale ?? "",
+    title: displayName ? `${verbLabel(at)} ${displayName}` : verbLabel(at),
+    why: displayRationale ?? "",
     benefit: annualSavingsRs != null
       ? `Saves about ₹${Math.round(annualSavingsRs).toLocaleString("en-IN")} / year`
       : healthDelta != null
@@ -170,21 +181,23 @@ function mapActionToRecommendation(a: PlanActionC): Recommendation {
         : "Improves portfolio quality",
     riskImpact: "Neutral to lower",
     suggestedAction: a.suggested_alternative
-      ? `${verbLabel(String(a.action_type))} → ${a.suggested_alternative}`
-      : verbLabel(String(a.action_type)),
+      ? `${verbLabel(at)} → ${a.suggested_alternative}`
+      : verbLabel(at),
     estAnnualGain: annualSavingsRs != null ? annualSavingsRs * 100 : undefined,
     estHealthDelta: healthDelta ?? undefined,
   };
 }
 
 function verbLabel(at: string): string {
-  switch (at) {
-    case "sell": return "Sell";
-    case "buy":  return "Buy";
-    case "switch": return "Switch";
-    case "sip_increase": return "Increase SIP in";
-    case "sip_decrease": return "Decrease SIP in";
-    case "hold": return "Hold";
+  const lower = at.toLowerCase();
+  switch (lower) {
+    case "sell":  case "exit":   return "Sell";
+    case "buy":   case "add":    return "Buy";
+    case "switch":               return "Switch";
+    case "sip_increase":         return "Increase SIP in";
+    case "sip_decrease":         return "Decrease SIP in";
+    case "hold":  case "keep":   return "Hold";
+    case "trim":  case "reduce": return "Reduce";
     default: return at;
   }
 }

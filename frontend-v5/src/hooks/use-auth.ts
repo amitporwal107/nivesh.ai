@@ -6,6 +6,7 @@
  * the source of truth, not local storage.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { authService } from "@/services";
 
 export function useMe() {
@@ -26,9 +27,18 @@ export function useGoogleSignIn() {
 
 export function useLogout() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   return useMutation({
     mutationFn: () => authService.logout(),
-    onSuccess: () => { qc.clear(); },
+    onSuccess: () => {
+      qc.clear();
+      navigate("/login");
+    },
+    onError: () => {
+      // Clear cache and navigate even on error — cookie may already be gone
+      qc.clear();
+      navigate("/login");
+    },
   });
 }
 

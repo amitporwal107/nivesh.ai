@@ -52,9 +52,9 @@ export const GoalC = z.object({
 export type GoalC = z.infer<typeof GoalC>;
 
 export const GoalsListRes = z.object({
-  total:                     z.number().int(),
-  on_track:                  z.number().int(),
-  at_risk:                   z.number().int(),
+  total:                     z.number().int().default(0),
+  on_track:                  z.number().int().default(0),
+  at_risk:                   z.number().int().default(0),
   total_target_rs:           z.number().optional(),
   monthly_sip_required_rs:   z.number().optional(),
   monthly_sip_current_rs:    z.number().optional(),

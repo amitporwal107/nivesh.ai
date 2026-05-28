@@ -10,7 +10,7 @@ export const mockInsightsAdapter: InsightsAdapter = {
   async analysis() {
     await delay(200);
     return {
-      health: { score: mockPortfolio.healthScore, grade: "B+", label: "Good" },
+      health: { health_score: mockPortfolio.healthScore, score: mockPortfolio.healthScore, grade: "B+", label: "Good" },
       summary: {},
       topActions: [],
     };

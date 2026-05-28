@@ -1,15 +1,15 @@
 /**
  * Chat adapter — AI Copilot.
  *
- *   POST  /api/chat                       { message, session_id? } → reply
+ *   POST  /api/chat/send                  { message, session_id? } → {user_message, ai_message}
  *   GET   /api/chat/sessions              → list
  *   POST  /api/chat/sessions              { title? } → created
  *   GET   /api/chat/sessions/{id}         → messages
  *   DELETE /api/chat/sessions/{id}
  *   GET   /api/copilot/suggested-prompts  → 5 prompts
  *
- * Streaming is supported by the backend per the spec; this v1 wraps the
- * non-streaming JSON response only. Streaming wire-up is a follow-on.
+ * NOTE: The send endpoint is /api/chat/send (not /api/chat).
+ * Response shape: {user_message: {content, role, ...}, ai_message: {content, role, ...}}
  */
 import { http } from "@/services/api/http";
 import { z } from "zod";
@@ -22,10 +22,14 @@ export const ChatMessageC = z.object({
 }).passthrough();
 export type ChatMessageC = z.infer<typeof ChatMessageC>;
 
+// Backend returns {user_message, ai_message} — each is a full ChatMessage
 export const ChatSendRes = z.object({
-  reply: z.string().optional(),
-  message: ChatMessageC.optional(),
-  session_id: z.string().optional(),
+  user_message: ChatMessageC.optional(),
+  ai_message:   ChatMessageC.optional(),
+  // Legacy/alternate shapes
+  reply:         z.string().optional(),
+  message:       ChatMessageC.optional(),
+  session_id:    z.string().optional(),
 }).passthrough();
 
 export interface ChatAdapter {
@@ -38,13 +42,14 @@ export interface ChatAdapter {
 
 export const realChatAdapter: ChatAdapter = {
   async send(message, sessionId) {
-    const res = await http({ method: "POST", path: "/api/chat", body: { message, session_id: sessionId } });
+    const res = await http({ method: "POST", path: "/api/chat/send", body: { message, session_id: sessionId } });
     const parsed = ChatSendRes.safeParse(res.data);
     if (parsed.success) {
-      return {
-        reply: parsed.data.reply ?? parsed.data.message?.content ?? "",
-        sessionId: parsed.data.session_id,
-      };
+      const d = parsed.data;
+      // Real shape: {ai_message: {content, ...}, user_message: {...}}
+      const reply = d.ai_message?.content ?? d.reply ?? d.message?.content ?? "";
+      const sid = d.ai_message?.session_id ?? d.user_message?.session_id ?? d.session_id ?? sessionId;
+      return { reply, sessionId: sid };
     }
     return { reply: typeof res.data === "string" ? res.data : "" };
   },
@@ -65,8 +70,8 @@ export const realChatAdapter: ChatAdapter = {
   },
   async suggestedPrompts() {
     const res = await http({ path: "/api/copilot/suggested-prompts" });
-    const obj = res.data as { prompts?: Array<{ text?: string } | string> };
+    const obj = res.data as { prompts?: Array<{ label?: string; text?: string; query?: string; id?: string; icon?: string } | string> };
     if (!Array.isArray(obj.prompts)) return [];
-    return obj.prompts.map((p) => typeof p === "string" ? p : p.text ?? "").filter(Boolean);
+    return obj.prompts.map((p) => typeof p === "string" ? p : (p.label ?? p.text ?? p.query ?? "")).filter(Boolean);
   },
 };

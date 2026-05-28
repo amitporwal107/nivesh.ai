@@ -43,13 +43,13 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
   },
 
   /**
-   * Real source: GET /api/intelligence/portfolio → overlap_matrix
+   * Real source: GET /api/intelligence/portfolio → pairwise_overlap (or overlap_matrix)
    * The field gives fund-to-fund overlap based on shared top-10 holdings.
    */
   async overlap() {
     const res = await http({ path: "/api/intelligence/portfolio", query: { narrate: true } });
-    const body = res.data as { overlap_matrix?: unknown };
-    return mapOverlap(body.overlap_matrix);
+    const body = res.data as { pairwise_overlap?: unknown; overlap_matrix?: unknown };
+    return mapOverlap(body.pairwise_overlap ?? body.overlap_matrix);
   },
 
   /**
@@ -88,8 +88,8 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
 function mapOverlap(raw: unknown): FundOverlapPair[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((p: Record<string, unknown>) => ({
-    fundA: String(p.fund_a ?? p.fundA ?? ""),
-    fundB: String(p.fund_b ?? p.fundB ?? ""),
+    fundA: String(p.a_name ?? p.fund_a ?? p.fundA ?? ""),
+    fundB: String(p.b_name ?? p.fund_b ?? p.fundB ?? ""),
     overlapPct: Number(p.overlap_pct ?? p.overlapPct ?? 0),
     status: (["redundant", "related", "diversifying"].includes(String(p.status))
       ? p.status
@@ -98,27 +98,38 @@ function mapOverlap(raw: unknown): FundOverlapPair[] {
 }
 
 /**
- * Backend `sector` payload is an opaque object — we expect a `breakdown`
- * array of `{ name, pct, cap_pct }`. If shape differs we render with empty
- * sectors[] rather than throw (req #14 — partial-data rendering).
+ * Backend `sector` payload is an opaque object — we accept both `items`
+ * (current backend) and `breakdown` (legacy). Also `hhi` vs `herfindahl`,
+ * and `top_stock` is derived from items[0] if not explicitly present.
  */
 function mapConcentration(body: import("@/services/contracts/portfolio.contract").ConcentrationBreakdownC): ConcentrationSnapshot {
-  const sector = (body.sector ?? {}) as { breakdown?: unknown; top_stock?: { name?: string; pct?: number }; herfindahl?: number; sectors_over_cap?: number };
-  const breakdown = Array.isArray(sector.breakdown) ? sector.breakdown as Array<{ name: string; pct: number; cap_pct?: number }> : [];
+  const sector = (body.sector ?? {}) as {
+    items?: unknown; breakdown?: unknown;
+    top_stock?: { name?: string; pct?: number };
+    hhi?: number; herfindahl?: number;
+    sectors_over_cap?: number;
+    caution_pct?: number;
+  };
+  const rawItems = Array.isArray(sector.items) ? sector.items
+    : Array.isArray(sector.breakdown) ? sector.breakdown : [];
+  const items = rawItems as Array<{ name: string; pct: number; cap_pct?: number }>;
 
-  const sectors: SectorAllocation[] = breakdown.map((s) => ({
+  const cautionPct = sector.caution_pct ?? 25;
+  const sectors: SectorAllocation[] = items.map((s) => ({
     name: s.name,
     pct: s.pct,
-    capPct: s.cap_pct ?? 25,
-    isOverCap: (s.pct ?? 0) > (s.cap_pct ?? 25),
+    capPct: s.cap_pct ?? cautionPct,
+    isOverCap: (s.pct ?? 0) > (s.cap_pct ?? cautionPct),
   }));
+
+  const topItem = items.length > 0 ? items[0] : undefined;
 
   return {
     asOf: new Date().toISOString().slice(0, 10),
-    topStockPct: sector.top_stock?.pct ?? 0,
-    topStockName: sector.top_stock?.name ?? "",
-    sectorOverCount: sector.sectors_over_cap ?? sectors.filter((s) => s.isOverCap).length,
+    topStockPct: sector.top_stock?.pct ?? topItem?.pct ?? 0,
+    topStockName: sector.top_stock?.name ?? topItem?.name ?? "",
+    sectorOverCount: sector.sectors_over_cap ?? items.filter((s) => s.pct > cautionPct).length,
     sectors,
-    herfindahl: sector.herfindahl ?? 0,
+    herfindahl: sector.hhi ?? sector.herfindahl ?? 0,
   };
 }

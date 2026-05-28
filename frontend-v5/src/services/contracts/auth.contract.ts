@@ -11,7 +11,7 @@ export const UserProfileC = z.object({
   journey_type: z.string().nullable().optional(),
   risk_profile: z.unknown().nullable().optional(),
   onboarding_completed: z.boolean(),
-  copilot_enabled: z.boolean(),
+  copilot_enabled: z.boolean().optional().default(false),
 });
 export type UserProfileC = z.infer<typeof UserProfileC>;
 

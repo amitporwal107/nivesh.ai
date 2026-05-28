@@ -23,7 +23,8 @@ export const HealthScoreBreakdownC = z.object({
 }).passthrough();
 
 export const PortfolioHealthC = z.object({
-  score:          z.number(),
+  health_score:   z.number(),
+  score:          z.number().optional(),   // legacy alias
   grade:          z.string(),
   label:          z.string().optional(),
   breakdown:      HealthScoreBreakdownC.optional(),

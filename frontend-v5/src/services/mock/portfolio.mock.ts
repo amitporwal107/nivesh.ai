@@ -15,12 +15,16 @@ export const mockPortfolioAdapter: PortfolioAdapter = {
   },
   async listHoldingsEnriched() {
     await delay(300);
+    const valueRs = mockPortfolio.totalValue / 100;
+    const investedRs = (mockPortfolio.totalValue - mockPortfolio.yearChange.abs) / 100;
     return {
-      portfolio_id: "port-mock-1",
-      total_value_rs: mockPortfolio.totalValue / 100,
-      total_invested_rs: (mockPortfolio.totalValue - mockPortfolio.yearChange.abs) / 100,
-      total_gain_pct: mockPortfolio.yearChange.pct,
       holdings: [],
+      totals: {
+        value_rs: valueRs,
+        invested_rs: investedRs,
+        pnl_rs: valueRs - investedRs,
+        pnl_pct: mockPortfolio.yearChange.pct,
+      },
     };
   },
   async getSummary() {

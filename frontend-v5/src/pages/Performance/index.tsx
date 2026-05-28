@@ -159,9 +159,13 @@ export default function PerformancePage() {
   }
 
   const env = dash.data;
-  const sevBadge = env?.badge?.toLowerCase().includes("healthy") ? "good"
-    : env?.badge?.toLowerCase().includes("watch") ? "warm"
-    : env?.badge?.toLowerCase().includes("attention") ? "neg" : "accent";
+  const badgeText = typeof env?.badge === "object" ? env.badge.label : env?.badge;
+  const insightText = typeof env?.insight === "object" ? env.insight.headline : env?.insight;
+  const badgeToneRaw = typeof env?.badge === "object" ? env.badge.tone : undefined;
+
+  const sevBadge = badgeToneRaw ?? (badgeText?.toLowerCase().includes("healthy") ? "good"
+    : badgeText?.toLowerCase().includes("watch") ? "warm"
+    : badgeText?.toLowerCase().includes("attention") ? "neg" : "accent");
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1200px] mx-auto w-full">
@@ -170,12 +174,12 @@ export default function PerformancePage() {
         <div className="flex-1">
           <div className="font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">Dashboard · performance</div>
           <h1 className="font-display text-[38px] tracking-tightish leading-[1.05] mt-1">
-            {env?.insight ?? "Your performance at a glance."}
+            {insightText ?? "Your performance at a glance."}
           </h1>
         </div>
         <div className="flex items-center gap-2 mt-2">
-          {env?.badge && (
-            <Badge tone={sevBadge as any} className="text-[10px]">{env.badge}</Badge>
+          {badgeText && (
+            <Badge tone={sevBadge as any} className="text-[10px]">{badgeText}</Badge>
           )}
           {/* period toggle */}
           <div className="flex rounded-lg border border-hairline overflow-hidden">

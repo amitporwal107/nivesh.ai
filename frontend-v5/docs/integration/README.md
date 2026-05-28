@@ -1,3 +1,4 @@
+
 # Integration docs — index
 
 Per-screen API integration notes. Each follows the same shape:

@@ -38,8 +38,14 @@ export const RecommendationLiteC = z.object({
 
 export const DashboardEnvelopeC = z.object({
   type: z.string(),
-  badge: z.string().optional(),
-  insight: z.string().optional(),
+  badge: z.union([
+    z.string(),
+    z.object({ label: z.string(), tone: z.string() }).passthrough(),
+  ]).optional(),
+  insight: z.union([
+    z.string(),
+    z.object({ headline: z.string(), subtext: z.string().optional(), hero: z.unknown().optional() }).passthrough(),
+  ]).optional(),
   stat_tiles: z.array(StatTileC).default([]),
   breakdown: z.unknown(),                              // shape varies per lens
   recommendations: z.array(RecommendationLiteC).default([]),
