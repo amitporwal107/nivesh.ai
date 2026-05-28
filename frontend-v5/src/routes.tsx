@@ -12,6 +12,7 @@ import SettingsPage from "./pages/Settings";
 import ChatPage from "./pages/Chat";
 import LoginPage from "./pages/Login";
 import OnboardingPage from "./pages/Onboarding";
+import CasCallbackPage from "./pages/CasCallback";
 import GoalsPage from "./pages/Goals";
 import TaxPage from "./pages/Tax";
 import PlanPage from "./pages/Plan";
@@ -26,6 +27,9 @@ export function AppRoutes() {
       {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
+
+      {/* CAS Connect widget OAuth popup callback — standalone, no layout */}
+      <Route path="/cas-callback" element={<CasCallbackPage />} />
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<AppLayout />}>
