@@ -432,11 +432,16 @@ async def portfolio_import_from_connect(
 
     # Auto-generate action plan so the dashboard action matrix is immediately
     # populated — mirrors what Gmail sync does after a successful import.
+    # refresh_plan() fetches holdings + intelligence internally and saves
+    # directly as status="active".
     if saved:
         try:
             from services.action_plan_manager import ActionPlanManager
-            await ActionPlanManager().generate_plan(user["user_id"])
-            logger.info("import-connect: action plan generated for user=%s", user["user_id"])
+            plan = await ActionPlanManager().refresh_plan(user["user_id"])
+            logger.info(
+                "import-connect: action plan generated for user=%s plan_id=%s actions=%d",
+                user["user_id"], plan.get("plan_id"), len(plan.get("actions") or []),
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("import-connect: plan generation failed for user=%s: %s", user["user_id"], e)
 

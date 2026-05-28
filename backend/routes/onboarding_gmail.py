@@ -351,13 +351,19 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     # Auto-generate action plan after successful import so dashboard
     # action matrix is immediately populated without user having to navigate
     # to /recommendations first.
+    # refresh_plan() fetches holdings + intelligence internally and saves
+    # directly as status="active" (unlike generate_plan which needs args
+    # and creates a preview that must be manually activated).
     if imported_files > 0:
         try:
             from services.action_plan_manager import ActionPlanManager
-            await ActionPlanManager().generate_plan(user_id)
-            logger.info("auto-import: action plan generated for %s", user_id)
+            plan = await ActionPlanManager().refresh_plan(user_id)
+            logger.info(
+                "auto-import: action plan generated for user=%s plan_id=%s actions=%d",
+                user_id, plan.get("plan_id"), len(plan.get("actions") or []),
+            )
         except Exception as e:  # noqa: BLE001
-            logger.warning("auto-import: plan generation failed: %s", e)
+            logger.warning("auto-import: plan generation failed for user=%s: %s", user_id, e)
 
     return {
         "ok": imported_files > 0,
