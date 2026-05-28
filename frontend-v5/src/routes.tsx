@@ -14,6 +14,7 @@ import OnboardingPage from "./pages/Onboarding";
 import GoalsPage from "./pages/Goals";
 import TaxPage from "./pages/Tax";
 import PlanPage from "./pages/Plan";
+import PerformancePage from "./pages/Performance";
 
 export function AppRoutes() {
   return (
@@ -30,6 +31,7 @@ export function AppRoutes() {
         <Route path="/concentration"    element={<ConcentrationPage />} />
         <Route path="/diversification"  element={<DiversificationPage />} />
         <Route path="/risk"             element={<RiskPage />} />
+        <Route path="/performance"     element={<PerformancePage />} />
         <Route path="/recommendations"  element={<RecommendationsPage />} />
         <Route path="/chat"             element={<ChatPage />} />
         <Route path="/goals"            element={<GoalsPage />} />

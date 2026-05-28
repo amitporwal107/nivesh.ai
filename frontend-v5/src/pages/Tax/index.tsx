@@ -1,102 +1,223 @@
 /**
- * Tax dashboard — placeholder wired to the dashboards service.
- * Shows tax summary data from the backend when available.
+ * Tax dashboard — wired to GET /api/dashboards/tax
+ * Design: timeline stack chart + harvest lots + tax breakdown
  */
+import { useDashboard } from "@/hooks/use-dashboards";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
+import { ErrorState } from "@/components/shared/ErrorState";
 
-type BadgeTone = "good" | "warm" | "neg" | "accent";
-
-interface TaxBreakdownRow {
-  label: string;
-  value: string;
-  rate: string;
-  tax: string;
+function toneCls(tone?: string) {
+  if (tone === "good") return "text-pos";
+  if (tone === "warm") return "text-warm";
+  if (tone === "neg") return "text-neg";
+  if (tone === "info") return "text-accent";
+  return "text-ink";
 }
 
-const TAX_ROWS: TaxBreakdownRow[] = [
-  { label: "Short-term gains",  value: "Connect portfolio", rate: "15%",        tax: "—" },
-  { label: "Long-term gains",   value: "to see your",       rate: "10% > 1L",   tax: "—" },
-  { label: "Dividend income",   value: "actual numbers",    rate: "slab",       tax: "—" },
-  { label: "After harvest",     value: "here",              rate: "net",        tax: "—" },
-];
+/** Tax timeline stack chart (gains above axis, losses below) */
+function TaxTimeline({ projection }: { projection: unknown }) {
+  const data = projection as {
+    months?: Array<{ label: string; gains: number; losses: number; highlighted?: boolean }>;
+  } | null;
+  if (!data?.months?.length) return null;
 
-function TaxKpiCard({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: BadgeTone }) {
-  const colorMap: Record<BadgeTone, string> = { good: "text-pos", warm: "text-warm", neg: "text-neg", accent: "text-accent" };
+  const { months } = data;
+  const maxGain = Math.max(...months.map((m) => m.gains), 1);
+  const maxLoss = Math.max(...months.map((m) => Math.abs(m.losses)), 1);
+  const maxVal = Math.max(maxGain, maxLoss);
+
+  const W = 640, H = 240;
+  const pad = { t: 20, r: 20, b: 30, l: 50 };
+  const iW = W - pad.l - pad.r, iH = H - pad.t - pad.b;
+  const midY = pad.t + iH / 2;
+  const barW = iW / months.length - 4;
+
   return (
-    <div className="rounded-lg bg-surface-1 border border-hairline p-4">
-      <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3">{label}</div>
-      <div className={`font-display text-2xl num mt-1 ${colorMap[tone]}`}>{value}</div>
-      <div className="font-mono text-[10px] text-ink-3 mt-0.5">{sub}</div>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 240 }}>
+      {/* zero line */}
+      <line x1={pad.l} y1={midY} x2={W - pad.r} y2={midY} stroke="var(--color-ink-4)" strokeWidth={0.5} opacity={0.4} />
+
+      {/* y labels */}
+      <text x={pad.l - 8} y={pad.t + 10} textAnchor="end" fontSize={9} fontFamily="var(--font-mono)" fill="var(--color-ink-3)">
+        ₹{(maxVal / 1_00_000).toFixed(0)}L
+      </text>
+      <text x={pad.l - 8} y={H - pad.b - 4} textAnchor="end" fontSize={9} fontFamily="var(--font-mono)" fill="var(--color-ink-3)">
+        -₹{(maxVal / 1_00_000).toFixed(0)}L
+      </text>
+
+      {months.map((m, i) => {
+        const x = pad.l + (i * iW) / months.length + 2;
+        const gainH = (m.gains / maxVal) * (iH / 2);
+        const lossH = (Math.abs(m.losses) / maxVal) * (iH / 2);
+        return (
+          <g key={m.label}>
+            {/* gain bar above */}
+            {gainH > 0 && (
+              <rect x={x} y={midY - gainH} width={barW} height={gainH} rx={2} fill="var(--color-warm)" opacity={0.8} />
+            )}
+            {/* loss bar below */}
+            {lossH > 0 && (
+              <rect x={x} y={midY} width={barW} height={lossH} rx={2} fill="var(--color-pos)" opacity={0.7} />
+            )}
+            {/* month label */}
+            <text x={x + barW / 2} y={H - 8} textAnchor="middle" fontSize={9} fontFamily="var(--font-mono)" fill={m.highlighted ? "var(--color-warm)" : "var(--color-ink-3)"}>
+              {m.label}
+            </text>
+            {/* highlight marker */}
+            {m.highlighted && (
+              <rect x={x - 1} y={pad.t} width={barW + 2} height={iH} rx={3} fill="var(--color-warm)" opacity={0.06} />
+            )}
+          </g>
+        );
+      })}
+
+      {/* legend */}
+      <rect x={W - 180} y={6} width={8} height={8} rx={1.5} fill="var(--color-warm)" opacity={0.8} />
+      <text x={W - 168} y={14} fontSize={9} fontFamily="var(--font-mono)" fill="var(--color-ink-3)">Gains booked</text>
+      <rect x={W - 90} y={6} width={8} height={8} rx={1.5} fill="var(--color-pos)" opacity={0.7} />
+      <text x={W - 78} y={14} fontSize={9} fontFamily="var(--font-mono)" fill="var(--color-ink-3)">Losses avail.</text>
+    </svg>
   );
 }
 
 export default function TaxPage() {
-  const fy = new Date().getFullYear();
-  const fyLabel = `FY ${String(fy).slice(2)}–${String(fy + 1).slice(2)}`;
-  const daysToMar31 = (() => {
-    const mar31 = new Date(fy + 1, 2, 31);
-    const today = new Date();
-    return Math.max(0, Math.round((mar31.getTime() - today.getTime()) / 86_400_000));
-  })();
+  const dash = useDashboard("tax");
+
+  if (dash.isPending) {
+    return <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full"><LoadingSkeleton variant="card" /></div>;
+  }
+  if (dash.isError) {
+    return <ErrorState onRetry={() => dash.refetch()} error={dash.error} />;
+  }
+
+  const env = dash.data;
+  const breakdown = env?.breakdown as Array<{ label: string; value: string; rate: string; tax: string; tone?: string }> | null;
+  const harvestLots = (env as any)?.harvest_lots as Array<{ name: string; loss: number; ticker?: string }> | null;
+  const netSaved = (env as any)?.net_saved as number | null;
+
+  const sevBadge = env?.badge?.toLowerCase().includes("healthy") ? "good"
+    : env?.badge?.toLowerCase().includes("watch") ? "warm"
+    : env?.badge?.toLowerCase().includes("attention") ? "neg" : "accent";
 
   return (
-    <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
-      <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">
-        Tax · {fyLabel}
-      </div>
-      <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-        Your tax picture, plain and simple.
-      </h1>
-      <p className="text-[15.5px] text-ink-2 mt-3 max-w-[600px] leading-relaxed">
-        Connect your portfolio to see realised gains, available losses to harvest, and exactly how much you can save before March 31.
-      </p>
-
-      {/* KPIs */}
-      <div className="mt-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <TaxKpiCard label="Net tax owed"      value="—" sub={`${fyLabel} estimate`}    tone="warm" />
-        <TaxKpiCard label="Harvest available" value="—" sub="unrealised losses"         tone="good" />
-        <TaxKpiCard label="Net you save"      value="—" sub="if you harvest"            tone="good" />
-        <TaxKpiCard label="Days to Mar 31"    value={String(daysToMar31)} sub="window open" tone="accent" />
+    <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1200px] mx-auto w-full">
+      {/* header */}
+      <div className="flex items-start gap-4 mb-5">
+        <div className="flex-1">
+          <div className="font-mono text-[10px] uppercase tracking-[.18em] text-ink-3">Dashboard · tax</div>
+          <h1 className="font-display text-[38px] tracking-tightish leading-[1.05] mt-1">
+            {env?.insight ?? "Your tax picture, plain and simple."}
+          </h1>
+        </div>
+        {env?.badge && (
+          <Badge tone={sevBadge as any} className="mt-2 text-[10px]">{env.badge}</Badge>
+        )}
       </div>
 
-      {/* Tax breakdown */}
-      <Card className="mt-5 p-6">
-        <CardLabel>Tax breakdown · {fyLabel}</CardLabel>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-          {TAX_ROWS.map((row) => (
-            <div key={row.label} className="rounded-lg bg-surface-2 border border-hairline p-4">
-              <div className="font-mono text-[10px] uppercase tracking-[.10em] text-ink-3">{row.label}</div>
-              <div className="font-display text-xl num mt-1">{row.value}</div>
-              <div className="font-mono text-[10px] text-ink-3 mt-1">
-                {row.rate} · <span className="num">{row.tax}</span>
+      {/* KPI strip */}
+      {env?.stat_tiles && env.stat_tiles.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          {env.stat_tiles.map((tile) => (
+            <div key={tile.label} className="rounded-lg bg-surface-1 border border-hairline p-4">
+              <div className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3">{tile.label}</div>
+              <div className={`font-display text-[36px] leading-none tracking-tight mt-1.5 ${toneCls(tile.tone)}`}>
+                {tile.value ?? "—"}{tile.unit && <span className="text-[14px] text-ink-3 ml-1">{tile.unit}</span>}
               </div>
+              {tile.sub && <div className="font-mono text-[10px] text-ink-3 mt-1 tracking-wide">{tile.sub}</div>}
             </div>
           ))}
         </div>
-      </Card>
+      )}
 
-      {/* Harvest plan */}
-      <Card className="mt-4 p-6">
-        <div className="flex items-center mb-4">
-          <CardLabel>Harvest plan</CardLabel>
-          <Badge tone="accent" className="ml-auto">0 lots flagged</Badge>
-        </div>
-        <div className="py-10 text-center font-mono text-[12px] text-ink-3">
-          No lots flagged yet — connect your holdings to see harvest opportunities.
-        </div>
-        <button className="mt-2 w-full rounded-lg bg-accent text-white font-medium text-[13px] py-3 hover:bg-accent/90 transition-colors">
-          Import portfolio →
-        </button>
-      </Card>
+      {/* main grid: timeline + harvest panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
+        {/* timeline chart */}
+        <Card className="p-5">
+          <CardLabel>Tax timeline · FY {new Date().getFullYear().toString().slice(2)}–{(new Date().getFullYear() + 1).toString().slice(2)}</CardLabel>
+          {env?.projection ? (
+            <div className="mt-3">
+              <TaxTimeline projection={env.projection} />
+            </div>
+          ) : (
+            <div className="h-[180px] flex items-center justify-center text-ink-3 font-mono text-[12px]">
+              Timeline will appear once gains/losses are computed.
+            </div>
+          )}
+        </Card>
 
-      {/* deadline notice */}
-      {daysToMar31 < 90 && (
-        <div className="mt-4 rounded-lg bg-warm-soft border border-warm/20 p-4 text-[13.5px]">
-          <span className="font-medium text-warm">{daysToMar31} days left</span>
-          {" "}until the FY end harvest window closes. Act before March 31 to lock in your savings.
+        {/* harvest plan */}
+        <Card className="p-5">
+          <div className="flex items-center mb-3">
+            <CardLabel>Harvest plan</CardLabel>
+            <Badge tone="accent" className="ml-auto text-[9px]">{harvestLots?.length ?? 0} lots flagged</Badge>
+          </div>
+          {harvestLots && harvestLots.length > 0 ? (
+            <>
+              <div className="space-y-2">
+                {harvestLots.map((lot) => (
+                  <div key={lot.name} className="flex items-center gap-3 py-2 border-b border-hairline/50 last:border-0">
+                    <span className="w-1.5 self-stretch rounded-sm bg-pos" />
+                    <div className="flex-1">
+                      <div className="text-[14px] font-medium">{lot.name}</div>
+                      {lot.ticker && <div className="font-mono text-[10px] text-ink-3">{lot.ticker}</div>}
+                    </div>
+                    <span className="font-mono text-[13px] text-neg">
+                      -₹{Math.abs(lot.loss).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {netSaved != null && (
+                <div className="mt-4 rounded-md bg-surface-2 p-3 text-center">
+                  <div className="font-mono text-[9px] text-ink-3 uppercase tracking-widest">Net you save</div>
+                  <div className="font-display text-2xl text-pos mt-1">₹{netSaved.toLocaleString("en-IN")}</div>
+                </div>
+              )}
+              <button className="mt-4 w-full rounded-lg bg-accent text-on-accent font-medium text-[13px] py-2.5 hover:opacity-90 transition-opacity">
+                Schedule harvest →
+              </button>
+            </>
+          ) : (
+            <div className="py-8 text-center font-mono text-[12px] text-ink-3">
+              No lots flagged yet.
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Tax breakdown grid */}
+      {breakdown && breakdown.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+          {breakdown.map((row) => (
+            <Card key={row.label} className="p-4">
+              <div className="font-mono text-[10px] uppercase tracking-[.10em] text-ink-3">{row.label}</div>
+              <div className={`font-display text-xl mt-1 ${toneCls(row.tone)}`}>{row.value}</div>
+              <div className="font-mono text-[10px] text-ink-3 mt-1">{row.rate} · {row.tax}</div>
+            </Card>
+          ))}
         </div>
+      )}
+
+      {/* recs from envelope */}
+      {env?.recommendations && env.recommendations.length > 0 && (
+        <Card className="mt-4 p-5">
+          <CardLabel>Suggested moves</CardLabel>
+          <div className="mt-3 space-y-2">
+            {env.recommendations.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 py-2 border-b border-hairline/50 last:border-0">
+                <span className="w-1.5 self-stretch rounded-sm bg-pos" />
+                <div className="flex-1">
+                  <div className="text-[14px] font-medium">{r.title}</div>
+                  {r.impact && <div className="font-mono text-[10px] text-ink-3 mt-0.5">{r.impact}</div>}
+                </div>
+                {r.expected_impact && <span className="font-mono text-[12px] text-pos">{r.expected_impact}</span>}
+                <span className="text-ink-3">›</span>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   );

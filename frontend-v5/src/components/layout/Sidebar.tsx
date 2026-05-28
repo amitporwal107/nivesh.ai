@@ -1,7 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield, Settings, Layers, GitBranch } from "lucide-react";
+import {
+  LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
+  Settings, Layers, GitBranch, TrendingUp, Target, Receipt, ClipboardList, Wrench,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useMe } from "@/hooks/use-auth";
+import { usePortfolioSummary } from "@/hooks/use-portfolio";
 
 interface NavItem {
   to: string;
@@ -11,18 +16,23 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { to: "/dashboard",       label: "Dashboard",        icon: LayoutDashboard, group: "Overview" },
-  { to: "/portfolio",       label: "Portfolio",        icon: PieChart,        group: "Overview" },
-  { to: "/concentration",   label: "Concentration",    icon: Layers,          group: "Risk" },
-  { to: "/diversification", label: "Diversification",  icon: GitBranch,       group: "Risk" },
-  { to: "/risk",            label: "Risk analysis",    icon: Shield,          group: "Risk" },
-  { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Act" },
-  { to: "/chat",            label: "Chat",             icon: MessageSquare,   group: "Act" },
-  { to: "/settings",        label: "Settings",         icon: Settings,        group: "You" },
+  { to: "/dashboard",       label: "Overview",         icon: LayoutDashboard, group: "Dashboards" },
+  { to: "/concentration",   label: "Concentration",    icon: Layers,          group: "Dashboards" },
+  { to: "/diversification", label: "Diversification",  icon: GitBranch,       group: "Dashboards" },
+  { to: "/risk",            label: "Risk",             icon: Shield,          group: "Dashboards" },
+  { to: "/performance",     label: "Performance",      icon: TrendingUp,      group: "Dashboards" },
+  { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
+  { to: "/tax",             label: "Tax",              icon: Receipt,         group: "Dashboards" },
+  { to: "/plan",            label: "Plan board",       icon: ClipboardList,   group: "Workspace" },
+  { to: "/portfolio",       label: "Portfolio builder", icon: Wrench,         group: "Workspace" },
+  { to: "/chat",            label: "Chat copilot",     icon: MessageSquare,   group: "Workspace" },
+  { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Workspace" },
 ];
 
 export function Sidebar({ className }: { className?: string }) {
-  // group items by their `group` field while preserving order
+  const { data: me } = useMe();
+  const { data: summary } = usePortfolioSummary();
+
   const groups: Array<{ name: string; items: NavItem[] }> = [];
   NAV.forEach((item) => {
     const g = item.group ?? "Other";
@@ -30,6 +40,14 @@ export function Sidebar({ className }: { className?: string }) {
     if (existing) existing.items.push(item);
     else groups.push({ name: g, items: [item] });
   });
+
+  const initials = me?.name
+    ? me.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()
+    : "?";
+
+  const portfolioLabel = summary?.totalValue
+    ? `₹ ${(summary.totalValue / 100 / 1_00_000).toFixed(1)} L · NIDP ✓`
+    : "";
 
   return (
     <aside
@@ -72,11 +90,11 @@ export function Sidebar({ className }: { className?: string }) {
 
       <div className="mt-auto pt-4 border-t border-hairline flex items-center gap-3 px-2">
         <Avatar className="h-8 w-8 rounded-md">
-          <AvatarFallback className="rounded-md text-sm">A</AvatarFallback>
+          <AvatarFallback className="rounded-md text-sm">{initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0">
-          <div className="text-[13px] font-medium truncate">Aarav Kumar</div>
-          <div className="text-[10px] font-mono text-ink-3">Free plan</div>
+          <div className="text-[13px] font-medium truncate">{me?.name ?? "—"}</div>
+          <div className="text-[10px] font-mono text-ink-3">{portfolioLabel}</div>
         </div>
       </div>
     </aside>
