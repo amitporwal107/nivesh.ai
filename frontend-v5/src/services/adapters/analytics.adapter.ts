@@ -1,15 +1,10 @@
 /**
  * Analytics adapter — concentration, diversification (overlap), risk.
  *
- * Endpoint availability per integration docs (2026-05-28):
- *   GET /api/portfolio/exposure/concentration    → LIVE
- *   GET /api/intelligence/portfolio?narrate=true → LIVE (overlap_matrix field used for overlap())
- *   /api/dashboards/diversification              → NOT YET (correlation stays mock-only)
- *   /api/dashboards/risk                         → NOT YET (risk stays mock-only)
- *
- * `correlation()` and `risk()` on the real adapter return graceful empty stubs
- * so the UI degrades rather than throwing. The mock adapter still provides
- * plausible data for local dev / staging.
+ *   GET /api/portfolio/exposure/concentration    → LIVE (concentration)
+ *   GET /api/intelligence/portfolio?narrate=true → LIVE (overlap pairs)
+ *   GET /api/dashboards/diversification          → LIVE (effective N, overlap stats, correlation stub)
+ *   GET /api/dashboards/risk                     → LIVE (weighted beta, volatility, VaR from NIDP DAAS)
  */
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -53,35 +48,73 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
   },
 
   /**
-   * No backend endpoint yet — return a minimal stub so the UI renders
-   * with empty tickers/matrix rather than crashing. KPIs show 0.
+   * Correlation matrix + effective N from GET /api/dashboards/diversification.
+   * Backend computes fund-overlap + effective N from fund_holdings_cache.
+   * tickers/values matrix is not exposed — returns flat hotPairs from overlap.
    */
   async correlation(): Promise<CorrelationMatrix> {
-    return {
-      tickers: [],
-      values: [],
-      hotPairs: [],
-      avgCrossCorrelation: 0,
-      effectiveN: 0,
-      redundantPairs: 0,
-    };
+    try {
+      const res = await http({ path: "/api/dashboards/diversification", query: { lens: "overlap" } });
+      const body = res.data as {
+        stat_tiles?: Array<{ label?: string; value?: string | number }>;
+        breakdown?: { items?: Array<{ name?: string; value?: number; tone?: string }> };
+      };
+      const tiles = body.stat_tiles ?? [];
+      const tileVal = (label: string) => {
+        const t = tiles.find((t) => (t.label ?? "").toLowerCase().includes(label.toLowerCase()));
+        return t ? Number(t.value ?? 0) : 0;
+      };
+      const effectiveN = tileVal("fund") || tileVal("eff");
+      const redundantPairs = tileVal("overlap") || tileVal("pair");
+      const items = body.breakdown?.items ?? [];
+      const hotPairs = items.map((it) => ({
+        a: String(it.name ?? ""),
+        b: "",
+        rho: Number(it.value ?? 0) / 100,
+      }));
+      return { tickers: [], values: [], hotPairs, avgCrossCorrelation: 0, effectiveN, redundantPairs };
+    } catch {
+      return { tickers: [], values: [], hotPairs: [], avgCrossCorrelation: 0, effectiveN: 0, redundantPairs: 0 };
+    }
   },
 
   /**
-   * No backend endpoint yet — return a zeroed stub. The Risk page renders
-   * "N/A" states gracefully when values are 0.
+   * VaR / beta / volatility from GET /api/dashboards/risk.
+   * Backend computes weighted beta + volatility from NIDP DAAS primitives.
    */
   async risk(): Promise<RiskSnapshot> {
-    return {
-      vaR95Pct: 0,
-      vaR95Paise: 0,
-      annualVolPct: 0,
-      benchmarkVolPct: 0,
-      maxDrawdownPct: 0,
-      beta: 0,
-      riskDrivers: [],
-      stressScenarios: [],
-    };
+    try {
+      const res = await http({ path: "/api/dashboards/risk" });
+      const body = res.data as {
+        stat_tiles?: Array<{ label?: string; value?: string | number }>;
+        breakdown?: { items?: Array<{ name?: string; value?: number; tone?: string }> };
+      };
+      const tiles = body.stat_tiles ?? [];
+      const tileNum = (label: string) => {
+        const t = tiles.find((t) => (t.label ?? "").toLowerCase().includes(label.toLowerCase()));
+        return t ? parseFloat(String(t.value ?? "0").replace(/[^0-9.-]/g, "")) || 0 : 0;
+      };
+      const beta = tileNum("beta");
+      const volPct = tileNum("vol");
+      const varPct = tileNum("var");
+      const maxDD = tileNum("max") || tileNum("draw");
+      const drivers = (body.breakdown?.items ?? []).map((d) => ({
+        name: String(d.name ?? ""),
+        sharePct: Number(d.value ?? 0),
+      }));
+      return {
+        vaR95Pct: varPct,
+        vaR95Paise: 0,
+        annualVolPct: volPct,
+        benchmarkVolPct: 0,
+        maxDrawdownPct: maxDD,
+        beta,
+        riskDrivers: drivers,
+        stressScenarios: [],
+      };
+    } catch {
+      return { vaR95Pct: 0, vaR95Paise: 0, annualVolPct: 0, benchmarkVolPct: 0, maxDrawdownPct: 0, beta: 0, riskDrivers: [], stressScenarios: [] };
+    }
   },
 };
 
