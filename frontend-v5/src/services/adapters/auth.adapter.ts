@@ -73,6 +73,7 @@ function mapUser(c: import("@/services/contracts/auth.contract").UserProfileC): 
     name: c.name,
     emailDomain: domain,
     isWhitelisted: true,             // backend won't return UserProfile to non-whitelisted users
+    onboardingCompleted: c.onboarding_completed,
   };
 }
 
