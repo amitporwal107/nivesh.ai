@@ -48,6 +48,9 @@ COPY deploy/nivesh-app/nginx-frontend-v5.conf /etc/nginx/conf.d/app.conf
 # Vite output (under /v5/ due to VITE_BASE)
 COPY --from=builder /app/frontend-v5/dist /usr/share/nginx/html/v5
 
+# Interactive design prototype (served at /v5/prototype/)
+COPY frontend-v5/design/ /usr/share/nginx/html/v5/prototype/
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
