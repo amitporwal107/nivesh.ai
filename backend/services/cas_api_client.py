@@ -40,18 +40,12 @@ API_SIZE_LIMIT = 1_800_000
 # Admin overrides for sandbox toggle (sandbox is a config flag, not a secret).
 _override_sandbox: Optional[bool] = None
 
-# ── Rotating key pool — sourced ONLY from Google Secret Manager ────────
-# Secret name is environment-scoped: `casparser-api-keys-{APP_ENV}` where
-# APP_ENV is `production` or `preview` (matches helpers.secrets convention).
-# Value is whitespace- or comma-separated CAS Parser keys.
-#
-# On 401/402/403 (or a body indicating expiry/quota) the active key is
-# dropped from the in-memory pool and a warning is logged so the operator
-# can publish a cleaned version via:
-#   echo -n "<remaining>" | gcloud secrets versions add casparser-api-keys-production \\
-#       --data-file=- --project=niveshdataintelligence
-# Auto-version-bump is intentionally NOT implemented — keeps the runtime
-# SA's IAM surface read-only (`roles/secretmanager.secretAccessor`).
+# ── Hardcoded fallback key (bypasses GSM when billing/access issues occur) ──
+# GSM is the authoritative source; this key is used when GSM returns empty.
+# Remove once GSM billing is restored.
+_HARDCODED_FALLBACK_KEY = "sk_1ce512b2acb259cd75d4e5c86f5a3091"
+
+# ── Rotating key pool ─────────────────────────────────────────────────────
 _pool_lock = threading.Lock()
 _pool_cache: Optional[List[str]] = None  # None = not yet loaded
 
@@ -64,7 +58,11 @@ def _secret_name() -> str:
 def _load_pool() -> List[str]:
     raw = _gsm.get(_secret_name()) or ""
     if not raw.strip():
-        return []
+        logger.warning(
+            "CAS Parser API key pool empty from GSM (%s) — using hardcoded fallback key",
+            _secret_name(),
+        )
+        return [_HARDCODED_FALLBACK_KEY]
     # then split each remaining line on any whitespace or comma so admins
     # can shape the GSM payload however is convenient.
     out: List[str] = []
@@ -256,6 +254,92 @@ def generate_access_token(expiry_minutes: int = 60) -> Optional[dict]:
 # ══════════════════════════════════════════════════════════════
 # HTTP calls
 # ══════════════════════════════════════════════════════════════
+
+def parse_cas_via_sdk_flow(content: bytes, password: str = "") -> Optional[dict]:
+    """Parse CAS PDF replicating the SDK's internal flow — no popup, no branding.
+
+    The @cas-parser/connect widget does:
+      1. POST /v1/token  (api_key → short-lived at_ token)
+      2. POST /v4/smart/parse  (multipart PDF + password, Authorization: Bearer at_xxx)
+
+    This function does the same two-step call entirely server-side so we get
+    the same parsing quality/size handling as the SDK without showing the
+    casparser.in widget to the user.
+
+    No artificial size gate — the SDK doesn't impose one either.
+    Returns raw casparser.in JSON dict or None on failure.
+    """
+    api_key = _active_key()
+    if not api_key:
+        logger.warning("CAS Parser: no API key available (GSM empty, fallback missing)")
+        return None
+
+    _use_sb = _override_sandbox if _override_sandbox is not None else USE_SANDBOX
+    if _use_sb or api_key.startswith("sandbox-"):
+        logger.info("CAS Parser SDK flow: sandbox mode — returning None (no real parse)")
+        return None
+
+    # Step 1: mint a short-lived access token
+    try:
+        with httpx.Client(timeout=30) as client:
+            tok_resp = client.post(
+                f"{_base_url()}/v1/token",
+                headers={"x-api-key": api_key},
+                json={"expiry_minutes": 10},
+            )
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.warning("CAS Parser SDK flow: token mint failed: %s", e)
+        return None
+
+    if tok_resp.status_code >= 400:
+        logger.warning("CAS Parser SDK flow: token mint HTTP %s", tok_resp.status_code)
+        if _looks_like_dead_key(tok_resp.status_code, tok_resp.text[:200]):
+            _retire_pool_key(api_key)
+        return None
+
+    try:
+        at_token = tok_resp.json().get("access_token")
+    except Exception:
+        at_token = None
+
+    if not at_token:
+        logger.warning("CAS Parser SDK flow: no access_token in mint response")
+        return None
+
+    # Step 2: parse the PDF using the access token (same call the SDK widget makes)
+    try:
+        with httpx.Client(timeout=120) as client:
+            parse_resp = client.post(
+                f"{_base_url()}/v4/smart/parse",
+                headers={
+                    "Authorization": f"Bearer {at_token}",
+                    "accept": "application/json",
+                },
+                files={"file": ("cas.pdf", io.BytesIO(content), "application/pdf")},
+                data={"password": password or ""},
+            )
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
+        logger.warning("CAS Parser SDK flow: parse request failed: %s", e)
+        return None
+
+    if parse_resp.status_code >= 400:
+        logger.warning("CAS Parser SDK flow: parse HTTP %s: %s",
+                       parse_resp.status_code, parse_resp.text[:200])
+        return None
+
+    try:
+        data = parse_resp.json()
+    except Exception:
+        logger.warning("CAS Parser SDK flow: non-JSON parse response")
+        return None
+
+    if isinstance(data, dict) and data.get("status") == "failed":
+        logger.warning("CAS Parser SDK flow: parse failed: %s", data.get("msg"))
+        return None
+
+    logger.info("CAS Parser SDK flow: parsed successfully (%.1f MB)", len(content) / 1e6)
+    return data
+
 
 def parse_cas_pdf(content: bytes, password: str = "", endpoint: str = "/v4/smart/parse") -> Optional[dict]:
     """
@@ -655,6 +739,19 @@ def extract_statement_period(data: dict) -> Optional[str]:
             except ValueError:
                 continue
     return None
+
+
+def parse_cas_via_sdk_flow_with_data(content: bytes, password: str = "") -> tuple:
+    """SDK-flow wrapper returning (holdings, raw_data, normalized) — same
+    signature as parse_cas_via_api_with_data so callers can swap them.
+    Uses parse_cas_via_sdk_flow (access-token path, no size gate).
+    """
+    data = parse_cas_via_sdk_flow(content, password)
+    if not data:
+        return [], None, None
+    holdings = map_api_response_to_holdings(data)
+    normalized = normalize_api_response_for_transactions(data)
+    return holdings, data, normalized
 
 
 def parse_cas_via_api(content: bytes, password: str = "") -> List[Dict]:

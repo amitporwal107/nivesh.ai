@@ -206,9 +206,9 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         # Server-side parse. parse_cas_via_api returns [] on any failure
         # (bad password, scanned PDF too large, API down, etc.).
         try:
-            holdings, raw_data, _ = cas_api_client.parse_cas_via_api_with_data(content, password=pan)
+            holdings, raw_data, _ = cas_api_client.parse_cas_via_sdk_flow_with_data(content, password=pan)
         except Exception as e:  # noqa: BLE001
-            logger.exception("parse_cas_via_api crashed for %s: %s", filename, e)
+            logger.exception("parse_cas_via_sdk_flow crashed for %s: %s", filename, e)
             holdings, raw_data = [], None
 
         if not holdings:
@@ -318,7 +318,7 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
         raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
 
     try:
-        holdings, raw_data, _ = cas_api_client.parse_cas_via_api_with_data(content, password=pan)
+        holdings, raw_data, _ = cas_api_client.parse_cas_via_sdk_flow_with_data(content, password=pan)
     except Exception as e:  # noqa: BLE001
         logger.exception("upload_cas_pdf parse crashed: %s", e)
         holdings, raw_data = [], None
