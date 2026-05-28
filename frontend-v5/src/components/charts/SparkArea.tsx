@@ -22,19 +22,18 @@ export function SparkArea({ data, height = 80, showAxis = false }: SparkAreaProp
             <stop offset="100%" stopColor="rgb(var(--accent))" stopOpacity={0} />
           </linearGradient>
         </defs>
-        {showAxis && (
-          <>
-            <XAxis
-              dataKey="date"
-              tickLine={false}
-              axisLine={false}
-              tick={{ fill: "rgb(var(--ink-3))", fontFamily: "var(--font-mono)", fontSize: 11 }}
-              tickFormatter={(v) => new Date(v).toLocaleDateString("en-IN", { month: "short" })}
-              minTickGap={32}
-            />
-            <YAxis hide />
-          </>
-        )}
+        {/* XAxis must always be rendered so Tooltip.labelFormatter receives the
+            date string rather than the array index (which would give "1970"). */}
+        <XAxis
+          dataKey="date"
+          hide={!showAxis}
+          tickLine={false}
+          axisLine={false}
+          tick={{ fill: "rgb(var(--ink-3))", fontFamily: "var(--font-mono)", fontSize: 11 }}
+          tickFormatter={(v) => new Date(v).toLocaleDateString("en-IN", { month: "short" })}
+          minTickGap={32}
+        />
+        {showAxis && <YAxis hide />}
         <Tooltip
           cursor={{ stroke: "rgb(var(--line) / 0.3)" }}
           contentStyle={{
