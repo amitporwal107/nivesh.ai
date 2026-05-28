@@ -68,6 +68,34 @@
     --line: 255 255 255;
   }
 
+  /* ─── Prototype CSS variable aliases ───
+     The design JSX uses var(--mint), var(--bg-1) etc. directly.
+     Map them so ported prototype components just work. */
+  :root, :root[data-theme="light"] {
+    --bg-0: #F6F4ED; --bg-1: #FFFFFF; --bg-2: #F1EEE3; --bg-3: #E7E3D4; --bg-4: #DAD5C2;
+    --mint: #0E8A55; --mint-2: #146B45; --mint-soft: rgba(14,138,85,0.10);
+    --amber: #B86A12; --amber-2: #8E4F09; --amber-soft: rgba(184,106,18,0.10);
+    --indigo-hex: #4F58D6; --indigo-soft: rgba(79,88,214,0.09);
+    --danger-hex: #C5303E; --danger-soft: rgba(197,48,62,0.08);
+    --ink-5: #CFC9B5;
+    --line-2: rgba(20,18,12,0.14); --line-3: rgba(20,18,12,0.24);
+    --display: "Instrument Serif", Georgia, serif;
+    --sans: "Inter Tight", "Inter", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  :root[data-theme="dark"] {
+    --bg-0: #06080F; --bg-1: #0A0E1A; --bg-2: #10162A; --bg-3: #181F38; --bg-4: #232B48;
+    --mint: #6AF0A8; --mint-2: #36C57E; --mint-soft: rgba(106,240,168,0.12);
+    --amber: #FFB547; --amber-2: #E68E1A; --amber-soft: rgba(255,181,71,0.12);
+    --indigo-hex: #8E97FF; --indigo-soft: rgba(142,151,255,0.13);
+    --danger-hex: #FF6B7A; --danger-soft: rgba(255,107,122,0.12);
+    --ink-5: #2E3550;
+    --line-2: rgba(255,255,255,0.10); --line-3: rgba(255,255,255,0.18);
+    --display: "Instrument Serif", Georgia, serif;
+    --sans: "Inter Tight", "Inter", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+
   html, body, #root {
     height: 100%;
   }
@@ -131,8 +159,31 @@
   .nv-mark {
     @apply font-display inline-grid place-items-center rounded-lg font-medium leading-none;
     width: 28px; height: 28px; font-size: 17px;
-    background: linear-gradient(140deg, rgb(var(--accent)), rgb(var(--accent) / 0.7));
-    color: rgb(var(--accent-fg));
+    background: linear-gradient(140deg, var(--mint), var(--mint-2));
+    color: #06120B;
+  }
+
+  .nv-serif { font-family: var(--display); font-weight: 400; letter-spacing: -0.02em; }
+  .nv-mono { font-family: var(--mono); }
+
+  .nv-btn {
+    font-family: var(--sans); font-size: 14px; font-weight: 500;
+    letter-spacing: -0.005em; padding: 11px 18px; border-radius: 12px;
+    border: 1px solid var(--line-2); background: var(--bg-2);
+    color: rgb(var(--ink)); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: all .15s ease;
+  }
+  .nv-btn:hover { border-color: var(--line-3); }
+  .nv-btn-primary {
+    background: var(--mint); color: #06120B;
+    border-color: transparent; font-weight: 500;
+  }
+
+  .nv-card-2 {
+    background: var(--bg-2);
+    border: 1px solid rgb(var(--line) / 0.06);
+    border-radius: 14px;
   }
 }
 

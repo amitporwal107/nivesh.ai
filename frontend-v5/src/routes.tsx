@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
+import HomepagePage from "./pages/Homepage";
 import DashboardPage from "./pages/Dashboard";
 import PortfolioPage from "./pages/Portfolio";
 import ConcentrationPage from "./pages/Concentration";
@@ -19,19 +20,22 @@ import PerformancePage from "./pages/Performance";
 export function AppRoutes() {
   return (
     <Routes>
-      {/* outside the AppLayout — full-bleed auth */}
+      {/* Public landing — full-bleed, no sidebar */}
+      <Route index element={<HomepagePage />} />
+
+      {/* Auth screens — full-bleed */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
 
+      {/* Authenticated app — sidebar layout */}
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard"        element={<DashboardPage />} />
         <Route path="/portfolio"        element={<PortfolioPage />} />
         <Route path="/funds/:id"        element={<FundDetailsPage />} />
         <Route path="/concentration"    element={<ConcentrationPage />} />
         <Route path="/diversification"  element={<DiversificationPage />} />
         <Route path="/risk"             element={<RiskPage />} />
-        <Route path="/performance"     element={<PerformancePage />} />
+        <Route path="/performance"      element={<PerformancePage />} />
         <Route path="/recommendations"  element={<RecommendationsPage />} />
         <Route path="/chat"             element={<ChatPage />} />
         <Route path="/goals"            element={<GoalsPage />} />
@@ -40,7 +44,7 @@ export function AppRoutes() {
         <Route path="/settings"         element={<SettingsPage />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
