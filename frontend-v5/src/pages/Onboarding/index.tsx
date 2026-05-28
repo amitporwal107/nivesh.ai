@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Stepper } from "@/components/shared/Stepper";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,11 +88,11 @@ function MethodCard({ no, active, onSelect, icon, title, sub, time }: MethodCard
       aria-pressed={active}
       className={cn(
         "text-left rounded-md border p-4 flex items-start gap-3.5 transition-colors",
-        active ? "bg-accent-soft border-accent/30" : "bg-surface-1 border-hairline hover:bg-surface-2",
+        active ? "bg-accent/[0.10] border-accent/25" : "bg-surface-1 border-hairline hover:bg-surface-2",
       )}
     >
       <div className={cn("h-10 w-10 rounded-md grid place-items-center shrink-0",
-        active ? "bg-accent text-on-accent" : "bg-surface-2 border border-hairline-2 text-ink-2")}>
+        active ? "bg-accent/[0.18] text-accent" : "bg-surface-2 border border-hairline-2 text-ink-2")}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
@@ -107,7 +107,86 @@ function MethodCard({ no, active, onSelect, icon, title, sub, time }: MethodCard
   );
 }
 
+type GmailState = "idle" | "authorizing" | "scanning" | "done" | "error";
+
 function GmailPanel() {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [state, setState] = useState<GmailState>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  // Detect return from Gmail OAuth — backend appends ?gmail_code=xxx on success
+  // or ?gmail_error=xxx on failure.
+  useEffect(() => {
+    const gmailCode = searchParams.get("gmail_code");
+    const gmailError = searchParams.get("gmail_error");
+    if (gmailError) {
+      setError(`Google authorization failed: ${gmailError.replace(/_/g, " ")}`);
+      setState("error");
+      setSearchParams({}, { replace: true });
+      return;
+    }
+    if (!gmailCode) return;
+    // Clear the query param from the URL
+    setSearchParams({}, { replace: true });
+    // Trigger Gmail scan now that tokens are stored
+    setState("scanning");
+    fetch("/api/gmail/scan", { method: "POST", credentials: "include" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Scan failed: ${r.status}`);
+        return r.json();
+      })
+      .then(() => setState("done"))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Scan failed");
+        setState("error");
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAuthorize = async () => {
+    setState("authorizing");
+    setError(null);
+    try {
+      const returnTo = location.pathname;
+      const res = await fetch(`/api/gmail/connect?return_to=${encodeURIComponent(returnTo)}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json() as { auth_url?: string };
+      if (!data.auth_url) throw new Error("No auth URL returned");
+      window.location.href = data.auth_url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start authorization");
+      setState("error");
+    }
+  };
+
+  if (state === "done") {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center gap-4 min-h-[320px]">
+        <CheckCircle2 className="h-12 w-12 text-pos" />
+        <div className="font-display text-[22px] tracking-tightish text-center">Gmail scan complete</div>
+        <p className="text-[13.5px] text-ink-2 text-center max-w-[320px] leading-relaxed">
+          We've imported your CAS emails. Your holdings will appear in the dashboard shortly.
+        </p>
+        <Button variant="accent" className="mt-2" onClick={() => navigate("/dashboard")}>
+          Continue to dashboard →
+        </Button>
+      </div>
+    );
+  }
+
+  if (state === "scanning") {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center gap-4 min-h-[320px]">
+        <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        <div className="font-display text-[20px] tracking-tightish">Scanning Gmail inbox…</div>
+        <p className="text-[13px] text-ink-2 text-center">Looking for CAS emails from CAMS, KFintech, NSDL, CDSL</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       <div className="flex items-center gap-3 mb-4">
@@ -138,9 +217,20 @@ function GmailPanel() {
           </div>
         ))}
       </div>
-      <Button className="w-full mt-5 h-12 bg-white text-[#1F1F1F] border border-[#E5E5E5] hover:bg-[#F8F8F8]" asChild>
-        <span><GoogleMark size={18} />Authorize with Google →</span>
-      </Button>
+      {error && (
+        <div className="mt-4 text-[12.5px] text-neg bg-[rgb(var(--neg)/0.08)] border border-[rgb(var(--neg)/0.20)] rounded-md px-3.5 py-2.5">
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        disabled={state === "authorizing"}
+        onClick={handleAuthorize}
+        className="w-full mt-5 h-12 rounded-md bg-white text-[#1F1F1F] border border-[#E5E5E5] hover:bg-[#F8F8F8] active:bg-[#EFEFEF] flex items-center justify-center gap-2.5 font-medium text-[14px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        <GoogleMark size={18} />
+        {state === "authorizing" ? "Opening Google…" : "Authorize with Google →"}
+      </button>
       <div className="font-mono text-[10px] text-ink-3 text-center mt-3 tracking-[.06em]">
         OAUTH 2.0 · REVOCABLE ANY TIME · INDIA-HOSTED
       </div>
