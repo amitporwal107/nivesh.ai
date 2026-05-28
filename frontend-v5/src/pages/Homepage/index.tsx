@@ -1,12 +1,41 @@
 /**
- * Homepage — landing page, direct port of screens-homepage.jsx
- * Shown at /v5/ when user is NOT logged in.
- * CTA navigates to /login → /onboarding flow.
+ * Homepage — landing page, ported from screens-homepage.jsx
+ * Wires the health preview card to real API data when available.
  */
 import { useNavigate } from "react-router-dom";
+import { useHealthAnalysis } from "@/hooks/use-insights";
+import { usePortfolioSummary } from "@/hooks/use-portfolio";
+
+function gradeLabel(score: number) {
+  if (score >= 85) return "GRADE A";
+  if (score >= 70) return "GRADE B";
+  if (score >= 55) return "GRADE C";
+  return "GRADE D";
+}
+
+function barColor(v: number) {
+  if (v >= 70) return "var(--mint)";
+  if (v >= 50) return "var(--amber)";
+  return "var(--danger-hex)";
+}
 
 export default function HomepagePage() {
   const navigate = useNavigate();
+  const { data: health } = useHealthAnalysis();
+  const { data: summary } = usePortfolioSummary();
+
+  // Extract real scores if available
+  const h = health as any;
+  const healthScore: number | null = h?.health_score ?? (summary as any)?.healthScore ?? null;
+  const dimensions: Array<{ k: string; v: number }> | null = h?.dimensions
+    ? Object.entries(h.dimensions as Record<string, number>).map(([k, v]) => ({ k, v: v as number }))
+    : null;
+  const insights: Array<{ title: string; source: string; severity: string }> | null =
+    summary?.topInsights?.map((i: any) => ({
+      title: i.title ?? i.headline ?? "",
+      source: i.source ?? i.domain ?? "",
+      severity: i.severity ?? "mint",
+    })) ?? null;
 
   return (
     <div className="nv-frame" style={{ width: "100%", minHeight: "100vh" }}>
@@ -60,7 +89,7 @@ export default function HomepagePage() {
           </div>
         </div>
 
-        {/* live demo card */}
+        {/* health preview card — real data when available */}
         <div className="nv-card" style={{ padding: 0, overflow: "hidden", position: "relative" }}>
           <div style={{ padding: "18px 22px", borderBottom: "1px solid rgb(var(--line) / 0.06)", display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ display: "flex", gap: 5 }}>
@@ -69,56 +98,75 @@ export default function HomepagePage() {
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--ink-5)" }} />
             </span>
             <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)", letterSpacing: ".08em" }}>nivesh.app/health</span>
-            <span className="nv-pill nv-pill-mint" style={{ marginLeft: "auto" }}><span className="nv-dot" style={{ background: "var(--mint)" }} />LIVE</span>
+            <span className="nv-pill nv-pill-mint" style={{ marginLeft: "auto" }}>
+              <span className="nv-dot" style={{ background: "var(--mint)" }} />
+              {healthScore != null ? "LIVE" : "PREVIEW"}
+            </span>
           </div>
           <div style={{ padding: "28px 24px 24px" }}>
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 18 }}>
               <div>
                 <div className="nv-mono" style={{ fontSize: 10, letterSpacing: ".16em", color: "var(--ink-3)", textTransform: "uppercase" as const }}>Portfolio health</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 6 }}>
-                  <span className="nv-serif" style={{ fontSize: 78, lineHeight: 0.9, letterSpacing: "-0.04em" }}>86</span>
+                  <span className="nv-serif" style={{ fontSize: 78, lineHeight: 0.9, letterSpacing: "-0.04em" }}>
+                    {healthScore ?? "—"}
+                  </span>
                   <span className="nv-mono" style={{ fontSize: 14, color: "var(--ink-3)" }}>/ 100</span>
-                  <span className="nv-pill nv-pill-mint" style={{ marginLeft: 8 }}>GRADE A</span>
+                  {healthScore != null && (
+                    <span className="nv-pill nv-pill-mint" style={{ marginLeft: 8 }}>{gradeLabel(healthScore)}</span>
+                  )}
                 </div>
               </div>
-              <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>updated · 2m ago</span>
+              {healthScore != null && (
+                <span className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>your portfolio</span>
+              )}
             </div>
 
-            {/* segmented bar */}
-            <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
-              {[
-                { k: "risk", v: 92, c: "var(--mint)" },
-                { k: "concen", v: 58, c: "var(--amber)" },
-                { k: "diverse", v: 78, c: "var(--mint)" },
-                { k: "cost", v: 88, c: "var(--mint)" },
-                { k: "tax", v: 81, c: "var(--mint)" },
-                { k: "goals", v: 74, c: "var(--indigo-hex)" },
-              ].map(({ k, v, c }) => (
-                <div key={k} style={{ flex: 1 }}>
-                  <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6, position: "relative" as const, overflow: "hidden" as const }}>
-                    <div style={{ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: `${v}%`, background: c, opacity: 0.9 }} />
+            {/* segmented bar — from dimensions or placeholder */}
+            {dimensions && dimensions.length > 0 ? (
+              <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
+                {dimensions.map(({ k, v }) => (
+                  <div key={k} style={{ flex: 1 }}>
+                    <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6, position: "relative" as const, overflow: "hidden" as const }}>
+                      <div style={{ position: "absolute" as const, bottom: 0, left: 0, right: 0, height: `${v}%`, background: barColor(v), opacity: 0.9 }} />
+                    </div>
+                    <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>
+                      {k.replace(/_/g, " ").slice(0, 7)}
+                    </div>
                   </div>
-                  <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>{k}</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 3, marginBottom: 22 }}>
+                {["risk", "concen", "diverse", "cost", "tax", "goals"].map((k) => (
+                  <div key={k} style={{ flex: 1 }}>
+                    <div style={{ height: 36, background: "var(--bg-2)", borderRadius: 6 }} />
+                    <div className="nv-mono" style={{ fontSize: 9, color: "var(--ink-3)", marginTop: 6, textAlign: "center" as const, textTransform: "uppercase" as const, letterSpacing: ".06em" }}>{k}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {/* insight rows */}
+            {/* insight rows — from API or empty */}
             <div style={{ borderTop: "1px solid rgb(var(--line) / 0.06)" }}>
-              {[
-                { sev: "amber", t: "32% of your money is in financials", s: "Concentration · 6 holdings" },
-                { sev: "indigo-hex", t: "3 funds hold near-identical stocks", s: "Diversification · ₹4.2L overlap" },
-                { sev: "mint", t: "You can harvest ₹38,400 in tax losses", s: "Tax · before March 31" },
-              ].map((r, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 2px", borderBottom: i < 2 ? "1px solid rgb(var(--line) / 0.06)" : "none" }}>
-                  <span style={{ width: 3, alignSelf: "stretch", background: `var(--${r.sev})`, borderRadius: 2 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.005em" }}>{r.t}</div>
-                    <div className="nv-mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: ".06em", marginTop: 3, textTransform: "uppercase" as const }}>{r.s}</div>
+              {insights && insights.length > 0 ? (
+                insights.slice(0, 3).map((r, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 2px", borderBottom: i < 2 ? "1px solid rgb(var(--line) / 0.06)" : "none" }}>
+                    <span style={{ width: 3, alignSelf: "stretch", background: r.severity === "warm" ? "var(--amber)" : r.severity === "neg" ? "var(--danger-hex)" : "var(--mint)", borderRadius: 2 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.005em" }}>{r.title}</div>
+                      <div className="nv-mono" style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: ".06em", marginTop: 3, textTransform: "uppercase" as const }}>{r.source}</div>
+                    </div>
+                    <span style={{ color: "var(--ink-3)", fontSize: 18 }}>›</span>
                   </div>
-                  <span style={{ color: "var(--ink-3)", fontSize: 18 }}>›</span>
+                ))
+              ) : (
+                <div style={{ padding: "18px 2px", textAlign: "center" as const }}>
+                  <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                    Sign in to see your insights
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>

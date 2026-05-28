@@ -79,7 +79,7 @@ export default function SettingsPage() {
         <div className="mt-3 text-[14px]">
           <div>{email}</div>
           <div className="font-mono text-[11px] text-ink-3 mt-1">
-            Connected · Gmail OAuth
+            {me ? "Connected · Google OAuth" : "Not signed in"}
           </div>
         </div>
         <div className="mt-5 flex gap-2">

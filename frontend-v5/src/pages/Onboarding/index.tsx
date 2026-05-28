@@ -115,7 +115,7 @@ function GmailPanel() {
         <div>
           <div className="font-display text-[22px] tracking-tightish">Connect Gmail inbox</div>
           <div className="font-mono text-[10.5px] uppercase tracking-[.04em] text-ink-3 mt-1">
-            aarav.k@gmail.com · authorize once
+            your inbox · authorize once
           </div>
         </div>
       </div>
@@ -283,23 +283,20 @@ function OtpPanel() {
         CDSL sends an OTP to the mobile linked with your PAN. Enter it and we pull current holdings — both NSDL and CDSL in one go.
       </p>
       <div className="flex flex-col gap-3 mt-5">
-        <Field label="PAN" value="ABCDE1234F" />
-        <Field label="Mobile linked to PAN" value="+91 98XXX XX482" badge="VERIFIED" />
+        <div>
+          <CardLabel>PAN</CardLabel>
+          <input className="mt-1.5 w-full px-3.5 h-12 rounded-md bg-bg border border-hairline-2 font-mono text-[14px] outline-none focus:border-accent" placeholder="e.g. ABCDE1234F" />
+        </div>
+        <div>
+          <CardLabel>Mobile linked to PAN</CardLabel>
+          <input className="mt-1.5 w-full px-3.5 h-12 rounded-md bg-bg border border-hairline-2 font-mono text-[14px] outline-none focus:border-accent" placeholder="+91 98XXX XXXXX" />
+        </div>
         <div>
           <CardLabel>OTP · 6 digits</CardLabel>
           <div className="flex gap-2 mt-1.5">
-            {["7", "2", "4", "3", "—", "—"].map((d, i) => (
-              <div key={i} className={cn(
-                "flex-1 h-12 grid place-items-center rounded-md font-display text-xl",
-                i < 4 ? "bg-bg border border-pos/30 text-ink" : "bg-bg border border-hairline-2 text-ink-4",
-              )}>{d}</div>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <input key={i} maxLength={1} className="flex-1 h-12 text-center rounded-md font-display text-xl bg-bg border border-hairline-2 text-ink outline-none focus:border-accent" />
             ))}
-          </div>
-          <div className="flex mt-2">
-            <span className="font-mono text-[10px] text-ink-3 tracking-[.04em]">
-              OTP sent · expires in <span className="text-pos">02:47</span>
-            </span>
-            <span className="ml-auto font-mono text-[10px] text-accent tracking-[.04em]">RESEND</span>
           </div>
         </div>
       </div>
