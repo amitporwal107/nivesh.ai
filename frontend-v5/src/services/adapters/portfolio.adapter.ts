@@ -133,9 +133,18 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     // Trend series from portfolio snapshots (good once daily cron runs)
     if (trendSeries.length > 0) return trendSeries;
 
-    // Last resort: single data point from CAS statement date + value
+    // Last resort: single data point from CAS statement date + value.
+    // Backend stores date as "DD-MMM-YYYY" (e.g. "30-Apr-2026"); convert to
+    // ISO "YYYY-MM-DD" so Recharts/Date can parse it correctly.
     if (casState?.cas_statement_date && casState?.cas_portfolio_value_rs) {
-      return [{ date: casState.cas_statement_date, value: Math.round(casState.cas_portfolio_value_rs * 100) }];
+      const MONTHS: Record<string, string> = {
+        Jan:"01", Feb:"02", Mar:"03", Apr:"04", May:"05", Jun:"06",
+        Jul:"07", Aug:"08", Sep:"09", Oct:"10", Nov:"11", Dec:"12",
+      };
+      const raw = casState.cas_statement_date;
+      const m = raw.match(/^(\d{2})-([A-Za-z]{3})-(\d{4})$/);
+      const isoDate = m ? `${m[3]}-${MONTHS[m[2]] ?? "01"}-${m[1]}` : raw;
+      return [{ date: isoDate, value: Math.round(casState.cas_portfolio_value_rs * 100) }];
     }
     return [];
   },

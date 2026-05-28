@@ -135,35 +135,53 @@ def extract_portfolio_summary(pdf_bytes: bytes, password: str = "") -> Optional[
             "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"},
         })
 
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model="gpt-5",
-            messages=[{
-                "role": "user",
-                "content": image_blocks + [{"type": "text", "text": _EXTRACTION_PROMPT}],
-            }],
-            max_tokens=1024,
-            temperature=0,
-        )
-        raw = response.choices[0].message.content or ""
-        # Strip markdown code fences if present
-        raw = re.sub(r"```(?:json)?", "", raw).strip().strip("`")
-        result = json.loads(raw)
-        monthly = result.get("monthly_values") or []
-        if monthly:
+    # Preferred model: gpt-4o (vision-capable, stable API).
+    # Falls back to gpt-4o-mini if the primary model is unavailable.
+    _MODEL_PRIMARY = os.environ.get("CAS_VISION_MODEL", "gpt-4o")
+    _MODEL_FALLBACK = "gpt-4o-mini"
+
+    for model in (_MODEL_PRIMARY, _MODEL_FALLBACK):
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            logger.info("cas_summary_vision: calling model=%s with %d page images", model, len(images))
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{
+                    "role": "user",
+                    "content": image_blocks + [{"type": "text", "text": _EXTRACTION_PROMPT}],
+                }],
+                max_tokens=1024,
+                temperature=0,
+            )
+            raw = response.choices[0].message.content or ""
+            # Strip markdown code fences if present
+            raw = re.sub(r"```(?:json)?", "", raw).strip().strip("`")
+            result = json.loads(raw)
+            monthly = result.get("monthly_values") or []
             logger.info(
-                "cas_summary_vision: extracted %d monthly data points, "
+                "cas_summary_vision: model=%s extracted %d monthly points, "
                 "current_value=₹%s, date=%s",
+                model,
                 len(monthly),
                 result.get("current_value_rs"),
                 result.get("statement_date"),
             )
-        return result
-    except json.JSONDecodeError as e:
-        logger.warning("cas_summary_vision: JSON parse failed: %s", e)
-        return None
-    except Exception as e:
-        logger.warning("cas_summary_vision: Vision API call failed: %s", e)
-        return None
+            if not monthly:
+                logger.warning(
+                    "cas_summary_vision: model=%s returned empty monthly_values — "
+                    "summary table may not be on pages 2-3 of this PDF", model
+                )
+            return result
+        except json.JSONDecodeError as e:
+            logger.warning("cas_summary_vision: model=%s JSON parse failed: %s — raw=%r", model, e, raw[:200] if "raw" in dir() else "")
+            return None
+        except Exception as e:
+            logger.warning("cas_summary_vision: model=%s API call failed: %s", model, e)
+            # Try fallback model only for model-not-found errors
+            err_str = str(e).lower()
+            if "model" in err_str or "not found" in err_str or "invalid" in err_str:
+                logger.info("cas_summary_vision: retrying with fallback model %s", _MODEL_FALLBACK)
+                continue
+            return None
+    return None

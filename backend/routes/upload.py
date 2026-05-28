@@ -364,20 +364,49 @@ async def portfolio_import_from_connect(
         portfolio_id=portfolio_id,
     )
 
-    # Mirror the Gmail-import behaviour: once we've persisted holdings the
-    # user has effectively finished onboarding. Without this, the V2 gate
-    # at NiveshV2.jsx:343 keeps routing them back to the onboarding wizard
-    # on every reload, and the V3 router has no server-side flag to read.
+    # Mirror the Gmail-import behaviour: save onboarding flag + CAS metadata
+    # so the dashboard banner, chart, and action matrix all have data to render.
     if saved:
         now = datetime.now(timezone.utc)
+
+        # Extract statement period ("Apr/2026") from the casparser JSON.
+        from services.cas_api_client import extract_statement_period
+        cas_statement_period = extract_statement_period(parsed_data)
+
+        # Statement date — try standard casparser meta fields first.
+        meta_block = parsed_data.get("meta") or {}
+        cas_statement_date = (
+            meta_block.get("to_date")
+            or meta_block.get("period_to")
+            or meta_block.get("statement_to")
+        )
+
+        # Portfolio value — sum current_price × quantity across saved holdings.
+        # This is the last-known NAV value at statement time.
+        portfolio_value_rs = round(
+            sum(
+                float(h.get("current_price", 0)) * float(h.get("quantity", 0))
+                for h in saved
+            ),
+            2,
+        )
+
+        profile_set: dict = {
+            "onboarding_completed": True,
+            "journey_type": "existing_investor",
+            "updated_at": now,
+        }
+        if cas_statement_period:
+            profile_set["cas_statement_period"] = cas_statement_period
+        if cas_statement_date:
+            profile_set["cas_statement_date"] = cas_statement_date
+        if portfolio_value_rs > 0:
+            profile_set["cas_portfolio_value_rs"] = portfolio_value_rs
+
         await db.user_profiles.update_one(
             {"user_id": user["user_id"]},
             {
-                "$set": {
-                    "onboarding_completed": True,
-                    "journey_type": "existing_investor",
-                    "updated_at": now,
-                },
+                "$set": profile_set,
                 "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
             },
             upsert=True,
@@ -400,6 +429,16 @@ async def portfolio_import_from_connect(
         f"cas_type={cas_type} investor={investor_name} "
         f"txns={sip_summary.get('transactions', 0)} sips={sip_summary.get('sips', 0)}"
     )
+
+    # Auto-generate action plan so the dashboard action matrix is immediately
+    # populated — mirrors what Gmail sync does after a successful import.
+    if saved:
+        try:
+            from services.action_plan_manager import ActionPlanManager
+            await ActionPlanManager().generate_plan(user["user_id"])
+            logger.info("import-connect: action plan generated for user=%s", user["user_id"])
+        except Exception as e:  # noqa: BLE001
+            logger.warning("import-connect: plan generation failed for user=%s: %s", user["user_id"], e)
 
     result = {
         "message": f"{len(saved)} holdings imported via Portfolio Connect",

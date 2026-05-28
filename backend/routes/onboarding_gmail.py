@@ -318,10 +318,26 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             profile_update["cas_statement_date"] = cas_statement_date
         if monthly_values:
             profile_update["cas_monthly_values"] = monthly_values
+            logger.info(
+                "gmail-import: persisting %d monthly portfolio values to MongoDB for user=%s",
+                len(monthly_values), user_id,
+            )
+        else:
+            logger.warning(
+                "gmail-import: cas_monthly_values is empty/null — Vision API "
+                "did not extract monthly values for user=%s (check cas_summary_vision logs)",
+                user_id,
+            )
         await db.user_profiles.update_one(
             {"user_id": user_id},
             {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
             upsert=True,
+        )
+        logger.info(
+            "gmail-import: profile updated for user=%s — period=%s, value=₹%s, "
+            "statement_date=%s, monthly_values_count=%d",
+            user_id, statement_period, cas_portfolio_value, cas_statement_date,
+            len(monthly_values) if monthly_values else 0,
         )
 
     # Flip auto_import_enabled on so the daily 06:30 IST sweep picks up
