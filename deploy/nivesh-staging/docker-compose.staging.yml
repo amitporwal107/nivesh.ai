@@ -146,7 +146,7 @@ services:
       dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
       args:
         VITE_BASE: /v5/
-        VITE_API_URL: https://staging.niveshcopilot.com
+        VITE_API_URL: ""
         VITE_USE_MOCK_API: "false"
     image: nivesh/frontend-v5:staging
     container_name: nivesh-staging-app-frontend-v5
