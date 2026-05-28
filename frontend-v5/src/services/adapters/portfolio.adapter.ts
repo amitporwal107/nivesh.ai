@@ -61,25 +61,33 @@ export const realPortfolioAdapter: PortfolioAdapter = {
   },
 
   async getSummary() {
-    // Compose: enriched-holdings (totals) + insights/analysis (health score).
-    const [enriched, health] = await Promise.all([
+    // Compose: enriched-holdings (totals) + insights/analysis (health score)
+    // + CAS statement summary (fallback when enrichment prices aren't fetched yet).
+    const [enriched, health, casState] = await Promise.all([
       this.listHoldingsEnriched().catch(() => null),
       realInsightsAdapter.analysis().catch(() => null),
+      fetch("/api/onboarding/state", { credentials: "include" })
+        .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
+        .catch(() => null),
     ]);
 
-    const totalValue = (enriched?.totals?.value_rs ?? 0) * 100;          // paise
+    // Use CAS summary value when holdings-enriched hasn't fetched live NAVs yet
+    const enrichedValue = (enriched?.totals?.value_rs ?? 0) * 100;
+    const casValue      = (casState?.cas_portfolio_value_rs ?? 0) * 100;
+    const totalValue    = enrichedValue > 0 ? enrichedValue : casValue;
+
     const totalCost  = (enriched?.totals?.invested_rs ?? 0) * 100;
     const pnl    = totalValue - totalCost;
     const pnlPct = totalCost === 0 ? 0 : pnl / totalCost;
 
     return {
-      asOf: new Date().toISOString(),
+      asOf: casState?.cas_statement_date ?? new Date().toISOString(),
       totalValue,
       dayChange:  { abs: 0, pct: 0 },
       weekChange: { abs: 0, pct: 0 },
       yearChange: { abs: pnl, pct: pnlPct },
       healthScore: health?.health.health_score ?? health?.health.score ?? 0,
-      riskBucket: "moderate",
+      riskBucket: "moderate" as const,
       riskBucketIndex: 3,
       allocation: [],
       topInsights: [],
@@ -88,13 +96,23 @@ export const realPortfolioAdapter: PortfolioAdapter = {
 
   async getNavHistory(range) {
     const days = DAYS_BY_RANGE[range] ?? 365;
-    const res = await http({ path: "/api/portfolio/trend", query: { days } });
-    const parsed = TrendRes.safeParse(res.data);
+    const [trendRes, casState] = await Promise.all([
+      http({ path: "/api/portfolio/trend", query: { days } }),
+      fetch("/api/onboarding/state", { credentials: "include" })
+        .then((r) => r.ok ? r.json() as Promise<{ cas_portfolio_value_rs?: number | null; cas_statement_date?: string | null }> : null)
+        .catch(() => null),
+    ]);
+    const parsed = TrendRes.safeParse(trendRes.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.getNavHistory: ${parsed.error.message}`);
-    return parsed.data.series.map((p) => ({
+    const series = parsed.data.series.map((p) => ({
       date:  p.snapshot_date,
-      value: Math.round(p.total_value * 100),                           // rupees → paise
+      value: Math.round(p.total_value * 100),
     }));
+    // If no trend history, synthesise a single point from the CAS statement date + value
+    if (series.length === 0 && casState?.cas_statement_date && casState?.cas_portfolio_value_rs) {
+      return [{ date: casState.cas_statement_date, value: Math.round(casState.cas_portfolio_value_rs * 100) }];
+    }
+    return series;
   },
 
   async searchInstruments(q) {

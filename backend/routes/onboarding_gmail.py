@@ -59,6 +59,29 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _extract_portfolio_value(raw_data: Optional[dict]) -> Optional[float]:
+    """Extract total portfolio value (rupees) from casparser SDK response summary."""
+    if not raw_data:
+        return None
+    summary = raw_data.get("summary") or {}
+    total = summary.get("total_value")
+    if total is not None:
+        return float(total)
+    # Fallback: sum across account types
+    accounts = summary.get("accounts") or {}
+    parts = [v.get("total_value", 0) for v in accounts.values() if isinstance(v, dict)]
+    return float(sum(parts)) if parts else None
+
+
+def _extract_statement_date(raw_data: Optional[dict]) -> Optional[str]:
+    """Extract statement end date (ISO YYYY-MM-DD) from casparser SDK response."""
+    if not raw_data:
+        return None
+    meta = raw_data.get("meta") or {}
+    period = meta.get("statement_period") or {}
+    return period.get("to") or None
+
+
 class PanInput(BaseModel):
     pan: str = Field(..., min_length=10, max_length=10)
 
@@ -221,11 +244,15 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
             continue
 
         statement_period = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+        cas_total_value  = _extract_portfolio_value(raw_data)
+        cas_statement_date = _extract_statement_date(raw_data)
         all_holdings.extend(holdings)
         per_file.append({
             "message_id": msg_id, "filename": filename,
             "status": "completed", "holdings_count": len(holdings),
             "statement_period": statement_period,
+            "portfolio_value_rs": cas_total_value,
+            "statement_date": cas_statement_date,
         })
 
     # ── Step 4: persist ──────────────────────────────────────────────
@@ -253,9 +280,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
 
     # ── Step 6: mark onboarding complete if anything imported ────────
     imported_files = sum(1 for f in per_file if f["status"] == "completed")
-    statement_period = next(
-        (f["statement_period"] for f in per_file if f.get("statement_period")), None
-    )
+    best_file = next((f for f in per_file if f.get("status") == "completed"), None)
+    statement_period   = best_file.get("statement_period") if best_file else None
+    cas_portfolio_value = best_file.get("portfolio_value_rs") if best_file else None
+    cas_statement_date  = best_file.get("statement_date") if best_file else None
     if imported_files > 0:
         profile_update: dict = {
             "onboarding_completed": True,
@@ -264,6 +292,10 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
         }
         if statement_period:
             profile_update["cas_statement_period"] = statement_period
+        if cas_portfolio_value is not None:
+            profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
+        if cas_statement_date:
+            profile_update["cas_statement_date"] = cas_statement_date
         await db.user_profiles.update_one(
             {"user_id": user_id},
             {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
@@ -330,7 +362,9 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
             "is a recent CAMS / KFintech / NSDL / CDSL statement.",
         )
 
-    statement_period = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+    statement_period    = cas_api_client.extract_statement_period(raw_data) if raw_data else None
+    cas_portfolio_value = _extract_portfolio_value(raw_data)
+    cas_statement_date  = _extract_statement_date(raw_data)
     task_id = f"onboard_upload_{uuid.uuid4().hex[:10]}"
     await save_holdings(user_id, holdings, file_type="cas_pdf", task_id=task_id)
 
@@ -342,6 +376,10 @@ async def upload_cas_pdf(request: Request, file: UploadFile = File(...)) -> Dict
     }
     if statement_period:
         profile_update["cas_statement_period"] = statement_period
+    if cas_portfolio_value is not None:
+        profile_update["cas_portfolio_value_rs"] = cas_portfolio_value
+    if cas_statement_date:
+        profile_update["cas_statement_date"] = cas_statement_date
     await db.user_profiles.update_one(
         {"user_id": user_id},
         {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}},
@@ -366,5 +404,7 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
         "onboarding_completed": bool(profile.get("onboarding_completed")),
         "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
         "gmail_connected": bool(token_doc),
-        "cas_statement_period": profile.get("cas_statement_period"),  # "Mar/2025" or null
+        "cas_statement_period": profile.get("cas_statement_period"),       # "Mar/2025" or null
+        "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # total value in ₹ or null
+        "cas_statement_date": profile.get("cas_statement_date"),           # "YYYY-MM-DD" or null
     }
