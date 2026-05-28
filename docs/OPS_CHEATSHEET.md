@@ -7,7 +7,7 @@ Two GCP VMs, one GCP project:
 | VM | IP | Public URL | Role |
 |---|---|---|---|
 | `nivesh-app-vm` | `34.100.186.141` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
-| `nivesh-app-vm` | `34.100.186.141` | `https://staging.niveshcopilot.com:8443` | **Staging** — same VM, separate Docker stack under `/opt/nivesh-staging/` |
+| `nivesh-app-vm` | `34.100.186.141` | `https://staging.niveshcopilot.com` | **Staging** — same VM, separate Docker stack under `/opt/nivesh-staging/` |
 | `nidp-stack-vm` | `34.93.60.254` | `https://data.niveshcopilot.com` | NIDP data plane (DaaS API + Query API + cron jobs + Grafana) |
 
 **Project:** `niveshdataintelligence` · **Zone:** `asia-south1-a`
@@ -17,16 +17,16 @@ Two GCP VMs, one GCP project:
 ## 0. SSH Access
 
 ```bash
-# nivesh-app-vm
+# nivesh-app-vm — direct SSH key (no GCP token needed)
+# Key: ~/.ssh/nivesh_vm  (ed25519, added 2026-05-28)
+ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.100.186.141
+
+# nidp-stack-vm — direct SSH
+ssh aporwal107_gmail_com@34.93.60.254
+
+# Fallback: gcloud ssh (requires fresh OAuth token in CLOUDSDK_AUTH_ACCESS_TOKEN)
 gcloud compute ssh nivesh-app-vm \
   --project=niveshdataintelligence --zone=asia-south1-a
-
-# nidp-stack-vm
-gcloud compute ssh nidp-stack-vm \
-  --project=niveshdataintelligence --zone=asia-south1-a
-
-# nidp-stack-vm — direct SSH (OS Login username)
-ssh aporwal107_gmail_com@34.93.60.254
 ```
 
 ---
