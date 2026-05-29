@@ -490,3 +490,52 @@ async def refresh_stock_morningstar(request: Request):
         "updated": updated,
         "ratings": {sym: d["morningstar_rating"] for sym, d in ratings.items()},
     }
+
+
+@router.post("/portfolio/resync")
+async def resync_portfolio(request: Request) -> dict:
+    """Trigger a NAV + benchmark data refresh for the current user's portfolio.
+
+    Invalidates the portfolio_performance_cache rows for this user so the next
+    Performance page load recomputes fresh values. Returns the new last_synced_at
+    timestamp on success; preserves prior data and returns an error field on failure.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+    now = datetime.now(timezone.utc)
+
+    try:
+        # Invalidate performance cache so next load recomputes
+        try:
+            from services import pg_client
+            pool = await pg_client.get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    deleted = await conn.fetchval(
+                        "DELETE FROM portfolio_performance_cache WHERE user_id = $1"
+                        " RETURNING COUNT(*)",
+                        user_id,
+                    )
+                    logger.info("resync: cleared %s cache rows for %s", deleted, user_id)
+        except Exception as pg_err:
+            logger.warning("resync: pg cache clear failed (non-fatal): %s", pg_err)
+
+        # Invalidate Redis enrichment cache
+        try:
+            from services.redis_client import invalidate_portfolio_cache
+            await invalidate_portfolio_cache(user_id)
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "last_synced_at": now.isoformat(),
+            "message": "Portfolio data refreshed. Performance metrics will recompute on next load.",
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.exception("resync failed for %s: %s", user_id, e)
+        return {
+            "ok": False,
+            "last_synced_at": None,
+            "error": "Resync failed — prior data preserved. Try again shortly.",
+        }

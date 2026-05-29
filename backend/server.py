@@ -79,6 +79,7 @@ from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reve
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
+from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
 from routes.portfolio_tax import router as portfolio_tax_router  # v4 Tax dashboard (GET /api/portfolio/tax-summary) per api-changes.md B.12
 from routes.funds import router as funds_router  # v4 user-scope fund v3-score (GET /api/funds/{isin}/v3-score) per api-changes.md C.4
 from routes.dashboards import router as dashboards_router  # v4 dashboard composite (GET /api/dashboards/{type}) per api-changes.md B.1
@@ -167,6 +168,7 @@ app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
+app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
 app.include_router(portfolio_tax_router)            # v4 Tax dashboard (/api/portfolio/tax-summary)
 app.include_router(funds_router)                    # v4 user-scope fund v3-score (/api/funds/{isin}/v3-score)
 app.include_router(dashboards_router)               # v4 dashboard composite (/api/dashboards/{type}) — screens 05-10

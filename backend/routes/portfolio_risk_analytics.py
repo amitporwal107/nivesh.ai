@@ -49,8 +49,13 @@ def _risk_score(vol_annual: float | None) -> float | None:
 
 
 @router.get("/risk-analytics")
-async def get_risk_analytics(request: Request) -> dict[str, Any]:
-    """Portfolio-level risk metrics powered by NIDP V3 primitives."""
+async def get_risk_analytics(request: Request, period: Optional[str] = None) -> dict[str, Any]:
+    """Portfolio-level risk metrics powered by NIDP V3 primitives.
+
+    period: optional hint for period-scoped Sharpe/volatility display (1M/3M/6M/1Y/3Y/inception).
+    Currently passed through to the response so the frontend can label the Sharpe card correctly;
+    the underlying DAAS primitives are rolling-window by nature (sharpe_1y etc.).
+    """
     user = await get_current_user(request)
     user_id = user["user_id"]
 
@@ -283,4 +288,5 @@ async def get_risk_analytics(request: Request) -> dict[str, Any]:
         "stock_breakdown": sorted(stock_breakdown, key=lambda r: r["weight_pct"], reverse=True)[:10],
         "coverage_pct": round(100 * covered_value / total_value, 1) if total_value > 0 else 0,
         "data_source": "DAAS",
+        "period": period,  # echo back for frontend Sharpe card labelling
     }

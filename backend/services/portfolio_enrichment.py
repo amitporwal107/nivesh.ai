@@ -24,6 +24,37 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# ── Asset-class normalisation ──────────────────────────────────────────
+_ASSET_CLASS_MAP: dict[str, str] = {
+    "equity": "Equity", "stock": "Equity",
+    "mutual_fund": "MF", "etf": "ETF",
+    "gold": "Gold", "sgb": "Gold",
+    "debt": "Debt",
+    "cash": "Cash",
+}
+_DEBT_KEYWORDS = {"liquid", "debt", "bond", "gilt", "corporate", "short term",
+                  "low duration", "money market", "ultra short", "overnight"}
+_HYBRID_KEYWORDS = {"hybrid", "balanced", "multi asset", "arbitrage"}
+
+def _asset_class_for(asset_type: str, category: Optional[str]) -> str:
+    """Derive a display asset-class label from asset_type + fund category."""
+    at = (asset_type or "").lower()
+    if at in _ASSET_CLASS_MAP and at not in ("mutual_fund", "etf"):
+        return _ASSET_CLASS_MAP[at]
+    # For MF/ETF, refine using category keyword matching
+    cat = (category or "").lower()
+    if any(k in cat for k in _DEBT_KEYWORDS):
+        return "Debt"
+    if any(k in cat for k in _HYBRID_KEYWORDS):
+        return "Hybrid"
+    if "gold" in cat or "commodity" in cat:
+        return "Gold"
+    if "international" in cat or "global" in cat or "overseas" in cat:
+        return "International"
+    if "index" in cat or "equity" in cat or at == "etf":
+        return "Equity"
+    return _ASSET_CLASS_MAP.get(at, "MF")
+
 
 # ── XIRR (Newton-Raphson) ──────────────────────────────────────────────
 def _xnpv(rate: float, flows: List[Tuple[date, float]]) -> float:
@@ -929,6 +960,10 @@ async def build_enriched_portfolio(
             "is_equity_fund": is_equity_fund if at in ("mutual_fund", "etf") else None,
             "weight_pct": (round(weight_pct, 2)
                            if weight_pct is not None else None),
+            "asset_class": _asset_class_for(at, category),
+            "amfi_matched": bool(h.get("amfi_matched", False)),
+            "benchmark_return": h.get("benchmark_return"),
+            "benchmark_delta": h.get("benchmark_delta"),
             "low_confidence": (
                 score_bundle is None
                 or (stock_scores_by_sym.get((h.get("nse_symbol") or "").upper()) or {}).get("low_confidence", False)
