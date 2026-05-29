@@ -477,6 +477,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             riskProfile={riskProfile}
             totalValue={summary.totalValue}
             holdingsCount={holdingsCount}
+            hasGoal={hasGoal}
             onRiskProfileSaved={onRiskProfileSaved}
             onOpenWizard={openWizard}
           />

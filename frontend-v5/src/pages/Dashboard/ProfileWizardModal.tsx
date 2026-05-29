@@ -214,49 +214,69 @@ function fmt(n: number): string {
   return `₹${Math.round(n / 1000)}k`;
 }
 
+// Crore-based defaults (1 Cr = 1,00,00,000 ₹)
+const GOAL_DEFAULTS_CR: Record<string, { targetCr: number; horizon: number }> = {
+  retirement: { targetCr: 5,    horizon: 20 },
+  home:       { targetCr: 1.5,  horizon: 7  },
+  education:  { targetCr: 0.5,  horizon: 10 },
+  wealth:     { targetCr: 2,    horizon: 10 },
+  other:      { targetCr: 0.5,  horizon: 5  },
+};
+const MAX_GOAL_CR = 500; // ₹500 Cr upper guard
+
 function GoalStep({ onSaved, onSkip }: { onSaved: () => void; onSkip: () => void }) {
   const [typeVal, setTypeVal] = useState<string>("retirement");
   const [name, setName] = useState("My Retirement Fund");
-  const [targetLakh, setTargetLakh] = useState("100");
+  const [targetCr, setTargetCr] = useState("5");       // input in Crore
   const [horizon, setHorizon] = useState(20);
-  const [sipRs, setSipRs] = useState("");
-  const [corpusLakh, setCorpusLakh] = useState("");
+  const [sipK, setSipK] = useState("");                 // monthly SIP in ₹ thousands
+  const [corpusCr, setCorpusCr] = useState("");         // already saved, in Crore
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   function selectType(val: string) {
     const t = GOAL_TYPES.find(g => g.value === val);
-    if (!t) return;
+    const d = GOAL_DEFAULTS_CR[val];
+    if (!t || !d) return;
     setTypeVal(val);
     setName(t.defaultName);
-    setTargetLakh(String(Math.round(t.defaultTarget / 1_00_000)));
-    setHorizon(t.defaultHorizon);
+    setTargetCr(String(d.targetCr));
+    setHorizon(d.horizon);
   }
 
   async function save() {
-    const tgt = parseFloat(targetLakh) * 1_00_000;
-    if (!tgt || tgt <= 0) { setErr("Enter a target amount."); return; }
+    const cr = parseFloat(targetCr);
+    if (!cr || cr <= 0)           { setErr("Enter a target amount in Crore."); return; }
+    if (cr > MAX_GOAL_CR)         { setErr(`Cap is ₹${MAX_GOAL_CR} Cr. Split into multiple goals if needed.`); return; }
     if (!horizon || horizon <= 0) { setErr("Enter a horizon in years."); return; }
+    if (horizon > 50)             { setErr("Horizon can't exceed 50 years."); return; }
+
+    // Convert to ₹ — 1 Crore = 1,00,00,000
+    const target_amount_rs   = Math.round(cr * 1_00_00_000);
+    const current_corpus_rs  = Math.round((parseFloat(corpusCr || "0") * 1_00_00_000));
+    const monthly_sip_rs     = Math.round((parseFloat(sipK || "0") * 1_000));
+
     setSaving(true); setErr(null);
     try {
       await goalsService.create({
-        goal_type: typeVal,
-        goal_name: name || "My Goal",
-        target_amount_rs: tgt,
-        horizon_years: horizon,
-        priority: "medium",
-        current_corpus_rs: parseFloat(corpusLakh || "0") * 1_00_000,
-        monthly_sip_rs: parseFloat(sipRs || "0"),
+        goal_type:        typeVal,
+        goal_name:        (name || "My Goal").trim(),
+        target_amount_rs,
+        horizon_years:    horizon,
+        priority:         "medium",
+        current_corpus_rs,
+        monthly_sip_rs,
       } as any);
       onSaved();
-    } catch {
-      setErr("Could not save goal — try again.");
+    } catch (e: unknown) {
+      const msg = (e as { message?: string })?.message ?? "";
+      setErr(msg.includes("limit") ? msg : "Could not save goal — please check your values and try again.");
     } finally {
       setSaving(false);
     }
   }
 
-  const targetRs = parseFloat(targetLakh || "0") * 1_00_000;
+  const targetRs = (parseFloat(targetCr || "0") * 1_00_00_000);
 
   return (
     <div>
@@ -296,19 +316,23 @@ function GoalStep({ onSaved, onSkip }: { onSaved: () => void; onSkip: () => void
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div>
           <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">
-            Target amount <span className="text-ink-4 normal-case">{targetRs > 0 ? `(${fmt(targetRs)})` : ""}</span>
+            Target amount{targetRs > 0 && <span className="text-ink-4 normal-case ml-1">({fmt(targetRs)})</span>}
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-[13px]">₹</span>
             <input
               type="number"
-              value={targetLakh}
-              onChange={e => setTargetLakh(e.target.value)}
-              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 pr-12 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
-              placeholder="100"
+              value={targetCr}
+              onChange={e => setTargetCr(e.target.value)}
+              min={0.1}
+              max={MAX_GOAL_CR}
+              step={0.5}
+              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 pr-10 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
+              placeholder="5"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-[10px] font-mono">L</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-[10px] font-mono">Cr</span>
           </div>
+          <div className="text-[10px] text-ink-4 mt-0.5">Enter in Crore (1 = ₹1,00,00,000)</div>
         </div>
         <div>
           <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">
@@ -317,7 +341,7 @@ function GoalStep({ onSaved, onSkip }: { onSaved: () => void; onSkip: () => void
           <input
             type="number"
             value={horizon}
-            onChange={e => setHorizon(parseInt(e.target.value) || 0)}
+            onChange={e => setHorizon(Math.min(50, parseInt(e.target.value) || 0))}
             min={1}
             max={50}
             className="w-full rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
@@ -329,30 +353,37 @@ function GoalStep({ onSaved, onSkip }: { onSaved: () => void; onSkip: () => void
       {/* optional: SIP + current corpus */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">Monthly SIP <span className="text-ink-4 normal-case">(optional)</span></label>
+          <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">
+            Monthly SIP <span className="text-ink-4 normal-case">(₹ thousands, optional)</span>
+          </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-[13px]">₹</span>
             <input
               type="number"
-              value={sipRs}
-              onChange={e => setSipRs(e.target.value)}
-              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
-              placeholder="10,000"
+              value={sipK}
+              onChange={e => setSipK(e.target.value)}
+              min={0}
+              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 pr-8 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
+              placeholder="10"
             />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-[10px] font-mono">k</span>
           </div>
         </div>
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">Already saved <span className="text-ink-4 normal-case">(₹ L, optional)</span></label>
+          <label className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 mb-1 block">
+            Already saved <span className="text-ink-4 normal-case">(₹ Cr, optional)</span>
+          </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-[13px]">₹</span>
             <input
               type="number"
-              value={corpusLakh}
-              onChange={e => setCorpusLakh(e.target.value)}
-              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 pr-8 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
+              value={corpusCr}
+              onChange={e => setCorpusCr(e.target.value)}
+              min={0}
+              className="w-full rounded-lg border border-hairline bg-surface-2 pl-6 pr-10 py-2 text-[13px] text-ink focus:outline-none focus:border-accent"
               placeholder="0"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-[10px] font-mono">L</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-4 text-[10px] font-mono">Cr</span>
           </div>
         </div>
       </div>

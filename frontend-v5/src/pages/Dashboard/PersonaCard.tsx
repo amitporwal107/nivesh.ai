@@ -47,17 +47,20 @@ interface Props {
   riskProfile?: RiskProfile | null;
   totalValue: number;
   holdingsCount: number;
+  hasGoal?: boolean;
   onRiskProfileSaved?: () => void;
   /** Called to open the profile wizard at a specific step */
   onOpenWizard?: (step: 0 | 1 | 2) => void;
 }
 
-export function PersonaCard({ persona, personaConfidence, riskProfile, totalValue, holdingsCount, onRiskProfileSaved, onOpenWizard }: Props) {
+export function PersonaCard({ persona, personaConfidence, riskProfile, totalValue, holdingsCount, hasGoal = false, onRiskProfileSaved, onOpenWizard }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Profile is "complete" only when both risk profile AND at least 1 goal exist
+  const profileComplete = Boolean(riskProfile) && hasGoal;
 
   function handleCta() {
     if (onOpenWizard) {
-      // Open wizard at risk step if no profile, else goal step
       onOpenWizard(riskProfile ? 1 : 0);
     } else {
       setModalOpen(true);
@@ -137,22 +140,24 @@ export function PersonaCard({ persona, personaConfidence, riskProfile, totalValu
 
         {/* Right: profile CTA */}
         <div className="shrink-0">
-          {hasProfile ? (
+          {profileComplete ? (
+            /* Both risk + goal done → quiet secondary link */
             <button
               onClick={handleCta}
               className="flex items-center gap-1.5 text-[12px] text-accent font-medium hover:underline"
             >
               <Target className="h-3.5 w-3.5" />
-              Update risk & goal profile
+              Update profile
               <ChevronRight className="h-3 w-3 opacity-60" />
             </button>
           ) : (
+            /* Missing risk profile or goals → primary CTA */
             <button
               onClick={handleCta}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-on-accent text-[13px] font-medium hover:opacity-90 transition-opacity"
             >
               <Target className="h-3.5 w-3.5" />
-              Complete risk &amp; goal profile
+              {riskProfile ? "Add your first goal →" : "Complete your profile →"}
             </button>
           )}
         </div>
