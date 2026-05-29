@@ -48,6 +48,7 @@ from services.recommendation_engine.engines.correlation_engine import Correlatio
 from services.recommendation_engine.engines.stock_scoring_engine import StockScoringEngine
 from services.recommendation_engine.engines.category_suitability_engine import CategorySuitabilityEngine
 from services.recommendation_engine.engines.behavioural_persona_filter_engine import BehaviouralPersonaFilterEngine
+from services.recommendation_engine.engines.goal_bucket_first_engine import GoalBucketFirstEngine
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ ENGINE_REGISTRY: List[BaseEngine] = [
     GoalAlignmentEngine(),            # GA-1..GA-4: goal alignment (wins AR-1)
     StockScoringEngine(),             # §10.9: direct equity scoring
     BehaviouralPersonaFilterEngine(), # BP-1: suppress instrument-type mismatches
+    GoalBucketFirstEngine(),          # GBF-1/GBF-2: redirect new money to most-behind goal
 ]
 
 

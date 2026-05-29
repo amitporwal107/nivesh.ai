@@ -192,21 +192,85 @@ def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
             extra_n = len(short_names) - len(visible)
             member_line = ", ".join(visible) + (f", +{extra_n} more" if extra_n > 0 else "")
 
-            # TODO(consolidation-score-wire-up):
-            # The consolidation score engine
-            # (services/consolidation_score_engine.score_pair) is shipped
-            # but not yet wired here. Until it is, we can describe the
-            # action generically but cannot tell the user WHICH fund to
-            # keep. Once the wire-up lands, replace the action text with
-            # "Keep <retain_name>; exit <exit_names>" using
-            # score_pair() results to pick the winner per cluster.
-            action_text = (
-                "Keep the highest-scoring fund (per the consolidation "
-                "score) and exit the others. Stagger the exits across "
-                "2 financial years if the tax cost is material. "
-                "(Winner pick coming once the consolidation-score "
-                "engine is wired into this path.)"
-            )
+            # ── Winner pick via consolidation_score_engine ──────────────
+            # Build a local id→name map from the cluster data itself.
+            id_to_name: Dict[str, str] = dict(zip(cluster["ids"], cluster["names"]))
+            mf_by_id: Dict[str, Dict] = {
+                m["instrument_id"]: m
+                for m in (intelligence.get("mf_investments") or [])
+                if m.get("instrument_id")
+            }
+            retain_name: Optional[str] = None
+            exit_names: List[str] = []
+            winner_confidence: Optional[str] = None
+
+            try:
+                from services.consolidation_score_engine import (
+                    ConsolidationInput, FundSnapshot, score_pair,
+                )
+                member_ids = cluster["ids"]
+                win_count: Dict[str, int] = {mid: 0 for mid in member_ids}
+
+                for i, id_a in enumerate(member_ids):
+                    for id_b in member_ids[i + 1:]:
+                        ma = mf_by_id.get(id_a, {})
+                        mb = mf_by_id.get(id_b, {})
+                        snap_a = FundSnapshot(
+                            name=id_to_name.get(id_a, id_a),
+                            scheme_code=id_a,
+                            current_value_rs=float(ma.get("amount_rs") or 0),
+                            return_1y=ma.get("ret_1y"),
+                            return_3y=ma.get("ret_3y"),
+                            return_5y=ma.get("ret_5y"),
+                            sharpe_1y=ma.get("sharpe"),
+                            ter_pct=ma.get("expense_ratio"),
+                        )
+                        snap_b = FundSnapshot(
+                            name=id_to_name.get(id_b, id_b),
+                            scheme_code=id_b,
+                            current_value_rs=float(mb.get("amount_rs") or 0),
+                            return_1y=mb.get("ret_1y"),
+                            return_3y=mb.get("ret_3y"),
+                            return_5y=mb.get("ret_5y"),
+                            sharpe_1y=mb.get("sharpe"),
+                            expense_ratio_pct=mb.get("expense_ratio"),
+                        )
+                        res = score_pair(ConsolidationInput(
+                            fund_a=snap_a,
+                            fund_b=snap_b,
+                            overlap_pct=max_ov,
+                        ))
+                        if res.retain:
+                            for mid in member_ids:
+                                if id_to_name.get(mid) == res.retain:
+                                    win_count[mid] = win_count.get(mid, 0) + 1
+                                    break
+                        winner_confidence = res.confidence
+
+                if win_count:
+                    winner_id = max(win_count, key=lambda k: win_count[k])
+                    retain_name = id_to_name.get(winner_id)
+                    exit_names = [id_to_name.get(mid) for mid in member_ids if mid != winner_id]
+            except Exception as _exc:
+                logger.debug("[_project_overlap] winner_pick failed: %s", _exc)
+
+            if retain_name and exit_names:
+                exit_list = ", ".join(_truncate_name(nm, 32) for nm in exit_names if nm)
+                action_text = (
+                    f"Keep {_truncate_name(retain_name, 38)} "
+                    f"(highest quality score"
+                    + (f", {winner_confidence} confidence" if winner_confidence else "")
+                    + f"). Exit: {exit_list}. "
+                    "Stagger exits across 2 financial years if the tax cost is material."
+                )
+                winner_pick_pending = False
+            else:
+                action_text = (
+                    "Keep the highest-scoring fund and exit the others. "
+                    "Stagger exits across 2 financial years if the tax cost is material."
+                )
+                retain_name = None
+                winner_pick_pending = True
 
             out.append({
                 "id": f"overlap_cluster:{label}:{','.join(sorted(cluster['ids']))}",
@@ -222,12 +286,14 @@ def _project_overlap(intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
                 ),
                 "amount_rs": None,
                 "metadata": {
-                    "sebi_category":    cat,
-                    "sebi_subcategory": sub,
-                    "fund_ids":         cluster["ids"],
-                    "fund_names":       cluster["names"],
-                    "deep_link":        "insights#overlap",
-                    "winner_pick_pending": True,
+                    "sebi_category":     cat,
+                    "sebi_subcategory":  sub,
+                    "fund_ids":          cluster["ids"],
+                    "fund_names":        cluster["names"],
+                    "retain_name":       retain_name,
+                    "exit_names":        exit_names,
+                    "deep_link":         "insights#overlap",
+                    "winner_pick_pending": winner_pick_pending,
                 },
             })
 

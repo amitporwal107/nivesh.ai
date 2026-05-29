@@ -38,16 +38,18 @@ def test_allocation_engine_fires_when_no_debt():
 def test_allocation_engine_silent_when_debt_ok():
     """No signal when portfolio already meets debt target."""
     from services.recommendation_engine.orchestrator import build_context
+    # "medium" maps to Moderate persona with debt_mid_target=45%. Use 500K debt
+    # (50% of 1M) so the portfolio is comfortably above the target.
     debt_holding = {
         "asset_type": "debt",
         "name": "ICICI Prudential Corporate Bond Fund",
         "quantity": 1000,
-        "current_price": 200,  # 200K debt
-        "buy_price": 190,
+        "current_price": 500,  # 500K debt = 50%
+        "buy_price": 490,
         "instrument_id": "isin_debt_01",
         "user_id": "u1",
     }
-    equity_holding = _mf_holding("Flexi Cap Fund", 800_000, "Flexi Cap")
+    equity_holding = _mf_holding("Flexi Cap Fund", 500_000, "Flexi Cap")
     ctx = build_context(
         user_id="u1", risk_profile="medium", total_value_rs=1_000_000,
         holdings=[equity_holding, debt_holding],
@@ -145,6 +147,8 @@ def test_amc_concentration_silent_when_no_overconcentration():
 
 def test_same_category_engine_fires_with_3_large_cap_funds():
     from services.recommendation_engine.orchestrator import build_context
+    # Use "Conservative" risk profile: target_holdings_max=12 → min_trigger=3
+    # so 3 Large Cap funds triggers consolidation.
     large_caps = [
         _mf_holding("Large Cap Fund A", 200_000, "Large Cap"),
         _mf_holding("Large Cap Fund B", 200_000, "Large Cap"),
@@ -155,11 +159,12 @@ def test_same_category_engine_fires_with_3_large_cap_funds():
         for i, h in enumerate(large_caps)
     ]
     ctx = build_context(
-        user_id="u1", risk_profile="medium", total_value_rs=600_000,
+        user_id="u1", risk_profile="Conservative", total_value_rs=600_000,
         holdings=large_caps, mf_holdings=large_caps, stock_holdings=[],
         portfolio_intelligence={"mf_investments": [], "pairwise_overlap": [], "catalog": {}},
         exit_candidates=exit_candidates, v3_scores={},
         rules_cfg=_BASE_RULES_CFG, signals=[],
+        risk_score_numeric=75.0,
     )
     engine = SameCategoryEngine()
     sigs = engine.safe_generate(ctx)
