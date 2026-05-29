@@ -212,7 +212,7 @@ async def list_goals(request: Request):
         return {"goals": []}
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM user_goals WHERE user_id = $1 ORDER BY "
+            "SELECT * FROM user_goals WHERE user_id = $1 AND status != 'abandoned' ORDER BY "
             "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, "
             "created_at DESC",
             _user_uuid(user_id),
@@ -277,7 +277,7 @@ async def create_goal(payload: GoalCreate, request: Request):
     async with pool.acquire() as conn:
         # Count existing goals for this user.
         existing = await conn.fetchval(
-            "SELECT COUNT(*) FROM user_goals WHERE user_id = $1",
+            "SELECT COUNT(*) FROM user_goals WHERE user_id = $1 AND status != 'abandoned'",
             _user_uuid(user_id),
         )
         if existing is not None and existing >= MAX_GOALS:
