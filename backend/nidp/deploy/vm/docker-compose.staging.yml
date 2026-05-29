@@ -53,16 +53,16 @@ services:
     ports:
       - "127.0.0.1:8084:8084"
     volumes:
-      # Mount prod code read-only — staging runs the same code as prod
+      # Code from dev branch (same repo as prod, nginx staging routes to this)
       - /opt/nidp/repo/backend:/app/backend:ro
-      # Python deps from prod venv
-      - /opt/nidp/venv:/opt/nidp/venv:ro
+      # Staging venv at /opt/nidp-staging/venv — separate from prod /opt/nidp/venv
+      - /opt/nidp-staging/venv:/opt/nidp-staging/venv:ro
     command: >
-      /opt/nidp/venv/bin/uvicorn nidp.services.daas_api.app:app
+      /opt/nidp-staging/venv/bin/uvicorn nidp.services.daas_api.app:app
       --host 0.0.0.0
       --port 8084
       --proxy-headers
-      --forwarded-allow-ips '*'
+      --forwarded-allow-ips "*"
       --root-path /daas
     extra_hosts:
       - "host-gateway:host-gateway"
