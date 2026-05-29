@@ -14,7 +14,9 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import type { EnrichedHolding } from '../../services/contracts/portfolio.contract';
+import { EnrichedHoldingC } from '../../services/contracts/portfolio.contract';
+import type { z } from 'zod';
+type EnrichedHolding = z.infer<typeof EnrichedHoldingC>;
 import { formatINRCompact } from '../../lib/formatters';
 
 const formatInr = formatINRCompact;

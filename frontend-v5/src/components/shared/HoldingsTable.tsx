@@ -13,7 +13,9 @@
 import { useState, useMemo } from "react";
 import { Search, ChevronUp, ChevronDown } from "lucide-react";
 import { formatINRCompact } from "@/lib/formatters";
-import type { EnrichedHolding } from "@/services/contracts/portfolio.contract";
+import { EnrichedHoldingC } from "@/services/contracts/portfolio.contract";
+import type { z } from "zod";
+type EnrichedHolding = z.infer<typeof EnrichedHoldingC>;
 import { HoldingDrawer } from "./HoldingDrawer";
 import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
 import { cn } from "@/lib/utils";
