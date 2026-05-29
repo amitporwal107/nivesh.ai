@@ -76,15 +76,25 @@ export default function DashboardPage() {
     dashSummary = { ...dashSummary, totalValue: nav[nav.length - 1].value };
   }
 
-  // Health breakdown sub-scores from V3 analysis
-  const breakdown = healthData?.health.breakdown
+  // Health breakdown sub-scores — backend returns them under "components"
+  // (to_dict() in portfolio_health.py), not "breakdown". Map either path.
+  const rawHealth = healthData?.health as Record<string, any> | null | undefined;
+  const comps = rawHealth?.components as Record<string, { score?: number }> | null | undefined;
+  const breakdown = comps
     ? {
-        return_quality:  healthData.health.breakdown.return_quality,
-        diversification: healthData.health.breakdown.diversification,
-        risk_adjusted:   healthData.health.breakdown.risk_adjusted,
-        cost_efficiency: healthData.health.breakdown.cost_efficiency,
+        diversification: comps.diversification?.score,
+        risk_adjusted:   comps.risk?.score,
+        cost_efficiency: comps.cost?.score,
+        return_quality:  comps.performance?.score,
       }
-    : undefined;
+    : rawHealth?.breakdown
+      ? {
+          return_quality:  rawHealth.breakdown.return_quality,
+          diversification: rawHealth.breakdown.diversification,
+          risk_adjusted:   rawHealth.breakdown.risk_adjusted,
+          cost_efficiency: rawHealth.breakdown.cost_efficiency,
+        }
+      : undefined;
 
   return (
     <Dashboard
