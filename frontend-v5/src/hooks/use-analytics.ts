@@ -44,3 +44,17 @@ export function useConcentrationAnalysis() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+export function useRemediation() {
+  return useQuery({
+    queryKey: ["analytics", "remediation"],
+    queryFn: () => import("@/services/api/http").then(({ http }) =>
+      http({ path: "/api/portfolio/exposure/remediation" }).then((r) => r.data as {
+        recommendations: unknown[];
+        total_value: number;
+        empty: boolean;
+      })
+    ),
+    staleTime: 5 * 60 * 1000,
+  });
+}

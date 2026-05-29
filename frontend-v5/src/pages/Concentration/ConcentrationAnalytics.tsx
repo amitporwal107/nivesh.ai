@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useConcentrationAnalysis } from "@/hooks/use-analytics";
+import { useConcentrationAnalysis, useRemediation } from "@/hooks/use-analytics";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Card, CardLabel } from "@/components/ui/card";
@@ -1052,7 +1052,23 @@ function RemCard({ rec, defaultOpen }: { rec: Recommendation; defaultOpen?: bool
   );
 }
 
-function RemediationPanel({ recs }: { recs: Recommendation[] }) {
+function RemediationPanel({ recs, isLoading }: { recs: Recommendation[]; isLoading?: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="mt-8 rounded-lg border border-hairline bg-surface-1 p-6 text-center font-mono text-[12px] text-ink-3">
+        Computing remediation recommendations…
+      </div>
+    );
+  }
+
+  if (recs.length === 0) {
+    return (
+      <div className="mt-8 rounded-lg border border-hairline bg-surface-1 p-6 text-center font-mono text-[12px] text-ink-3">
+        No remediation actions needed — all lenses are within policy caps.
+      </div>
+    );
+  }
+
   const sorted = [...recs].sort((a, b) => b.leverageScore - a.leverageScore);
   const topRec = sorted[0];
   const rest = sorted.slice(1);
@@ -1131,16 +1147,19 @@ function RemediationPanel({ recs }: { recs: Recommendation[] }) {
 
 // ─── Real-data mapper ────────────────────────────────────────────────────────
 
-const CAP: Record<string, number> = { sector: 25, amc: 25, company: 20, group: 20 };
+// Fallback caps — backend returns caution_pct per lens (used as primary)
+const CAP_FALLBACK: Record<string, number> = { sector: 35, amc: 30, company: 10, group: 15 };
 
 function mapLens(
   id: string,
   label: string,
   raw: Record<string, unknown> | null | undefined,
 ): LensData {
-  if (!raw) return { id, label, verdict: "balanced", effectiveN: 0, hhi: 0, largestPct: 0, largestName: "—", coveragePct: 0, top3Pct: 0, capPct: CAP[id] ?? 25, reasons: [], items: [] };
+  const fallbackCap = CAP_FALLBACK[id] ?? 25;
+  if (!raw) return { id, label, verdict: "balanced", effectiveN: 0, hhi: 0, largestPct: 0, largestName: "—", coveragePct: 0, top3Pct: 0, capPct: fallbackCap, reasons: [], items: [] };
 
-  const cap = CAP[id] ?? 25;
+  // Use caution_pct from backend response — it mirrors warn_largest_pct in _build_section
+  const cap = Number(raw.caution_pct ?? fallbackCap);
   const rawItems = (Array.isArray(raw.items) ? raw.items : []) as Array<{ name: string; pct: number; cap_pct?: number }>;
   const items: LensItem[] = rawItems.map((it) => ({
     name: it.name,
@@ -1154,7 +1173,8 @@ function mapLens(
   const largestPct = Number(raw.largest_pct ?? items[0]?.pct ?? 0);
   const largestName = (items[0]?.name) ?? "—";
   const effectiveN = Number(raw.effective_n ?? 0);
-  const hhi = Math.round(Number(raw.hhi ?? 0) * 10000);   // backend stores 0-1; convert to 0-10000
+  // Backend returns hhi_x10000 (already ×10000) — use it; fall back to hhi×10000
+  const hhi = Number(raw.hhi_x10000 ?? Math.round(Number(raw.hhi ?? 0) * 10000));
   const coveragePct = Number(raw.coverage_pct ?? 100);
   const top3Pct = items.slice(0, 3).reduce((s, it) => s + it.pct, 0);
 
@@ -1232,8 +1252,45 @@ function buildAnalyticsData(conc: RawConcentration, overlapRaw: unknown): Analyt
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+function mapBackendRecs(raw: unknown[]): Recommendation[] {
+  return raw.map((r: any, i: number) => ({
+    id:               r.id ?? `rec-${i}`,
+    kind:             (r.action_kind ?? "trim") as RemActionKind,
+    isHighestLeverage: i === 0,
+    title:            r.title ?? "",
+    why:              r.why ?? "",
+    action:           r.action ?? "",
+    amountRs:         r.amount_rs ?? 0,
+    annualSavingRs:   r.annual_saving_rs ?? 0,
+    leverageScore:    r.leverage_score ?? 50,
+    contributors:     (r.contributors ?? []).map((c: any) => ({
+      name:   c.name ?? "",
+      type:   "fund" as const,
+      pct:    c.pct_of_exposure ?? 0,
+    })),
+    beforeAfter:      (r.before_after ?? []).map((ba: any) => ({
+      lensId:         ba.lens_id ?? "",
+      lensLabel:      ba.lens_label ?? "",
+      beforeVerdict:  (ba.before_verdict ?? "balanced") as Verdict,
+      afterVerdict:   (ba.after_verdict ?? "balanced") as Verdict,
+      beforeHhi:      ba.before_hhi ?? 0,
+      afterHhi:       ba.after_hhi ?? 0,
+      beforeEffN:     ba.before_eff_n ?? 0,
+      afterEffN:      ba.after_eff_n ?? 0,
+      offendingBefore: ba.before_pct ?? 0,
+      offendingAfter:  ba.after_pct ?? 0,
+    })),
+    redeployTo:       r.redeploy_to ?? null,
+    caveats:          (r.caveats ?? []).map((c: any) => ({
+      icon: (c.icon ?? "tax") as "tax" | "lock" | "exit",
+      text: c.text ?? "",
+    })),
+  }));
+}
+
 export function ConcentrationAnalytics() {
   const q = useConcentrationAnalysis();
+  const remQ = useRemediation();
 
   const data = useMemo(() => {
     if (!q.data?.concentration) return null;
@@ -1361,7 +1418,10 @@ export function ConcentrationAnalytics() {
         </Tabs>
       </div>
 
-      <RemediationPanel recs={data.remediation} />
+      <RemediationPanel
+        recs={mapBackendRecs(remQ.data?.recommendations ?? [])}
+        isLoading={remQ.isPending}
+      />
     </div>
   );
 }
