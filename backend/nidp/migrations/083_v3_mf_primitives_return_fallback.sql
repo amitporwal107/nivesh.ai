@@ -101,11 +101,11 @@ top10_conc AS (
         SELECT scheme_code, weight_pct,
                ROW_NUMBER() OVER (PARTITION BY scheme_code ORDER BY weight_pct DESC) AS rn
         FROM (
-            SELECT DISTINCT ON (scheme_code, holding_name)
+            SELECT DISTINCT ON (scheme_code, security_isin)
                    scheme_code, weight_pct
               FROM nidp.mf_holdings_monthly
              WHERE weight_pct IS NOT NULL AND weight_pct > 0
-             ORDER BY scheme_code, holding_name, snapshot_month DESC
+             ORDER BY scheme_code, security_isin, as_of_month DESC
         ) deduped
     ) ranked
     WHERE rn <= 10
