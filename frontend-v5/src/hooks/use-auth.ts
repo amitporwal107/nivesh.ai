@@ -13,7 +13,8 @@ export function useMe() {
   return useQuery({
     queryKey: ["auth", "me"],
     queryFn: () => authService.me(),
-    retry: false,                     // a 401 is data, not failure
+    retry: false,          // a 401 is data, not failure
+    staleTime: 5 * 60_000, // prevent parallel fetches from multiple mounted consumers
   });
 }
 

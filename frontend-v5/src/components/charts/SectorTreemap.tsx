@@ -17,7 +17,8 @@ interface Props {
  */
 export function SectorTreemap({ data, height = 320 }: Props) {
   return (
-    <ResponsiveContainer width="100%" height={height}>
+    <div style={{ width: "100%", height }}>
+    <ResponsiveContainer width="100%" height="100%">
       <Treemap
         data={data}
         dataKey="size"
@@ -37,6 +38,7 @@ export function SectorTreemap({ data, height = 320 }: Props) {
         />
       </Treemap>
     </ResponsiveContainer>
+    </div>
   );
 }
 

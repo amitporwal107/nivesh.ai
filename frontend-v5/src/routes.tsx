@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
+import { RequireAuth } from "./components/layout/RequireAuth";
 import HomepagePage from "./pages/Homepage";
 import DashboardPage from "./pages/Dashboard";
 import PortfolioPage from "./pages/Portfolio";
@@ -32,7 +33,7 @@ export function AppRoutes() {
       <Route path="/cas-callback" element={<CasCallbackPage />} />
 
       {/* Authenticated app — sidebar layout */}
-      <Route element={<AppLayout />}>
+      <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
         <Route path="/dashboard"        element={<DashboardPage />} />
         <Route path="/portfolio"        element={<PortfolioPage />} />
         <Route path="/funds/:id"        element={<FundDetailsPage />} />
