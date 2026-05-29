@@ -1,19 +1,25 @@
-import { Zap, AlertTriangle, TrendingDown, DollarSign, BarChart2, Target } from "lucide-react";
+import { Zap, AlertTriangle, TrendingDown, DollarSign, BarChart2, Target, ShieldAlert, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PortfolioInsight } from "@/types/portfolio";
 import type { Severity } from "@/types/common";
 
 // ── Category → display metadata ───────────────────────────────────────────────
+// Includes categories emitted by new engines (risk_alignment, suitability)
 
 const CAT_META: Record<string, { icon: React.ElementType; color: string }> = {
-  overlap:        { icon: BarChart2,    color: "text-[#8B5CF6]" },
-  concentration:  { icon: AlertTriangle,color: "text-warm"      },
-  balance:        { icon: BarChart2,    color: "text-[#3B82F6]" },
-  cost:           { icon: DollarSign,   color: "text-[#F59E0B]" },
-  tax:            { icon: DollarSign,   color: "text-[#14B8A6]" },
-  goal:           { icon: Target,       color: "text-accent"    },
-  goal_drift:     { icon: Target,       color: "text-accent"    },
-  underperformer: { icon: TrendingDown, color: "text-neg"       },
+  overlap:         { icon: BarChart2,    color: "text-[#8B5CF6]" },
+  concentration:   { icon: AlertTriangle,color: "text-warm"      },
+  balance:         { icon: BarChart2,    color: "text-[#3B82F6]" },
+  cost:            { icon: DollarSign,   color: "text-[#F59E0B]" },
+  tax:             { icon: DollarSign,   color: "text-[#14B8A6]" },
+  goal:            { icon: Target,       color: "text-accent"    },
+  goal_drift:      { icon: Target,       color: "text-accent"    },
+  underperformer:  { icon: TrendingDown, color: "text-neg"       },
+  // New engine categories
+  risk_alignment:  { icon: ShieldAlert,  color: "text-neg"       },
+  suitability:     { icon: ShieldAlert,  color: "text-neg"       },
+  persona:         { icon: ShieldCheck,  color: "text-[#8B5CF6]" },
+  diversification: { icon: BarChart2,    color: "text-[#3B82F6]" },
 };
 
 // Severity uses the canonical Severity type: "info" | "watch" | "fix" | "good"

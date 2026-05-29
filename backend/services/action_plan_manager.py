@@ -197,13 +197,29 @@ class ActionPlanManager:
         # Score stocks (DISABLED - MF-only action plans)
         # Stocks are excluded from action recommendations
 
-        # Load user's risk profile for V2.5 Rule 5 dynamic target
+        # Load user's risk profile and persona for the recommendation engine
         user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
-        risk_profile = (
+        _rp_raw = (
             user_doc.get("risk_profile")
             or (user_doc.get("profile") or {}).get("risk_profile")
-            or "medium"
+            or {}
         )
+        # risk_profile can be a dict {score, category, ...} or a legacy string
+        if isinstance(_rp_raw, dict):
+            risk_profile = (_rp_raw.get("category") or "medium").lower()
+            risk_score_numeric = float(_rp_raw.get("score") or 50)
+        else:
+            risk_profile = str(_rp_raw) if _rp_raw else "medium"
+            risk_score_numeric = None
+
+        # Behavioural persona (inferred by PersonaEngine or stored on user doc)
+        _persona_doc = user_doc.get("persona") or {}
+        if isinstance(_persona_doc, dict):
+            behavioural_persona = _persona_doc.get("persona") or _persona_doc.get("type") or "unknown"
+            behavioural_confidence = float(_persona_doc.get("confidence") or 0) / 100.0
+        else:
+            behavioural_persona = str(_persona_doc) if _persona_doc else "unknown"
+            behavioural_confidence = 0.0
 
         portfolio_context = {
             "user_id": user_id,
@@ -211,6 +227,9 @@ class ActionPlanManager:
             "mf_count": len(mf_holdings),
             "stock_count": len(stock_holdings),
             "risk_profile": risk_profile,
+            "risk_score_numeric": risk_score_numeric,
+            "behavioural_persona": behavioural_persona,
+            "behavioural_confidence": behavioural_confidence,
         }
         
         # NOTE: Stock scoring disabled - focus on MF optimization only
@@ -936,6 +955,9 @@ class ActionPlanManager:
                 rules_cfg=rcfg,
                 signals=signals,
                 international_funds_cache=_intl_cache,
+                risk_score_numeric=portfolio_context.get("risk_score_numeric"),
+                behavioural_persona=portfolio_context.get("behavioural_persona"),
+                behavioural_confidence=portfolio_context.get("behavioural_confidence", 0.0),
             )
             # Stash simulation result so generate_plan() can add it to the plan doc.
             # Thread-safe: one generate_plan() call per instance (request-scoped).

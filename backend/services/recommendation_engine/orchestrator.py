@@ -25,6 +25,10 @@ from services.recommendation_engine.base_engine import BaseEngine
 from services.recommendation_engine.portfolio_impact_engine import PortfolioImpactEngine
 from services.recommendation_engine.arbitration_engine import ArbitrationEngine
 from services.recommendation_engine.helpers import normalize_fund_name
+from services.recommendation_engine.persona_config import (
+    get_persona_profile,
+    map_behavioural_persona,
+)
 
 # ── Individual engines ───────────────────────────────────────────────────────
 from services.recommendation_engine.engines.data_validation_engine import DataValidationEngine
@@ -42,26 +46,30 @@ from services.recommendation_engine.engines.risk_alignment_engine import RiskAli
 from services.recommendation_engine.engines.portfolio_analytics_engine import PortfolioAnalyticsEngine
 from services.recommendation_engine.engines.correlation_engine import CorrelationEngine
 from services.recommendation_engine.engines.stock_scoring_engine import StockScoringEngine
+from services.recommendation_engine.engines.category_suitability_engine import CategorySuitabilityEngine
+from services.recommendation_engine.engines.behavioural_persona_filter_engine import BehaviouralPersonaFilterEngine
 
 logger = logging.getLogger(__name__)
 
 # ── Plugin registry — DataValidationEngine runs first (populates coverage flag) ──
 ENGINE_REGISTRY: List[BaseEngine] = [
-    DataValidationEngine(),       # DV-1..DV-3: data quality gate
-    RiskAlignmentEngine(),        # RA-1..RA-3: risk profile caps
-    PortfolioAnalyticsEngine(),   # PA-1..PA-2: fund count / concentration
-    RegularDirectEngine(),        # Rules 1 + 6: regular→direct
-    AMCConcentrationEngine(),     # Rule 2: AMC concentration
-    CategoryConcentrationEngine(), # Rule 2b: category concentration
-    UnderperformerEngine(),       # Rule 3: underperformer replacement
-    OverlapEngine(),              # Rules 4 + 9: pairwise overlap
-    CorrelationEngine(),          # CR-1: behavioural redundancy
-    AllocationEngine(),           # Rule 5: debt allocation
-    SameCategoryEngine(),         # Rule 8: same-category consolidation
-    InternationalEngine(),        # Rule 10: international fund gap
-    DriftEngine(),                # asset-class drift
-    GoalAlignmentEngine(),        # GA-1..GA-4: goal alignment (wins AR-1)
-    StockScoringEngine(),         # §10.9: direct equity scoring
+    DataValidationEngine(),           # DV-1..DV-3: data quality gate
+    RiskAlignmentEngine(),            # RA-1..RA-3: risk profile caps (persona-calibrated)
+    CategorySuitabilityEngine(),      # CS-1..CS-2: PRD §4 Rule 2 suitability gate (persona-aware)
+    PortfolioAnalyticsEngine(),       # PA-1..PA-2: fund count / concentration
+    RegularDirectEngine(),            # Rules 1 + 6: regular→direct
+    AMCConcentrationEngine(),         # Rule 2: AMC concentration
+    CategoryConcentrationEngine(),    # Rule 2b: category concentration
+    UnderperformerEngine(),           # Rule 3: underperformer replacement (persona-calibrated)
+    OverlapEngine(),                  # Rules 4 + 9: pairwise overlap
+    CorrelationEngine(),              # CR-1: behavioural redundancy
+    AllocationEngine(),               # Rule 5: debt allocation (persona-calibrated)
+    SameCategoryEngine(),             # Rule 8: same-category consolidation
+    InternationalEngine(),            # Rule 10: international fund gap
+    DriftEngine(),                    # asset-class drift
+    GoalAlignmentEngine(),            # GA-1..GA-4: goal alignment (wins AR-1)
+    StockScoringEngine(),             # §10.9: direct equity scoring
+    BehaviouralPersonaFilterEngine(), # BP-1: suppress instrument-type mismatches
 ]
 
 
@@ -104,6 +112,9 @@ def build_context(
     goal_evaluations: Optional[List] = None,
     deviation_result: Optional[Any] = None,
     international_funds_cache: Optional[List[Dict[str, Any]]] = None,
+    risk_score_numeric: Optional[float] = None,
+    behavioural_persona: Optional[str] = None,
+    behavioural_confidence: float = 0.0,
 ) -> RecommendationContext:
     """Construct a RecommendationContext from caller-supplied data.
 
@@ -141,6 +152,12 @@ def build_context(
         ]):
             tax_suppressed.add(iid)
 
+    # Resolve persona profile from risk_score (preferred) or profile string
+    persona_profile = get_persona_profile(
+        risk_profile_str=risk_profile,
+        risk_score=risk_score_numeric,
+    )
+
     return RecommendationContext(
         user_id=user_id,
         risk_profile=risk_profile,
@@ -159,6 +176,10 @@ def build_context(
         international_funds_cache=international_funds_cache or [],
         portfolio_coverage_pct=portfolio_coverage_pct,
         tax_suppressed_instrument_ids=tax_suppressed,
+        persona_profile=persona_profile,
+        risk_score_numeric=risk_score_numeric,
+        behavioural_persona=behavioural_persona or "unknown",
+        behavioural_confidence=behavioural_confidence,
     )
 
 
@@ -185,6 +206,10 @@ def _signal_to_action(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "engine_signal_id": sig.signal_id,
         "engine_name": sig.engine_name,
+        # PRD §12 output contract fields
+        "severity": sig.severity,
+        "execution_path": sig.execution_path,
+        "requires_confirmation": sig.requires_confirmation,
     }
 
     if sig.instrument_id:
@@ -241,6 +266,9 @@ async def run_engine_pipeline(
     goal_evaluations: Optional[List] = None,
     deviation_result: Optional[Any] = None,
     international_funds_cache: Optional[List[Dict[str, Any]]] = None,
+    risk_score_numeric: Optional[float] = None,
+    behavioural_persona: Optional[str] = None,
+    behavioural_confidence: float = 0.0,
 ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """
     Full recommendation pipeline. Called by _apply_action_rules() when
@@ -250,7 +278,7 @@ async def run_engine_pipeline(
       - actions: backward-compatible action dicts (same shape as legacy sequential rule output)
       - simulation_result: IS-1/IS-2 before/after dict, or None if simulation unavailable
     """
-    # 1. Build context
+    # 1. Build context (includes persona_profile classification)
     ctx = build_context(
         user_id=user_id,
         risk_profile=risk_profile,
@@ -266,9 +294,42 @@ async def run_engine_pipeline(
         goal_evaluations=goal_evaluations,
         deviation_result=deviation_result,
         international_funds_cache=international_funds_cache,
+        risk_score_numeric=risk_score_numeric,
+        behavioural_persona=behavioural_persona,
+        behavioural_confidence=behavioural_confidence,
     )
 
-    # 1b. Pre-fetch portfolio correlations (CR-1, best-effort — NIDP may be unconfigured)
+    # 1b. Pre-fetch MF quality scores from DAAS (best-effort)
+    # Merges quality_score, health_score, category_rank into v3_scores keyed by ISIN.
+    # Engines (UnderperformerEngine, CategorySuitabilityEngine) use these for
+    # PRD §6.2 exit/add threshold checks against NIDP 0-100 scale.
+    if mf_holdings:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            isins = list({
+                h.get("isin") or h.get("instrument_id", "")
+                for h in mf_holdings
+                if h.get("isin") or h.get("instrument_id")
+            })[:100]
+            if isins:
+                mf_prims = await _daas.get_v3_mf_primitives_bulk(isins)
+                for isin, prow in mf_prims.items():
+                    existing = ctx.v3_scores.get(isin) or {}
+                    existing.update({
+                        "quality_score": prow.get("quality_score"),
+                        "health_score": prow.get("health_score"),
+                        "quality_coverage_pct": prow.get("quality_coverage_pct"),
+                        "category_rank_pct": prow.get("category_rank_pct"),  # percentile 0-100
+                        "composite_rank": prow.get("composite_rank"),
+                        "total_in_category": prow.get("total_in_category"),
+                        "fund_category": prow.get("fund_category"),
+                        "mf_primitives": prow,
+                    })
+                    ctx.v3_scores[isin] = existing
+        except Exception as _exc:
+            logger.debug("[Orchestrator] MF quality scores prefetch skipped: %s", _exc)
+
+    # 1d. Pre-fetch portfolio correlations (CR-1, best-effort — NIDP may be unconfigured)
     corr_cfg = rules_cfg.get("correlation") or {}
     if corr_cfg.get("enabled", True) and holdings:
         try:
@@ -289,7 +350,7 @@ async def run_engine_pipeline(
         except Exception as _exc:
             logger.debug("[Orchestrator] portfolio_correlations prefetch skipped: %s", _exc)
 
-    # 1c. Pre-fetch stock V3 primitives (§10.9, best-effort)
+    # 1e. Pre-fetch stock V3 primitives (§10.9, best-effort)
     if ctx.stock_holdings:
         try:
             from services.copilot_tools import daas_client as _daas

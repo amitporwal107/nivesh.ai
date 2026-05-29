@@ -86,15 +86,23 @@ class RiskAlignmentEngine(BaseEngine):
             return []
 
         risk = ctx.risk_profile.lower()
-        profile_cfg = cfg.get(risk) or cfg.get("moderate") or {}
-        vol_caps = cfg.get("volatility_cap_pct") or {}
-        dd_caps = cfg.get("drawdown_cap_pct") or {}
-
         signals: List[EngineSignal] = []
 
-        # ── RA-1: Hard caps ───────────────────────────────────────────────
-        sc_cap = float(profile_cfg.get("smallcap_cap_pct", 20.0))
-        sectoral_cap = float(profile_cfg.get("sectoral_cap_pct", 15.0))
+        # ── Prefer persona_profile thresholds (PRD §6.2); fall back to rules_cfg ──
+        if ctx.persona_profile:
+            pp = ctx.persona_profile
+            sc_cap = pp.smallcap_cap_pct
+            sectoral_cap = pp.sectoral_cap_pct
+            vol_cap = pp.max_volatility_1y_pct
+            dd_cap = pp.max_drawdown_pct
+        else:
+            profile_cfg = cfg.get(risk) or cfg.get("moderate") or {}
+            vol_caps = cfg.get("volatility_cap_pct") or {}
+            dd_caps = cfg.get("drawdown_cap_pct") or {}
+            sc_cap = float(profile_cfg.get("smallcap_cap_pct", 20.0))
+            sectoral_cap = float(profile_cfg.get("sectoral_cap_pct", 15.0))
+            vol_cap = float(vol_caps.get(risk, 18.0))
+            dd_cap = float(dd_caps.get(risk, 25.0))
         # single_stock_cap (RA-1c) would require stock-level breakdown — deferred
 
         sc_pct = _category_pct(ctx, "small cap")
@@ -107,6 +115,8 @@ class RiskAlignmentEngine(BaseEngine):
             fund_name = (cand or {}).get("instrument_name", "Small Cap Fund")
             h = fuzzy_match_holding(fund_name, ctx.mf_holdings) if cand else None
             amt = (float(h.get("quantity", 0)) * float(h.get("current_price", 0))) if h else 0.0
+            _persona_label = (ctx.persona_profile.persona_type.value if ctx.persona_profile else risk)
+            _bands_over = max(1, int((sc_pct - sc_cap) / 10))
             signals.append(EngineSignal(
                 signal_id=f"risk_alignment::ra1::smallcap::{ctx.risk_profile}",
                 engine_name=self.engine_name,
@@ -123,11 +133,13 @@ class RiskAlignmentEngine(BaseEngine):
                 estimated_tax_rs=float(((cand or {}).get("tax_impact") or {}).get("tax_liability") or 0),
                 reason_codes=["RA1_SMALLCAP_BREACH"],
                 reason_text=(
-                    f"Smallcap allocation ({sc_pct:.0f}%) exceeds the {risk} profile limit "
-                    f"({sc_cap:.0f}%) by {excess:.0f}pp. Reducing risk by trimming the highest "
-                    f"exit-score smallcap fund."
+                    f"Small-cap allocation ({sc_pct:.0f}%) exceeds your {_persona_label} profile limit "
+                    f"({sc_cap:.0f}%) by {excess:.0f}pp. This adds more downside risk than your plan allows."
                 ),
                 dedup_key=f"EXIT::{(cand or {}).get('instrument_id') or 'sc_breach'}",
+                severity="severe" if _bands_over >= 2 else "mismatch",
+                execution_path="redirect",
+                requires_confirmation=ctx.behavioural_confidence < 0.7,
             ))
             if cand and h:
                 signals[-1].__dict__["_holding"] = h
@@ -140,6 +152,7 @@ class RiskAlignmentEngine(BaseEngine):
             fund_name = (cand or {}).get("instrument_name", "Sectoral Fund")
             h = fuzzy_match_holding(fund_name, ctx.mf_holdings) if cand else None
             amt = (float(h.get("quantity", 0)) * float(h.get("current_price", 0))) if h else 0.0
+            _persona_label = (ctx.persona_profile.persona_type.value if ctx.persona_profile else risk)
             signals.append(EngineSignal(
                 signal_id=f"risk_alignment::ra1::sectoral::{ctx.risk_profile}",
                 engine_name=self.engine_name,
@@ -156,21 +169,22 @@ class RiskAlignmentEngine(BaseEngine):
                 estimated_tax_rs=float(((cand or {}).get("tax_impact") or {}).get("tax_liability") or 0),
                 reason_codes=["RA1_SECTORAL_BREACH"],
                 reason_text=(
-                    f"Sectoral/thematic allocation ({sectoral_pct:.0f}%) exceeds the {risk} profile "
-                    f"limit ({sectoral_cap:.0f}%) by {excess:.0f}pp. Concentrated sector bets "
-                    f"increase portfolio volatility."
+                    f"Sectoral/thematic allocation ({sectoral_pct:.0f}%) exceeds your {_persona_label} profile "
+                    f"cap ({sectoral_cap:.0f}%) by {excess:.0f}pp. Concentrated sector bets add volatility."
                 ),
                 dedup_key=f"EXIT::{(cand or {}).get('instrument_id') or 'sectoral_breach'}",
+                severity="mismatch",
+                execution_path="redirect",
             ))
             if cand and h:
                 signals[-1].__dict__["_holding"] = h
                 signals[-1].__dict__["_candidate"] = cand
 
         # ── RA-2: Portfolio volatility ceiling ────────────────────────────
-        vol_cap = float(vol_caps.get(risk, 18.0))
         weighted_vol = _weighted_portfolio_metric(ctx, "volatility_1y")
         if weighted_vol is not None and weighted_vol > vol_cap + 1.0:
             excess_vol = round(weighted_vol - vol_cap, 1)
+            _persona_label = (ctx.persona_profile.persona_type.value if ctx.persona_profile else risk)
             signals.append(EngineSignal(
                 signal_id=f"risk_alignment::ra2::volatility::{ctx.risk_profile}",
                 engine_name=self.engine_name,
@@ -186,18 +200,19 @@ class RiskAlignmentEngine(BaseEngine):
                 implementation_ease=0.3,
                 reason_codes=["RA2_VOLATILITY_BREACH"],
                 reason_text=(
-                    f"Portfolio annualised volatility ({weighted_vol:.1f}%) exceeds the {risk} "
-                    f"profile ceiling ({vol_cap:.0f}%) by {excess_vol:.1f}pp. "
-                    f"Rebalancing toward lower-volatility funds is recommended."
+                    f"Portfolio annualised volatility ({weighted_vol:.1f}%) exceeds your {_persona_label} "
+                    f"ceiling ({vol_cap:.0f}%) by {excess_vol:.1f}pp — more downside than your plan allows."
                 ),
                 dedup_key="TRIM::ra2_volatility",
+                severity="mismatch",
+                execution_path="redirect",
             ))
 
         # ── RA-3: Portfolio max-drawdown ceiling ──────────────────────────
-        dd_cap = float(dd_caps.get(risk, 25.0))
         weighted_dd = _weighted_portfolio_metric(ctx, "max_drawdown_pct")
         if weighted_dd is not None and weighted_dd > dd_cap + 1.0:
             excess_dd = round(weighted_dd - dd_cap, 1)
+            _persona_label = (ctx.persona_profile.persona_type.value if ctx.persona_profile else risk)
             signals.append(EngineSignal(
                 signal_id=f"risk_alignment::ra3::drawdown::{ctx.risk_profile}",
                 engine_name=self.engine_name,
@@ -213,11 +228,12 @@ class RiskAlignmentEngine(BaseEngine):
                 implementation_ease=0.3,
                 reason_codes=["RA3_DRAWDOWN_BREACH"],
                 reason_text=(
-                    f"Portfolio max drawdown ({weighted_dd:.1f}%) exceeds the {risk} "
-                    f"ceiling ({dd_cap:.0f}%) by {excess_dd:.1f}pp. "
-                    f"Consider trimming the highest-drawdown funds to protect capital."
+                    f"Portfolio max drawdown ({weighted_dd:.1f}%) exceeds your {_persona_label} "
+                    f"ceiling ({dd_cap:.0f}%) by {excess_dd:.1f}pp. Trim highest-drawdown funds to protect capital."
                 ),
                 dedup_key="TRIM::ra3_drawdown",
+                severity="mismatch",
+                execution_path="redirect",
             ))
 
         return signals

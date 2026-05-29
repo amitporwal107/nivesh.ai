@@ -68,7 +68,11 @@ def _v3_or_engine_exit_score(
 
 
 class UnderperformerEngine(BaseEngine):
-    """Rule 3 (P1): Underperforming funds → EXIT + ADD best-in-category replacement."""
+    """Rule 3 (P1): Underperforming funds → EXIT + ADD best-in-category replacement.
+
+    Uses persona-calibrated quality thresholds (PRD §6.2) from ctx.persona_profile
+    when available. Falls back to the V2.5 hardcoded defaults otherwise.
+    """
 
     engine_name = "UnderperformerEngine"
     enabled_config_key = "rule_3_underperformer_replacement.enabled"
@@ -78,6 +82,24 @@ class UnderperformerEngine(BaseEngine):
         catalog = ctx.portfolio_intelligence.get("catalog") or {}
         r3_params = (ctx.rules_cfg.get("rule_3_underperformer_replacement") or {}).get("params", {})
         max_replacements = int(r3_params.get("max_replacements", 2))
+
+        # ── PRD §6.2 persona-calibrated thresholds ────────────────────────
+        # NIDP quality_score is 0-100; legacy engine score is 0-10 (higher=worse).
+        # exit_quality_threshold / add_quality_threshold are on the NIDP 0-100 scale.
+        if ctx.persona_profile:
+            pp = ctx.persona_profile
+            # Convert NIDP 0-100 exit threshold to the 0-10 legacy engine scale
+            # NIDP quality < exit_quality_threshold → exit; legacy: quality >= 6.5 → exit
+            # The mapping: NIDP 100 = best quality; legacy 10 = worst. So:
+            #   NIDP exit_threshold → legacy = (100 - exit_threshold) / 10
+            nidp_exit_q_threshold = pp.exit_quality_threshold    # 0-100
+            nidp_add_q_threshold = pp.add_quality_threshold      # 0-100
+            # Legacy: quality score (0–10) where higher = WORSE (inverse)
+            legacy_exit_q_gate = (100.0 - nidp_exit_q_threshold) / 10.0  # e.g. 55→4.5
+        else:
+            nidp_exit_q_threshold = 45.0   # V2.5 defaults
+            nidp_add_q_threshold = 65.0
+            legacy_exit_q_gate = 6.5       # V2.5 hardcoded
 
         candidate_by_id = {c.get("instrument_id"): c for c in ctx.exit_candidates if c.get("instrument_id")}
 
@@ -91,22 +113,33 @@ class UnderperformerEngine(BaseEngine):
             cand = candidate_by_id.get(iid)
             if not cand:
                 continue
-            quality = float((cand.get("score_breakdown") or {}).get("quality") or 5.0)
+
+            # ── Quality check: prefer NIDP quality_score (0-100), fall back to legacy ──
+            v3 = ctx.v3_scores.get(iid or "", {})
+            nidp_qs = v3.get("quality_score")
+            legacy_q = float((cand.get("score_breakdown") or {}).get("quality") or 5.0)
+
+            if nidp_qs is not None:
+                # NIDP quality_score: lower = worse; exit if below persona threshold
+                weak_q = float(nidp_qs) < nidp_exit_q_threshold
+            else:
+                # Legacy scale: higher = worse; exit if above legacy gate
+                weak_q = legacy_q >= legacy_exit_q_gate
+
             fund_data = catalog.get(iid, {})
             ratios = (fund_data.get("ratios") or {}) if isinstance(fund_data, dict) else {}
             ret_1y = ratios.get("ret_1y")
             ret_3y = ratios.get("ret_3y")
             r1 = float(ret_1y) if ret_1y is not None else None
             r3 = float(ret_3y) if ret_3y is not None else None
-            # V2.5 quality gate: quality >= 6.5 (higher = worse) + underperformance
-            weak_q = quality >= 6.5
             weak_1y = r1 is not None and r1 < 8.0
             weak_3y = r3 is not None and r3 < 10.0
             if weak_q and weak_1y and (weak_3y or r3 is None):
                 exit_score = _v3_or_engine_exit_score(iid, cand, ctx.v3_scores)
                 underperformers.append({
                     "mf": mf, "candidate": cand,
-                    "quality_score": quality,
+                    "quality_score": nidp_qs if nidp_qs is not None else legacy_q,
+                    "quality_source": "nidp" if nidp_qs is not None else "legacy",
                     "exit_score": exit_score,
                     "ret_1y": round(r1, 2) if r1 is not None else "N/A",
                     "ret_3y": round(r3, 2) if r3 is not None else "N/A",
@@ -136,9 +169,19 @@ class UnderperformerEngine(BaseEngine):
             fund_name = h.get("name") or mf.get("scheme_name") or ""
             amount_rs = float(h.get("quantity", 0)) * float(h.get("current_price", 0))
 
+            # Build persona-aware reason text (PRD §6 — reason in goal/persona terms)
+            _persona_label = (
+                ctx.persona_profile.persona_type.value if ctx.persona_profile else ctx.risk_profile
+            )
+            _q_display = (
+                f"NIDP quality {under['quality_score']:.0f}/100"
+                if under.get("quality_source") == "nidp"
+                else f"quality score {under['quality_score']:.1f}/10"
+            )
+            _q_bar = nidp_exit_q_threshold if under.get("quality_source") == "nidp" else legacy_exit_q_gate
             exit_reason = (
-                f"Underperforming benchmark: 1Y return {under['ret_1y']}%, "
-                f"quality score {under['quality_score']:.1f}/10. "
+                f"Below your {_persona_label} quality bar ({_q_display} vs threshold "
+                f"{_q_bar:.0f}). 1Y return {under['ret_1y']}% — underperforming its peer category."
             )
 
             exit_sig = EngineSignal(
@@ -158,6 +201,14 @@ class UnderperformerEngine(BaseEngine):
                 reason_codes=["UNDERPERFORMER_REPLACEMENT"],
                 reason_text=exit_reason,
                 dedup_key=f"EXIT::{iid or fund_name[:30]}",
+                severity="mismatch",
+                execution_path="harvest",
+                requires_confirmation=(
+                    ctx.behavioural_confidence < 0.7 and amount_rs > (
+                        ctx.persona_profile.confirmation_threshold_rs
+                        if ctx.persona_profile else 500_000.0
+                    )
+                ),
             )
             exit_sig.__dict__["_holding"] = h
             exit_sig.__dict__["_candidate"] = under["candidate"]
@@ -172,8 +223,12 @@ class UnderperformerEngine(BaseEngine):
             category = mf.get("category") or ""
             replacement = _TOP_FUND_MAP.get((category or "").lower())
             if replacement:
+                _persona_label = (
+                    ctx.persona_profile.persona_type.value if ctx.persona_profile else ctx.risk_profile
+                )
                 add_reason = (
-                    f"Replaces underperforming fund. Top-rated in same category ({category})."
+                    f"Replaces underperforming fund. Top-rated in {category} — "
+                    f"fits your {_persona_label} profile and adds to a category you already need."
                 )
                 amc_key = extract_amc_from_name(replacement["scheme_name"]) or ""
                 add_fund = {

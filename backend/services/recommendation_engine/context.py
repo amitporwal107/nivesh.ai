@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from services.goal_engine import GoalEvaluation
     from services.deviation_engine import DeviationResult
+    from services.recommendation_engine.persona_config import RiskPersonaProfile, BehaviouralPersonaType
 
 
 @dataclass
@@ -63,6 +64,14 @@ class EngineSignal:
     # Dedup key for AR-1: same key means same "slot"; highest base_score wins.
     # Default: "<action_type>::<instrument_id>"
     dedup_key: str = ""
+
+    # ── PRD output contract fields (PRD §12) ─────────────────────────────────
+    # severity: aligned | minor | mismatch | severe  (PRD §8)
+    severity: str = "minor"
+    # execution_path: redirect | harvest | stagger | sell-now  (PRD §9)
+    execution_path: str = "sell-now"
+    # requires_confirmation: True when persona confidence is medium + EXIT is large  (PRD §10)
+    requires_confirmation: bool = False
 
     def __post_init__(self) -> None:
         if not self.dedup_key:
@@ -138,3 +147,15 @@ class RecommendationContext:
     exited_ids: set = field(default_factory=set)
     exited_holding_keys: set = field(default_factory=set)
     added_buckets: set = field(default_factory=set)
+
+    # ── Persona context (PRD §3) ───────────────────────────────────────────────
+    # Resolved RiskPersonaProfile — carries all PRD §6.1/§6.2 thresholds.
+    # None only when no risk profile has been set by the user (mandatory gate, PRD §4 Rule 1).
+    persona_profile: Optional[Any] = None   # RiskPersonaProfile (avoid circular at runtime)
+
+    # Numeric risk score (0-100) from the questionnaire (higher = more conservative)
+    risk_score_numeric: Optional[float] = None
+
+    # Behavioural persona string (e.g. "mutual_fund_investor") + detection confidence (0-1)
+    behavioural_persona: str = "unknown"
+    behavioural_confidence: float = 0.0

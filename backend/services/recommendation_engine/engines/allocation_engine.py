@@ -59,7 +59,7 @@ def _debt_target(risk: str, params: Dict[str, Any]) -> float:
 
 
 class AllocationEngine(BaseEngine):
-    """Rule 5 (P2): ADD debt fund when debt % is below risk-based target."""
+    """Rule 5 (P2): ADD debt fund when debt % is below risk-based target (persona-calibrated)."""
 
     engine_name = "AllocationEngine"
     enabled_config_key = "rule_5_debt_allocation.enabled"
@@ -70,7 +70,17 @@ class AllocationEngine(BaseEngine):
 
         r5_params = (ctx.rules_cfg.get("rule_5_debt_allocation") or {}).get("params", {})
         risk = ctx.risk_profile.lower()
-        target = _debt_target(risk, r5_params)
+
+        # Prefer persona_profile debt target (PRD §6.1); fall back to legacy rules_cfg
+        if ctx.persona_profile:
+            pp = ctx.persona_profile
+            target = pp.debt_mid_target
+            equity_target = pp.equity_mid_target
+            persona_label = pp.persona_type.value
+        else:
+            target = _debt_target(risk, r5_params)
+            equity_target = 100.0 - target
+            persona_label = risk
 
         alloc = _calc_asset_allocation(ctx.holdings)
         debt_pct = alloc["debt_pct"]
@@ -108,10 +118,13 @@ class AllocationEngine(BaseEngine):
         fund_name = fund["fund_name"]
         fund_type = fund.get("fund_type", "")
 
+        # Determine severity: how far below target?
+        bands_below = int(gap_pct / 10)
+        severity = "severe" if bands_below >= 3 else "mismatch" if gap_pct >= 10 else "minor"
+
         reason_text = (
-            f"Portfolio debt is {debt_pct:.0f}% — below your {target:.0f}% target "
-            f"for a {risk} risk profile. "
-            f"Consider {fund_name} ({fund_type})"
+            f"Debt is {debt_pct:.0f}% — well below your {persona_label} target of {target:.0f}%. "
+            f"Point new money to {fund_name} ({fund_type}) to close this gap without triggering tax."
         )
 
         signal = EngineSignal(
@@ -123,7 +136,7 @@ class AllocationEngine(BaseEngine):
             instrument_name=fund_name,
             amount_rs=round(gap_rs, 2),
             base_score=6.0,
-            confidence=0.6,           # MEDIUM
+            confidence=0.6,
             risk_reduction=0.3,
             diversification_gain=0.5,
             urgency=0.4,
@@ -131,6 +144,8 @@ class AllocationEngine(BaseEngine):
             reason_codes=["ALLOCATION_GAP", "DIVERSIFICATION"],
             reason_text=reason_text,
             dedup_key="ADD::debt",
+            severity=severity,
+            execution_path="redirect",   # always prefer new money for ADD
         )
         signal.__dict__["_fund_details"] = fund
         return [signal]

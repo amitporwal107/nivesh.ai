@@ -24,6 +24,11 @@ export const EstimatedImpactC = z.object({
   annual_savings_rs:  z.number().nullable().optional(),
 }).passthrough();
 
+/** PRD §8 severity tiers */
+export const ActionSeverityC = z.enum(["aligned", "minor", "mismatch", "severe"]).or(z.string());
+/** PRD §9 tax-aware execution path */
+export const ExecutionPathC = z.enum(["redirect", "harvest", "stagger", "sell-now"]).or(z.string());
+
 export const PlanActionC = z.object({
   action_id:    z.string(),
   action_type:  ActionTypeC.or(z.string()).optional(),
@@ -40,8 +45,16 @@ export const PlanActionC = z.object({
   estimated_impact: EstimatedImpactC.nullable().optional(),
   status:       ActionStatusC.or(z.string()).optional(),
   completion_note: z.string().nullable().optional(),
+  // PRD §12 persona output contract fields
+  severity:              ActionSeverityC.optional(),
+  execution_path:        ExecutionPathC.optional(),
+  requires_confirmation: z.boolean().optional(),
+  engine_name:           z.string().optional(),
+  source_domain:         z.string().optional(),
 }).passthrough();
 export type PlanActionC = z.infer<typeof PlanActionC>;
+export type ActionSeverity = z.infer<typeof ActionSeverityC>;
+export type ExecutionPath = z.infer<typeof ExecutionPathC>;
 
 export const PlanC = z.object({
   plan_id:                z.string(),

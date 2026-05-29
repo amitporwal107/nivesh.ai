@@ -105,21 +105,30 @@ function mapInsightItem(c: import("@/services/contracts/insights.contract").Insi
     affected_holdings?: string[];
     action_hint?: string;
   };
-  const sev = item.severity?.toLowerCase();
+
+  // Map backend severity → UI Severity
+  // Supports both legacy vocab (critical/warning/info) and new engine vocab (severe/mismatch/minor/aligned)
+  const sev = (item.severity ?? "").toLowerCase();
   const severity: PortfolioInsight["severity"] =
-    sev === "critical" ? "fix" :
-    sev === "warning"  ? "watch" :
-    sev === "info"     ? "info" :
+    sev === "critical" || sev === "severe" ? "fix"   :
+    sev === "warning"  || sev === "mismatch" ? "watch" :
+    sev === "minor"    || sev === "info"     ? "info"  :
+    sev === "aligned"  || sev === "good"     ? "good"  :
     "info";
-  const cat = item.category?.toLowerCase();
+
+  // Map backend category → UI category (passthrough for new engine categories)
+  const cat = (item.category ?? "").toLowerCase();
   const category: PortfolioInsight["category"] =
-    cat === "overlap"        ? "overlap" :
-    cat === "concentration"  ? "concentration" :
-    cat === "cost"           ? "cost" :
-    cat === "goal_drift"     ? "goal" :
-    cat === "diversification"? "balance" :
-    cat === "underperformer" ? "balance" :
-    "balance";
+    cat === "overlap"         ? "overlap"       :
+    cat === "concentration"   ? "concentration" :
+    cat === "cost"            ? "cost"          :
+    cat === "goal_drift" || cat === "goal" ? "goal" :
+    cat === "diversification" ? "balance"       :
+    cat === "underperformer"  ? "balance"       :
+    cat === "tax"             ? "tax"           :
+    // New engine categories — pass through as-is (IntelligenceFeed has CAT_META for them)
+    cat as PortfolioInsight["category"];
+
   return {
     id: item.insight_id,
     severity,

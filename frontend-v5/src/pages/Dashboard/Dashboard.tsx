@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Upload, Info, ArrowRight } from "lucide-react";
+import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle } from "lucide-react";
 import type { PortfolioSummary, NavPoint, PortfolioInsight } from "@/types/portfolio";
 import { PortfolioValueCard } from "./PortfolioValueCard";
 import { HealthScoreCard, type HealthBreakdown } from "./HealthScoreCard";
@@ -181,16 +181,43 @@ function classifyAction(action: PlanActionC): string {
   return "review";
 }
 
+// Severity → visual treatment (maps PRD §8 → UI colors)
+const SEVERITY_STYLE: Record<string, { dot: string; border: string; label: string }> = {
+  severe:   { dot: "bg-neg",         border: "border-l-2 border-neg",  label: "URGENT"  },
+  mismatch: { dot: "bg-warm",        border: "border-l-2 border-warm", label: "ACTION"  },
+  minor:    { dot: "bg-[#3B82F6]",   border: "",                       label: "NOTE"    },
+  aligned:  { dot: "bg-pos",         border: "",                       label: "OK"      },
+};
+
+// Execution path → short label
+const PATH_LABEL: Record<string, string> = {
+  redirect:  "new money",
+  harvest:   "tax harvest",
+  stagger:   "spread exit",
+  "sell-now": "sell now",
+};
+
+// Sort actions severe-first within a bucket (PRD §8)
+const SEV_ORDER = ["severe", "mismatch", "minor", "aligned"];
+function sortBySeverity(arr: PlanActionC[]): PlanActionC[] {
+  return [...arr].sort((a, b) => {
+    const ai = SEV_ORDER.indexOf(String(a.severity ?? "minor"));
+    const bi = SEV_ORDER.indexOf(String(b.severity ?? "minor"));
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+}
+
 function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; total: number; onViewAll: () => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  type BucketMap = Record<string, { actions: PlanActionC[]; totalRs: number }>;
+  type BucketMap = Record<string, { actions: PlanActionC[]; totalRs: number; hasSevere: boolean }>;
   const bucketMap: BucketMap = {};
   for (const a of actions) {
     const key = classifyAction(a);
-    if (!bucketMap[key]) bucketMap[key] = { actions: [], totalRs: 0 };
+    if (!bucketMap[key]) bucketMap[key] = { actions: [], totalRs: 0, hasSevere: false };
     bucketMap[key].actions.push(a);
     bucketMap[key].totalRs += a.amount_rs ?? 0;
+    if (a.severity === "severe") bucketMap[key].hasSevere = true;
   }
   const activeBuckets = ACTION_BUCKETS.filter(b => (bucketMap[b.key]?.actions.length ?? 0) > 0);
 
@@ -221,10 +248,13 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
                   key={b.key}
                   onClick={() => setExpanded(active ? null : b.key)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium transition-all",
+                    "relative flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium transition-all",
                     active ? `${b.bgColor} ${b.borderColor} ${b.textColor}` : "bg-surface-2 border-hairline text-ink-2 hover:border-ink-3 hover:text-ink"
                   )}
                 >
+                  {grp.hasSevere && (
+                    <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-neg border-2 border-surface-1" />
+                  )}
                   <span className={cn("text-[14px] leading-none opacity-80", active && b.textColor)}>{b.icon}</span>
                   <span className="font-display text-[15px] leading-none">{grp.actions.length}</span>
                   <span>{b.label}</span>
@@ -246,22 +276,49 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
                   <span className="text-[12px] text-ink-3">· {grp.actions.length} fund{grp.actions.length !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="divide-y divide-[rgb(var(--line)/0.06)]">
-                  {grp.actions.slice(0, 8).map((a, i) => {
+                  {sortBySeverity(grp.actions).slice(0, 8).map((a, i) => {
                     const name = a.holding_name ?? a.asset_name ?? "Unknown";
                     const rationale = a.rationale ?? a.reason_text ?? "";
                     const impact = a.estimated_impact?.health_score_delta;
                     const amtRs = fmtLakh(a.amount_rs);
+                    const sev = String(a.severity ?? "minor");
+                    const sevStyle = SEVERITY_STYLE[sev] ?? SEVERITY_STYLE.minor;
+                    const pathLabel = a.execution_path ? PATH_LABEL[a.execution_path] ?? a.execution_path : null;
+                    const needsConfirm = a.requires_confirmation === true;
                     return (
-                      <div key={a.action_id ?? i} className="px-5 py-2.5 flex items-start gap-3 hover:bg-surface-2 transition-colors">
+                      <div
+                        key={a.action_id ?? i}
+                        className={cn(
+                          "px-5 py-2.5 flex items-start gap-3 hover:bg-surface-2 transition-colors",
+                          sevStyle.border,
+                        )}
+                      >
                         <span className="font-mono text-[10px] text-ink-4 mt-0.5 shrink-0 w-5">#{i + 1}</span>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[13px] font-medium truncate">{name}</span>
                             {amtRs && <span className="font-mono text-[10px] text-ink-3">{amtRs}</span>}
+                            {needsConfirm && (
+                              <span className="flex items-center gap-0.5 font-mono text-[9px] text-ink-3 bg-surface-2 px-1.5 py-0.5 rounded-full border border-hairline">
+                                <Lock className="h-2.5 w-2.5" />confirm
+                              </span>
+                            )}
+                            {sev === "severe" && (
+                              <span className="flex items-center gap-0.5 font-mono text-[9px] text-neg bg-[rgb(var(--neg)/0.08)] px-1.5 py-0.5 rounded-full">
+                                <AlertTriangle className="h-2.5 w-2.5" />URGENT
+                              </span>
+                            )}
                           </div>
                           {rationale && <p className="text-[11px] text-ink-3 mt-0.5 line-clamp-2">{rationale}</p>}
+                          {pathLabel && (
+                            <span className="inline-block mt-1 font-mono text-[9px] text-ink-4 bg-surface-2 px-1.5 py-0.5 rounded-full">
+                              via {pathLabel}
+                            </span>
+                          )}
                         </div>
-                        {impact != null && impact > 0 && <span className="font-mono text-[10px] text-pos shrink-0">+{impact}pt</span>}
+                        {impact != null && impact > 0 && (
+                          <span className="font-mono text-[10px] text-pos shrink-0">+{impact}pt</span>
+                        )}
                       </div>
                     );
                   })}

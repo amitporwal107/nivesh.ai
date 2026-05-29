@@ -61,7 +61,17 @@ class SameCategoryEngine(BaseEngine):
 
     def generate(self, ctx: RecommendationContext) -> List[EngineSignal]:
         r8_params = (ctx.rules_cfg.get("rule_8_same_category_consolidation") or {}).get("params", {})
-        min_trigger = int(r8_params.get("min_funds_to_trigger", 3))
+
+        # PRD §6.2 — persona calibrates the max holdings target.
+        # min_trigger: if holdings in a category > persona target, consolidate.
+        # Conservative: ≤12 total → trigger when >3 in any single category.
+        # Aggressive: ≤25 total → trigger when >5 in any single category.
+        if ctx.persona_profile:
+            pp = ctx.persona_profile
+            # Scale category trigger: persona max_holdings / 4 (rough per-category budget)
+            min_trigger = max(2, pp.target_holdings_max // 4)
+        else:
+            min_trigger = int(r8_params.get("min_funds_to_trigger", 3))
 
         candidate_by_name: Dict[str, Dict] = {
             normalize_fund_name(
@@ -124,10 +134,16 @@ class SameCategoryEngine(BaseEngine):
                 fund_name = holding.get("name") or holding.get("scheme_name") or ""
                 amount_rs = float(holding.get("quantity", 0)) * float(holding.get("current_price", 0))
 
+                persona_label = (
+                    ctx.persona_profile.persona_type.value if ctx.persona_profile else ctx.risk_profile
+                )
+                target_max = (
+                    ctx.persona_profile.target_holdings_max if ctx.persona_profile else 20
+                )
                 reason_text = (
                     f"You hold {len(group)} {cat} funds — they all track similar stocks. "
-                    f"Consolidating to one fund (keeping {keeper_name}) reduces overlap "
-                    f"and simplifies your portfolio."
+                    f"Your {persona_label} profile targets ≤{target_max} total holdings. "
+                    f"Keeping {keeper_name} (top-ranked) and exiting the rest reduces overlap."
                 )
 
                 sig = EngineSignal(
@@ -147,6 +163,14 @@ class SameCategoryEngine(BaseEngine):
                     reason_codes=["SAME_CATEGORY_CONSOLIDATION"],
                     reason_text=reason_text,
                     dedup_key=f"EXIT::{iid or fund_name[:30]}",
+                    severity="mismatch",
+                    execution_path="harvest",
+                    requires_confirmation=(
+                        ctx.behavioural_confidence < 0.7 and amount_rs > (
+                            ctx.persona_profile.confirmation_threshold_rs
+                            if ctx.persona_profile else 500_000.0
+                        )
+                    ),
                 )
                 sig.__dict__["_holding"] = holding
                 sig.__dict__["_candidate"] = cand

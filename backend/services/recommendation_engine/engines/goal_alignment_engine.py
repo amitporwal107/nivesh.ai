@@ -97,6 +97,10 @@ class GoalAlignmentEngine(BaseEngine):
             urgency_val = 1.0 if health == "critical" else 0.7
             confidence_val = 0.8 if health == "critical" else 0.6
 
+            # Severity: short-horizon goal in high-risk assets = always severe (PRD §8)
+            short_horizon_high_risk = horizon_years < 5.0 and equity_pct > 50.0
+            goal_severity = "severe" if (health == "critical" or short_horizon_high_risk) else "mismatch"
+
             # ── GA-1: Equity ceiling check ────────────────────────────────
             eq_ceiling = _equity_ceiling(horizon_years)
             if equity_pct > eq_ceiling + 1.0:  # 1pp tolerance
@@ -118,10 +122,13 @@ class GoalAlignmentEngine(BaseEngine):
                     reason_codes=["GOAL_ALIGNMENT", "EQUITY_CEILING_BREACH"],
                     reason_text=(
                         f"Goal '{goal_name}' has a {horizon_years:.0f}y horizon — "
-                        f"equity allocation ({equity_pct:.0f}%) exceeds the safe ceiling "
-                        f"({eq_ceiling:.0f}%) by {excess_pct:.0f}pp. Trim equity exposure."
+                        f"equity ({equity_pct:.0f}%) exceeds the safe ceiling ({eq_ceiling:.0f}%) "
+                        f"by {excess_pct:.0f}pp. More downside than this goal's timeline allows."
                     ),
                     dedup_key="TRIM::equity_ceiling",
+                    severity=goal_severity,
+                    execution_path="redirect",
+                    requires_confirmation=ctx.behavioural_confidence < 0.7,
                 ))
 
             # ── GA-2: Smallcap cap for short-horizon goals ────────────────
@@ -159,11 +166,14 @@ class GoalAlignmentEngine(BaseEngine):
                         estimated_tax_rs=float((sc_cand.get("tax_impact") or {}).get("tax_liability") or 0),
                         reason_codes=["GOAL_ALIGNMENT", "GA2_SMALLCAP_SHORT_HORIZON"],
                         reason_text=(
-                            f"Goal '{goal_name}' is only {horizon_years:.1f}y away. "
-                            f"Smallcap exposure ({smallcap_pct_val:.0f}%) exceeds the 20% cap "
-                            f"for short-horizon goals. Exit this fund to reduce risk."
+                            f"Goal '{goal_name}' is {horizon_years:.1f}y away — "
+                            f"small-cap ({smallcap_pct_val:.0f}%) is too volatile for this timeline. "
+                            f"Exit to protect what you've already built."
                         ),
                         dedup_key=f"EXIT::{iid or 'sc_trim'}",
+                        severity="severe",
+                        execution_path="stagger",
+                        requires_confirmation=True,
                     ))
                     if iid:
                         local_exited_ids.add(iid)
@@ -189,10 +199,13 @@ class GoalAlignmentEngine(BaseEngine):
                         reason_codes=["GOAL_ALIGNMENT", "GA3_RETIREMENT_GLIDE_PATH"],
                         reason_text=(
                             f"Retirement is {horizon_years:.0f} years away. "
-                            f"Phased reduction of equity ({equity_pct:.0f}% → {target_equity:.0f}%) "
-                            f"will protect accumulated corpus against sequence-of-returns risk."
+                            f"Gradually reduce equity ({equity_pct:.0f}% → {target_equity:.0f}%) "
+                            f"to protect your corpus from sequence-of-returns risk."
                         ),
                         dedup_key="TRIM::retirement_glide",
+                        severity="mismatch" if horizon_years > 5 else "severe",
+                        execution_path="stagger",
+                        requires_confirmation=horizon_years < 5,
                     ))
 
             # ── GA-4: Goal shortfall — exit underperformer + add missing class ──
@@ -239,11 +252,13 @@ class GoalAlignmentEngine(BaseEngine):
                     ),
                     reason_codes=["GOAL_ALIGNMENT", "GA4_SHORTFALL", health.upper()],
                     reason_text=(
-                        f"Goal '{goal_name}' is {health} (on-track: {on_track_pct:.0f}%). "
-                        f"Freeing up ₹{amount_rs:,.0f} by exiting this underperforming fund "
-                        f"and redeploying toward your goal."
+                        f"Goal '{goal_name}' is {health} — {on_track_pct:.0f}% on-track. "
+                        f"Exit this underperformer and redirect ₹{amount_rs:,.0f} toward your goal."
                     ),
                     dedup_key=f"EXIT::{iid or fund_name[:30]}",
+                    severity="severe" if health == "critical" else "mismatch",
+                    execution_path="harvest",
+                    requires_confirmation=health == "critical" or ctx.behavioural_confidence < 0.7,
                 )
                 exit_sig.__dict__["_holding"] = h
                 exit_sig.__dict__["_candidate"] = best_candidate
@@ -279,10 +294,12 @@ class GoalAlignmentEngine(BaseEngine):
                             implementation_ease=0.7,
                             reason_codes=["GOAL_ALIGNMENT", "ALLOCATION_GAP", health.upper()],
                             reason_text=(
-                                f"Goal '{goal_name}' needs ₹{goal_gap_rs:,.0f} more. "
-                                f"Adding {fund_name} aligned with {missing_class} target."
+                                f"Goal '{goal_name}' needs ₹{goal_gap_rs:,.0f} more to stay on track. "
+                                f"Direct new money to {fund_name} — aligns with your missing {missing_class} target."
                             ),
                             dedup_key=f"ADD::{missing_class}::goal",
+                            severity="mismatch",
+                            execution_path="redirect",
                         )
                         signals.append(add_sig)
                 except Exception as e:
