@@ -179,7 +179,10 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     if isins:
         try:
             from services.copilot_tools import daas_client as _daas
-            if _daas.is_configured():
+            import feature_flags as _ff
+            # Flag is checked without email (None = respect 'everyone' / 'disabled' modes)
+            daas_flag = _ff.is_enabled("v3_data_source_daas", None)
+            if _daas.is_configured() and daas_flag:
                 daas_primitives = await _daas.get_v3_mf_primitives_bulk(isins)
                 logger.info("perf_engine: DaaS returned %d/%d primitives", len(daas_primitives), len(isins))
         except Exception as e:
@@ -191,7 +194,8 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     cat_returns: dict[str, list[float]] = defaultdict(list)
     for prim in daas_primitives.values():
         cat = prim.get("sub_category") or prim.get("category") or ""
-        r1y = prim.get("return_1y")
+        # DaaS returns ret_1y; category_avg_1y is pre-computed by NIDP
+        r1y = prim.get("ret_1y") or prim.get("return_1y")
         if cat and r1y is not None:
             try:
                 cat_returns[cat].append(float(r1y))
@@ -218,8 +222,14 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         current = qty * cp
 
         cat = prim.get("sub_category") or prim.get("category") or h.get("category") or ""
-        r1y = prim.get("return_1y")
-        bm_return = cat_avg.get(cat) if cat else None
+        # DaaS field is ret_1y (not return_1y); category_avg_1y is the peer benchmark
+        r1y = prim.get("ret_1y") or prim.get("return_1y")
+        # Prefer the DaaS-computed category average directly; fall back to client-computed
+        bm_return = (
+            prim.get("category_avg_1y")
+            or cat_avg.get(cat)
+            if cat else cat_avg.get(cat)
+        )
         alpha = round(float(r1y) - float(bm_return), 2) if (r1y is not None and bm_return is not None) else None
 
         rating = {
@@ -230,7 +240,7 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
             "benchmark_return": bm_return,
             "benchmark_name": f"{cat} Avg" if cat else None,
             "alpha": alpha,
-            "sharpe_1y": prim.get("sharpe_1y"),
+            "sharpe_1y": prim.get("sharpe") or prim.get("sharpe_1y"),
             "invested": round(invested, 2),
             "current_value": round(current, 2),
             "rating": (
