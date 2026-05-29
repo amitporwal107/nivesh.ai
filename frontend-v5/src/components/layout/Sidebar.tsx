@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
-  Settings, Layers, GitBranch, TrendingUp, Target, Receipt, ClipboardList, Wrench,
+  Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,7 +18,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: "/dashboard",       label: "Overview",         icon: LayoutDashboard, group: "Dashboards" },
   { to: "/concentration",   label: "Concentration",    icon: Layers,          group: "Dashboards" },
-  { to: "/diversification", label: "Diversification",  icon: GitBranch,       group: "Dashboards" },
   { to: "/risk",            label: "Risk",             icon: Shield,          group: "Dashboards" },
   { to: "/performance",     label: "Performance",      icon: TrendingUp,      group: "Dashboards" },
   { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
