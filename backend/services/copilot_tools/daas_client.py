@@ -265,7 +265,7 @@ async def get_v3_mf_primitives_bulk(
         return {}
     try:
         payload = await _post(
-            "/v1/mf/performance/v3-primitives/bulk",
+            "/mf/performance/v3-primitives/bulk",
             {"isins": isins},
             timeout=timeout,
         )
