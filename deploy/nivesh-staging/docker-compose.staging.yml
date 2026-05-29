@@ -102,8 +102,8 @@ services:
       CORS_ORIGINS: "https://staging.niveshcopilot.com,https://staging.niveshcopilot.com:8443"
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: "lax"
-      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
-      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
+      NIDP_DAAS_BASE_URL: https://staging-data.niveshcopilot.com/daas
+      NIDP_DAAS_INTERNAL_TOKEN: nvd_id5o87h-EK9rc3tg6F9Fr0msZutfIEnD
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
       # ── CAS ingestion module (lives inside this same backend now) ──
       # Same DB connection; separate `portfolio_ingestion` schema.
