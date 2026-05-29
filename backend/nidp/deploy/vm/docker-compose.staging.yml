@@ -48,8 +48,9 @@ services:
       LOG_LEVEL:    info
       PYTHONPATH:   /app/backend:/opt/nidp-staging/venv/lib/python3.11/site-packages
       ROOT_PATH:    /daas
-      # Override DB URL to reach the staging postgres container via host network
-      NIDP_POSTGRES_URL: postgresql://${NIDP_PG_USER:-nidp_staging}:${NIDP_PG_PASSWORD}@host-gateway:5434/${NIDP_PG_DB:-nidp_staging}
+      # Override DB URL — use host-gateway so container reaches host port 5434.
+      # Password hardcoded here because env_file vars don't expand inside environment: block.
+      NIDP_POSTGRES_URL: postgresql://nidp_staging:nivesh_staging@host-gateway:5434/nidp_staging
     ports:
       - "127.0.0.1:8084:8084"
     volumes:
