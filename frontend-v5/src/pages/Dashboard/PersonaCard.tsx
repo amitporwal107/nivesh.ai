@@ -48,10 +48,21 @@ interface Props {
   totalValue: number;
   holdingsCount: number;
   onRiskProfileSaved?: () => void;
+  /** Called to open the profile wizard at a specific step */
+  onOpenWizard?: (step: 0 | 1 | 2) => void;
 }
 
-export function PersonaCard({ persona, personaConfidence, riskProfile, totalValue, holdingsCount, onRiskProfileSaved }: Props) {
+export function PersonaCard({ persona, personaConfidence, riskProfile, totalValue, holdingsCount, onRiskProfileSaved, onOpenWizard }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
+
+  function handleCta() {
+    if (onOpenWizard) {
+      // Open wizard at risk step if no profile, else goal step
+      onOpenWizard(riskProfile ? 1 : 0);
+    } else {
+      setModalOpen(true);
+    }
+  }
 
   const label = persona ? (PERSONA_LABELS[persona] ?? persona.replace(/_/g, " ")) : null;
   const confidence = personaConfidence ?? null;
@@ -128,7 +139,7 @@ export function PersonaCard({ persona, personaConfidence, riskProfile, totalValu
         <div className="shrink-0">
           {hasProfile ? (
             <button
-              onClick={() => setModalOpen(true)}
+              onClick={handleCta}
               className="flex items-center gap-1.5 text-[12px] text-accent font-medium hover:underline"
             >
               <Target className="h-3.5 w-3.5" />
@@ -137,7 +148,7 @@ export function PersonaCard({ persona, personaConfidence, riskProfile, totalValu
             </button>
           ) : (
             <button
-              onClick={() => setModalOpen(true)}
+              onClick={handleCta}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-on-accent text-[13px] font-medium hover:opacity-90 transition-opacity"
             >
               <Target className="h-3.5 w-3.5" />

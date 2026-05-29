@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePortfolioSummary, usePortfolioNavHistory, useHoldings } from "@/hooks/use-portfolio";
 import { useHealthAnalysis, useInsightsList } from "@/hooks/use-insights";
 import { useRiskProfile } from "@/hooks/use-risk-profile";
+import { useGoals } from "@/hooks/use-goals";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const healthQuery = useHealthAnalysis();
   const insightsQ   = useInsightsList();
   const riskProfileQ = useRiskProfile();
+  const goalsQ      = useGoals();
 
   if (summary.isPending || navHistory.isPending) {
     return (
@@ -96,6 +98,15 @@ export default function DashboardPage() {
         }
       : undefined;
 
+  const hasGoal = (goalsQ.data?.goals?.length ?? 0) > 0;
+
+  function invalidateAll() {
+    qc.invalidateQueries({ queryKey: ["user", "risk-profile"] });
+    qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+    qc.invalidateQueries({ queryKey: ["goals"] });
+    qc.invalidateQueries({ queryKey: ["plans"] });
+  }
+
   return (
     <Dashboard
       summary={dashSummary}
@@ -104,10 +115,8 @@ export default function DashboardPage() {
       insights={insightsQ.data?.insights ?? []}
       riskProfile={riskProfileQ.data ?? null}
       holdingsCount={holdings.data?.length ?? 0}
-      onRiskProfileSaved={() => {
-        qc.invalidateQueries({ queryKey: ["user", "risk-profile"] });
-        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
-      }}
+      hasGoal={hasGoal}
+      onRiskProfileSaved={invalidateAll}
     />
   );
 }
