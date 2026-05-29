@@ -24,7 +24,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from nidp.services.daas_api.auth import require_key
+from nidp.services.daas_api.auth import require_api_key as require_key
 
 router = APIRouter(prefix="/dq", tags=["dq"])
 
