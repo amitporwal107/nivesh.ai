@@ -179,7 +179,7 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     if isins:
         try:
             from services.copilot_tools import daas_client as _daas
-            if _daas.daas_available():
+            if _daas.is_configured():
                 daas_primitives = await _daas.get_v3_mf_primitives_bulk(isins)
                 logger.info("perf_engine: DaaS returned %d/%d primitives", len(daas_primitives), len(isins))
         except Exception as e:
