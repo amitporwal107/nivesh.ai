@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/shared/MetricCard";
@@ -472,6 +473,7 @@ function LensPanel({ lens }: { lens: LensData }) {
 // ─── Overlap panel ────────────────────────────────────────────────────────────
 
 function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
+  const navigate = useNavigate();
   const [expandedCluster, setExpandedCluster] = useState<string | null>("Large-cap cluster");
 
   const duplicates = data.fundPairs.filter((p) => p.type === "duplicate_plan");
@@ -564,7 +566,10 @@ function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
                     <div className="text-[11px] text-ink-3">overlap</div>
                   </div>
                 </div>
-                <button className="mt-3 flex items-center gap-1.5 text-[13px] text-accent font-medium hover:underline">
+                <button
+                  className="mt-3 flex items-center gap-1.5 text-[13px] text-accent font-medium hover:underline"
+                  onClick={() => navigate("/recommendations")}
+                >
                   See consolidation plan <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -676,23 +681,6 @@ function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
   );
 }
 
-// ─── Remediation placeholder ──────────────────────────────────────────────────
-
-function RemediationPlaceholder() {
-  return (
-    <div className="mt-8 rounded-lg border border-dashed border-hairline-2 p-7 text-center">
-      <div className="font-mono text-[10px] uppercase tracking-[.16em] text-ink-3 mb-2">
-        Remediation engine · Phase 2
-      </div>
-      <p className="text-[13.5px] text-ink-2 max-w-[420px] mx-auto">
-        Ranked fixes with before → after projections, leverage scoring, and
-        tax/exit-load annotations will appear here once the remediation engine
-        ships.
-      </p>
-    </div>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ConcentrationAnalytics() {
@@ -703,9 +691,10 @@ export function ConcentrationAnalytics() {
   // Derive headline from data — never authored copy
   const bestLens = data.ladder[0];
   const worstLens = data.ladder[data.ladder.length - 1];
-  const headline = `Diversified by ${bestLens.lens.toLowerCase()} (N ${bestLens.effectiveN.toFixed(
-    0,
-  )}), concentrated by ${worstLens.lens} (N ${worstLens.effectiveN.toFixed(1)})`;
+  const lensLabel = (lens: string) =>
+    lens === "AMC" ? "fund houses" : lens === "Company" ? "companies" : lens.toLowerCase() + "s";
+  const headlinePart1 = `Well spread across ${Math.round(bestLens.effectiveN)} ${lensLabel(bestLens.lens)}`;
+  const headlinePart2 = `concentrated in just ${worstLens.effectiveN.toFixed(1)} ${lensLabel(worstLens.lens)}`;
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
@@ -714,13 +703,13 @@ export function ConcentrationAnalytics() {
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
           <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">
-            Risk · concentration & diversification
+            AI Insights · portfolio analysis
           </div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.08] mt-2">
-            {headline.split(",")[0]}
-            <span className="text-ink-2">,</span>
+            {headlinePart1}
+            <span className="text-ink-2"> —</span>
             <br />
-            <span className={cfg.textCls}>{headline.split(",")[1]?.trim()}</span>
+            <span className={cfg.textCls}>{headlinePart2}</span>
           </h1>
           <p className="text-[15px] text-ink-2 mt-3 max-w-[580px] leading-relaxed">
             Your portfolio looks well spread at stock level — but it routes most of
@@ -799,7 +788,6 @@ export function ConcentrationAnalytics() {
         </Tabs>
       </div>
 
-      <RemediationPlaceholder />
     </div>
   );
 }

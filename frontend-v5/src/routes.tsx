@@ -41,8 +41,9 @@ export function AppRoutes() {
         <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
         <Route path="/portfolio"        element={<RouteErrorBoundary pageName="Portfolio"><PortfolioPage /></RouteErrorBoundary>} />
         <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
-        <Route path="/concentration"    element={<RouteErrorBoundary pageName="Concentration"><ConcentrationPage /></RouteErrorBoundary>} />
-        <Route path="/diversification"  element={<Navigate to="/concentration" replace />} />
+        <Route path="/ai-insights"      element={<RouteErrorBoundary pageName="AI Insights"><ConcentrationPage /></RouteErrorBoundary>} />
+        <Route path="/concentration"    element={<Navigate to="/ai-insights" replace />} />
+        <Route path="/diversification"  element={<Navigate to="/ai-insights" replace />} />
         <Route path="/risk"             element={<RouteErrorBoundary pageName="Risk"><RiskPage /></RouteErrorBoundary>} />
         <Route path="/performance"      element={<RouteErrorBoundary pageName="Performance"><PerformancePage /></RouteErrorBoundary>} />
         <Route path="/recommendations"  element={<RouteErrorBoundary pageName="Recommendations"><RecommendationsPage /></RouteErrorBoundary>} />

@@ -17,7 +17,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/dashboard",       label: "Overview",         icon: LayoutDashboard, group: "Dashboards" },
-  { to: "/concentration",   label: "Concentration",    icon: Layers,          group: "Dashboards" },
+  { to: "/ai-insights",     label: "AI Insights",      icon: Layers,          group: "Dashboards" },
   { to: "/risk",            label: "Risk",             icon: Shield,          group: "Dashboards" },
   { to: "/performance",     label: "Performance",      icon: TrendingUp,      group: "Dashboards" },
   { to: "/goals",           label: "Goals",            icon: Target,          group: "Dashboards" },
