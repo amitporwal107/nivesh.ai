@@ -2,6 +2,15 @@ import { CardLabel } from "@/components/ui/card";
 import { ScoreRing } from "@/components/charts/ScoreRing";
 import { cn } from "@/lib/utils";
 
+// Health band thresholds matching portfolio_health.py _band() (AC-21 / OQ-4)
+function healthBand(score: number): { label: string; color: string; pill: string } {
+  if (score >= 85) return { label: "Excellent",   color: "rgb(var(--pos))",    pill: "EXCELLENT" };
+  if (score >= 70) return { label: "Strong",       color: "rgb(var(--pos))",    pill: "HEALTHY" };
+  if (score >= 55) return { label: "Fair",         color: "rgb(var(--accent))", pill: "FAIR" };
+  if (score >= 40) return { label: "Weak",         color: "rgb(var(--warm))",   pill: "NEEDS WORK" };
+  return                  { label: "Poor",         color: "rgb(var(--neg))",    pill: "POOR" };
+}
+
 export interface HealthBreakdown {
   return_quality?: number;
   diversification?: number;
@@ -32,14 +41,27 @@ function ScoreBar({ value, color, track }: { value: number; color: string; track
 
 export function HealthScoreCard({ score, verdict, breakdown }: Props) {
   const rows = SUB_SCORES.filter(s => breakdown?.[s.key] != null);
+  const band = healthBand(score);
   return (
     <div className="md:px-7 flex items-start gap-4">
       <div className="shrink-0 mt-0.5">
         <ScoreRing score={score} size={rows.length ? 108 : 132} />
       </div>
       <div className="flex-1 min-w-0">
-        <CardLabel>Health score</CardLabel>
-        <p className="text-[14px] mt-1 text-ink-2 leading-snug">{verdict}</p>
+        <div className="flex items-center gap-2 mb-1">
+          <CardLabel>Health score</CardLabel>
+          {/* Status pill (AC-21) */}
+          <span className="text-[9px] px-2 py-0.5 rounded-full font-mono tracking-widest"
+            style={{ background: `${band.color}22`, color: band.color }}
+            aria-label={`Portfolio health status: ${band.pill}`}>
+            {band.pill}
+          </span>
+        </div>
+        {/* Band label (AC-21) */}
+        <p className="text-[11px] font-mono mb-1" style={{ color: band.color }}>
+          {band.label}
+        </p>
+        <p className="text-[14px] mt-0.5 text-ink-2 leading-snug">{verdict}</p>
         {rows.length > 0 && (
           <div className="mt-3 space-y-1.5">
             {rows.map(s => (

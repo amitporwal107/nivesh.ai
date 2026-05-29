@@ -9,6 +9,9 @@ import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { ExportButton } from "@/components/shared/ExportButton";
+import { useResync } from "@/hooks/use-resync";
+import { RefreshCw, Loader2 } from "lucide-react";
 
 // ── Period selector ────────────────────────────────────────────────────────
 
@@ -257,6 +260,9 @@ export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
   // API period param: backend accepts 1M/3M/6M/1Y/3Y/inception
   const dash = useDashboard("performance", { period });
+  const { resync, isPending: resyncing, lastSyncedAt, error: resyncError } = useResync(
+    (dash.data?.breakdown as any)?.computed_at
+  );
 
   if (dash.isPending) {
     return (
@@ -291,6 +297,16 @@ export default function PerformancePage() {
           {statusPill && (
             <Badge tone={badgeTone as any} className="text-[10px]">{statusPill}</Badge>
           )}
+          {/* Resync button (REQ 13 / AC-25) */}
+          <button onClick={resync} disabled={resyncing}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] disabled:opacity-50 transition-opacity"
+            style={{ background: "rgba(var(--surface-3),0.8)", border: "1px solid rgba(var(--line),0.12)", color: "rgba(var(--ink-1),0.6)", fontFamily: "var(--font-mono)" }}
+            title={lastSyncedAt ? `Last synced: ${new Date(lastSyncedAt).toLocaleString("en-IN")}` : "Refresh performance data"}
+            aria-label="Resync portfolio performance data">
+            {resyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Resync
+          </button>
+          <ExportButton period={period} />
           {/* 6-option period selector — session-persistent */}
           <div className="flex rounded-lg border overflow-hidden"
             style={{ borderColor: "rgba(var(--line),0.15)" }}>
@@ -373,6 +389,14 @@ export default function PerformancePage() {
         <CardLabel>Monthly returns vs benchmark</CardLabel>
         <MonthlyReturnsGrid breakdown={env?.breakdown} />
       </Card>
+
+      {/* Resync error (AC-25: prior data preserved, error shown) */}
+      {resyncError && (
+        <div className="mt-3 text-xs px-3 py-2 rounded-md"
+          style={{ background: "rgba(var(--neg),0.08)", color: "rgb(var(--neg))", fontFamily: "var(--font-mono)" }}>
+          {resyncError}
+        </div>
+      )}
 
       {/* Coverage note */}
       {(env?.breakdown as any)?.coverage && (

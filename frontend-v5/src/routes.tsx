@@ -18,6 +18,7 @@ import GoalsPage from "./pages/Goals";
 import TaxPage from "./pages/Tax";
 import PlanPage from "./pages/Plan";
 import PerformancePage from "./pages/Performance";
+import CompositionPage from "./pages/Composition";
 import DiagnosticsPage from "./pages/Diagnostics";
 
 export function AppRoutes() {
@@ -46,6 +47,7 @@ export function AppRoutes() {
         <Route path="/diversification"  element={<Navigate to="/ai-insights" replace />} />
         <Route path="/risk"             element={<RouteErrorBoundary pageName="Risk"><RiskPage /></RouteErrorBoundary>} />
         <Route path="/performance"      element={<RouteErrorBoundary pageName="Performance"><PerformancePage /></RouteErrorBoundary>} />
+        <Route path="/composition"      element={<RouteErrorBoundary pageName="Composition"><CompositionPage /></RouteErrorBoundary>} />
         <Route path="/recommendations"  element={<RouteErrorBoundary pageName="Recommendations"><RecommendationsPage /></RouteErrorBoundary>} />
         <Route path="/chat"             element={<RouteErrorBoundary pageName="Chat"><ChatPage /></RouteErrorBoundary>} />
         <Route path="/goals"            element={<RouteErrorBoundary pageName="Goals"><GoalsPage /></RouteErrorBoundary>} />
