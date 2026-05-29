@@ -119,7 +119,7 @@ derived AS (
         aum_trend_score,
         portfolio_turnover_pct
     FROM nidp.mf_derived_analytics
-    ORDER BY scheme_code, computed_at DESC
+    ORDER BY scheme_code, as_of_date DESC
 ),
 nidp_avail AS (
     SELECT
