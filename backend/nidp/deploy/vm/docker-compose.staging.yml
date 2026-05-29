@@ -48,9 +48,9 @@ services:
       LOG_LEVEL:    info
       PYTHONPATH:   /app/backend:/opt/nidp-staging/venv/lib/python3.11/site-packages
       ROOT_PATH:    /daas
-      # Override DB URL — use host-gateway so container reaches host port 5434.
-      # Password hardcoded here because env_file vars don't expand inside environment: block.
-      NIDP_POSTGRES_URL: postgresql://nidp_staging:nivesh_staging@host-gateway:5434/nidp_staging
+      # Override DB URL — use postgres container name (both on same Docker network).
+      # Password hardcoded because env_file vars don't expand in environment: block.
+      NIDP_POSTGRES_URL: postgresql://nidp_staging:nivesh_staging@nidp-postgres-staging:5432/nidp_staging
     ports:
       - "127.0.0.1:8084:8084"
     volumes:
@@ -68,14 +68,12 @@ services:
       --proxy-headers
       --forwarded-allow-ips "*"
       --root-path /daas
-    extra_hosts:
-      - "host-gateway:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
     networks: [nidp-staging-default, nidp-staging-bridge]
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8084/daas/health || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8084/health')\""]
       interval: 15s
       timeout: 5s
       retries: 5
