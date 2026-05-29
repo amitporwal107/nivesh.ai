@@ -352,35 +352,80 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
 
 
 async def _performance_composite(user_id: str, period: str) -> dict[str, Any]:
-    """Serves screen 08 Performance Dashboard."""
-    perf_doc = await db.fund_performance.find_one({"user_id": user_id}) or {}
-    funds = perf_doc.get("funds") or []
-    xirr = perf_doc.get("portfolio_xirr_pct")
-    tone = _score_tone(xirr * 0.8 if xirr else None)  # scale XIRR to 0-100 proxy
+    """Serves screen 08 Performance Dashboard — v5 full payload.
+
+    Delegates to portfolio_performance_engine which computes:
+      XIRR, benchmark_xirr, alpha, Sharpe, hit_rate,
+      attribution waterfall, monthly returns strip, top contributors.
+    Results are cached in portfolio_performance_cache (24h TTL).
+    """
+    from services.portfolio_performance_engine import compute_performance
+
+    perf = await compute_performance(user_id, period, use_cache=True)
+
+    xirr = perf.get("portfolio_xirr")
+    bm_xirr = perf.get("benchmark_xirr")
+    alpha = perf.get("alpha")
+    sharpe = perf.get("sharpe")
+    hit_rate = perf.get("hit_rate")
+    status_pill = perf.get("status_pill") or "CALCULATING"
+
+    # Status pill → dashboard tone mapping
+    _pill_tone = {"HEALTHY": "moss", "FAIR": "saffron", "POOR": "rust",
+                  "CALCULATING": "mute", "EMPTY": "mute"}
+    tone = _pill_tone.get(status_pill, "mute")
+
+    # Sharpe ≥ 1.0 marker
+    sharpe_marker = "above 1.0 ✓" if (sharpe is not None and sharpe >= 1.0) else None
 
     return {
-        "badge": {"label": "Strong" if tone == "moss" else ("Average" if tone == "saffron" else "Below par"), "tone": tone},
+        "badge": {
+            "label": status_pill.title(),
+            "tone": tone,
+        },
         "insight": {
-            "headline": f"Portfolio XIRR: {round(xirr, 1)}%" if xirr else "Performance data loading.",
-            "subtext": f"{period} annualised returns vs peers.",
-            "hero": {"label": "XIRR", "value": f"{round(xirr, 1)}%" if xirr else "—", "tone": tone},
+            "headline": perf.get("verdict_headline") or "Performance data loading.",
+            "subtext": f"{period} annualised returns vs category peer average.",
+            "hero": {
+                "label": "XIRR",
+                "value": f"{xirr:+.1f}%" if xirr is not None else "—",
+                "tone": tone,
+            },
         },
         "stat_tiles": [
-            {"label": "XIRR", "value": f"{round(xirr, 1)}%" if xirr else "—", "tone": tone},
-            {"label": "Period", "value": period},
-            {"label": "Funds tracked", "value": str(len(funds))},
+            {
+                "label": "XIRR",
+                "value": f"{xirr:.1f}%" if xirr is not None else "—",
+                "sub": f"Benchmark {bm_xirr:.1f}%" if bm_xirr is not None else None,
+                "tone": tone,
+            },
+            {
+                "label": "Alpha",
+                "value": f"{alpha:+.1f} pp" if alpha is not None else "—",
+                "tone": "moss" if (alpha or 0) >= 0 else "rust",
+            },
+            {
+                "label": "Sharpe",
+                "value": f"{sharpe:.2f}" if sharpe is not None else "—",
+                "sub": sharpe_marker,
+                "tone": "moss" if (sharpe or 0) >= 1.0 else "saffron",
+            },
+            {
+                "label": "Hit Rate",
+                "value": f"{round((hit_rate or 0) * 100):.0f}%" if hit_rate is not None else "—",
+                "sub": "months beat benchmark",
+                "tone": "moss" if (hit_rate or 0) >= 0.5 else "saffron",
+            },
         ],
         "breakdown": {
-            "lens": "returns",
-            "lens_options": ["returns", "alpha", "consistency"],
-            "items": [
-                {
-                    "name": f.get("name") or f.get("scheme_name") or "Unknown",
-                    "value": round(float(f.get("xirr_pct") or f.get("return_pct") or 0), 1),
-                    "tone": _score_tone(float(f.get("xirr_pct") or 0) * 8),
-                }
-                for f in funds[:8]
-            ],
+            "waterfall": perf.get("waterfall") or [],
+            "monthly_returns": perf.get("monthly_returns") or [],
+            "top_contributors": perf.get("top_contributors") or [],
+            "coverage": perf.get("coverage"),
+            "status_pill": status_pill,
+            "verdict_headline": perf.get("verdict_headline"),
+            "computed_at": perf.get("computed_at"),
+            "from_cache": perf.get("_from_cache", False),
         },
     }
 
