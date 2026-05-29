@@ -1,18 +1,19 @@
-# NIDP staging docker-compose — TimescaleDB for the staging environment.
+# NIDP staging docker-compose — TimescaleDB + DaaS API for the staging environment.
 #
-# Mirrors docker-compose.prod.yml exactly except:
+# Mirrors docker-compose.prod.yml except:
 #   • container_name:  nidp-postgres-staging
-#   • host port:       127.0.0.1:5434:5432   (prod uses 5433; avoids conflict)
+#   • host port:       127.0.0.1:5434:5432   (prod uses 5433)
 #   • data volume:     /opt/nidp-staging/data/postgres
 #   • networks:        nidp-staging-default + nidp-staging-bridge
+#
+# DaaS API staging container:
+#   • Port 8084 on host (nginx staging routes /daas/* → 8084)
+#   • Mounts /opt/nidp/repo/backend as read-only code volume
+#   • Uses /opt/nidp-staging/nidp.env for DB + secrets
 #
 # One-time setup (run as root on the staging VM):
 #   docker network create nidp-staging-bridge
 #   docker compose -f docker-compose.staging.yml up -d
-#
-# The staging NIDP_POSTGRES_URL in /opt/nidp-staging/nidp.env must use
-# port 5434:
-#   NIDP_POSTGRES_URL=postgresql://nidp_staging:<pw>@localhost:5434/nidp_staging
 
 services:
   postgres:
@@ -35,6 +36,45 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  daas-api:
+    image: python:3.11-slim
+    container_name: nidp-daas-api-staging
+    restart: unless-stopped
+    working_dir: /app/backend
+    env_file: /opt/nidp-staging/nidp.env
+    environment:
+      PORT:         "8084"
+      LOG_LEVEL:    info
+      PYTHONPATH:   /app/backend
+      ROOT_PATH:    /daas
+      # Override DB URL to reach the staging postgres container via host network
+      NIDP_POSTGRES_URL: postgresql://${NIDP_PG_USER:-nidp_staging}:${NIDP_PG_PASSWORD}@host-gateway:5434/${NIDP_PG_DB:-nidp_staging}
+    ports:
+      - "127.0.0.1:8084:8084"
+    volumes:
+      # Mount prod code read-only — staging runs the same code as prod
+      - /opt/nidp/repo/backend:/app/backend:ro
+      # Python deps from prod venv
+      - /opt/nidp/venv:/opt/nidp/venv:ro
+    command: >
+      /opt/nidp/venv/bin/uvicorn nidp.services.daas_api.app:app
+      --host 0.0.0.0
+      --port 8084
+      --proxy-headers
+      --forwarded-allow-ips '*'
+      --root-path /daas
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [nidp-staging-default, nidp-staging-bridge]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8084/daas/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
 networks:
   nidp-staging-default:
