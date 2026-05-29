@@ -14,6 +14,11 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronRight,
+  Zap,
+  TrendingDown,
+  IndianRupee,
+  ShieldCheck,
+  AlertCircle as WarningIcon,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -42,6 +47,50 @@ interface LensData {
   reasons: string[];
 }
 
+// ─── Remediation types ───────────────────────────────────────────────────────
+
+type RemActionKind = "trim" | "consolidate_duplicate" | "consolidate_cluster" | "rebalance";
+
+interface RemContributor {
+  name: string;
+  type: "direct" | "fund";
+  pct: number;           // contribution to the problem exposure
+}
+
+interface RemBeforeAfter {
+  lensId: string;
+  lensLabel: string;
+  beforeVerdict: Verdict;
+  afterVerdict: Verdict;
+  beforeHhi: number;
+  afterHhi: number;
+  beforeEffN: number;
+  afterEffN: number;
+  offendingBefore: number;  // the breaching weight before
+  offendingAfter: number;
+}
+
+interface RemCaveat {
+  icon: "tax" | "lock" | "exit";
+  text: string;
+}
+
+interface Recommendation {
+  id: string;
+  kind: RemActionKind;
+  isHighestLeverage: boolean;
+  title: string;
+  why: string;
+  action: string;          // "Reduce ICICI Prudential funds by ₹1.8 L"
+  amountRs: number;        // rupees to move
+  beforeAfter: RemBeforeAfter[];
+  contributors?: RemContributor[];
+  redeployTo?: string;     // destination suggestion
+  annualSavingRs?: number; // for consolidations
+  caveats: RemCaveat[];
+  leverageScore: number;   // 0-100 for ranking bar
+}
+
 interface CompanyRoute {
   name: string;
   routeCount: number;
@@ -64,6 +113,7 @@ interface AnalyticsData {
   portfolioVerdictDrivers: string[];
   ladder: Array<{ lens: string; effectiveN: number; verdict: Verdict }>;
   lenses: LensData[];
+  remediation: Recommendation[];
   overlap: {
     companyRoutes: CompanyRoute[];
     fundPairs: FundPair[];
@@ -185,6 +235,96 @@ const MOCK: AnalyticsData = {
       ],
     },
   ],
+  remediation: [
+    {
+      id: "rec-1",
+      kind: "consolidate_duplicate" as RemActionKind,
+      isHighestLeverage: true,
+      title: "Switch Mirae Tax Saver Regular → Direct plan",
+      why: "You hold the same ELSS scheme in two plans. The Regular plan charges 0.84% extra in expense ratio for an identical portfolio — pure fee drag with zero benefit.",
+      action: "Switch ₹1.2 L from Regular to Direct plan of Mirae Tax Saver",
+      amountRs: 120000,
+      annualSavingRs: 3200,
+      beforeAfter: [
+        { lensId: "amc", lensLabel: "AMC", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "over-concentrated" as Verdict, beforeHhi: 2440, afterHhi: 2310, beforeEffN: 4.1, afterEffN: 4.3, offendingBefore: 31, offendingAfter: 29.8 },
+      ],
+      contributors: [
+        { name: "Mirae Tax Saver (Regular)", type: "fund", pct: 100 },
+      ],
+      redeployTo: "Mirae Tax Saver (Direct) — same fund, same portfolio",
+      caveats: [
+        { icon: "tax", text: "Units < 3 years old attract LTCG at 10%. Units > 3 years: tax-free switch." },
+        { icon: "lock", text: "ELSS has a 3-year lock-in per instalment. Locked units cannot be redeemed — initiate switch only on unlocked units." },
+      ],
+      leverageScore: 97,
+    },
+    {
+      id: "rec-2",
+      kind: "trim" as RemActionKind,
+      isHighestLeverage: false,
+      title: "Trim ICICI Prudential funds by ₹1.8 L",
+      why: "ICICI Prudential holds 31% of your mutual-fund assets — 6pt above the 25% AMC cap. Reducing exposure also relieves the Sector over-concentration since ICICI's funds are heavily weighted in Financials.",
+      action: "Redeem ₹1.8 L from ICICI Pru Bluechip Fund (largest contributor)",
+      amountRs: 180000,
+      beforeAfter: [
+        { lensId: "amc", lensLabel: "AMC", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "elevated" as Verdict, beforeHhi: 2440, afterHhi: 1980, beforeEffN: 4.1, afterEffN: 5.0, offendingBefore: 31, offendingAfter: 24.1 },
+        { lensId: "sector", lensLabel: "Sector", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "elevated" as Verdict, beforeHhi: 1820, afterHhi: 1620, beforeEffN: 5.4, afterEffN: 6.1, offendingBefore: 32, offendingAfter: 28.2 },
+      ],
+      contributors: [
+        { name: "ICICI Pru Bluechip Fund", type: "fund", pct: 62 },
+        { name: "ICICI Pru Balanced Advantage", type: "fund", pct: 24 },
+        { name: "ICICI Pru Tax Plan", type: "fund", pct: 14 },
+      ],
+      redeployTo: "Parag Parikh Flexi Cap or Mirae Asset Large Cap — both under 10% AMC weight, low overlap with existing holdings",
+      caveats: [
+        { icon: "tax", text: "Gains on equity funds held > 1 year taxed at 10% LTCG above ₹1 L/yr. Check your annual LTCG ledger before redeeming." },
+        { icon: "exit", text: "No exit load on ICICI Pru Bluechip for units held > 1 year." },
+      ],
+      leverageScore: 78,
+    },
+    {
+      id: "rec-3",
+      kind: "consolidate_cluster" as RemActionKind,
+      isHighestLeverage: false,
+      title: "Consolidate 3 large-cap funds into 1",
+      why: "Axis Bluechip, ICICI Pru Bluechip, and Mirae Large Cap share 64–71% of holdings and all track the same Nifty 50 universe. You pay three sets of fees for one effective exposure.",
+      action: "Redeem Axis Bluechip + Mirae Large Cap. Retain ICICI Pru Bluechip (lowest expense ratio of the three).",
+      amountRs: 290000,
+      annualSavingRs: 5800,
+      beforeAfter: [
+        { lensId: "amc", lensLabel: "AMC", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "balanced" as Verdict, beforeHhi: 2440, afterHhi: 1540, beforeEffN: 4.1, afterEffN: 6.5, offendingBefore: 31, offendingAfter: 22.0 },
+        { lensId: "sector", lensLabel: "Sector", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "elevated" as Verdict, beforeHhi: 1820, afterHhi: 1490, beforeEffN: 5.4, afterEffN: 6.7, offendingBefore: 32, offendingAfter: 26.8 },
+      ],
+      contributors: [
+        { name: "Axis Bluechip", type: "fund", pct: 48 },
+        { name: "Mirae Large Cap", type: "fund", pct: 52 },
+      ],
+      redeployTo: "Redirect freed SIPs to mid/small cap allocation (Quant Small Cap or Nippon Small Cap) to improve genuine diversification",
+      caveats: [
+        { icon: "tax", text: "LTCG applicable on gains. Consider partial switch over 2 financial years to stay under ₹1 L annual LTCG exemption." },
+        { icon: "exit", text: "Axis Bluechip: no exit load after 12 months. Mirae Large Cap: no exit load after 1 year." },
+      ],
+      leverageScore: 85,
+    },
+    {
+      id: "rec-4",
+      kind: "rebalance" as RemActionKind,
+      isHighestLeverage: false,
+      title: "Redirect future SIPs away from Financials",
+      why: "Your Financials sector sits at 32% (cap 25%). Rather than redeeming existing holdings and triggering tax, redirect new SIP flows to under-weight sectors.",
+      action: "Pause ₹5k/mo SIP in ICICI Pru Bluechip. Start ₹5k/mo in a Healthcare or Consumer fund.",
+      amountRs: 0,
+      beforeAfter: [
+        { lensId: "sector", lensLabel: "Sector", beforeVerdict: "over-concentrated" as Verdict, afterVerdict: "elevated" as Verdict, beforeHhi: 1820, afterHhi: 1680, beforeEffN: 5.4, afterEffN: 5.9, offendingBefore: 32, offendingAfter: 29.0 },
+      ],
+      redeployTo: "Mirae Asset Healthcare Fund or SBI Consumption Opportunities Fund — both low-overlap with current holdings",
+      caveats: [
+        { icon: "tax", text: "SIP redirection has zero tax impact — no redemption occurs." },
+      ],
+      leverageScore: 52,
+    },
+  ] as Recommendation[],
+
   overlap: {
     companyRoutes: [
       {
@@ -681,6 +821,311 @@ function OverlapPanel({ data }: { data: AnalyticsData["overlap"] }) {
   );
 }
 
+// ─── Remediation panel ───────────────────────────────────────────────────────
+
+const CAVEAT_ICON = {
+  tax: "📊",
+  lock: "🔒",
+  exit: "🚪",
+} as const;
+
+const KIND_LABEL: Record<RemActionKind, string> = {
+  trim: "Trim",
+  consolidate_duplicate: "Consolidate · Duplicate plan",
+  consolidate_cluster: "Consolidate · Redundant cluster",
+  rebalance: "Rebalance SIP",
+};
+
+const KIND_COLOR: Record<RemActionKind, string> = {
+  trim: "text-neg",
+  consolidate_duplicate: "text-warn",
+  consolidate_cluster: "text-warn",
+  rebalance: "text-accent",
+};
+
+function VerdictChip({ v }: { v: Verdict }) {
+  const cfg = VERDICT[v];
+  return (
+    <span className={cn("font-mono text-[11px] font-semibold", cfg.textCls)}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function RemCard({ rec, defaultOpen }: { rec: Recommendation; defaultOpen?: boolean }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(defaultOpen ?? false);
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border",
+        rec.isHighestLeverage
+          ? "border-accent/40 bg-[rgb(var(--accent)/0.04)]"
+          : "border-hairline bg-surface-1",
+      )}
+    >
+      {/* ── Header row ── */}
+      <button
+        className="w-full flex items-start gap-3 px-5 py-4 text-left"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {/* leverage bar */}
+        <div className="shrink-0 flex flex-col items-center gap-1 mt-0.5">
+          <div className="relative h-10 w-2 rounded-full bg-surface-2">
+            <div
+              className={cn(
+                "absolute bottom-0 left-0 right-0 rounded-full",
+                rec.isHighestLeverage ? "bg-accent" : "bg-ink-3",
+              )}
+              style={{ height: `${rec.leverageScore}%` }}
+            />
+          </div>
+          <span className="font-mono text-[9px] text-ink-3">{rec.leverageScore}</span>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {rec.isHighestLeverage && (
+              <span className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-[.12em] text-accent">
+                <Zap className="h-3 w-3" /> Highest leverage
+              </span>
+            )}
+            <Badge
+              tone={rec.kind.startsWith("consolidate") ? "warm" : rec.kind === "trim" ? "neg" : "accent"}
+              className="text-[10px]"
+            >
+              {KIND_LABEL[rec.kind]}
+            </Badge>
+            {rec.annualSavingRs && (
+              <Badge tone="good" className="text-[10px]">
+                Save ₹{rec.annualSavingRs.toLocaleString("en-IN")}/yr
+              </Badge>
+            )}
+          </div>
+          <div className="text-[14.5px] font-medium mt-1 leading-snug">{rec.title}</div>
+          <div className="text-[12.5px] text-ink-3 mt-0.5">{rec.action}</div>
+        </div>
+
+        {/* before → after preview (always visible) */}
+        <div className="shrink-0 hidden sm:flex flex-col items-end gap-1">
+          {rec.beforeAfter.slice(0, 1).map((ba) => (
+            <div key={ba.lensId} className="flex items-center gap-1.5 text-[12px]">
+              <VerdictChip v={ba.beforeVerdict} />
+              <ArrowRight className="h-3 w-3 text-ink-3" />
+              <VerdictChip v={ba.afterVerdict} />
+              <span className="font-mono text-[11px] text-ink-3 ml-1">({ba.lensLabel})</span>
+            </div>
+          ))}
+          {rec.amountRs > 0 && (
+            <span className="font-mono text-[12px] text-ink-2">
+              ₹{(rec.amountRs / 100000).toFixed(1)} L
+            </span>
+          )}
+        </div>
+
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-ink-3 shrink-0 mt-1" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-ink-3 shrink-0 mt-1" />
+        )}
+      </button>
+
+      {/* ── Expanded detail ── */}
+      {open && (
+        <div className="px-5 pb-5 space-y-5 border-t border-hairline">
+
+          {/* Why */}
+          <div className="pt-4">
+            <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3 mb-1.5">Why this matters</div>
+            <p className="text-[13.5px] text-ink-2 leading-relaxed">{rec.why}</p>
+          </div>
+
+          {/* Contributors */}
+          {rec.contributors && rec.contributors.length > 0 && (
+            <div>
+              <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3 mb-2">
+                What's driving the exposure
+              </div>
+              <div className="space-y-2">
+                {rec.contributors.map((c) => (
+                  <div key={c.name} className="flex items-center gap-3">
+                    <span className="text-[13px] flex-1">{c.name}</span>
+                    <div className="w-28 h-1.5 rounded-full bg-surface-2">
+                      <div className="h-full rounded-full bg-neg/60" style={{ width: `${c.pct}%` }} />
+                    </div>
+                    <span className="font-mono text-[12px] text-ink-2 w-8 text-right">{c.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Before → After across all lenses */}
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[.14em] text-ink-3 mb-2">
+              Projected impact
+            </div>
+            <div className="rounded-lg border border-hairline overflow-hidden">
+              <table className="w-full text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-hairline bg-surface-2">
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-ink-3">Lens</th>
+                    <th className="text-right px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-ink-3">Before</th>
+                    <th className="text-center px-2 py-2 text-ink-3">→</th>
+                    <th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-ink-3">After</th>
+                    <th className="text-right px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-ink-3">HHI</th>
+                    <th className="text-right px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-ink-3">Eff. N</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rec.beforeAfter.map((ba) => (
+                    <tr key={ba.lensId} className="border-b border-hairline/50 last:border-0">
+                      <td className="px-3 py-2.5 font-medium">{ba.lensLabel}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className={cn("font-mono text-[11px]", VERDICT[ba.beforeVerdict].textCls)}>
+                          {ba.offendingBefore.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="px-2 py-2.5 text-center text-ink-3">→</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("font-mono text-[11px]", VERDICT[ba.afterVerdict].textCls)}>
+                            {ba.offendingAfter.toFixed(1)}%
+                          </span>
+                          <Badge tone={VERDICT[ba.afterVerdict].badge} className="text-[9px] px-1.5 py-0">
+                            {VERDICT[ba.afterVerdict].label}
+                          </Badge>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-ink-2">
+                        {ba.beforeHhi} → <span className="text-pos">{ba.afterHhi}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-ink-2">
+                        {ba.beforeEffN.toFixed(1)} → <span className="text-pos">{ba.afterEffN.toFixed(1)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Redeploy suggestion */}
+          {rec.redeployTo && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-[rgb(var(--accent)/0.06)] border border-accent/20">
+              <TrendingDown className="h-4 w-4 text-accent shrink-0 mt-0.5" />
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[.12em] text-accent mb-0.5">
+                  Redeploy freed capital to
+                </div>
+                <p className="text-[13px] text-ink-2">{rec.redeployTo}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Caveats */}
+          {rec.caveats.length > 0 && (
+            <div className="space-y-2">
+              {rec.caveats.map((c, i) => (
+                <div key={i} className="flex items-start gap-2 text-[12.5px] text-ink-3">
+                  <span className="shrink-0">{CAVEAT_ICON[c.icon]}</span>
+                  <span>{c.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* CTA */}
+          <button
+            onClick={() => navigate("/recommendations")}
+            className="flex items-center gap-2 text-[13px] font-medium text-accent hover:underline underline-offset-4"
+          >
+            Open full action plan <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RemediationPanel({ recs }: { recs: Recommendation[] }) {
+  const sorted = [...recs].sort((a, b) => b.leverageScore - a.leverageScore);
+  const topRec = sorted[0];
+  const rest = sorted.slice(1);
+
+  return (
+    <div className="mt-8 space-y-4">
+      {/* Section header */}
+      <div className="flex items-center gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-accent" />
+            <h2 className="font-display text-[22px] tracking-tightish">Remediation plan</h2>
+          </div>
+          <p className="text-[13px] text-ink-3 mt-0.5">
+            Ranked by risk reduction per rupee moved. Highest-leverage action pinned first.
+          </p>
+        </div>
+        <div className="ml-auto shrink-0 flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-mono text-ink-3">
+            <div className="h-2 w-2 rounded-full bg-ink-3" />
+            Leverage score
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] font-mono text-ink-3">
+            <div className="h-2 w-2 rounded-full bg-accent" />
+            Best
+          </div>
+        </div>
+      </div>
+
+      {/* Highest leverage — always open */}
+      {topRec && <RemCard rec={topRec} defaultOpen />}
+
+      {/* Rest */}
+      {rest.map((rec) => (
+        <RemCard key={rec.id} rec={rec} />
+      ))}
+
+      {/* "All actions applied" projection */}
+      <div className="rounded-lg border border-pos/30 bg-[rgb(var(--pos)/0.05)] p-5">
+        <div className="flex items-start gap-3">
+          <CheckCircle className="h-5 w-5 text-pos shrink-0 mt-0.5" />
+          <div>
+            <div className="text-[14px] font-semibold text-pos">
+              If all actions applied → portfolio reaches Balanced
+            </div>
+            <p className="text-[13px] text-ink-2 mt-1 leading-relaxed">
+              Applying recommendations 1–3 would bring AMC verdict from{" "}
+              <span className="text-neg font-medium">Over-concentrated</span> to{" "}
+              <span className="text-pos font-medium">Balanced</span> (Eff. N 4.1 → 6.5),
+              Sector from <span className="text-neg font-medium">Over-concentrated</span> to{" "}
+              <span className="text-warn font-medium">Elevated</span>, reduce fund count by 2,
+              and save ₹{(9000).toLocaleString("en-IN")}/yr in fees.
+            </p>
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              {[
+                { label: "Fund count", before: "7 MFs", after: "5 MFs" },
+                { label: "Fee savings", before: "—", after: "₹9,000/yr" },
+                { label: "AMC Eff. N", before: "4.1", after: "6.5" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-md bg-surface-1 border border-hairline p-3">
+                  <div className="font-mono text-[9px] uppercase tracking-widest text-ink-3">{s.label}</div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="font-mono text-[13px] text-ink-3">{s.before}</span>
+                    <ArrowRight className="h-3 w-3 text-ink-3" />
+                    <span className="font-mono text-[13px] text-pos font-medium">{s.after}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ConcentrationAnalytics() {
@@ -788,6 +1233,7 @@ export function ConcentrationAnalytics() {
         </Tabs>
       </div>
 
+      <RemediationPanel recs={data.remediation} />
     </div>
   );
 }
