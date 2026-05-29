@@ -16,7 +16,11 @@ const SENTRY_DSN = (import.meta as unknown as { env: Record<string, string> }).e
 if (SENTRY_DSN) {
   Sentry.init({
     dsn: SENTRY_DSN,
-    environment: (import.meta as unknown as { env: Record<string, string> }).env?.MODE ?? "production",
+    // VITE_SENTRY_ENVIRONMENT takes precedence (set to "staging" in staging builds)
+    // Falls back to Vite's MODE ("production" | "development")
+    environment: (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SENTRY_ENVIRONMENT
+      ?? (import.meta as unknown as { env: Record<string, string> }).env?.MODE
+      ?? "production",
     release: (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_VERSION,
     // Sample 10% of traces — enough for performance monitoring, low overhead
     tracesSampleRate: 0.1,
