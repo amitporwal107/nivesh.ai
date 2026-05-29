@@ -2,12 +2,15 @@
  * Goals dashboard — wired to GET /api/dashboards/goals
  * Design: fan trajectory chart + drill panel + goal table
  */
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDashboard } from "@/hooks/use-dashboards";
 import { useGoals } from "@/hooks/use-goals";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
 
 function formatRs(paise: number) {
   const rs = Math.abs(paise) / 100;
@@ -134,6 +137,8 @@ function GoalTrajectory({ projection }: { projection: unknown }) {
 export default function GoalsPage() {
   const dash = useDashboard("goals");
   const goalsQ = useGoals();
+  const qc = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
 
   if (dash.isPending || goalsQ.isLoading) {
     return <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full"><LoadingSkeleton variant="card" /></div>;
@@ -250,11 +255,30 @@ export default function GoalsPage() {
         </Card>
       </div>
 
+      {/* Goal wizard — opened by + Add goal */}
+      <ProfileWizardModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        completeness={{ hasRiskProfile: true, hasGoal: goals.length > 0, hasSnapshot: false }}
+        startStep={1}
+        onComplete={() => {
+          setAddOpen(false);
+          qc.invalidateQueries({ queryKey: ["goals"] });
+          qc.invalidateQueries({ queryKey: ["plans"] });
+          dash.refetch();
+        }}
+      />
+
       {/* All goals table */}
       <Card className="mt-5 p-5">
         <div className="flex items-center mb-3">
           <CardLabel>All goals</CardLabel>
-          <button className="ml-auto text-[12px] text-accent hover:underline underline-offset-4">+ Add goal</button>
+          <button
+            onClick={() => setAddOpen(true)}
+            className="ml-auto text-[12px] text-accent hover:underline underline-offset-4"
+          >
+            + Add goal
+          </button>
         </div>
         {goals.length === 0 ? (
           <div className="py-8 text-center font-mono text-[12px] text-ink-3">No goals yet.</div>

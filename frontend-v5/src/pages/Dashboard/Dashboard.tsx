@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle } from "lucide-react";
+import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle, Check } from "lucide-react";
 import type { PortfolioSummary, NavPoint, PortfolioInsight } from "@/types/portfolio";
 import { PortfolioValueCard } from "./PortfolioValueCard";
 import { HealthScoreCard, type HealthBreakdown } from "./HealthScoreCard";
@@ -14,6 +14,8 @@ import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 import type { RiskProfile } from "@/hooks/use-risk-profile";
 import { TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
 import { cn } from "@/lib/utils";
+import { SafeWidget } from "@/components/shared/SafeWidget";
+import { ProfileWizardModal, type WizardCompleteness } from "./ProfileWizardModal";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,7 @@ interface DashboardProps {
   insights?: PortfolioInsight[];
   riskProfile?: RiskProfile | null;
   holdingsCount?: number;
+  hasGoal?: boolean;
   onRiskProfileSaved?: () => void;
 }
 
@@ -339,10 +342,12 @@ function ActionMatrix({ actions, total, onViewAll }: { actions: PlanActionC[]; t
 
 // ── Main dashboard ────────────────────────────────────────────────────────────
 
-export function Dashboard({ summary, navHistory, healthBreakdown, insights, riskProfile, holdingsCount = 0, onRiskProfileSaved }: DashboardProps) {
+export function Dashboard({ summary, navHistory, healthBreakdown, insights, riskProfile, holdingsCount = 0, hasGoal = false, onRiskProfileSaved }: DashboardProps) {
   const navigate = useNavigate();
   const casState  = useCasState();
   const planQuery = useActivePlan();
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStart, setWizardStart] = useState<0 | 1 | 2>(0);
 
   const score = Math.round(summary.healthScore);
   const { phrase, tone } = healthLabel(summary.healthScore);
@@ -378,8 +383,71 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
 
   const persona = casState.data?.persona;
 
+  const completeness: WizardCompleteness = {
+    hasRiskProfile: Boolean(riskProfile),
+    hasGoal,
+    hasSnapshot: false, // snapshot is optional — don't block
+  };
+  const stepsComplete = [completeness.hasRiskProfile, completeness.hasGoal].filter(Boolean).length;
+  const profileIncomplete = !completeness.hasRiskProfile || !completeness.hasGoal;
+
+  function openWizard(step: 0 | 1 | 2) {
+    setWizardStart(step);
+    setWizardOpen(true);
+  }
+
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
+
+      {/* Profile wizard */}
+      <ProfileWizardModal
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        completeness={completeness}
+        existingProfile={riskProfile}
+        startStep={wizardStart}
+        onComplete={() => {
+          setWizardOpen(false);
+          onRiskProfileSaved?.();
+        }}
+      />
+
+      {/* Profile completion banner — shown until both risk + goal are done */}
+      {profileIncomplete && (
+        <div className="mb-5 rounded-lg border border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.06)] px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-[10px] uppercase tracking-[.14em] text-accent mb-1">
+              Profile {stepsComplete}/2 complete
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {[
+                { label: "Risk profile", done: completeness.hasRiskProfile, step: 0 as const },
+                { label: "Add a goal",   done: completeness.hasGoal,        step: 1 as const },
+              ].map(s => (
+                <button
+                  key={s.label}
+                  onClick={() => openWizard(s.step)}
+                  className={cn(
+                    "flex items-center gap-1.5 font-mono text-[11px] px-2.5 py-1 rounded-full border transition-all",
+                    s.done
+                      ? "border-[rgba(var(--pos)/0.3)] text-pos bg-[rgba(var(--pos)/0.08)] cursor-default"
+                      : "border-[rgba(var(--accent)/0.4)] text-accent hover:bg-[rgba(var(--accent)/0.10)]"
+                  )}
+                >
+                  {s.done ? <Check className="h-2.5 w-2.5" /> : <span className="h-2.5 w-2.5 rounded-full border border-current inline-block" />}
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => openWizard(!completeness.hasRiskProfile ? 0 : 1)}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-on-accent text-[12px] font-medium hover:opacity-90"
+          >
+            {stepsComplete === 0 ? "Get started" : "Continue"} <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* CAS statement banner */}
       <CasStatementBanner
@@ -402,23 +470,32 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
 
       {/* Persona card */}
       <div className="mt-7">
-        <PersonaCard
-          persona={persona}
-          personaConfidence={casState.data?.persona_confidence}
-          riskProfile={riskProfile}
-          totalValue={summary.totalValue}
-          holdingsCount={holdingsCount}
-          onRiskProfileSaved={onRiskProfileSaved}
-        />
+        <SafeWidget name="PersonaCard" flagKey="persona_card" retryDelayMs={5000}>
+          <PersonaCard
+            persona={persona}
+            personaConfidence={casState.data?.persona_confidence}
+            riskProfile={riskProfile}
+            totalValue={summary.totalValue}
+            holdingsCount={holdingsCount}
+            onRiskProfileSaved={onRiskProfileSaved}
+            onOpenWizard={openWizard}
+          />
+        </SafeWidget>
       </div>
 
       {/* Hero: value · health · risk */}
       <div className="rounded-lg bg-surface-1 border border-hairline shadow-card">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-7 md:divide-x md:divide-[rgb(var(--line)/0.10)] p-6 sm:p-7">
-          <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
-          <HealthScoreCard score={summary.healthScore} verdict={verdict} breakdown={healthBreakdown} />
+          <SafeWidget name="PortfolioValueCard" flagKey="portfolio_value_card">
+            <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
+          </SafeWidget>
+          <SafeWidget name="HealthScoreCard" flagKey="health_score_card">
+            <HealthScoreCard score={summary.healthScore} verdict={verdict} breakdown={healthBreakdown} />
+          </SafeWidget>
           <div className="md:pl-7 relative">
-            <RiskMeterCard level={summary.riskBucketIndex as 1|2|3|4|5} bucket={summary.riskBucket} />
+            <SafeWidget name="RiskMeterCard" flagKey="risk_profile_card">
+              <RiskMeterCard level={summary.riskBucketIndex as 1|2|3|4|5} bucket={summary.riskBucket} />
+            </SafeWidget>
           </div>
         </div>
 
@@ -450,21 +527,30 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
       {/* Intelligence feed + Quick actions (side-by-side on desktop) */}
       {((insights && insights.length > 0) || allocationDrift) && (
         <div className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
-          <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
-          <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          <SafeWidget name="IntelligenceFeed" flagKey="intelligence_feed" retryDelayMs={5000}>
+            <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
+          </SafeWidget>
+          <SafeWidget name="QuickActions" flagKey="quick_actions">
+            <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          </SafeWidget>
         </div>
       )}
       {(!insights || insights.length === 0) && !allocationDrift && (
         <div className="mt-7">
-          <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          <SafeWidget name="QuickActions" flagKey="quick_actions">
+            <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          </SafeWidget>
         </div>
       )}
 
       {/* Action matrix */}
-      <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+      <SafeWidget name="ActionMatrix" flagKey="action_matrix">
+        <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+      </SafeWidget>
 
       {/* The one thing */}
       {showCta && (
+        <SafeWidget name="ImproveCTA" flagKey="improve_cta">
         <div className="mt-7 p-6 sm:p-7 rounded-lg bg-ink text-on-accent flex flex-col sm:flex-row gap-5 sm:items-center">
           <div className="flex-1">
             <div className="text-[13px] tracking-[.04em] opacity-60">The one thing</div>
@@ -480,6 +566,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             View action plan <ArrowRight className="h-4 w-4" />
           </button>
         </div>
+        </SafeWidget>
       )}
     </div>
   );

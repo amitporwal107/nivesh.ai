@@ -1,11 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
+import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
 import DashboardPage from "./pages/Dashboard";
 import PortfolioPage from "./pages/Portfolio";
 import ConcentrationPage from "./pages/Concentration";
-import DiversificationPage from "./pages/Diversification";
 import RecommendationsPage from "./pages/Recommendations";
 import RiskPage from "./pages/Risk";
 import FundDetailsPage from "./pages/FundDetails";
@@ -18,6 +18,7 @@ import GoalsPage from "./pages/Goals";
 import TaxPage from "./pages/Tax";
 import PlanPage from "./pages/Plan";
 import PerformancePage from "./pages/Performance";
+import DiagnosticsPage from "./pages/Diagnostics";
 
 export function AppRoutes() {
   return (
@@ -32,21 +33,24 @@ export function AppRoutes() {
       {/* CAS Connect widget OAuth popup callback — standalone, no layout */}
       <Route path="/cas-callback" element={<CasCallbackPage />} />
 
+      {/* Diagnostics — standalone, no auth required (reachable even in failure scenarios) */}
+      <Route path="/diagnostics" element={<DiagnosticsPage />} />
+
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-        <Route path="/dashboard"        element={<DashboardPage />} />
-        <Route path="/portfolio"        element={<PortfolioPage />} />
-        <Route path="/funds/:id"        element={<FundDetailsPage />} />
-        <Route path="/concentration"    element={<ConcentrationPage />} />
-        <Route path="/diversification"  element={<DiversificationPage />} />
-        <Route path="/risk"             element={<RiskPage />} />
-        <Route path="/performance"      element={<PerformancePage />} />
-        <Route path="/recommendations"  element={<RecommendationsPage />} />
-        <Route path="/chat"             element={<ChatPage />} />
-        <Route path="/goals"            element={<GoalsPage />} />
-        <Route path="/tax"              element={<TaxPage />} />
-        <Route path="/plan"             element={<PlanPage />} />
-        <Route path="/settings"         element={<SettingsPage />} />
+        <Route path="/dashboard"        element={<RouteErrorBoundary pageName="Dashboard"><DashboardPage /></RouteErrorBoundary>} />
+        <Route path="/portfolio"        element={<RouteErrorBoundary pageName="Portfolio"><PortfolioPage /></RouteErrorBoundary>} />
+        <Route path="/funds/:id"        element={<RouteErrorBoundary pageName="Fund Details"><FundDetailsPage /></RouteErrorBoundary>} />
+        <Route path="/concentration"    element={<RouteErrorBoundary pageName="Concentration"><ConcentrationPage /></RouteErrorBoundary>} />
+        <Route path="/diversification"  element={<Navigate to="/concentration" replace />} />
+        <Route path="/risk"             element={<RouteErrorBoundary pageName="Risk"><RiskPage /></RouteErrorBoundary>} />
+        <Route path="/performance"      element={<RouteErrorBoundary pageName="Performance"><PerformancePage /></RouteErrorBoundary>} />
+        <Route path="/recommendations"  element={<RouteErrorBoundary pageName="Recommendations"><RecommendationsPage /></RouteErrorBoundary>} />
+        <Route path="/chat"             element={<RouteErrorBoundary pageName="Chat"><ChatPage /></RouteErrorBoundary>} />
+        <Route path="/goals"            element={<RouteErrorBoundary pageName="Goals"><GoalsPage /></RouteErrorBoundary>} />
+        <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
+        <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
+        <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

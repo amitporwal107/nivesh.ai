@@ -56,6 +56,12 @@ export function getObserver(): Observer {
   return activeObserver;
 }
 
+// Component-level observability events (extend Observer without breaking existing impls)
+export type { ExtendedObserver, ComponentCrashEvent, ComponentRecoverEvent, ComponentHealthEvent }
+  from "./observability/component-events";
+export { reportComponentCrash, reportComponentRecover, reportComponentHealth }
+  from "./observability/component-events";
+
 /** RFC-4122 v4-ish (best-effort, not crypto). */
 export function correlationId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {

@@ -1,28 +1,51 @@
 import React from "react";
+import { SafeModeApp } from "./SafeModeApp";
+import { recordCrash } from "@/lib/crash-fingerprint";
+import { reportComponentCrash } from "@/lib/observability";
+import { updateComponentHealth } from "@/lib/health-registry";
 
-interface State { hasError: boolean; error?: Error }
+const BUILD_VERSION =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_VERSION ?? "unknown";
+const GIT_SHA =
+  (import.meta as unknown as { env: Record<string, string> }).env?.VITE_GIT_SHA ?? "local-dev";
+
+interface State {
+  hasError: boolean;
+  error?: Error;
+  fingerprintId?: string;
+}
 
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError(error: Error) {
+
+  static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
+
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("React crash:", error, info.componentStack);
+    const fp = recordCrash(error, "root", BUILD_VERSION);
+    reportComponentCrash({
+      component: "root",
+      error,
+      errorInfo: info,
+      buildId: BUILD_VERSION,
+      gitSha: GIT_SHA,
+      timestamp: Date.now(),
+    });
+    updateComponentHealth("root", "dead", fp.id);
+    this.setState({ fingerprintId: fp.id });
   }
+
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 24, fontFamily: "monospace", color: "#f87171", background: "#0a0a0a", minHeight: "100vh" }}>
-          <h2 style={{ color: "#f87171" }}>React render error</h2>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{String(this.state.error)}</pre>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: "#6b7280", marginTop: 16 }}>
-            {this.state.error?.stack}
-          </pre>
-        </div>
+        <SafeModeApp
+          error={this.state.error}
+          onReset={() => this.setState({ hasError: false, error: undefined, fingerprintId: undefined })}
+        />
       );
     }
     return this.props.children;

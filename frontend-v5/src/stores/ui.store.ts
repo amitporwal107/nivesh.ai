@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createSafeStorageAdapter } from "@/lib/safe-storage";
 
 type Theme = "light" | "dark";
 type Persona = "client" | "advisor";
@@ -23,6 +24,6 @@ export const useUIStore = create<UIState>()(
       setPersona: (persona) => set({ persona }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     }),
-    { name: "nivesh.ui" },
+    { name: "nivesh.ui", storage: createSafeStorageAdapter() },
   ),
 );
