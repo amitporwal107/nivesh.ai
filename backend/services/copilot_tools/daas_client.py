@@ -113,7 +113,7 @@ async def get_stock_features_latest(symbol: str) -> Optional[Dict[str, Any]]:
 
     Returns the feature dict or None if no data exists.
     """
-    data = await _get(f"/features/stocks/{symbol}/latest")
+    data = await _get(f"/v1/features/stocks/{symbol}/latest")
     if data is None:
         return None
     return data.get("data")
@@ -131,7 +131,7 @@ async def get_stock_features_history(
         params["start"] = start
     if end:
         params["end"] = end
-    data = await _get(f"/features/stocks/{symbol}", params=params)
+    data = await _get(f"/v1/features/stocks/{symbol}", params=params)
     if data is None:
         return []
     return data.get("data", [])
@@ -139,7 +139,7 @@ async def get_stock_features_history(
 
 async def get_stock_price_latest(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch the latest OHLCV price row for a symbol."""
-    data = await _get(f"/prices/stocks/{symbol}/latest")
+    data = await _get(f"/v1/prices/latest/{symbol}")
     if data is None:
         return None
     return data.get("data")
@@ -147,7 +147,7 @@ async def get_stock_price_latest(symbol: str) -> Optional[Dict[str, Any]]:
 
 async def get_stock_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     """Fetch the latest fundamental/financial data for a symbol."""
-    data = await _get(f"/financials/stocks/{symbol}/latest")
+    data = await _get(f"/v1/financials/{symbol}")
     if data is None:
         return None
     return data.get("data")
@@ -163,7 +163,7 @@ async def get_quarterly_financials(
     Returns newest-first list of up to `limit` quarters.
     """
     params: Dict[str, Any] = {"limit": limit, "consolidated": str(consolidated).lower()}
-    data = await _get(f"/financials/{symbol}", params=params)
+    data = await _get(f"/v1/financials/{symbol}", params=params)
     if data is None:
         return []
     rows = data.get("data") or data.get("rows") or []
@@ -178,7 +178,7 @@ async def get_shareholding_history(
 
     Returns newest-first list of up to `limit` periods.
     """
-    data = await _get(f"/shareholding/{symbol}", params={"limit": limit})
+    data = await _get(f"/v1/shareholding/{symbol}", params={"limit": limit})
     if data is None:
         return []
     rows = data.get("data") or data.get("rows") or []
@@ -190,7 +190,7 @@ async def get_mf_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
 
     Returns None on 404 or DaaS unavailability so callers can degrade gracefully.
     """
-    data = await _get(f"/mf/performance/scorecard/{scheme_code}")
+    data = await _get(f"/v1/mf/performance/scorecard/{scheme_code}")
     if data is None:
         return None
     return data.get("data") or data
@@ -201,7 +201,7 @@ async def get_mf_events(scheme_code: str, limit: int = 20) -> list[Dict[str, Any
 
     Returns empty list on failure so callers never need to guard against None.
     """
-    data = await _get(f"/mf/schemes/{scheme_code}/events", params={"limit": limit})
+    data = await _get(f"/v1/mf/schemes/{scheme_code}/events", params={"limit": limit})
     if data is None:
         return []
     rows = data.get("data") or data.get("events") or data.get("rows") or []
@@ -214,7 +214,7 @@ async def get_price_latest(symbol: str) -> Optional[float]:
     Returns None if the symbol has no price data yet (data lake may be empty
     before the yfinance backfill runs).
     """
-    data = await _get(f"/prices/latest/{symbol}")
+    data = await _get(f"/v1/prices/latest/{symbol}")
     if data is None:
         return None
     row = data.get("data") or data
@@ -265,7 +265,7 @@ async def get_v3_mf_primitives_bulk(
         return {}
     try:
         payload = await _post(
-            "/mf/performance/v3-primitives/bulk",
+            "/v1/mf/performance/v3-primitives/bulk",
             {"isins": isins},
             timeout=timeout,
         )
@@ -300,7 +300,7 @@ async def get_user_holdings(
         params["on"] = on
     try:
         payload = await _get(
-            f"/intelligence/portfolio/{external_user_id}/holdings",
+            f"/v1/intelligence/portfolio/{external_user_id}/holdings",
             params=params,
         )
     except DaasError as exc:
@@ -337,7 +337,7 @@ async def get_portfolio_correlations(
         return []
     try:
         payload = await _post(
-            "/intelligence/graph/correlations/bulk",
+            "/v1/intelligence/graph/correlations/bulk",
             {"security_ids": security_ids},
             timeout=timeout,
         )
@@ -367,7 +367,7 @@ async def get_v3_stock_primitives_bulk(
         return {}
     try:
         payload = await _post(
-            "/stocks/v3-primitives/bulk",
+            "/v1/stocks/v3-primitives/bulk",
             {"symbols": symbols},
             timeout=timeout,
         )
