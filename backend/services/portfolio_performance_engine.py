@@ -142,10 +142,14 @@ async def compute_performance(
 
 
 async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
-    """Full computation from Mongo holdings + mfapi.in NAV data."""
+    """Full computation from Mongo holdings + NIDP DaaS performance data.
+
+    Data source: NIDP DaaS /v1/mf/performance/v3-primitives/bulk (bulk ISIN fetch).
+    Returns return_1y, return_3y, sharpe_1y, alpha_1y, sub_category per fund.
+    Category benchmark = average return_1y across all funds in same sub_category.
+    Falls back to the mfapi.in path if DaaS is unavailable.
+    """
     from deps import db
-    from services import portfolio_enrichment as _pe
-    from services.fund_performance import compute_benchmark_ratings, fetch_scheme_history
 
     # Load holdings
     holdings = await db.holdings.find(
@@ -166,16 +170,92 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     if grand_total <= 0:
         return _empty_payload(period)
 
-    # Load NAV cache for scheme_code lookup
-    nav_cache_doc = await db.fund_nav_cache.find_one({}) or {}
-    nav_cache = nav_cache_doc.get("cache") or {}
+    # ── Fetch performance primitives from NIDP DaaS ──────────────────────────
+    mf_holdings = [h for h in holdings
+                   if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
+    isins = list({(h.get("ticker") or "").upper() for h in mf_holdings if h.get("ticker")})
 
-    # Get fund ratings (returns + category benchmarks) from existing service
-    ratings_result = await compute_benchmark_ratings(holdings, nav_cache)
-    fund_ratings: list[dict] = ratings_result.get("fund_ratings") or []
+    daas_primitives: dict[str, dict] = {}
+    if isins:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            if _daas.daas_available():
+                daas_primitives = await _daas.get_v3_mf_primitives_bulk(isins)
+                logger.info("perf_engine: DaaS returned %d/%d primitives", len(daas_primitives), len(isins))
+        except Exception as e:
+            logger.warning("perf_engine: DaaS primitives fetch failed, falling back: %s", e)
 
-    # Index by holding name for fast lookup
-    ratings_by_name: dict[str, dict] = {r["name"]: r for r in fund_ratings}
+    # ── Build per-fund ratings from DaaS primitives ───────────────────────────
+    # Compute category averages from the fetched data (same sub_category peer group)
+    from collections import defaultdict
+    cat_returns: dict[str, list[float]] = defaultdict(list)
+    for prim in daas_primitives.values():
+        cat = prim.get("sub_category") or prim.get("category") or ""
+        r1y = prim.get("return_1y")
+        if cat and r1y is not None:
+            try:
+                cat_returns[cat].append(float(r1y))
+            except (TypeError, ValueError):
+                pass
+
+    cat_avg: dict[str, float] = {
+        cat: round(sum(vals) / len(vals), 2)
+        for cat, vals in cat_returns.items() if vals
+    }
+
+    # Build ratings_by_name — same shape compute_benchmark_ratings produces
+    ratings_by_name: dict[str, dict] = {}
+    fund_ratings: list[dict] = []
+    for h in mf_holdings:
+        name = h.get("name") or ""
+        isin = (h.get("ticker") or "").upper()
+        prim = daas_primitives.get(isin) or {}
+
+        qty = float(h.get("quantity") or 0)
+        bp = float(h.get("buy_price") or 0)
+        cp = float(h.get("current_price") or 0)
+        invested = qty * bp if bp > 0 else 0.0
+        current = qty * cp
+
+        cat = prim.get("sub_category") or prim.get("category") or h.get("category") or ""
+        r1y = prim.get("return_1y")
+        bm_return = cat_avg.get(cat) if cat else None
+        alpha = round(float(r1y) - float(bm_return), 2) if (r1y is not None and bm_return is not None) else None
+
+        rating = {
+            "name": name,
+            "ticker": isin,
+            "scheme_category": cat,
+            "return_1y": float(r1y) if r1y is not None else None,
+            "benchmark_return": bm_return,
+            "benchmark_name": f"{cat} Avg" if cat else None,
+            "alpha": alpha,
+            "sharpe_1y": prim.get("sharpe_1y"),
+            "invested": round(invested, 2),
+            "current_value": round(current, 2),
+            "rating": (
+                "overperforming" if (alpha or 0) > 2
+                else "underperforming" if (alpha or 0) < -2
+                else "meeting"
+            ) if alpha is not None else "no_data",
+        }
+        fund_ratings.append(rating)
+        ratings_by_name[name] = rating
+
+    # Fallback to mfapi.in if DaaS returned nothing
+    if not daas_primitives:
+        logger.warning("perf_engine: DaaS unavailable, falling back to mfapi.in")
+        try:
+            from services.fund_performance import compute_benchmark_ratings
+            nav_cache_doc = await db.fund_holdings_cache.find_one({}) or {}
+            nav_cache = nav_cache_doc.get("cache") or {}
+            ratings_result = await compute_benchmark_ratings(holdings, nav_cache)
+            fund_ratings = ratings_result.get("fund_ratings") or []
+            ratings_by_name = {r["name"]: r for r in fund_ratings}
+        except Exception as e:
+            logger.warning("perf_engine: mfapi.in fallback also failed: %s", e)
+            fund_ratings = []
+            ratings_by_name = {}
 
     # ── Portfolio-level XIRR (weighted average of per-holding XIRRs) ────────
     portfolio_xirr = await _portfolio_xirr(holdings)
@@ -396,14 +476,23 @@ def _build_monthly_returns(fund_ratings: list[dict], period: str) -> list[dict]:
 
     now = datetime.now(timezone.utc)
     rows = []
-    for i in range(n_months - 1, -1, -1):
-        month_dt = now - timedelta(days=30 * i)
-        label = month_dt.strftime("%b %y")
-        rows.append({
-            "month": label,
-            "portfolio": None,
-            "benchmark": None,
-        })
+    # Generate months by stepping back calendar months (not 30-day multiples)
+    # to avoid the duplicate-month bug when 30*i crosses a month boundary.
+    from datetime import date
+    import calendar
+    year, month = now.year, now.month
+    months_back: list[tuple[int, int]] = []
+    y, m = year, month
+    for _ in range(n_months):
+        months_back.append((y, m))
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    months_back.reverse()
+    for y_, m_ in months_back:
+        label = date(y_, m_, 1).strftime("%b %y")
+        rows.append({"month": label, "portfolio": None, "benchmark": None})
 
     if not fund_ratings:
         return rows
