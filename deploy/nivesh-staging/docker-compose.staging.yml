@@ -103,6 +103,7 @@ services:
       COOKIE_SECURE: "true"
       COOKIE_SAMESITE: "lax"
       NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
       # ── CAS ingestion module (lives inside this same backend now) ──
       # Same DB connection; separate `portfolio_ingestion` schema.
