@@ -471,4 +471,8 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
         "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # current value in ₹ or null
         "cas_statement_date": profile.get("cas_statement_date"),           # "DD-MMM-YYYY" or null
         "cas_monthly_values": profile.get("cas_monthly_values"),           # [{month, value_rs}] or null
+        "persona":             profile.get("persona"),                        # e.g. "mutual_fund_investor"
+        "persona_confidence":  profile.get("persona_confidence"),             # int 0-100
+        "persona_label":       profile.get("persona_label"),                  # human-readable label
+        "has_risk_profile":    bool(profile.get("risk_profile")),
     }

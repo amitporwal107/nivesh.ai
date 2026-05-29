@@ -16,6 +16,17 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
   const [method, setMethod] = useState<Method>("gmail");
 
+  // If already onboarded (CAS imported), redirect to dashboard — the risk
+  // profile CTA lives there, not here. Only block here for brand-new users.
+  useEffect(() => {
+    fetch("/api/onboarding/state", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { onboarding_completed?: boolean } | null) => {
+        if (d?.onboarding_completed) navigate("/dashboard", { replace: true });
+      })
+      .catch(() => {});
+  }, [navigate]);
+
   return (
     <div className="min-h-screen flex flex-col bg-bg">
       <header className="flex items-center px-8 sm:px-14 h-16 border-b border-hairline">

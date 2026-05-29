@@ -4,12 +4,17 @@
  * Owns: react-query data fetch + loading/empty/error gates.
  * Doesn't own: layout chrome.
  *
- * V3 health score is fetched in parallel (separate hook, ETag-aware) so a
- * score-only refetch doesn't invalidate holdings / nav-history.
+ * Parallel fetches (all non-blocking on summary + navHistory):
+ *   - V3 health score (ETag-aware)
+ *   - Risk profile (user preferences)
+ *   - Insights list (intelligence feed)
+ *   - Holdings count (empty-state gate)
  */
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePortfolioSummary, usePortfolioNavHistory, useHoldings } from "@/hooks/use-portfolio";
-import { useV3Portfolio } from "@/hooks/use-insights";
+import { useHealthAnalysis, useInsightsList } from "@/hooks/use-insights";
+import { useRiskProfile } from "@/hooks/use-risk-profile";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -17,10 +22,17 @@ import { Dashboard } from "./Dashboard";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const summary = usePortfolioSummary();
+  const qc = useQueryClient();
+
+  // Blocking — needed before rendering the hero
+  const summary    = usePortfolioSummary();
   const navHistory = usePortfolioNavHistory("1y");
-  const holdings = useHoldings();        // count gate — totalValue can be 0 if NAV not fetched yet
-  const v3 = useV3Portfolio();           // independent; not blocking
+
+  // Non-blocking — augment the UI as they resolve
+  const holdings    = useHoldings();
+  const healthQuery = useHealthAnalysis();
+  const insightsQ   = useInsightsList();
+  const riskProfileQ = useRiskProfile();
 
   if (summary.isPending || navHistory.isPending) {
     return (
@@ -35,17 +47,11 @@ export default function DashboardPage() {
       <ErrorState
         title="Couldn't load your dashboard"
         error={summary.error ?? navHistory.error}
-        onRetry={() => {
-          summary.refetch();
-          navHistory.refetch();
-        }}
+        onRetry={() => { summary.refetch(); navHistory.refetch(); }}
       />
     );
   }
 
-  // Show empty state only when there are genuinely no holdings.
-  // totalValue can be 0 if NAV hasn't been fetched yet after import — don't
-  // gate on that or users see empty dashboard right after onboarding.
   const hasHoldings = (holdings.data?.length ?? 0) > 0;
   if (!summary.data && !hasHoldings) {
     return (
@@ -59,19 +65,39 @@ export default function DashboardPage() {
 
   const nav = navHistory.data ?? [];
 
-  // Prefer canonical /insights/analysis health score when resolved.
-  let dashSummary = v3.data && !v3.isError
-    ? { ...summary.data!, healthScore: v3.data.health.health_score || v3.data.health.score || summary.data!.healthScore }
+  // Prefer V3 health score; fall back to summary score
+  const healthData = healthQuery.data && !healthQuery.isError ? healthQuery.data : null;
+  let dashSummary = healthData
+    ? { ...summary.data!, healthScore: healthData.health.health_score || healthData.health.score || summary.data!.healthScore }
     : summary.data!;
 
-  // Portfolio value fallback: enriched totals are 0 when live NAV hasn't been
-  // fetched yet. Use the last trend data point (from portfolio snapshots) which
-  // reflects the value at statement time and is always more current than the
-  // holdings-enriched computation.
+  // Portfolio value fallback: use last trend data point when enriched totals aren't ready yet
   if (dashSummary.totalValue === 0 && nav.length > 0) {
-    const lastPoint = nav[nav.length - 1];
-    dashSummary = { ...dashSummary, totalValue: lastPoint.value };
+    dashSummary = { ...dashSummary, totalValue: nav[nav.length - 1].value };
   }
 
-  return <Dashboard summary={dashSummary} navHistory={nav} />;
+  // Health breakdown sub-scores from V3 analysis
+  const breakdown = healthData?.health.breakdown
+    ? {
+        return_quality:  healthData.health.breakdown.return_quality,
+        diversification: healthData.health.breakdown.diversification,
+        risk_adjusted:   healthData.health.breakdown.risk_adjusted,
+        cost_efficiency: healthData.health.breakdown.cost_efficiency,
+      }
+    : undefined;
+
+  return (
+    <Dashboard
+      summary={dashSummary}
+      navHistory={nav}
+      healthBreakdown={breakdown}
+      insights={insightsQ.data?.insights ?? []}
+      riskProfile={riskProfileQ.data ?? null}
+      holdingsCount={holdings.data?.length ?? 0}
+      onRiskProfileSaved={() => {
+        qc.invalidateQueries({ queryKey: ["user", "risk-profile"] });
+        qc.invalidateQueries({ queryKey: ["onboarding", "state"] });
+      }}
+    />
+  );
 }
