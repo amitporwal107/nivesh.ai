@@ -49,6 +49,7 @@ from services.recommendation_engine.engines.stock_scoring_engine import StockSco
 from services.recommendation_engine.engines.category_suitability_engine import CategorySuitabilityEngine
 from services.recommendation_engine.engines.behavioural_persona_filter_engine import BehaviouralPersonaFilterEngine
 from services.recommendation_engine.engines.goal_bucket_first_engine import GoalBucketFirstEngine
+from services.recommendation_engine.engines.concentration_engine import ConcentrationEngine
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ ENGINE_REGISTRY: List[BaseEngine] = [
     StockScoringEngine(),             # §10.9: direct equity scoring
     BehaviouralPersonaFilterEngine(), # BP-1: suppress instrument-type mismatches
     GoalBucketFirstEngine(),          # GBF-1/GBF-2: redirect new money to most-behind goal
+    ConcentrationEngine(),            # CC-1/CC-2: persona single-holding + single-sector caps (PRD §6.2)
 ]
 
 
@@ -300,6 +302,11 @@ async def run_engine_pipeline(
         behavioural_persona=behavioural_persona,
         behavioural_confidence=behavioural_confidence,
     )
+
+    # 1a. Mandatory gate (PRD §4 Rule 1): no persona → prompt user, don't generate.
+    if not ctx.persona_profile:
+        logger.info("[Orchestrator] user=%s: no risk persona — skipping engine pipeline", user_id)
+        return [], None
 
     # 1b. Pre-fetch MF quality scores from DAAS (best-effort)
     # Merges quality_score, health_score, category_rank into v3_scores keyed by ISIN.

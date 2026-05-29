@@ -270,7 +270,13 @@ function GoalStep({ onSaved, onSkip }: { onSaved: () => void; onSkip: () => void
       onSaved();
     } catch (e: unknown) {
       const msg = (e as { message?: string })?.message ?? "";
-      setErr(msg.includes("limit") ? msg : "Could not save goal — please check your values and try again.");
+      if (msg.includes("already exists") || msg.toLowerCase().includes("goal_type")) {
+        setErr(`A ${typeVal} goal already exists. Go to Goals to edit it instead of creating a duplicate.`);
+      } else if (msg.includes("limit")) {
+        setErr(msg);
+      } else {
+        setErr("Could not save goal — please check your values and try again.");
+      }
     } finally {
       setSaving(false);
     }
