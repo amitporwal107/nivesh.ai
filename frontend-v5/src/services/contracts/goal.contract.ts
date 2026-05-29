@@ -45,10 +45,13 @@ export const GoalC = z.object({
   on_track_pct:        z.number().nullable().optional(),
   projected_corpus_rs: z.number().nullable().optional(),
   sip_gap_rs:          z.number().nullable().optional(),
-  selected_funds:      z.array(z.string()).optional(),
+  // selected_funds is a bucket object {"debt":[], "equity":[...], "hybrid":[...]}
+  selected_funds:       z.record(z.array(z.unknown())).or(z.array(z.string())).optional(),
   manual_fund_override: z.boolean().optional(),
   status:              z.enum(["active", "completed", "archived", "abandoned"]).or(z.string()),
   created_at:          z.string().optional(),
+  last_simulation:     z.unknown().optional(),
+  last_simulated_at:   z.string().nullable().optional(),
 }).passthrough();
 export type GoalC = z.infer<typeof GoalC>;
 
