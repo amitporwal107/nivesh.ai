@@ -471,8 +471,33 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
         "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # current value in ₹ or null
         "cas_statement_date": profile.get("cas_statement_date"),           # "DD-MMM-YYYY" or null
         "cas_monthly_values": profile.get("cas_monthly_values"),           # [{month, value_rs}] or null
-        "persona":             profile.get("persona"),                        # e.g. "mutual_fund_investor"
-        "persona_confidence":  profile.get("persona_confidence"),             # int 0-100
-        "persona_label":       profile.get("persona_label"),                  # human-readable label
+        # persona is stored as a dict {"persona": slug, "confidence": int, "label": str, ...}
+        # — unpack so the frontend always receives plain scalar values.
+        "persona":             _persona_slug(profile.get("persona")),
+        "persona_confidence":  _persona_confidence(profile.get("persona")),
+        "persona_label":       _persona_label(profile.get("persona")),
         "has_risk_profile":    bool(profile.get("risk_profile")),
     }
+
+
+def _persona_slug(raw) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        return raw.get("persona") or raw.get("slug") or raw.get("name")
+    return None
+
+
+def _persona_confidence(raw) -> int | None:
+    if isinstance(raw, dict):
+        v = raw.get("confidence")
+        return int(v) if v is not None else None
+    return None
+
+
+def _persona_label(raw) -> str | None:
+    if isinstance(raw, dict):
+        return raw.get("label")
+    return None
