@@ -48,7 +48,7 @@ export function Portfolio({ summary, holdings }: Props) {
         </TabsList>
 
         <TabsContent value="holdings">
-          <HoldingsTable holdings={holdings} />
+          <HoldingsTable holdings={holdings as any} />
         </TabsContent>
 
         <TabsContent value="allocation">
