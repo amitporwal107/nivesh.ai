@@ -10,7 +10,8 @@
 -- row that has a non-null value. This ensures the view always returns the best
 -- available data, not just the most recent (possibly incomplete) snapshot.
 
-CREATE OR REPLACE VIEW nidp.v_v3_mf_primitives AS
+DROP VIEW IF EXISTS nidp.v_v3_mf_primitives;
+CREATE VIEW nidp.v_v3_mf_primitives AS
 WITH latest_rank AS (
     -- Latest analytics row per scheme (may have nulls for longer-period returns)
     SELECT DISTINCT ON (scheme_code)
