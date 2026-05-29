@@ -8,13 +8,47 @@
  */
 import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@radix-ui/react-tabs";
-import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { useComposition, type CompositionDimension, type CompositionMetric } from "@/hooks/use-composition";
 import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
 import { formatINRCompact } from "@/lib/formatters";
 import { ExportButton } from "@/components/shared/ExportButton";
+
+// ── Simple donut SVG ─────────────────────────────────────────────────────────
+
+function SimpleDonut({ slices, size }: { slices: Array<{ label: string; pct: number; color: string }>; size: number }) {
+  const cx = size / 2, cy = size / 2;
+  const R = size * 0.38, r = size * 0.22;
+  const total = slices.reduce((s, sl) => s + sl.pct, 0) || 100;
+  let angle = -Math.PI / 2;
+
+  const paths = slices.map((sl) => {
+    const sweep = (sl.pct / total) * 2 * Math.PI;
+    const x1 = cx + R * Math.cos(angle);
+    const y1 = cy + R * Math.sin(angle);
+    angle += sweep;
+    const x2 = cx + R * Math.cos(angle);
+    const y2 = cy + R * Math.sin(angle);
+    const xi1 = cx + r * Math.cos(angle);
+    const yi1 = cy + r * Math.sin(angle);
+    const xi2 = cx + r * Math.cos(angle - sweep);
+    const yi2 = cy + r * Math.sin(angle - sweep);
+    const large = sweep > Math.PI ? 1 : 0;
+    return (
+      <path key={sl.label}
+        d={`M${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${xi1},${yi1} A${r},${r} 0 ${large},0 ${xi2},${yi2} Z`}
+        fill={sl.color} fillOpacity={0.8} stroke="rgb(var(--surface-2))" strokeWidth={1.5}
+        aria-label={`${sl.label}: ${sl.pct.toFixed(1)}%`} />
+    );
+  });
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Portfolio composition donut chart">
+      {paths}
+    </svg>
+  );
+}
 
 // Palette for donut slices
 const SLICE_COLORS = [
@@ -58,10 +92,10 @@ export default function CompositionPage() {
   const segments = data?.segments ?? [];
   const breaches = data?.concentration_breaches ?? [];
 
-  // Donut slices
+  // Donut slices for inline SVG
   const donutSlices = segments.slice(0, 10).map((s, i) => ({
     label: s.name,
-    value: s.metric_value,
+    pct: s.weight_pct,
     color: SLICE_COLORS[i % SLICE_COLORS.length],
   }));
 
@@ -160,9 +194,9 @@ export default function CompositionPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6">
 
-          {/* Donut (desktop only) */}
+          {/* Donut SVG (desktop only) */}
           <div className="hidden lg:flex items-center justify-center">
-            <AllocationDonut slices={donutSlices} size={260} />
+            <SimpleDonut slices={donutSlices} size={260} />
           </div>
 
           {/* Ranked table */}
