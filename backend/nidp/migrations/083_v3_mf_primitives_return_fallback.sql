@@ -96,11 +96,19 @@ manager_tenure AS (
     GROUP BY scheme_code
 ),
 top10_conc AS (
-    SELECT
-        scheme_code,
-        SUM(weight_pct) AS top10_concentration_pct
-    FROM nidp.mf_scheme_holdings
-    WHERE holding_rank <= 10
+    SELECT scheme_code, SUM(weight_pct) AS top10_concentration_pct
+    FROM (
+        SELECT scheme_code, weight_pct,
+               ROW_NUMBER() OVER (PARTITION BY scheme_code ORDER BY weight_pct DESC) AS rn
+        FROM (
+            SELECT DISTINCT ON (scheme_code, holding_name)
+                   scheme_code, weight_pct
+              FROM nidp.mf_holdings_monthly
+             WHERE weight_pct IS NOT NULL AND weight_pct > 0
+             ORDER BY scheme_code, holding_name, snapshot_month DESC
+        ) deduped
+    ) ranked
+    WHERE rn <= 10
     GROUP BY scheme_code
 ),
 derived AS (
