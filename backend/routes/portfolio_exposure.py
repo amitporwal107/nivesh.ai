@@ -294,6 +294,26 @@ async def get_remediation(request: Request) -> dict[str, Any]:
     if not holdings:
         return {"recommendations": [], "total_value": 0, "empty": True}
 
+    # ── Risk profile from financial snapshot ───────────────────────────
+    risk_profile = "moderate"
+    try:
+        from services import pg_client as _pg
+        pool = await _pg.get_pool()
+        if pool:
+            import uuid as _uuid
+            try:
+                uid = _uuid.UUID(user_id)
+            except (ValueError, AttributeError):
+                uid = _uuid.uuid5(_uuid.NAMESPACE_DNS, f"nivesh:user:{user_id}")
+            async with pool.acquire() as conn:
+                snap = await conn.fetchrow(
+                    "SELECT risk_profile FROM user_financial_snapshots WHERE user_id = $1", uid,
+                )
+                if snap and snap["risk_profile"]:
+                    risk_profile = snap["risk_profile"].lower()
+    except Exception:
+        logger.exception("Could not fetch risk_profile for remediation; defaulting to moderate")
+
     # ── Concentration envelope ──────────────────────────────────────────
     fund_lookthrough = await _load_fund_lookthrough(holdings)
     envelope = compute_concentration(holdings, fund_lookthrough=fund_lookthrough)
@@ -312,7 +332,7 @@ async def get_remediation(request: Request) -> dict[str, Any]:
             logger.exception("cluster_overlapping_funds failed in remediation endpoint")
 
     # ── Remediation engine ──────────────────────────────────────────────
-    recs = compute_remediation(holdings, envelope, clusters=clusters)
+    recs = compute_remediation(holdings, envelope, clusters=clusters, risk_profile=risk_profile)
 
     return {
         "recommendations": recs,
