@@ -4,6 +4,7 @@ import { useUIStore } from "./stores/ui.store";
 import { useToastStore, toastFromError } from "./stores/toast.store";
 import { Toaster } from "./components/shared/Toaster";
 import { useQueryClient } from "@tanstack/react-query";
+import { buildDiagnosticPayload } from "./lib/diagnostic-payload";
 
 export default function App() {
   const theme = useUIStore((s) => s.theme);
@@ -13,6 +14,22 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  // Keyboard shortcut: Shift+Ctrl+D → /diagnostics (works on Ctrl, not Cmd, on Mac)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.shiftKey && e.ctrlKey && e.key === "D") {
+        window.location.href = "/diagnostics";
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Expose diagnostics builder on window for console access
+  useEffect(() => {
+    window.__DIAGNOSTICS__ = { build: () => buildDiagnosticPayload() };
+  }, []);
 
   // Subscribe to React Query mutation errors → toast.
   useEffect(() => {

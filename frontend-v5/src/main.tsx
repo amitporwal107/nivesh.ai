@@ -5,7 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import App from "./App";
 import { ErrorBoundary } from "./components/shared/ErrorBoundary";
+import { buildDiagnosticPayload } from "./lib/diagnostic-payload";
 import "./index.css";
+
+// Make diagnostics available before React mounts (useful in boot-failure scenarios)
+window.__DIAGNOSTICS__ = { build: () => buildDiagnosticPayload() };
 
 // Catch module-load failures and promise rejections before React mounts.
 window.onerror = function(message, source, line, col, error) {

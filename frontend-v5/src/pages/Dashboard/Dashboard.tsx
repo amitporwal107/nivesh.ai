@@ -14,6 +14,7 @@ import type { PlanActionC, PlanC } from "@/services/contracts/plan.contract";
 import type { RiskProfile } from "@/hooks/use-risk-profile";
 import { TARGET_ALLOCATION } from "@/hooks/use-risk-profile";
 import { cn } from "@/lib/utils";
+import { SafeWidget } from "@/components/shared/SafeWidget";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -402,23 +403,31 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
 
       {/* Persona card */}
       <div className="mt-7">
-        <PersonaCard
-          persona={persona}
-          personaConfidence={casState.data?.persona_confidence}
-          riskProfile={riskProfile}
-          totalValue={summary.totalValue}
-          holdingsCount={holdingsCount}
-          onRiskProfileSaved={onRiskProfileSaved}
-        />
+        <SafeWidget name="PersonaCard" flagKey="persona_card" retryDelayMs={5000}>
+          <PersonaCard
+            persona={persona}
+            personaConfidence={casState.data?.persona_confidence}
+            riskProfile={riskProfile}
+            totalValue={summary.totalValue}
+            holdingsCount={holdingsCount}
+            onRiskProfileSaved={onRiskProfileSaved}
+          />
+        </SafeWidget>
       </div>
 
       {/* Hero: value · health · risk */}
       <div className="rounded-lg bg-surface-1 border border-hairline shadow-card">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-7 md:divide-x md:divide-[rgb(var(--line)/0.10)] p-6 sm:p-7">
-          <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
-          <HealthScoreCard score={summary.healthScore} verdict={verdict} breakdown={healthBreakdown} />
+          <SafeWidget name="PortfolioValueCard" flagKey="portfolio_value_card">
+            <PortfolioValueCard value={summary.totalValue} yearChangePct={summary.yearChange.pct} navHistory={navHistory} />
+          </SafeWidget>
+          <SafeWidget name="HealthScoreCard" flagKey="health_score_card">
+            <HealthScoreCard score={summary.healthScore} verdict={verdict} breakdown={healthBreakdown} />
+          </SafeWidget>
           <div className="md:pl-7 relative">
-            <RiskMeterCard level={summary.riskBucketIndex as 1|2|3|4|5} bucket={summary.riskBucket} />
+            <SafeWidget name="RiskMeterCard" flagKey="risk_profile_card">
+              <RiskMeterCard level={summary.riskBucketIndex as 1|2|3|4|5} bucket={summary.riskBucket} />
+            </SafeWidget>
           </div>
         </div>
 
@@ -450,21 +459,30 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
       {/* Intelligence feed + Quick actions (side-by-side on desktop) */}
       {((insights && insights.length > 0) || allocationDrift) && (
         <div className="mt-7 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
-          <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
-          <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          <SafeWidget name="IntelligenceFeed" flagKey="intelligence_feed" retryDelayMs={5000}>
+            <IntelligenceFeed insights={insights ?? []} allocationDrift={allocationDrift} />
+          </SafeWidget>
+          <SafeWidget name="QuickActions" flagKey="quick_actions">
+            <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          </SafeWidget>
         </div>
       )}
       {(!insights || insights.length === 0) && !allocationDrift && (
         <div className="mt-7">
-          <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          <SafeWidget name="QuickActions" flagKey="quick_actions">
+            <QuickActions persona={persona} riskCategory={riskProfile?.category} />
+          </SafeWidget>
         </div>
       )}
 
       {/* Action matrix */}
-      <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+      <SafeWidget name="ActionMatrix" flagKey="action_matrix">
+        <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
+      </SafeWidget>
 
       {/* The one thing */}
       {showCta && (
+        <SafeWidget name="ImproveCTA" flagKey="improve_cta">
         <div className="mt-7 p-6 sm:p-7 rounded-lg bg-ink text-on-accent flex flex-col sm:flex-row gap-5 sm:items-center">
           <div className="flex-1">
             <div className="text-[13px] tracking-[.04em] opacity-60">The one thing</div>
@@ -480,6 +498,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
             View action plan <ArrowRight className="h-4 w-4" />
           </button>
         </div>
+        </SafeWidget>
       )}
     </div>
   );
