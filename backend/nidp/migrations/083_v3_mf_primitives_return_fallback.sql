@@ -132,9 +132,13 @@ nidp_avail AS (
     ) recent_nav
 ),
 isin_map AS (
-    SELECT scheme_code, isin
+    SELECT scheme_code, isin_growth AS isin
     FROM nidp.mf_scheme_master
-    WHERE isin IS NOT NULL
+    WHERE isin_growth IS NOT NULL
+    UNION ALL
+    SELECT scheme_code, isin_idcw AS isin
+    FROM nidp.mf_scheme_master
+    WHERE isin_idcw IS NOT NULL
 )
 SELECT
     im.isin,
@@ -190,7 +194,7 @@ JOIN isin_map    im  ON im.scheme_code = lr.scheme_code
 JOIN (
     SELECT DISTINCT ON (scheme_code) scheme_code, scheme_name, launch_date
     FROM nidp.mf_scheme_master
-    ORDER BY scheme_code, created_at DESC
+    ORDER BY scheme_code
 )                sm  ON sm.scheme_code = lr.scheme_code
 LEFT JOIN fallback_1y  fb  ON fb.scheme_code = lr.scheme_code
 LEFT JOIN cat_avg      ca  ON ca.category    = lr.category
