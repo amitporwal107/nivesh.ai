@@ -106,12 +106,16 @@ export const EnrichedHoldingsRes = z.object({
 }).passthrough();
 export type EnrichedHoldingsRes = z.infer<typeof EnrichedHoldingsRes>;
 
-/** /api/portfolio/trend — sparkline series. Wire fields: date, value_rs. */
+/** /api/portfolio/trend — sparkline series.
+ *  Backend currently returns snapshot_date + total_value;
+ *  passthrough lets us handle both field-name variants in the adapter. */
 export const TrendPointC = z.object({
-  date:         z.string(),
-  value_rs:     z.number(),
-  health_score: z.number().optional(),
-  allocation:   z.unknown().optional(),
+  snapshot_date: z.string().optional(),
+  total_value:   z.number().optional(),
+  date:          z.string().optional(),
+  value_rs:      z.number().optional(),
+  health_score:  z.number().optional(),
+  allocation:    z.unknown().optional(),
   scores:       z.unknown().optional(),
   return_pct:   z.number().optional(),
 }).passthrough();

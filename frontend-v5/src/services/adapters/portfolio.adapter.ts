@@ -109,9 +109,9 @@ export const realPortfolioAdapter: PortfolioAdapter = {
     const parsed = TrendRes.safeParse(trendRes.data);
     if (!parsed.success) throw ApiError.contractDrift(`portfolio.getNavHistory: ${parsed.error.message}`);
     const trendSeries = parsed.data.series.map((p) => ({
-      date:  p.date,
-      value: Math.round(p.value_rs * 100),
-    }));
+      date:  p.date ?? p.snapshot_date ?? "",
+      value: Math.round((p.value_rs ?? p.total_value ?? 0) * 100),
+    })).filter(p => p.date);
 
     // Prefer CAS monthly values (from Vision API) when available — they are
     // the authoritative time-series straight from the PDF Summary section.
