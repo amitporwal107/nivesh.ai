@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "find src -name '*.js' -delete 2>/dev/null || true && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
