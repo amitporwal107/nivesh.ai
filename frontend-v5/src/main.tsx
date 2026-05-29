@@ -2,16 +2,45 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Sentry from "@sentry/react";
 
 import App from "./App";
 import { ErrorBoundary } from "./components/shared/ErrorBoundary";
 import { buildDiagnosticPayload } from "./lib/diagnostic-payload";
+import { setObserver } from "./lib/observability";
+import { sentryObserver } from "./lib/observability/sentry";
 import "./index.css";
 
-// Make diagnostics available before React mounts (useful in boot-failure scenarios)
+// ── Sentry init (no-op when VITE_SENTRY_DSN is absent) ───────────────────────
+const SENTRY_DSN = (import.meta as unknown as { env: Record<string, string> }).env?.VITE_SENTRY_DSN;
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: (import.meta as unknown as { env: Record<string, string> }).env?.MODE ?? "production",
+    release: (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_VERSION,
+    // Sample 10% of traces — enough for performance monitoring, low overhead
+    tracesSampleRate: 0.1,
+    // Capture replay only on errors — not every session
+    replaysOnErrorSampleRate: 1.0,
+    replaysSessionSampleRate: 0,
+    integrations: [Sentry.browserTracingIntegration()],
+    // Tag every event with build metadata
+    initialScope: {
+      tags: {
+        git_sha: (import.meta as unknown as { env: Record<string, string> }).env?.VITE_GIT_SHA ?? "local",
+        build_version: (import.meta as unknown as { env: Record<string, string> }).env?.VITE_APP_VERSION ?? "unknown",
+      },
+    },
+  });
+  // Replace the default console observer with the Sentry one
+  // Cast to MinimalSentry to avoid Sentry SDK v8 metric type drift
+  setObserver(sentryObserver(Sentry as any));
+}
+
+// ── Diagnostics available before React mounts (boot-failure scenarios) ───────
 window.__DIAGNOSTICS__ = { build: () => buildDiagnosticPayload() };
 
-// Catch module-load failures and promise rejections before React mounts.
+// ── Catch module-load failures and unhandled rejections ──────────────────────
 window.onerror = function(message, source, line, col, error) {
   console.error("window.onerror", { message, source, line, col, stack: error?.stack });
 };
