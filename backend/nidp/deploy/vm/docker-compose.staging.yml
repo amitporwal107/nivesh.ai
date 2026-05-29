@@ -46,7 +46,7 @@ services:
     environment:
       PORT:         "8084"
       LOG_LEVEL:    info
-      PYTHONPATH:   /app/backend
+      PYTHONPATH:   /app/backend:/opt/nidp-staging/venv/lib/python3.11/site-packages
       ROOT_PATH:    /daas
       # Override DB URL to reach the staging postgres container via host network
       NIDP_POSTGRES_URL: postgresql://${NIDP_PG_USER:-nidp_staging}:${NIDP_PG_PASSWORD}@host-gateway:5434/${NIDP_PG_DB:-nidp_staging}
@@ -57,8 +57,11 @@ services:
       - /opt/nidp/repo/backend:/app/backend:ro
       # Staging venv at /opt/nidp-staging/venv — separate from prod /opt/nidp/venv
       - /opt/nidp-staging/venv:/opt/nidp-staging/venv:ro
+    # Use the container's python3 with PYTHONPATH pointing at the staging
+    # site-packages so all dependencies are available without needing the
+    # venv's own interpreter (which has a host-path shebang that breaks in Docker).
     command: >
-      /opt/nidp-staging/venv/bin/uvicorn nidp.services.daas_api.app:app
+      python3 -m uvicorn nidp.services.daas_api.app:app
       --host 0.0.0.0
       --port 8084
       --proxy-headers
