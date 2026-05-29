@@ -1,0 +1,49 @@
+{
+  "type": "performance",
+  "badge": { "label": "FAIR", "tone": "saffron" },
+  "insight": {
+    "headline": "You trailed the benchmark by 2.4 points",
+    "subtext": "1Y annualised returns vs category average benchmark.",
+    "hero": { "label": "XIRR", "value": "9.2%", "tone": "rust" }
+  },
+  "stat_tiles": [
+    { "label": "XIRR",     "value": "9.2%",   "tone": "rust",    "sub": "1Y annualised" },
+    { "label": "Sharpe",   "value": "0.71",   "tone": "saffron", "sub": "risk-adjusted" },
+    { "label": "Benchmark","value": "11.6%",  "tone": "neutral", "sub": "category avg" },
+    { "label": "Alpha",    "value": "-2.4pp", "tone": "rust",    "sub": "vs benchmark" }
+  ],
+  "breakdown": {
+    "lens": "returns",
+    "lens_options": ["returns", "alpha", "consistency"],
+    "status_pill": "FAIR",
+    "portfolio_xirr": 9.2,
+    "benchmark_xirr": 11.6,
+    "alpha": -2.4,
+    "sharpe_ratio": 0.71,
+    "computed_at": "2026-05-29T10:00:00Z",
+    "coverage": {
+      "matched_funds": 7,
+      "total_funds": 10
+    },
+    "waterfall": [
+      { "label": "Benchmark",    "value": 11.6,  "type": "start" },
+      { "label": "HDFC Flexicap","value": 1.2,   "type": "step" },
+      { "label": "Axis Small Cap","value": -2.1, "type": "step" },
+      { "label": "SBI Bluechip", "value": -1.5,  "type": "step" },
+      { "label": "Portfolio",    "value": 9.2,   "type": "end" }
+    ],
+    "items": [
+      { "name": "HDFC Flexicap",  "alpha_contribution": 1.2,  "weight_pct": 22.5, "fund_xirr": 14.8 },
+      { "name": "Axis Small Cap", "alpha_contribution": -2.1, "weight_pct": 12.0, "fund_xirr": 8.1 },
+      { "name": "SBI Bluechip",   "alpha_contribution": -1.5, "weight_pct": 14.0, "fund_xirr": 9.4 }
+    ],
+    "monthly_returns": [
+      { "month": "Jun", "portfolio": 0.4,  "benchmark": 0.8 },
+      { "month": "Jul", "portfolio": -1.2, "benchmark": 0.2 },
+      { "month": "Aug", "portfolio": 0.9,  "benchmark": 1.5 },
+      { "month": "Sep", "portfolio": 0.3,  "benchmark": 1.1 }
+    ]
+  },
+  "recommendations": [],
+  "projection": { "metric_label": "Projected health", "current": 55.0, "projected": 57.2, "unit": "", "tone": "saffron" }
+}

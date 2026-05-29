@@ -22,7 +22,7 @@ function loadFixture(name: string): unknown {
 
 /** Standard endpoint → fixture mapping for a populated portfolio */
 const POPULATED_ROUTES: Record<string, string> = {
-  "**/api/auth/me": "user-profile.json",
+  "**/api/auth/me": "user-profile-onboarded.json",
   "**/api/auth/google-client-id": "google-client-id.json",
   "**/api/portfolio/holdings-enriched*": "holdings-enriched.json",
   "**/api/portfolio/holdings": "holdings.json",
@@ -40,7 +40,7 @@ const POPULATED_ROUTES: Record<string, string> = {
 
 /** Empty portfolio state — auth works but no holdings */
 const EMPTY_ROUTES: Record<string, string> = {
-  "**/api/auth/me": "user-profile.json",
+  "**/api/auth/me": "user-profile-onboarded.json",
   "**/api/auth/google-client-id": "google-client-id.json",
   "**/api/portfolio/holdings-enriched*": "empty-portfolio.json",
   "**/api/portfolio/holdings": "empty-portfolio.json",
