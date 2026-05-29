@@ -76,9 +76,24 @@ def _is_direct(name: str) -> bool:
     return "direct" in (name or "").lower()
 
 
+def _clean_name(name: str) -> str:
+    """Remove spurious commas and extra whitespace from fund names.
+
+    CAS-parsed fund names sometimes contain commas mid-name, e.g.
+    'HDFC Balanced, Advantage Fund -, Regular Plan'. Strip them.
+    """
+    n = (name or "").strip()
+    # Remove commas that appear before/after spaces (mid-name CAS artefacts)
+    n = re.sub(r"\s*,\s*", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    # Trim trailing punctuation
+    n = n.rstrip(".-–—")
+    return n
+
+
 def _scheme_base(name: str) -> str:
     """Strip plan/option tokens to get a canonical scheme name for matching."""
-    n = (name or "").lower()
+    n = _clean_name(name).lower()
     n = re.sub(
         r"\b(direct|regular|growth|idcw|dividend|payout|reinvestment|plan|option|fund|"
         r"erstwhile|formerly|scheme|equity)\b",
@@ -348,29 +363,34 @@ def _rec_cluster(
     if len(dedup_members) < 2:
         return {}  # after dedup, not actually a cluster
 
-    # Sort: keep fund with highest value (most capital, less disruptive)
-    members_sorted = sorted(dedup_members, key=lambda m: -m["current_value_rs"])
+    # Sort: keep direct-plan fund with highest value first; else highest value
+    members_sorted = sorted(
+        dedup_members,
+        key=lambda m: (0 if _is_direct(m.get("name","")) else 1, -m["current_value_rs"]),
+    )
     keep    = members_sorted[0]
     exits   = members_sorted[1:]
     exit_value   = sum(m["current_value_rs"] for m in exits)
     annual_saving = round(exit_value * (_ER_REGULAR - _ER_DIRECT), 0)
     avg_ov  = cluster.get("avg_overlap_pct", 0)
     cat     = cluster.get("sebi_subcategory") or cluster.get("sebi_category") or "similar"
+    keep_name = _clean_name(keep.get("name") or "")
+    exit_names_clean = [_clean_name(m.get("name","")) for m in exits[:3]]
 
     return {
-        "id":          f"cluster-{(keep.get('name') or '')[:20]}",
+        "id":          f"cluster-{keep_name[:20]}",
         "action_kind": "consolidation",
         "title":       f"Consolidate {len(dedup_members)} {cat} funds into 1",
         "why": (
             f"These {len(dedup_members)} funds share {avg_ov:.0f}% average overlap in their "
             f"underlying holdings — you are paying {len(dedup_members)}× management fees for "
-            f"effectively one exposure. Keeping {keep.get('name','')} and exiting the rest "
+            f"effectively one exposure. Keeping {keep_name} and exiting the rest "
             f"cuts cost without reducing diversification."
         ),
         "action": (
-            f"Exit: {', '.join(m['name'] for m in exits[:3])}"
+            f"Exit: {', '.join(exit_names_clean)}"
             + (f" and {len(exits)-3} more" if len(exits) > 3 else "")
-            + f". Retain: {keep.get('name','')}. "
+            + f". Retain: {keep_name}. "
             f"Capital to redeploy: ₹{exit_value:,.0f}."
         ),
         "amount_rs":        round(exit_value, 0),
@@ -560,35 +580,42 @@ def compute_remediation(
 
     recommendations: list[dict] = []
 
-    # 1. Duplicate Regular/Direct plans
+    # 1. Duplicate Regular/Direct plans — sorted by annual saving (largest first)
     try:
-        for dup in _find_duplicate_plans(mf_holdings):
+        dups = sorted(
+            _find_duplicate_plans(mf_holdings),
+            key=lambda d: -_holding_value(d["regular_holding"]),
+        )
+        for dup in dups:
             reg  = dup["regular_holding"]
             drct = dup["direct_holding"]
             rv   = _holding_value(reg)
             saving = round(rv * (_ER_REGULAR - _ER_DIRECT), 0)
+            reg_clean  = _clean_name(reg.get("name") or "")
+            drct_clean = _clean_name(drct.get("name") or "")
+            # Leverage = 90 + bonus for large saving (caps at 99)
+            leverage = min(99, 90 + min(9, round(saving / 5000)))
             recommendations.append({
                 "id":          f"dup-{_scheme_base(reg.get('name',''))[:30]}",
                 "action_kind": "duplicate_plan",
-                "title":       f"Switch {reg.get('name','')} → Direct plan",
+                "title":       f"Switch {reg_clean} → Direct plan",
                 "why": (
                     f"You hold the same scheme in two plans. The Regular plan charges "
                     f"~{_ER_REGULAR*100:.1f}% p.a. vs ~{_ER_DIRECT*100:.1f}% for Direct — "
                     f"identical portfolio, higher fees. Switching saves ₹{saving:,.0f}/yr."
                 ),
                 "action": (
-                    f"Redeem {reg.get('name','')} (₹{rv:,.0f}) and invest in "
-                    f"{drct.get('name','')}."
+                    f"Redeem {reg_clean} (₹{rv:,.0f}) and invest in {drct_clean}."
                 ),
                 "amount_rs": round(rv, 0), "annual_saving_rs": saving,
-                "contributors": [{"name": reg.get("name",""), "pct_of_exposure": 100, "value_rs": round(rv, 0)}],
+                "contributors": [{"name": reg_clean, "pct_of_exposure": 100, "value_rs": round(rv, 0)}],
                 "before_after": [],
-                "redeploy_to": drct.get("name"),
+                "redeploy_to": drct_clean,
                 "caveats": [
                     {"icon": "tax",  "text": "LTCG at 10% on units held > 1 year (above ₹1 L annual exemption). STCG at 15% on units held < 1 year."},
                     {"icon": "lock", "text": "ELSS units are locked for 3 years per instalment — switch only unlocked units."},
                 ],
-                "leverage_score": 95,
+                "leverage_score": leverage,
             })
     except Exception:
         logger.exception("Duplicate plan detection failed")
