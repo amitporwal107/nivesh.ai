@@ -1,97 +1,312 @@
-import { useNavigate } from "react-router-dom";
-import { ChevronRight } from "lucide-react";
+/**
+ * HoldingsTable v2 — v5 Performance Dashboard
+ *
+ * - 8 visible columns on desktop (spec §4 REQ 10); sticky Name column
+ * - Sort on any numeric column; default = current value DESC
+ * - Text search by fund name / ISIN
+ * - Filter by dimension via useHoldingsFilter (set by Composition Explorer, etc.)
+ * - AMFI-unmatched rows: marker + "—" for benchmark/attribution fields (AC-19)
+ * - Row click → HoldingDrawer (AC-20)
+ * - Mobile: stacked cards (< 640 px)
+ */
+
+import { useState, useMemo } from "react";
+import { Search, ChevronUp, ChevronDown } from "lucide-react";
+import { formatINRCompact } from "@/lib/formatters";
+import type { EnrichedHolding } from "@/services/contracts/portfolio.contract";
+import { HoldingDrawer } from "./HoldingDrawer";
+import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
 import { cn } from "@/lib/utils";
-import { formatINR, formatPct } from "@/lib/formatters";
-import type { Holding } from "@/types/fund";
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+type SortKey = "value_rs" | "pnl_pct" | "xirr_pct" | "weight_pct" | "benchmark_delta";
+type SortDir = "asc" | "desc";
 
 interface Props {
-  holdings: Holding[];
+  holdings: EnrichedHolding[];
   className?: string;
 }
 
-/**
- * Holdings table — desktop. On mobile this collapses to a stacked list.
- * Click row → /funds/:id.
- */
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function sign(n: number | null | undefined) {
+  return n == null ? "—" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+}
+
+function pctCell(n: number | null | undefined) {
+  if (n == null) return <span className="opacity-30" aria-label="unavailable">—</span>;
+  const pos = n >= 0;
+  return (
+    <span style={{ color: pos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
+      aria-label={`${pos ? "+" : ""}${n.toFixed(1)} percent`}>
+      {pos ? "▲" : "▼"} {pos ? "+" : ""}{n.toFixed(1)}%
+    </span>
+  );
+}
+
+// ── Column definitions ─────────────────────────────────────────────────────
+
+const COLS: Array<{ key: string; label: string; sortKey?: SortKey; align?: "right" }> = [
+  { key: "name",            label: "Fund" },
+  { key: "asset_class",     label: "Asset class" },
+  { key: "category",        label: "Category" },
+  { key: "value_rs",        label: "Current value",  sortKey: "value_rs",       align: "right" },
+  { key: "pnl_pct",         label: "P&L",            sortKey: "pnl_pct",        align: "right" },
+  { key: "weight_pct",      label: "Weight",         sortKey: "weight_pct",     align: "right" },
+  { key: "xirr_pct",        label: "XIRR",           sortKey: "xirr_pct",       align: "right" },
+  { key: "benchmark_delta", label: "vs Benchmark",   sortKey: "benchmark_delta",align: "right" },
+];
+
+// ── Component ─────────────────────────────────────────────────────────────
+
 export function HoldingsTable({ holdings, className }: Props) {
-  const navigate = useNavigate();
+  const [sortKey, setSortKey]   = useState<SortKey>("value_rs");
+  const [sortDir, setSortDir]   = useState<SortDir>("desc");
+  const [search, setSearch]     = useState("");
+  const [drawer, setDrawer]     = useState<EnrichedHolding | null>(null);
+  const { filter, clearFilter } = useHoldingsFilter();
+
+  // Sort toggle
+  function handleSort(key: SortKey) {
+    if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  }
+
+  // Filter + search + sort
+  const rows = useMemo(() => {
+    let list = holdings;
+
+    // Dimension filter from Composition Explorer / Benchmark donut
+    if (filter) {
+      list = list.filter((h) => {
+        const any = h as any;
+        switch (filter.dimension) {
+          case "asset_class": return (any.asset_class ?? "").toLowerCase() === filter.value.toLowerCase();
+          case "sector":      return (h.sector ?? "").toLowerCase() === filter.value.toLowerCase();
+          case "fund":        return h.name === filter.value;
+          case "group":
+          case "amc":         return (any.amc_name ?? "").toLowerCase() === filter.value.toLowerCase();
+          default:            return true;
+        }
+      });
+    }
+
+    // Text search
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((h) =>
+        h.name.toLowerCase().includes(q) ||
+        (h.isin ?? "").toLowerCase().includes(q)
+      );
+    }
+
+    // Sort
+    list = [...list].sort((a, b) => {
+      const va = (a as any)[sortKey] ?? -Infinity;
+      const vb = (b as any)[sortKey] ?? -Infinity;
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+
+    return list;
+  }, [holdings, filter, search, sortKey, sortDir]);
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (k !== sortKey) return <span className="opacity-20 text-[9px]">↕</span>;
+    return sortDir === "asc"
+      ? <ChevronUp className="inline h-3 w-3" />
+      : <ChevronDown className="inline h-3 w-3" />;
+  };
 
   return (
-    <div className={cn("rounded-lg bg-surface-1 border border-hairline overflow-hidden", className)}>
-      {/* desktop */}
-      <table className="hidden sm:table w-full text-sm">
-        <thead>
-          <tr className="border-b border-hairline">
-            {["Fund", "Category", "Units", "Market value", "P&L", "1Y", ""].map((h) => (
-              <th
-                key={h}
-                className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 font-normal text-left px-5 py-3"
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {holdings.map((h) => (
-            <tr
-              key={h.id}
-              onClick={() => navigate(`/funds/${h.fundId}`)}
-              className="border-t border-hairline hover:bg-surface-2 cursor-pointer transition-colors"
-            >
-              <td className="px-5 py-4 align-top">
-                <div className="font-medium text-[14px]">{h.fund.name}</div>
-                <div className="font-mono text-[10.5px] text-ink-3 mt-1">{h.fund.amc}</div>
-              </td>
-              <td className="px-5 py-4 align-top">
-                <span className="font-mono text-[11px] uppercase tracking-[.06em] text-ink-2">
-                  {h.fund.category.replace("-", " ")}
-                </span>
-              </td>
-              <td className="px-5 py-4 align-top font-mono num text-[13px] text-ink-2">
-                {h.units.toFixed(2)}
-              </td>
-              <td className="px-5 py-4 align-top font-mono num text-[13px]">
-                {formatINR(h.marketValue)}
-              </td>
-              <td className="px-5 py-4 align-top font-mono num text-[13px] text-pos">
-                +{formatINR(h.unrealizedPnl, { compact: true })}
-                <span className="text-ink-3 text-[11px] ml-1">({formatPct(h.unrealizedPnlPct, { signed: true })})</span>
-              </td>
-              <td className="px-5 py-4 align-top font-mono num text-[13px] text-pos">
-                {formatPct(h.returns.y1, { signed: true })}
-              </td>
-              <td className="px-5 py-4 align-top text-ink-3">
-                <ChevronRight className="h-4 w-4" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <>
+      <div className={cn("rounded-lg overflow-hidden", className)}
+        style={{ border: "1px solid rgba(var(--line),0.08)", background: "rgb(var(--surface-2))" }}>
 
-      {/* mobile */}
-      <ul className="sm:hidden divide-y divide-[rgb(var(--line)/0.10)]">
-        {holdings.map((h) => (
-          <li
-            key={h.id}
-            onClick={() => navigate(`/funds/${h.fundId}`)}
-            className="px-5 py-4 active:bg-surface-2"
-          >
-            <div className="flex items-baseline gap-2">
-              <span className="font-medium text-[14px]">{h.fund.name}</span>
-              <span className="ml-auto font-mono num text-[13px]">{formatINR(h.marketValue, { compact: true })}</span>
+        {/* Toolbar */}
+        <div className="flex items-center gap-3 px-4 py-3"
+          style={{ borderBottom: "1px solid rgba(var(--line),0.08)" }}>
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-30" />
+            <input
+              type="search"
+              placeholder="Search fund or ISIN…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md outline-none"
+              style={{
+                background: "rgba(var(--surface-3),0.6)",
+                border: "1px solid rgba(var(--line),0.10)",
+                color: "rgb(var(--ink-1))",
+              }}
+            />
+          </div>
+
+          {/* Active filter chip */}
+          {filter && (
+            <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+              style={{ background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+              <span>{filter.label ?? filter.value}</span>
+              <button onClick={clearFilter} aria-label="Clear filter" className="hover:opacity-70 transition-opacity">✕</button>
             </div>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="font-mono text-[10.5px] uppercase tracking-[.06em] text-ink-3">
-                {h.fund.category.replace("-", " ")}
-              </span>
-              <span className="ml-auto font-mono text-[11px] text-pos">
-                {formatPct(h.returns.y1, { signed: true })}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+          )}
+
+          <span className="text-xs opacity-40 ml-auto shrink-0" style={{ fontFamily: "var(--font-mono)" }}>
+            {rows.length} holding{rows.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden sm:block overflow-x-auto">
+          <table className="w-full text-sm" style={{ minWidth: 760 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid rgba(var(--line),0.08)" }}>
+                {COLS.map((col) => (
+                  <th key={col.key}
+                    className={cn(
+                      "px-4 py-3 text-left font-normal select-none",
+                      col.align === "right" && "text-right",
+                      col.sortKey && "cursor-pointer hover:opacity-80"
+                    )}
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", opacity: 0.45 }}
+                    onClick={() => col.sortKey && handleSort(col.sortKey)}>
+                    {col.label}
+                    {col.sortKey && <span className="ml-1"><SortIcon k={col.sortKey} /></span>}
+                  </th>
+                ))}
+                {/* empty header for action column */}
+                <th className="w-8" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={COLS.length + 1} className="px-4 py-12 text-center text-sm opacity-40"
+                    style={{ fontFamily: "var(--font-mono)" }}>
+                    {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
+                  </td>
+                </tr>
+              )}
+              {rows.map((h) => {
+                const any = h as any;
+                const unmatched = any.amfi_matched === false;
+                const pnlPos = (h.pnl_pct ?? 0) >= 0;
+
+                return (
+                  <tr key={h.holding_id}
+                    onClick={() => setDrawer(h)}
+                    className="cursor-pointer transition-colors"
+                    style={{ borderTop: "1px solid rgba(var(--line),0.06)" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--surface-3),0.5)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
+
+                    {/* Name */}
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <div className="font-medium text-[13px] truncate" title={h.name}>{h.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {h.isin && (
+                          <span className="text-[10px] opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
+                            {h.isin}
+                          </span>
+                        )}
+                        {unmatched && (
+                          <span className="text-[9px] px-1 py-0.5 rounded"
+                            style={{ background: "rgba(var(--warm),0.15)", color: "rgb(var(--warm))" }}
+                            aria-label="Fund not AMFI-matched — benchmark data unavailable">
+                            unmatched
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Asset class */}
+                    <td className="px-4 py-3 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
+                      {any.asset_class ?? "—"}
+                    </td>
+
+                    {/* Category */}
+                    <td className="px-4 py-3 text-[11px] opacity-50 max-w-[120px]">
+                      <span className="truncate block" title={h.category ?? ""}>{h.category ?? "—"}</span>
+                    </td>
+
+                    {/* Current value */}
+                    <td className="px-4 py-3 text-right text-[13px]" style={{ fontFamily: "var(--font-mono)" }}>
+                      {h.value_rs != null ? formatINRCompact(h.value_rs) : "—"}
+                    </td>
+
+                    {/* P&L */}
+                    <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
+                      {h.pnl_pct != null ? (
+                        <span style={{ color: pnlPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
+                          aria-label={`${pnlPos ? "+" : ""}${h.pnl_pct.toFixed(1)} percent`}>
+                          {pnlPos ? "▲ +" : "▼ "}{h.pnl_pct.toFixed(1)}%
+                        </span>
+                      ) : <span className="opacity-30">—</span>}
+                    </td>
+
+                    {/* Weight */}
+                    <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
+                      {h.weight_pct != null ? `${h.weight_pct.toFixed(1)}%` : "—"}
+                    </td>
+
+                    {/* XIRR */}
+                    <td className="px-4 py-3 text-right text-[12px]">
+                      {pctCell(h.xirr_pct)}
+                    </td>
+
+                    {/* vs Benchmark */}
+                    <td className="px-4 py-3 text-right text-[12px]">
+                      {unmatched
+                        ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
+                        : pctCell(any.benchmark_delta)}
+                    </td>
+
+                    {/* Chevron */}
+                    <td className="px-3 py-3 text-right opacity-25 text-xs">›</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile: stacked cards */}
+        <ul className="sm:hidden divide-y" style={{ borderColor: "rgba(var(--line),0.08)" }}>
+          {rows.length === 0 && (
+            <li className="px-5 py-10 text-center text-sm opacity-40"
+              style={{ fontFamily: "var(--font-mono)" }}>
+              {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
+            </li>
+          )}
+          {rows.map((h) => {
+            const any = h as any;
+            const pnlPos = (h.pnl_pct ?? 0) >= 0;
+            return (
+              <li key={h.holding_id}
+                onClick={() => setDrawer(h)}
+                className="px-4 py-4 active:opacity-70 cursor-pointer">
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="font-medium text-[14px] flex-1 truncate" title={h.name}>{h.name}</span>
+                  <span className="font-mono text-[13px] shrink-0">
+                    {h.value_rs != null ? formatINRCompact(h.value_rs) : "—"}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2 text-[11px] opacity-55">
+                  <span style={{ fontFamily: "var(--font-mono)" }}>{h.category ?? any.asset_class ?? "—"}</span>
+                  {h.pnl_pct != null && (
+                    <span className="ml-auto" style={{ color: pnlPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
+                      {pnlPos ? "▲ +" : "▼ "}{h.pnl_pct.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {/* Holding detail drawer */}
+      <HoldingDrawer holding={drawer} onClose={() => setDrawer(null)} />
+    </>
   );
 }
