@@ -1,0 +1,19 @@
+apiVersion: 1
+
+datasources:
+  - name: Sentry
+    type: grafana-sentry-datasource
+    uid: sentry
+    access: proxy
+    isDefault: false
+    jsonData:
+      # Sentry organisation slug — set via environment variable on the Grafana container
+      org: ${SENTRY_ORG}
+      # Sentry project slug(s) — comma-separated for multi-project
+      project: ${SENTRY_PROJECT:-nivesh-copilot}
+      # Sentry API URL (cloud default; change for self-hosted)
+      url: ${SENTRY_URL:-https://sentry.io}
+    secureJsonData:
+      # Personal or internal integration auth token — set via env on the container
+      authToken: ${SENTRY_AUTH_TOKEN}
+    editable: true
