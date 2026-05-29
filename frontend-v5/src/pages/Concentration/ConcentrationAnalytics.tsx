@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useConcentrationAnalysis } from "@/hooks/use-analytics";
+import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
+import { ErrorState } from "@/components/shared/ErrorState";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/shared/MetricCard";
@@ -1126,20 +1129,145 @@ function RemediationPanel({ recs }: { recs: Recommendation[] }) {
   );
 }
 
+// ─── Real-data mapper ────────────────────────────────────────────────────────
+
+const CAP: Record<string, number> = { sector: 25, amc: 25, company: 20, group: 20 };
+
+function mapLens(
+  id: string,
+  label: string,
+  raw: Record<string, unknown> | null | undefined,
+): LensData {
+  if (!raw) return { id, label, verdict: "balanced", effectiveN: 0, hhi: 0, largestPct: 0, largestName: "—", coveragePct: 0, top3Pct: 0, capPct: CAP[id] ?? 25, reasons: [], items: [] };
+
+  const cap = CAP[id] ?? 25;
+  const rawItems = (Array.isArray(raw.items) ? raw.items : []) as Array<{ name: string; pct: number; cap_pct?: number }>;
+  const items: LensItem[] = rawItems.map((it) => ({
+    name: it.name,
+    pct: Number(it.pct ?? 0),
+    capPct: Number(it.cap_pct ?? cap),
+    isResidual: ["unclassified", "other", "unknown", "residual"].some((k) =>
+      it.name.toLowerCase().includes(k)
+    ),
+  }));
+
+  const largestPct = Number(raw.largest_pct ?? items[0]?.pct ?? 0);
+  const largestName = (items[0]?.name) ?? "—";
+  const effectiveN = Number(raw.effective_n ?? 0);
+  const hhi = Math.round(Number(raw.hhi ?? 0) * 10000);   // backend stores 0-1; convert to 0-10000
+  const coveragePct = Number(raw.coverage_pct ?? 100);
+  const top3Pct = items.slice(0, 3).reduce((s, it) => s + it.pct, 0);
+
+  // Verdict
+  const reasons: string[] = [];
+  let verdict: Verdict = "balanced";
+
+  const overItems = items.filter((it) => !it.isResidual && it.pct > cap);
+  const approaching = items.filter((it) => !it.isResidual && it.pct > cap - 3 && it.pct <= cap);
+
+  if (overItems.length > 0) {
+    verdict = "over-concentrated";
+    overItems.forEach((it) => reasons.push(`${it.name} at ${it.pct.toFixed(1)}% exceeds the ${cap}% ${label.toLowerCase()} cap (+${(it.pct - cap).toFixed(0)}pt)`));
+  } else if (approaching.length > 0 || coveragePct < 80) {
+    verdict = "elevated";
+    approaching.forEach((it) => reasons.push(`${it.name} at ${it.pct.toFixed(1)}% is approaching the ${cap}% cap`));
+    if (coveragePct < 80) reasons.push(`${label} classification coverage ${coveragePct}% is below the 80% threshold — cannot certify Balanced`);
+  }
+
+  return { id, label, verdict, effectiveN, hhi, largestPct, largestName, coveragePct, top3Pct, capPct: cap, reasons, items };
+}
+
+type RawConcentration = Record<string, unknown>;
+type RawOverlap = { pairs?: Array<{ a_name: string; b_name: string; overlap_pct: number }>; funds?: Array<unknown> } | null;
+
+function buildAnalyticsData(conc: RawConcentration, overlapRaw: unknown): AnalyticsData {
+  const lenses: LensData[] = [
+    mapLens("sector",  "Sector",  conc.sector  as Record<string, unknown>),
+    mapLens("company", "Company", conc.company as Record<string, unknown>),
+    mapLens("amc",     "AMC",     conc.amc     as Record<string, unknown>),
+    mapLens("group",   "Group",   conc.group   as Record<string, unknown>),
+  ];
+
+  // Portfolio-level verdict = worst lens
+  const SEVERITY: Record<Verdict, number> = { "balanced": 0, "elevated": 1, "over-concentrated": 2 };
+  const sorted = [...lenses].sort((a, b) => SEVERITY[b.verdict] - SEVERITY[a.verdict]);
+  const portfolioVerdict = sorted[0]?.verdict ?? "balanced";
+  const drivers = sorted.filter((l) => l.verdict === portfolioVerdict && l.verdict !== "balanced").map((l) => l.label);
+
+  // Concentration ladder
+  const ladder = [...lenses]
+    .filter((l) => l.effectiveN > 0)
+    .sort((a, b) => b.effectiveN - a.effectiveN)
+    .map((l) => ({ lens: l.label, effectiveN: l.effectiveN, verdict: l.verdict }));
+
+  // Overlap panel — pairwise fund pairs
+  const overlap = overlapRaw as RawOverlap;
+  const pairs = (overlap?.pairs ?? []).slice(0, 10);
+  const fundPairs: FundPair[] = pairs.map((p) => ({
+    fundA: p.a_name,
+    fundB: p.b_name,
+    overlapPct: Number(p.overlap_pct ?? 0),
+    type: p.overlap_pct >= 90 ? "duplicate_plan"
+        : p.overlap_pct >= 65 ? "redundant"
+        : p.overlap_pct >= 35 ? "related"
+        : "diversifying",
+  }));
+
+  const headline1 = ladder[0];
+  const headline2 = ladder[ladder.length - 1];
+
+  return {
+    asOf: new Date().toISOString().slice(0, 10),
+    portfolioVerdict,
+    portfolioVerdictDrivers: drivers.length > 0 ? drivers : [sorted[0]?.label ?? ""],
+    ladder,
+    lenses,
+    remediation: [],   // populated by backend remediation engine (Phase 2 backend)
+    overlap: {
+      companyRoutes: [],
+      fundPairs,
+    },
+  };
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ConcentrationAnalytics() {
-  const data = MOCK;
-  const cfg = VERDICT[data.portfolioVerdict];
-  const maxN = Math.max(...data.ladder.map((l) => l.effectiveN));
+  const q = useConcentrationAnalysis();
 
-  // Derive headline from data — never authored copy
-  const bestLens = data.ladder[0];
-  const worstLens = data.ladder[data.ladder.length - 1];
+  const data = useMemo(() => {
+    if (!q.data?.concentration) return null;
+    return buildAnalyticsData(
+      q.data.concentration as RawConcentration,
+      q.data.overlap,
+    );
+  }, [q.data]);
+
+  if (q.isPending) {
+    return (
+      <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
+        <LoadingSkeleton variant="dashboard" />
+      </div>
+    );
+  }
+  if (q.isError || !data) {
+    return <ErrorState onRetry={() => q.refetch()} error={q.error ?? undefined} />;
+  }
+
+  const cfg = VERDICT[data.portfolioVerdict];
+  const maxN = Math.max(...data.ladder.map((l) => l.effectiveN), 1);
+
+  // Derive headline from real data
   const lensLabel = (lens: string) =>
     lens === "AMC" ? "fund houses" : lens === "Company" ? "companies" : lens.toLowerCase() + "s";
-  const headlinePart1 = `Well spread across ${Math.round(bestLens.effectiveN)} ${lensLabel(bestLens.lens)}`;
-  const headlinePart2 = `concentrated in just ${worstLens.effectiveN.toFixed(1)} ${lensLabel(worstLens.lens)}`;
+  const bestLens  = data.ladder[0];
+  const worstLens = data.ladder[data.ladder.length - 1];
+  const headlinePart1 = bestLens
+    ? `Well spread across ${Math.round(bestLens.effectiveN)} ${lensLabel(bestLens.lens)}`
+    : "Portfolio concentration analysis";
+  const headlinePart2 = worstLens && worstLens !== bestLens
+    ? `concentrated in just ${worstLens.effectiveN.toFixed(1)} ${lensLabel(worstLens.lens)}`
+    : data.portfolioVerdict === "balanced" ? "all lenses look healthy" : `review your ${data.portfolioVerdictDrivers[0]?.toLowerCase() ?? ""} exposure`;
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
