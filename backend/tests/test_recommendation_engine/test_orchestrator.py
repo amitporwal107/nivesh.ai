@@ -211,7 +211,7 @@ async def test_run_engine_pipeline_returns_actions_and_simulation():
     for a in actions:
         assert "action_id" in a
         assert "type" in a
-        assert a["type"] in ("EXIT", "ADD", "SWITCH", "HOLD")
+        assert a["type"] in ("EXIT", "ADD", "SWITCH", "HOLD", "TRIM", "DIVERSIFY", "REDIRECT", "CONSOLIDATE")
 
     # Simulation result (may be None if switch_simulator unavailable in test env)
     # If populated, must have before/after/delta keys

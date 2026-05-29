@@ -69,39 +69,55 @@ async def get_risk_profile(request: Request):
 async def save_risk_profile(request: Request, body: RiskProfileInput):
     user = await get_current_user(request)
 
-    score_map = {
-        "market_drop": {"hold": 30, "buy_more": 10, "sell_some": 60, "sell_all": 90},
+    # PRD §4.4: Governing risk = min(capacity, tolerance).
+    # Capacity questions: financial ability to absorb losses (income_stability, investment_horizon).
+    # Tolerance questions: psychological comfort with risk (market_drop, loss_tolerance, goal_priority).
+    # Knowledge (investment_knowledge) affects confidence/execution, not the governing score.
+    capacity_map = {
         "investment_horizon": {"less_1yr": 80, "1_3yr": 60, "3_5yr": 40, "5_10yr": 20, "10yr_plus": 10},
+        "income_stability":   {"very_stable": 15, "stable": 30, "moderate": 50, "unstable": 75},
+    }
+    tolerance_map = {
+        "market_drop":    {"hold": 30, "buy_more": 10, "sell_some": 60, "sell_all": 90},
         "loss_tolerance": {"none": 90, "up_to_10": 60, "up_to_25": 35, "up_to_50": 15},
-        "income_stability": {"very_stable": 15, "stable": 30, "moderate": 50, "unstable": 75},
+        "goal_priority":  {"safety": 80, "income": 55, "growth": 30, "aggressive_growth": 10},
+    }
+    knowledge_map = {
         "investment_knowledge": {"beginner": 60, "intermediate": 40, "advanced": 20, "expert": 10},
-        "goal_priority": {"safety": 80, "income": 55, "growth": 30, "aggressive_growth": 10},
     }
 
-    total = 0
-    count = 0
     answers_dict = {}
+    cap_total = cap_count = 0
+    tol_total = tol_count = 0
     for a in body.answers:
         answers_dict[a.question_id] = a.answer
-        if a.question_id in score_map and a.answer in score_map[a.question_id]:
-            total += score_map[a.question_id][a.answer]
-            count += 1
+        if a.question_id in capacity_map and a.answer in capacity_map[a.question_id]:
+            cap_total += capacity_map[a.question_id][a.answer]
+            cap_count += 1
+        if a.question_id in tolerance_map and a.answer in tolerance_map[a.question_id]:
+            tol_total += tolerance_map[a.question_id][a.answer]
+            tol_count += 1
 
-    risk_score = round(total / count) if count > 0 else 50
+    capacity_score = round(cap_total / cap_count) if cap_count > 0 else 50
+    tolerance_score = round(tol_total / tol_count) if tol_count > 0 else 50
+    # Governing score = min(capacity, tolerance) — more conservative wins (PRD §4.4)
+    risk_score = max(capacity_score, tolerance_score)  # higher = more conservative
+    capacity_tolerance_diverged = abs(capacity_score - tolerance_score) >= 15
 
-    if risk_score <= 25:
-        category = "Aggressive"
-    elif risk_score <= 45:
-        category = "Moderately Aggressive"
-    elif risk_score <= 60:
-        category = "Moderate"
-    elif risk_score <= 75:
-        category = "Moderately Conservative"
-    else:
-        category = "Conservative"
+    def _score_to_category(s: int) -> str:
+        if s <= 25:   return "Aggressive"
+        if s <= 45:   return "Moderately Aggressive"
+        if s <= 60:   return "Moderate"
+        if s <= 75:   return "Moderately Conservative"
+        return "Conservative"
+
+    category = _score_to_category(risk_score)
 
     risk_profile = {
         "score": risk_score,
+        "capacity_score": capacity_score,
+        "tolerance_score": tolerance_score,
+        "capacity_tolerance_diverged": capacity_tolerance_diverged,
         "category": category,
         "answers": answers_dict,
         "completed_at": datetime.now(timezone.utc).isoformat(),

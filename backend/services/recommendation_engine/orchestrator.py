@@ -119,6 +119,9 @@ def build_context(
     risk_score_numeric: Optional[float] = None,
     behavioural_persona: Optional[str] = None,
     behavioural_confidence: float = 0.0,
+    capacity_score: float = 50.0,
+    tolerance_score: float = 50.0,
+    capacity_tolerance_diverged: bool = False,
 ) -> RecommendationContext:
     """Construct a RecommendationContext from caller-supplied data.
 
@@ -184,6 +187,9 @@ def build_context(
         risk_score_numeric=risk_score_numeric,
         behavioural_persona=behavioural_persona or "unknown",
         behavioural_confidence=behavioural_confidence,
+        capacity_score=capacity_score,
+        tolerance_score=tolerance_score,
+        capacity_tolerance_diverged=capacity_tolerance_diverged,
     )
 
 
@@ -241,6 +247,19 @@ def _signal_to_action(
         base["status"] = "SUPPRESSED"
         base["suppression_reason"] = sig.suppression_reason
 
+    # PRD §12: expected_effect — risk-band Δ, score Δ, funding-probability Δ
+    # Computed from the signal's AR-3 priority components as a best-effort estimate.
+    # Exact values require a full portfolio re-simulation; these are directional signals.
+    base["expected_effect"] = {
+        "risk_band_delta": (
+            "lower" if sig.risk_reduction >= 0.4 and sig.action_type in ("EXIT", "TRIM")
+            else "higher" if sig.action_type == "ADD" and sig.diversification_gain < 0.3
+            else "neutral"
+        ),
+        "score_delta_pct": round(sig.risk_reduction * 10 + sig.diversification_gain * 5, 1),
+        "funding_probability_delta": round(sig.goal_impact * 15, 1) if sig.goal_impact > 0 else 0.0,
+    }
+
     # PI-2 and PI-4 metadata for UI/trace
     pi2_wo = sig.__dict__.get("_pi2_weighted_overlap")
     if pi2_wo is not None:
@@ -273,6 +292,9 @@ async def run_engine_pipeline(
     risk_score_numeric: Optional[float] = None,
     behavioural_persona: Optional[str] = None,
     behavioural_confidence: float = 0.0,
+    capacity_score: float = 50.0,
+    tolerance_score: float = 50.0,
+    capacity_tolerance_diverged: bool = False,
 ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """
     Full recommendation pipeline. Called by _apply_action_rules() when
@@ -301,6 +323,9 @@ async def run_engine_pipeline(
         risk_score_numeric=risk_score_numeric,
         behavioural_persona=behavioural_persona,
         behavioural_confidence=behavioural_confidence,
+        capacity_score=capacity_score,
+        tolerance_score=tolerance_score,
+        capacity_tolerance_diverged=capacity_tolerance_diverged,
     )
 
     # 1a. Mandatory gate (PRD §4 Rule 1): no persona → prompt user, don't generate.

@@ -159,3 +159,9 @@ class RecommendationContext:
     # Behavioural persona string (e.g. "mutual_fund_investor") + detection confidence (0-1)
     behavioural_persona: str = "unknown"
     behavioural_confidence: float = 0.0
+
+    # PRD §4.4: capacity vs tolerance split
+    capacity_score: float = 50.0
+    tolerance_score: float = 50.0
+    # True when |capacity - tolerance| >= 15 — engines should flag this to user
+    capacity_tolerance_diverged: bool = False

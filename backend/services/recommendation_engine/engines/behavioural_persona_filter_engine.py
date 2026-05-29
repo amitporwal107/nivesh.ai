@@ -75,6 +75,12 @@ class BehaviouralPersonaFilterEngine(BaseEngine):
         elif bp == BehaviouralPersonaType.ACTIVE_TRADER:
             signals.extend(self._active_trader_annotations(ctx))
 
+        elif bp == BehaviouralPersonaType.DIRECT_EQUITY_INVESTOR:
+            signals.extend(self._direct_equity_investor_filter(ctx))
+
+        elif bp == BehaviouralPersonaType.INCOME_DIVIDEND_SEEKER:
+            signals.extend(self._income_dividend_filter(ctx))
+
         return signals
 
     # ── BP-1: Mutual Fund Investor ────────────────────────────────────────────
@@ -148,6 +154,139 @@ class BehaviouralPersonaFilterEngine(BaseEngine):
             execution_path="redirect",
             requires_confirmation=True,
         )]
+
+    # ── BP-4: Direct Equity Investor (PRD §7) ────────────────────────────────
+
+    def _direct_equity_investor_filter(self, ctx: RecommendationContext) -> List[EngineSignal]:
+        """
+        For direct equity investors:
+        - Flag single-stock concentration hard (>persona max_single_holding_pct).
+        - Emit position-sizing advisory when any stock > 2× persona cap.
+        - Sector diversification lead: flag when top sector > persona max_single_sector_pct.
+        """
+        signals: List[EngineSignal] = []
+        if not ctx.stock_holdings or not ctx.persona_profile:
+            return signals
+
+        pp = ctx.persona_profile
+        total = ctx.total_value_rs or 1.0
+
+        # Single-stock concentration check
+        for h in ctx.stock_holdings:
+            value = float(h.get("quantity", 0)) * float(h.get("current_price", 0))
+            if value <= 0:
+                continue
+            weight_pct = value / total * 100.0
+            if weight_pct < pp.max_single_holding_pct:
+                continue
+
+            name = h.get("name") or h.get("ticker") or ""
+            excess = weight_pct - pp.max_single_holding_pct
+            severity = "severe" if weight_pct >= pp.max_single_holding_pct * 2 else "mismatch"
+            signals.append(EngineSignal(
+                signal_id=f"bp4::direct_equity::concentration::{h.get('instrument_id', name[:15])}",
+                engine_name=self.engine_name,
+                rule_label="BP-4",
+                action_type="TRIM",
+                instrument_id=h.get("instrument_id"),
+                instrument_name=name,
+                amount_rs=round(total * (excess / 100.0), 2),
+                base_score=7.5,
+                confidence=0.9,
+                risk_reduction=0.5,
+                diversification_gain=0.3,
+                urgency=0.7 if severity == "severe" else 0.5,
+                implementation_ease=0.7,
+                reason_codes=["BP4_SINGLE_STOCK_CONCENTRATION"],
+                reason_text=(
+                    f"{name} is {weight_pct:.1f}% of your portfolio — "
+                    f"single-stock blowup risk. Your {pp.persona_type.value} cap is "
+                    f"{pp.max_single_holding_pct:.0f}%. Trim ₹{total*(excess/100):,.0f} "
+                    f"and diversify across sectors."
+                ),
+                dedup_key=f"TRIM::bp4_stock_conc::{h.get('instrument_id', name[:20])}",
+                severity=severity,
+                execution_path="harvest",
+                requires_confirmation=True,
+            ))
+
+        # Sector diversification check via portfolio intelligence
+        sector_exposure = ctx.portfolio_intelligence.get("sector_exposure") or []
+        for sector in sector_exposure[:3]:  # check top 3 sectors
+            pct = float(sector.get("pct") or sector.get("weight_pct") or 0)
+            if pct <= pp.max_single_sector_pct:
+                continue
+            sector_name = sector.get("sector") or sector.get("name") or "sector"
+            signals.append(EngineSignal(
+                signal_id=f"bp4::direct_equity::sector::{sector_name[:20]}",
+                engine_name=self.engine_name,
+                rule_label="BP-4",
+                action_type="DIVERSIFY",
+                instrument_id=None,
+                instrument_name=f"{sector_name} (sector diversification)",
+                amount_rs=0.0,
+                base_score=6.0,
+                confidence=0.8,
+                risk_reduction=0.4,
+                diversification_gain=0.6,
+                urgency=0.4,
+                implementation_ease=0.6,
+                reason_codes=["BP4_SECTOR_CONCENTRATION"],
+                reason_text=(
+                    f"{sector_name} is {pct:.1f}% of your equity — above your "
+                    f"{pp.max_single_sector_pct:.0f}% sector cap. Reduce exposure "
+                    f"by trimming the lowest-ranked stock in this sector."
+                ),
+                dedup_key=f"DIVERSIFY::bp4_sector::{sector_name[:20]}",
+                severity="mismatch",
+                execution_path="harvest",
+            ))
+
+        return signals
+
+    # ── BP-5: Income / Dividend Seeker (PRD §7) ──────────────────────────────
+
+    def _income_dividend_filter(self, ctx: RecommendationContext) -> List[EngineSignal]:
+        """
+        For income/dividend seekers:
+        - Suppress growth-oriented ADD signals (small-cap, thematic ADD).
+        - Emit advisory to redirect new money to dividend/debt instruments.
+        - Frame all signals in yield and stability terms.
+        """
+        signals: List[EngineSignal] = []
+
+        # Advisory: redirect new money to dividend/debt
+        alloc = ctx.portfolio_intelligence.get("asset_allocation") or {}
+        debt_pct = float(alloc.get("debt_pct") or 0)
+        if debt_pct < 30.0:  # income seekers should have substantial debt
+            gap_rs = ctx.total_value_rs * ((30.0 - debt_pct) / 100.0)
+            signals.append(EngineSignal(
+                signal_id="bp5::income_seeker::debt_underweight",
+                engine_name=self.engine_name,
+                rule_label="BP-5",
+                action_type="ADD",
+                instrument_id=None,
+                instrument_name="ICICI Prudential Corporate Bond Fund - Direct Growth",
+                amount_rs=round(gap_rs, 2),
+                base_score=6.5,
+                confidence=0.8,
+                risk_reduction=0.3,
+                diversification_gain=0.2,
+                goal_impact=0.4,
+                urgency=0.5,
+                implementation_ease=0.8,
+                reason_codes=["BP5_INCOME_SEEKER_DEBT_ADD"],
+                reason_text=(
+                    f"Your debt allocation is {debt_pct:.0f}% — low for an income-focused portfolio. "
+                    f"Directing ₹{gap_rs:,.0f} to a high-quality corporate bond fund improves "
+                    f"your yield stability without equity-market exposure."
+                ),
+                dedup_key="ADD::bp5_income_debt",
+                severity="minor",
+                execution_path="redirect",
+            ))
+
+        return signals
 
     # ── BP-2: Active Trader ───────────────────────────────────────────────────
 

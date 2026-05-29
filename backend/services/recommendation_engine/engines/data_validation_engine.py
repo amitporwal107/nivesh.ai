@@ -105,4 +105,45 @@ class DataValidationEngine(BaseEngine):
                 n_suppressed,
             )
 
+        # DV-4: ELSS lock-in hard stop (PRD §11.1).
+        # Any ELSS holding within its 3-year lock-in window is added to
+        # tax_suppressed_instrument_ids so ArbitrationEngine blocks EXIT signals.
+        # We also populate a separate set on ctx for explicit error messaging.
+        from datetime import date, timedelta
+        locked_ids: set = set()
+        for h in ctx.mf_holdings:
+            category = (h.get("category") or "").lower()
+            scheme = (h.get("name") or h.get("scheme_name") or "").lower()
+            is_elss = "elss" in category or "tax sav" in scheme or "tax saving" in scheme
+            if not is_elss:
+                continue
+
+            # Check lock-in: ELSS funds have a mandatory 3-year lock-in from purchase date.
+            # buy_date or purchase_date field, else fall back to created_at.
+            buy_date_str = (
+                h.get("buy_date") or h.get("purchase_date") or h.get("created_at") or ""
+            )
+            iid = h.get("instrument_id")
+            if buy_date_str:
+                try:
+                    buy_date = date.fromisoformat(str(buy_date_str)[:10])
+                    lock_until = buy_date + timedelta(days=3 * 365)
+                    if today < lock_until and iid:
+                        locked_ids.add(iid)
+                        ctx.tax_suppressed_instrument_ids.add(iid)
+                        logger.info(
+                            "[DataValidationEngine] DV-4: ELSS %s locked until %s",
+                            h.get("name", iid), lock_until.isoformat(),
+                        )
+                except (ValueError, TypeError):
+                    pass
+            elif iid:
+                # No purchase date — conservatively lock it to avoid recommending
+                # exit of potentially locked ELSS
+                locked_ids.add(iid)
+                ctx.tax_suppressed_instrument_ids.add(iid)
+
+        if locked_ids:
+            ctx.__dict__["_dv4_elss_locked_ids"] = locked_ids
+
         return signals

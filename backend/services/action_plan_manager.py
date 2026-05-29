@@ -208,9 +208,15 @@ class ActionPlanManager:
         if isinstance(_rp_raw, dict):
             risk_profile = (_rp_raw.get("category") or "medium").lower()
             risk_score_numeric = float(_rp_raw.get("score") or 50)
+            # PRD §4.4: flag divergence between capacity and tolerance scores
+            capacity_score = float(_rp_raw.get("capacity_score") or risk_score_numeric)
+            tolerance_score = float(_rp_raw.get("tolerance_score") or risk_score_numeric)
+            capacity_tolerance_diverged = bool(_rp_raw.get("capacity_tolerance_diverged", False))
         else:
             risk_profile = str(_rp_raw) if _rp_raw else "medium"
             risk_score_numeric = None
+            capacity_score = tolerance_score = 50.0
+            capacity_tolerance_diverged = False
 
         # Behavioural persona (inferred by PersonaEngine or stored on user doc)
         _persona_doc = user_doc.get("persona") or {}
@@ -228,6 +234,9 @@ class ActionPlanManager:
             "stock_count": len(stock_holdings),
             "risk_profile": risk_profile,
             "risk_score_numeric": risk_score_numeric,
+            "capacity_score": capacity_score,
+            "tolerance_score": tolerance_score,
+            "capacity_tolerance_diverged": capacity_tolerance_diverged,
             "behavioural_persona": behavioural_persona,
             "behavioural_confidence": behavioural_confidence,
         }
@@ -958,6 +967,9 @@ class ActionPlanManager:
                 risk_score_numeric=portfolio_context.get("risk_score_numeric"),
                 behavioural_persona=portfolio_context.get("behavioural_persona"),
                 behavioural_confidence=portfolio_context.get("behavioural_confidence", 0.0),
+                capacity_score=portfolio_context.get("capacity_score", 50.0),
+                tolerance_score=portfolio_context.get("tolerance_score", 50.0),
+                capacity_tolerance_diverged=portfolio_context.get("capacity_tolerance_diverged", False),
             )
             # Stash simulation result so generate_plan() can add it to the plan doc.
             # Thread-safe: one generate_plan() call per instance (request-scoped).
