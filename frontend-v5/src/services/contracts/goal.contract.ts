@@ -36,7 +36,8 @@ export const GoalC = z.object({
   goal_type:           GoalTypeC.or(z.string()),
   goal_name:           z.string(),
   target_amount_rs:    z.number(),
-  horizon_years:       z.number().int(),
+  // Backend stores horizon_years as numeric/float (e.g. 20.0) — coerce to int
+  horizon_years:       z.number().transform(Math.round),
   priority:            PriorityC.or(z.string()).optional(),
   monthly_sip_rs:      z.number(),
   current_corpus_rs:   z.number().optional(),
@@ -46,15 +47,15 @@ export const GoalC = z.object({
   sip_gap_rs:          z.number().nullable().optional(),
   selected_funds:      z.array(z.string()).optional(),
   manual_fund_override: z.boolean().optional(),
-  status:              z.enum(["active", "completed", "archived"]).or(z.string()),
+  status:              z.enum(["active", "completed", "archived", "abandoned"]).or(z.string()),
   created_at:          z.string().optional(),
 }).passthrough();
 export type GoalC = z.infer<typeof GoalC>;
 
 export const GoalsListRes = z.object({
-  total:                     z.number().int().default(0),
-  on_track:                  z.number().int().default(0),
-  at_risk:                   z.number().int().default(0),
+  total:                     z.number().nullable().optional().transform(v => v ?? 0),
+  on_track:                  z.number().nullable().optional().transform(v => v ?? 0),
+  at_risk:                   z.number().nullable().optional().transform(v => v ?? 0),
   total_target_rs:           z.number().optional(),
   monthly_sip_required_rs:   z.number().optional(),
   monthly_sip_current_rs:    z.number().optional(),
@@ -66,7 +67,7 @@ export const GoalCreateReq = z.object({
   goal_type:         GoalTypeC,
   goal_name:         z.string(),
   target_amount_rs:  z.number(),
-  horizon_years:     z.number().int(),
+  horizon_years:     z.number().transform(Math.round),
   priority:          PriorityC,
   inflation_pct:     z.number().optional(),
   current_corpus_rs: z.number().optional(),
