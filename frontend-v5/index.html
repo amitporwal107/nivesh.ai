@@ -15,5 +15,96 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!--
+      Build-update detector — runs in ALL builds (old and new) because
+      index.html is always Cache-Control: no-cache.
+
+      Strategy: read the hashed JS filename from the <script type="module">
+      tag that Vite injects at build time (e.g. "index-ABC123.js"). Poll
+      /v5/ every 60 s and on tab-focus. If the filename changed, show a
+      top-of-page native banner with a Refresh button.
+
+      This script is intentionally framework-free so it works even when
+      React hasn't loaded or the old bundle has no polling of its own.
+    -->
+    <script>
+    (function () {
+      // Only active in production builds — Vite replaces /src/main.tsx with
+      // a hashed asset URL. In dev the selector won't match and we bail out.
+      function getCurrentBundle() {
+        var s = document.querySelector('script[type="module"][src*="/assets/index-"]');
+        return s ? s.getAttribute('src').split('/').pop() : null;
+      }
+
+      var currentBundle = getCurrentBundle();
+      if (!currentBundle) return; // dev mode — nothing to do
+
+      var bannerShown = false;
+
+      function showBanner() {
+        if (bannerShown) return;
+        bannerShown = true;
+
+        var bar = document.createElement('div');
+        bar.id = '__build_update_bar__';
+        bar.style.cssText = [
+          'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:2147483647',
+          'background:#1d4ed8', 'color:#fff',
+          'padding:10px 20px',
+          'display:flex', 'align-items:center', 'justify-content:space-between',
+          'font-family:system-ui,-apple-system,sans-serif', 'font-size:14px',
+          'box-shadow:0 2px 8px rgba(0,0,0,.4)',
+        ].join(';');
+
+        bar.innerHTML =
+          '<span>&#x1F504;&nbsp;<strong>New version available</strong> &mdash; refresh to get the latest.</span>' +
+          '<div style="display:flex;gap:8px">' +
+            '<button id="__build_refresh__" style="background:#fff;color:#1d4ed8;border:0;padding:6px 18px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">Refresh now</button>' +
+            '<button id="__build_dismiss__" style="background:transparent;color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.3);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px">Later</button>' +
+          '</div>';
+
+        document.body.appendChild(bar);
+
+        document.getElementById('__build_refresh__').onclick = function () {
+          // Clear caches then reload
+          (window.caches ? caches.keys().then(function(keys){ return Promise.all(keys.map(function(k){return caches.delete(k)})); }) : Promise.resolve())
+            .finally(function(){ window.location.reload(); });
+        };
+        document.getElementById('__build_dismiss__').onclick = function () {
+          bar.style.display = 'none';
+        };
+
+        // Also signal React's BuildUpdateBanner (if new build is already running)
+        window.__BUILD_UPDATE_AVAILABLE__ = true;
+      }
+
+      function check() {
+        fetch(window.location.pathname.split('/').slice(0, -1).join('/') + '/v5/?_t=' + Date.now(), { cache: 'no-store' })
+          .catch(function () {
+            // fallback: fetch root-relative /v5/
+            return fetch('/v5/?_t=' + Date.now(), { cache: 'no-store' });
+          })
+          .then(function (r) { return r.text(); })
+          .then(function (html) {
+            var m = html.match(/assets\/(index-[^"']+\.js)/);
+            if (m && m[1] !== currentBundle) showBanner();
+          })
+          .catch(function () { /* network error — skip silently */ });
+      }
+
+      // First check: 5 s after page load (fast enough to catch a deploy that
+      // happened while the tab was loading)
+      setTimeout(check, 5000);
+
+      // Recurring: every 60 s
+      setInterval(check, 60000);
+
+      // On tab becoming visible (user switches back from another tab)
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') check();
+      });
+    })();
+    </script>
   </body>
 </html>
