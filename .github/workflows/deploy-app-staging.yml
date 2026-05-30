@@ -83,6 +83,10 @@ jobs:
             echo "    Commit : ${{ github.sha }}"
             echo ""
 
+            # Git ≥2.35.2 rejects repos owned by a different user when running as root.
+            # Mark safe BEFORE calling redeploy-staging.sh so the fetch inside it succeeds.
+            sudo git config --global --add safe.directory /opt/nivesh-staging/repo
+
             # STAGING: run the staging redeploy script (not prod redeploy.sh).
             # redeploy-staging.sh does: git reset --hard origin/dev → docker compose build → up → health check.
             sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh \
