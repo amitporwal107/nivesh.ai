@@ -1,14 +1,19 @@
-// Jenkinsfile — Nivesh.ai CI/CD pipeline
+// Jenkinsfile — Nivesh.ai CI pipeline + production deploy
 //
 // Runs on every push via GitHub webhook.
 // Branch routing:
-//   main → deploy to PRODUCTION  (nivesh-app-vm prod stack + nidp-stack-vm prod)
-//   dev  → deploy to STAGING     (nivesh-app-vm staging stack + nidp-stack-vm staging)
+//   main → CI checks + deploy to PRODUCTION  (nivesh-app-vm + nidp-stack-vm)
+//   dev  → CI checks only
+//          STAGING deploys are handled by GitHub Actions:
+//          .github/workflows/deploy-app-staging.yml
+//          .github/workflows/deploy-nidp-staging.yml
 //
 // Required Jenkins credentials (Manage Jenkins → Credentials):
 //   NIVESH_APP_VM_HOST — secret text, IP/hostname of nivesh-app-vm
 //   nivesh-app-vm-ssh  — SSH private key for nivesh-app-vm
 //   nidp-stack-vm-ssh  — SSH private key for nidp-stack-vm
+//
+// Run deploy/jenkins/configure-jenkins-staging.py on the VM to register all credentials.
 
 pipeline {
     agent any
@@ -179,69 +184,13 @@ REMOTE
             }
         }
 
-        // ════════════════════════════════════════════════════════════════════
-        //  STAGING DEPLOYS  (dev branch only)
-        // ════════════════════════════════════════════════════════════════════
-
-        // ── 5a. Deploy nivesh-app-vm [STAGING] ────────────────────────────────
-        // Runs redeploy-staging.sh on the VM which does:
-        //   git reset --hard origin/dev → docker compose build → up → health check
-        stage('Deploy → nivesh-app-vm [staging]') {
+        // ── 5. Health checks ─────────────────────────────────────────────────
+        // Staging deploys are handled by GitHub Actions (deploy-*-staging.yml).
+        // Jenkins only runs CI + prod deploys so the two systems don't race.
+        stage('Health Check [prod]') {
             when {
-                expression { env.CURRENT_BRANCH == 'dev' && env.DEPLOY_APP == 'true' }
+                expression { env.CURRENT_BRANCH == 'main' }
             }
-            steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'nivesh-app-vm-ssh',
-                    keyFileVariable: 'SSH_KEY'
-                )]) {
-                    sh """
-                        ssh -i \$SSH_KEY -o StrictHostKeyChecking=no \\
-                            ${env.SSH_USER}@${env.NIVESH_VM_HOST} \\
-                            "sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh dev"
-                    """
-                }
-            }
-            post {
-                success { echo "✅ nivesh-app-vm [staging] deploy complete." }
-                failure { echo "❌ nivesh-app-vm [staging] deploy failed." }
-            }
-        }
-
-        // ── 5b. Deploy nidp-stack-vm [STAGING] ───────────────────────────────
-        // git fetch + reset on the VM into the isolated dev-repo, then restart
-        // the staging DaaS container (nidp-daas-api-staging, port 8084).
-        stage('Deploy → nidp-stack-vm [staging]') {
-            when {
-                expression { env.CURRENT_BRANCH == 'dev' && env.DEPLOY_NIDP == 'true' }
-            }
-            steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'nidp-stack-vm-ssh',
-                    keyFileVariable: 'SSH_KEY'
-                )]) {
-                    sh """
-                        ssh -i \$SSH_KEY -o StrictHostKeyChecking=no \\
-                            ${env.SSH_USER}@${env.NIDP_VM_HOST} bash <<'REMOTE'
-                                set -euo pipefail
-                                DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
-                                git -C "\$DEV_REPO" fetch --quiet origin dev
-                                git -C "\$DEV_REPO" reset --hard --quiet origin/dev
-                                docker restart nidp-daas-api-staging 2>/dev/null \\
-                                    && echo "nidp-daas-api-staging restarted." \\
-                                    || echo "WARNING: nidp-daas-api-staging not running — start it with: docker compose -f \$DEV_REPO/backend/nidp/deploy/vm/docker-compose.staging.yml up -d"
-REMOTE
-                    """
-                }
-            }
-            post {
-                success { echo "✅ nidp-stack-vm [staging] deploy complete." }
-                failure { echo "❌ nidp-stack-vm [staging] deploy failed." }
-            }
-        }
-
-        // ── 6. Health checks ──────────────────────────────────────────────────
-        stage('Health Check') {
             parallel {
 
                 stage('App health [prod]') {
@@ -270,36 +219,6 @@ REMOTE
                                 --max-time 10 "http://${env.NIDP_VM_HOST}:8010/health" || echo "000")
                             echo "NIDP [prod] health → HTTP \$HTTP"
                             [ "\$HTTP" = "200" ] || echo "WARNING: NIDP prod health returned \$HTTP"
-                        """
-                    }
-                }
-
-                stage('App health [staging]') {
-                    when {
-                        expression { env.CURRENT_BRANCH == 'dev' && env.DEPLOY_APP == 'true' }
-                    }
-                    steps {
-                        sh '''
-                            sleep 20
-                            HTTP=$(curl -sf -o /dev/null -w "%{http_code}" -k \
-                                --max-time 15 https://staging.niveshcopilot.com/api/healthz || echo "000")
-                            echo "App [staging] health → HTTP $HTTP"
-                            [ "$HTTP" = "200" ] || echo "WARNING: staging health check returned $HTTP"
-                        '''
-                    }
-                }
-
-                stage('NIDP health [staging]') {
-                    when {
-                        expression { env.CURRENT_BRANCH == 'dev' && env.DEPLOY_NIDP == 'true' }
-                    }
-                    steps {
-                        sh """
-                            sleep 10
-                            HTTP=\$(curl -sf -o /dev/null -w "%{http_code}" \\
-                                --max-time 10 "http://${env.NIDP_VM_HOST}:8084/health" || echo "000")
-                            echo "NIDP [staging] health → HTTP \$HTTP"
-                            [ "\$HTTP" = "200" ] || echo "WARNING: NIDP staging health returned \$HTTP"
                         """
                     }
                 }

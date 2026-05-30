@@ -1,0 +1,109 @@
+name: Deploy → nidp-stack-vm [staging]
+
+# Triggers when NIDP backend code changes on the dev branch.
+# Deploys to the STAGING NIDP stack on nidp-stack-vm (/opt/nidp/dev-repo/).
+# The prod 'Deploy → nidp-stack-vm' workflow (main branch) is NOT affected.
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'backend/nidp/**'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy from (default: dev)'
+        type: string
+        default: dev
+      run_migrations:
+        description: 'Run NIDP DB migrations after deploy (staging DB on port 5434)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-nidp-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy NIDP staging to nidp-stack-vm
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Deploy via SSH ────────────────────────────────────────────────────
+      # Secrets required (same as prod job):
+      #   DEVOPS_SSH_KEY   Ed25519 private key for the devops Linux user
+      #   DEVOPS_SSH_USER  devops
+      #   NIDP_VM_HOST     IP of nidp-stack-vm (34.93.60.254)
+      #
+      # STAGING: pulls dev branch into /opt/nidp/dev-repo/nivesh.ai (not /opt/nidp/repo)
+      #          restarts nidp-daas-api-staging container (not prod services)
+      - name: Deploy NIDP staging code and restart container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  15m
+          script: |
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-staging-ci]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-staging-ci]\033[0m ✅ %s\n' "$*"; }
+
+            BRANCH="${{ github.event.inputs.branch || 'dev' }}"
+            DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
+
+            log "=== NIDP STAGING deploy triggered by GitHub Actions ==="
+            log "    Branch : $BRANCH"
+            log "    Commit : ${{ github.sha }}"
+
+            # Pull latest dev-branch code into the staging repo.
+            # Separate from prod's /opt/nidp/repo (which tracks main).
+            log "Updating staging code at $DEV_REPO..."
+            git -C "$DEV_REPO" fetch --quiet origin "$BRANCH"
+            git -C "$DEV_REPO" checkout --quiet "$BRANCH"
+            git -C "$DEV_REPO" reset --hard --quiet "origin/$BRANCH"
+            ok "Code updated → $(git -C $DEV_REPO log -1 --oneline)"
+
+            # Reinstall deps if requirements.txt changed.
+            if git -C "$DEV_REPO" diff HEAD~1 HEAD --name-only 2>/dev/null | \
+                grep -q 'backend/nidp/deploy/requirements.txt'; then
+              log "requirements changed — reinstalling into staging venv"
+              /opt/nidp-staging/venv/bin/pip install --quiet --upgrade \
+                -r "$DEV_REPO/backend/nidp/deploy/requirements.txt"
+            fi
+
+            # Run pending NIDP migrations against the STAGING database (port 5434).
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
+              log "=== Running NIDP STAGING migrations ==="
+              set -a; source /opt/nidp-staging/nidp.env; set +a
+              cd "$DEV_REPO/backend"
+              /opt/nidp-staging/venv/bin/python -m nidp.cli migrate
+              ok "Migrations done."
+            else
+              log "(migrations skipped — set workflow input run_migrations=true to run them)"
+            fi
+
+            # Restart the staging DaaS container to pick up new code.
+            # The container mounts /opt/nidp/dev-repo/nivesh.ai/backend as read-only,
+            # so a restart (not rebuild) is sufficient after a code pull.
+            log "Restarting nidp-daas-api-staging..."
+            docker restart nidp-daas-api-staging \
+              && ok "nidp-daas-api-staging restarted." \
+              || { echo "::warning::nidp-daas-api-staging not running — start it first on the VM"; }
+
+            ok "NIDP STAGING deploy complete."
+
+      # ── Health check ──────────────────────────────────────────────────────
+      # Probes the staging DaaS API on port 8084 (internal port, VM host).
+      # Warns but does not fail — staging health endpoint may not be externally exposed.
+      - name: Health check DaaS API [staging]
+        run: |
+          sleep 10
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --max-time 15 "http://${{ secrets.NIDP_VM_HOST }}:8084/health" \
+            2>/dev/null || echo "000")
+          echo "NIDP staging DaaS health → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || echo "::warning::NIDP staging health returned $HTTP"
