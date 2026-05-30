@@ -42,9 +42,11 @@ chmod 600 deploy/keys/nidp-admin-deploy
 ## SSH usage
 
 ```bash
-# Connect to VMs
-ssh -i deploy/keys/nivesh-devops-deploy aporwal107_gmail_com@34.47.250.214  # nivesh-app-vm
-ssh -i deploy/keys/nivesh-devops-deploy aporwal107_gmail_com@34.93.60.254    # nidp-stack-vm
+# OS Login username for the devops service account (sa_ + numeric unique ID)
+# nivesh-devops@niveshdataintelligence.iam.gserviceaccount.com → sa_108611142161866522954
+
+ssh -i deploy/keys/nivesh-devops-deploy sa_108611142161866522954@34.47.250.214  # nivesh-app-vm
+ssh -i deploy/keys/nivesh-devops-deploy sa_108611142161866522954@34.93.60.254    # nidp-stack-vm
 ```
 
 ## Jenkins setup
@@ -54,6 +56,6 @@ Add the private key at **Jenkins → Credentials → System → Global → Add C
 ```
 Kind     : SSH Username with private key
 ID       : nivesh-devops-vm-ssh
-Username : aporwal107_gmail_com
+Username : sa_108611142161866522954
 Key      : (paste contents of deploy/keys/nivesh-devops-deploy)
 ```

@@ -3,7 +3,7 @@
 #
 # Run ON the VM (Jenkins is bound to 127.0.0.1:8080 — not reachable externally):
 #
-#   ssh aporwal107_gmail_com@34.47.250.214
+#   ssh sa_108611142161866522954@34.47.250.214
 #   cd /opt/nivesh/repo
 #   git pull origin dev
 #   NIVESH_APP_VM_HOST=34.47.250.214 python3 deploy/jenkins/configure-jenkins-staging.py
@@ -109,7 +109,7 @@ if (existing) {{
 def cred = new BasicSSHUserPrivateKey(
     CredentialsScope.GLOBAL,
     'nivesh-devops-vm-ssh',
-    'aporwal107_gmail_com',
+    'sa_108611142161866522954',
     new BasicSSHUserPrivateKey.DirectEntryPrivateKeySource(\"\"\"{deploy_key}\"\"\"),
     '',
     'Deploy key: nivesh-app-vm + nidp-stack-vm (nivesh-devops-deploy)'
@@ -141,7 +141,7 @@ if (!existing) {{
     def cred = new BasicSSHUserPrivateKey(
         CredentialsScope.GLOBAL,
         '{cred_id}',
-        'aporwal107_gmail_com',
+        'sa_108611142161866522954',
         new BasicSSHUserPrivateKey.DirectEntryPrivateKeySource(\"\"\"{deploy_key}\"\"\"),
         '',
         '{description}'

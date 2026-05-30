@@ -21,7 +21,7 @@ pipeline {
     environment {
         NIVESH_VM_HOST  = credentials('NIVESH_APP_VM_HOST')   // secret text
         NIDP_VM_HOST    = '34.93.60.254'
-        SSH_USER        = 'aporwal107_gmail_com'
+        SSH_USER        = 'sa_108611142161866522954'   // OS Login: nivesh-devops SA
     }
 
     options {
