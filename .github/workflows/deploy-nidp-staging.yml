@@ -55,6 +55,9 @@ jobs:
             BRANCH="${{ github.event.inputs.branch || 'dev' }}"
             DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
 
+            # Git ≥2.35.2 rejects repos owned by a different user when running as the SA.
+            git config --global --add safe.directory "$DEV_REPO"
+
             log "=== NIDP STAGING deploy triggered by GitHub Actions ==="
             log "    Branch : $BRANCH"
             log "    Commit : ${{ github.sha }}"
