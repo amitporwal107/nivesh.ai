@@ -455,7 +455,9 @@ credentials.json
 # nivesh-app deploy secrets
 deploy/nivesh-app/.env.prod
 frontend/node_modules/.cache/default-development/44.pack
-deploy/keys/
+# SSH private keys in deploy/keys/ are gitignored; README is tracked
+deploy/keys/*
+!deploy/keys/README.md
 -e 
 # Environment and credential files
 .env

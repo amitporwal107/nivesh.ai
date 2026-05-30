@@ -72,7 +72,16 @@ CB_BUCKET="gs://${PROJECT}_cloudbuild"
 VM_NIVESH_IP="34.100.186.141"
 VM_NIDP_IP="34.93.60.254"
 OS_LOGIN_USER="aporwal107_gmail_com"    # GCP OS Login username (email dots/@ → underscores)
-SSH_KEY_DIR="${_HOME}/.ssh/nivesh"      # portable across Linux/macOS/Windows Git Bash
+
+# Keys go into deploy/keys/ (gitignored) relative to the repo root.
+# Fall back to ~/.ssh/nivesh if the script is run outside the repo.
+_SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
+_REPO_ROOT="$(cd "$_SCRIPT_DIR/.." 2>/dev/null && pwd || echo .)"
+if [[ -d "$_REPO_ROOT/deploy/keys" ]] || mkdir -p "$_REPO_ROOT/deploy/keys" 2>/dev/null; then
+  SSH_KEY_DIR="$_REPO_ROOT/deploy/keys"
+else
+  SSH_KEY_DIR="${_HOME}/.ssh/nivesh"
+fi
 
 DRY=true
 TARGET_SA="all"
