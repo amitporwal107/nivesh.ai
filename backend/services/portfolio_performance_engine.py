@@ -188,6 +188,32 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         except Exception as e:
             logger.warning("perf_engine: DaaS primitives fetch failed, falling back: %s", e)
 
+    # ── B-3: backfill amfi_matched for newly uploaded holdings ───────────────
+    # The migration 021 back-fill only covers funds present at migration time.
+    # Any fund whose NAV history exists (or whose ISIN DaaS just matched) needs
+    # amfi_matched=TRUE set so the Holdings table and Composition Explorer show
+    # the correct match status without waiting for the next scrape cycle.
+    if daas_primitives:
+        matched_isins = list(daas_primitives.keys())
+        try:
+            from services import pg_client
+            pool = await pg_client.get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE mutual_fund_metadata mfm
+                           SET amfi_matched = TRUE
+                          FROM instrument_master im
+                         WHERE im.isin = ANY($1::text[])
+                           AND im.instrument_id = mfm.instrument_id
+                           AND mfm.amfi_matched = FALSE
+                        """,
+                        matched_isins,
+                    )
+        except Exception as e:
+            logger.debug("perf_engine: amfi_matched backfill skipped: %s", e)
+
     # ── Build per-fund ratings from DaaS primitives ───────────────────────────
     # Compute category averages from the fetched data (same sub_category peer group)
     from collections import defaultdict

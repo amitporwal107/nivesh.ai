@@ -97,7 +97,7 @@ export const realPortfolioAdapter: PortfolioAdapter = {
   async getNavHistory(range) {
     const days = DAYS_BY_RANGE[range] ?? 365;
     const [trendRes, casState] = await Promise.all([
-      http({ path: "/api/portfolio/trend", query: { days } }),
+      http({ path: "/api/portfolio/trend", query: { days } }).catch(() => ({ data: null })),
       fetch("/api/onboarding/state", { credentials: "include" })
         .then((r) => r.ok ? r.json() as Promise<{
           cas_portfolio_value_rs?: number | null;
@@ -107,11 +107,12 @@ export const realPortfolioAdapter: PortfolioAdapter = {
         .catch(() => null),
     ]);
     const parsed = TrendRes.safeParse(trendRes.data);
-    if (!parsed.success) throw ApiError.contractDrift(`portfolio.getNavHistory: ${parsed.error.message}`);
-    const trendSeries = parsed.data.series.map((p) => ({
-      date:  p.date ?? p.snapshot_date ?? "",
-      value: Math.round((p.value_rs ?? p.total_value ?? 0) * 100),
-    })).filter(p => p.date);
+    const trendSeries = parsed.success
+      ? parsed.data.series.map((p) => ({
+          date:  p.date ?? p.snapshot_date ?? "",
+          value: Math.round((p.value_rs ?? p.total_value ?? 0) * 100),
+        })).filter(p => p.date)
+      : [];
 
     // Prefer CAS monthly values (from Vision API) when available — they are
     // the authoritative time-series straight from the PDF Summary section.

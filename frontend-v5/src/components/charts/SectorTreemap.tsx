@@ -16,11 +16,13 @@ interface Props {
  * policy cap render in the accent color, others in muted neutral.
  */
 export function SectorTreemap({ data, height = 320 }: Props) {
+  const safe = data.filter((d) => d.size > 0 && isFinite(d.size));
+  if (safe.length === 0) return null;
   return (
-    <div style={{ width: "100%", height }}>
-    <ResponsiveContainer width="100%" height="100%">
+    <div style={{ width: "100%", height, minHeight: height }}>
+    <ResponsiveContainer width="100%" height="100%" minWidth={100}>
       <Treemap
-        data={data}
+        data={safe}
         dataKey="size"
         stroke="rgb(var(--surface-1))"
         isAnimationActive={false}

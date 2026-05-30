@@ -83,6 +83,7 @@ export const EnrichedHoldingC = z.object({
   buy_date:         z.string().nullable().optional(),
   cost_basis_source: z.string().optional(),
   action_badge:     z.union([z.string(), ActionBadgeObjectC]).nullable().optional(),
+  amfi_matched:     z.boolean().optional(),
 }).passthrough();
 
 export const EnrichedHoldingsRes = z.object({

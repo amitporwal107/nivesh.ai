@@ -10,7 +10,8 @@
  * - Mobile: stacked cards (< 640 px)
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, ChevronUp, ChevronDown } from "lucide-react";
 import { formatINRCompact } from "@/lib/formatters";
 import { EnrichedHoldingC } from "@/services/contracts/portfolio.contract";
@@ -113,6 +114,14 @@ export function HoldingsTable({ holdings, className }: Props) {
     return list;
   }, [holdings, filter, search, sortKey, sortDir]);
 
+  const tableBodyRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableBodyRef.current,
+    estimateSize: () => 48,
+    overscan: 5,
+  });
+
   const SortIcon = ({ k }: { k: SortKey }) => {
     if (k !== sortKey) return <span className="opacity-20 text-[9px]">↕</span>;
     return sortDir === "asc"
@@ -180,96 +189,109 @@ export function HoldingsTable({ holdings, className }: Props) {
                 <th className="w-8" />
               </tr>
             </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={COLS.length + 1} className="px-4 py-12 text-center text-sm opacity-40"
-                    style={{ fontFamily: "var(--font-mono)" }}>
-                    {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
-                  </td>
-                </tr>
-              )}
-              {rows.map((h) => {
-                const any = h as any;
-                const unmatched = any.amfi_matched === false;
-                const pnlPos = (h.pnl_pct ?? 0) >= 0;
-
-                return (
-                  <tr key={h.holding_id}
-                    onClick={() => setDrawer(h)}
-                    className="cursor-pointer transition-colors"
-                    style={{ borderTop: "1px solid rgba(var(--line),0.06)" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--surface-3),0.5)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
-
-                    {/* Name */}
-                    <td className="px-4 py-3 max-w-[220px]">
-                      <div className="font-medium text-[13px] truncate" title={h.name}>{h.name}</div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {h.isin && (
-                          <span className="text-[10px] opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
-                            {h.isin}
-                          </span>
-                        )}
-                        {unmatched && (
-                          <span className="text-[9px] px-1 py-0.5 rounded"
-                            style={{ background: "rgba(var(--warm),0.15)", color: "rgb(var(--warm))" }}
-                            aria-label="Fund not AMFI-matched — benchmark data unavailable">
-                            unmatched
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Asset class */}
-                    <td className="px-4 py-3 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
-                      {any.asset_class ?? "—"}
-                    </td>
-
-                    {/* Category */}
-                    <td className="px-4 py-3 text-[11px] opacity-50 max-w-[120px]">
-                      <span className="truncate block" title={h.category ?? ""}>{h.category ?? "—"}</span>
-                    </td>
-
-                    {/* Current value */}
-                    <td className="px-4 py-3 text-right text-[13px]" style={{ fontFamily: "var(--font-mono)" }}>
-                      {h.value_rs != null ? formatINRCompact(h.value_rs) : "—"}
-                    </td>
-
-                    {/* P&L */}
-                    <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
-                      {h.pnl_pct != null ? (
-                        <span style={{ color: pnlPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
-                          aria-label={`${pnlPos ? "+" : ""}${h.pnl_pct.toFixed(1)} percent`}>
-                          {pnlPos ? "▲ +" : "▼ "}{h.pnl_pct.toFixed(1)}%
-                        </span>
-                      ) : <span className="opacity-30">—</span>}
-                    </td>
-
-                    {/* Weight */}
-                    <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
-                      {h.weight_pct != null ? `${h.weight_pct.toFixed(1)}%` : "—"}
-                    </td>
-
-                    {/* XIRR */}
-                    <td className="px-4 py-3 text-right text-[12px]">
-                      {pctCell(h.xirr_pct)}
-                    </td>
-
-                    {/* vs Benchmark */}
-                    <td className="px-4 py-3 text-right text-[12px]">
-                      {unmatched
-                        ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
-                        : pctCell(any.benchmark_delta)}
-                    </td>
-
-                    {/* Chevron */}
-                    <td className="px-3 py-3 text-right opacity-25 text-xs">›</td>
-                  </tr>
-                );
-              })}
-            </tbody>
           </table>
+          {rows.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+              {holdings.length === 0 ? "No holdings here yet." : "No holdings match your filter."}
+            </div>
+          ) : (
+            <div ref={tableBodyRef} style={{ height: Math.min(rows.length * 48, 480), overflowY: "auto" }}>
+              <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const h = rows[virtualRow.index];
+                  const any = h as any;
+                  const unmatched = h.amfi_matched === false;
+                  const pnlPos = (h.pnl_pct ?? 0) >= 0;
+                  return (
+                    <table key={h.holding_id}
+                      className="w-full text-sm"
+                      style={{
+                        minWidth: 760,
+                        position: "absolute",
+                        top: virtualRow.start,
+                        left: 0,
+                        right: 0,
+                        tableLayout: "fixed",
+                      }}>
+                      <tbody>
+                        <tr
+                          onClick={() => setDrawer(h)}
+                          className="cursor-pointer transition-colors"
+                          style={{ borderTop: "1px solid rgba(var(--line),0.06)" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(var(--surface-3),0.5)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
+
+                          {/* Name */}
+                          <td className="px-4 py-3 max-w-[220px]">
+                            <div className="font-medium text-[13px] truncate" title={h.name}>{h.name}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {h.isin && (
+                                <span className="text-[10px] opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
+                                  {h.isin}
+                                </span>
+                              )}
+                              {unmatched && (
+                                <span className="text-[9px] px-1 py-0.5 rounded"
+                                  style={{ background: "rgba(var(--warm),0.15)", color: "rgb(var(--warm))" }}
+                                  aria-label="Fund not AMFI-matched — benchmark data unavailable">
+                                  ⚠ unmatched
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Asset class */}
+                          <td className="px-4 py-3 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
+                            {any.asset_class ?? "—"}
+                          </td>
+
+                          {/* Category */}
+                          <td className="px-4 py-3 text-[11px] opacity-50 max-w-[120px]">
+                            <span className="truncate block" title={h.category ?? ""}>{h.category ?? "—"}</span>
+                          </td>
+
+                          {/* Current value */}
+                          <td className="px-4 py-3 text-right text-[13px]" style={{ fontFamily: "var(--font-mono)" }}>
+                            {h.value_rs != null ? formatINRCompact(h.value_rs) : "—"}
+                          </td>
+
+                          {/* P&L */}
+                          <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
+                            {h.pnl_pct != null ? (
+                              <span style={{ color: pnlPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
+                                aria-label={`${pnlPos ? "+" : ""}${h.pnl_pct.toFixed(1)} percent`}>
+                                {pnlPos ? "▲ +" : "▼ "}{h.pnl_pct.toFixed(1)}%
+                              </span>
+                            ) : <span className="opacity-30">—</span>}
+                          </td>
+
+                          {/* Weight */}
+                          <td className="px-4 py-3 text-right text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>
+                            {h.weight_pct != null ? `${h.weight_pct.toFixed(1)}%` : "—"}
+                          </td>
+
+                          {/* XIRR */}
+                          <td className="px-4 py-3 text-right text-[12px]">
+                            {pctCell(h.xirr_pct)}
+                          </td>
+
+                          {/* vs Benchmark */}
+                          <td className="px-4 py-3 text-right text-[12px]">
+                            {unmatched
+                              ? <span className="opacity-30" aria-label="benchmark data unavailable — fund not AMFI-matched">—</span>
+                              : pctCell(any.benchmark_delta)}
+                          </td>
+
+                          {/* Chevron */}
+                          <td className="px-3 py-3 text-right opacity-25 text-xs">›</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Mobile: stacked cards */}

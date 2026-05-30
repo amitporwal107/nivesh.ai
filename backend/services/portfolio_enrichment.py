@@ -24,37 +24,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Asset-class normalisation ──────────────────────────────────────────
-_ASSET_CLASS_MAP: dict[str, str] = {
-    "equity": "Equity", "stock": "Equity",
-    "mutual_fund": "MF", "etf": "ETF",
-    "gold": "Gold", "sgb": "Gold",
-    "debt": "Debt",
-    "cash": "Cash",
-}
-_DEBT_KEYWORDS = {"liquid", "debt", "bond", "gilt", "corporate", "short term",
-                  "low duration", "money market", "ultra short", "overnight"}
-_HYBRID_KEYWORDS = {"hybrid", "balanced", "multi asset", "arbitrage"}
-
-def _asset_class_for(asset_type: str, category: Optional[str]) -> str:
-    """Derive a display asset-class label from asset_type + fund category."""
-    at = (asset_type or "").lower()
-    if at in _ASSET_CLASS_MAP and at not in ("mutual_fund", "etf"):
-        return _ASSET_CLASS_MAP[at]
-    # For MF/ETF, refine using category keyword matching
-    cat = (category or "").lower()
-    if any(k in cat for k in _DEBT_KEYWORDS):
-        return "Debt"
-    if any(k in cat for k in _HYBRID_KEYWORDS):
-        return "Hybrid"
-    if "gold" in cat or "commodity" in cat:
-        return "Gold"
-    if "international" in cat or "global" in cat or "overseas" in cat:
-        return "International"
-    if "index" in cat or "equity" in cat or at == "etf":
-        return "Equity"
-    return _ASSET_CLASS_MAP.get(at, "MF")
-
 
 # ── XIRR (Newton-Raphson) ──────────────────────────────────────────────
 def _xnpv(rate: float, flows: List[Tuple[date, float]]) -> float:
@@ -432,17 +401,14 @@ async def build_enriched_portfolio(
             return {"holdings": [], "alerts": [], "totals": {}, "coverage_pct": 0,
                     "health": None}
 
-    import asyncio as _asyncio
-
-    # ── Fan-out: stock scores + MF V3 run concurrently ────────────────────
-    async def _load_stock_scores() -> Tuple[Dict[str, Any], Dict[str, str]]:
-        """Returns (stock_scores_by_sym, isin_to_symbol_backfill)."""
-        scores: Dict[str, Any] = {}
-        backfill: Dict[str, str] = {}
-        try:
-            pool = await pg_client.get_pool()
-            if pool is None:
-                return scores, backfill
+    # Load stock scores in bulk
+    stock_scores_by_sym: Dict[str, Dict[str, Any]] = {}
+    # Symbol backfills derived from ISIN — written back to db.holdings at the
+    # end so subsequent renders are fully enriched without a full reparse.
+    isin_to_symbol_backfill: Dict[str, str] = {}
+    try:
+        pool = await pg_client.get_pool()
+        if pool is not None:
             equity_holdings = [
                 h for h in holdings
                 if (h.get("asset_type") or "").lower() == "equity"
@@ -452,7 +418,8 @@ async def build_enriched_portfolio(
                 for h in equity_holdings
             ]
             symbols = [s for s in symbols if s]
-            # Resolve missing nse_symbols via ISIN.
+            # Resolve missing nse_symbols via ISIN so freshly-parsed CAS rows
+            # (which carry ISIN but not the NSE ticker) still match V3 scores.
             missing_isins = [
                 (h.get("ticker") or "").strip()
                 for h in equity_holdings
@@ -469,105 +436,113 @@ async def build_enriched_portfolio(
                         )
                     for r in iso_rows:
                         if r["isin"] and r["nse_symbol"]:
-                            backfill[r["isin"]] = r["nse_symbol"]
+                            isin_to_symbol_backfill[r["isin"]] = r["nse_symbol"]
                             symbols.append(r["nse_symbol"])
                 except Exception as e:  # noqa: BLE001
                     logger.debug("isin→symbol backfill skipped: %s", e)
-            if not symbols:
-                return scores, backfill
-            nidp_returns: Dict[str, Optional[float]] = {}
-            try:
-                import feature_flags as _ff
-                from services.copilot_tools import daas_client as _daas
-                if _ff.mode_enabled("v3_data_source_daas") and _daas.is_configured():
-                    primitives = await _daas.get_v3_stock_primitives_bulk(symbols)
-                    for sym, row in primitives.items():
-                        nidp_returns[sym] = row.get("return_252d_pct")
-            except Exception as e:  # noqa: BLE001
-                logger.warning("DaaS stock primitives bulk fetch failed: %s", e)
+            if symbols:
+                # Fetch 1Y returns for each symbol from NIDP DaaS first
+                # (POST /v1/stocks/v3-primitives/bulk). Direct PG read is the
+                # fallback for environments where DaaS isn't configured or
+                # migration 055 hasn't been applied. The Nivesh scoring tables
+                # (stock_scores, stock_master) still live in the Nivesh PG
+                # and are joined locally below — the cutover here is about
+                # the *primitive* data source, not the Nivesh-side scores.
+                nidp_returns: Dict[str, Optional[float]] = {}
+                try:
+                    import feature_flags as _ff
+                    from services.copilot_tools import daas_client as _daas
+                    if _ff.mode_enabled("v3_data_source_daas") and _daas.is_configured():
+                        primitives = await _daas.get_v3_stock_primitives_bulk(symbols)
+                        for sym, row in primitives.items():
+                            nidp_returns[sym] = row.get("return_252d_pct")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("DaaS stock primitives bulk fetch failed: %s", e)
 
-            async with pool.acquire() as conn:
-                if nidp_returns:
-                    rows = await conn.fetch(
-                        """SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
-                                  ss.quality_score, ss.health_score,
-                                  ss.exit_score, ss.add_score,
-                                  ss.recommendation, ss.recommendation_reason,
-                                  ss.low_confidence, ss.morningstar_rating
-                           FROM stock_scores ss
-                           JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
-                           WHERE ss.nse_symbol = ANY($1::text[])""",
-                        symbols,
-                    )
-                else:
-                    nidp_view_present = await conn.fetchval(
-                        """SELECT EXISTS (
-                               SELECT 1 FROM information_schema.views
-                                WHERE table_schema = 'nidp'
-                                  AND table_name   = 'v_v3_stock_primitives'
-                           )"""
-                    )
-                    if nidp_view_present:
-                        sql_returns_join = """
-                           LEFT JOIN LATERAL (
-                             SELECT return_252d_pct AS return_1y_pct
-                               FROM nidp.v_v3_stock_primitives
-                              WHERE symbol = ss.nse_symbol
-                              ORDER BY as_of_date DESC LIMIT 1
-                           ) sp ON TRUE
-                        """
+                async with pool.acquire() as conn:
+                    if nidp_returns:
+                        # DaaS already supplied returns; skip the lateral join.
+                        rows = await conn.fetch(
+                            """SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
+                                      ss.quality_score, ss.health_score,
+                                      ss.exit_score, ss.add_score,
+                                      ss.recommendation, ss.recommendation_reason,
+                                      ss.low_confidence, ss.morningstar_rating
+                               FROM stock_scores ss
+                               JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                               WHERE ss.nse_symbol = ANY($1::text[])""",
+                            symbols,
+                        )
                     else:
-                        sql_returns_join = """
-                           LEFT JOIN LATERAL (
-                             SELECT return_1y_pct FROM stock_primitives
-                              WHERE nse_symbol = ss.nse_symbol
-                              ORDER BY as_of_date DESC LIMIT 1
-                           ) sp ON TRUE
-                        """
-                    rows = await conn.fetch(
-                        f"""SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
-                                  ss.quality_score, ss.health_score,
-                                  ss.exit_score, ss.add_score,
-                                  ss.recommendation, ss.recommendation_reason,
-                                  ss.low_confidence, ss.morningstar_rating,
-                                  sp.return_1y_pct
-                           FROM stock_scores ss
-                           JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
-                           {sql_returns_join}
-                           WHERE ss.nse_symbol = ANY($1::text[])""",
-                        symbols,
-                    )
-            for r in rows:
-                sym = r["nse_symbol"]
-                ret_1y = nidp_returns.get(sym) if nidp_returns else r.get("return_1y_pct")
-                scores[sym] = {
-                    "scores": {
-                        "quality": float(r["quality_score"]) if r["quality_score"] else None,
-                        "health":  float(r["health_score"])  if r["health_score"]  else None,
-                        "exit":    float(r["exit_score"])    if r["exit_score"]    else None,
-                        "add":     float(r["add_score"])     if r["add_score"]     else None,
-                    },
-                    "recommendation": r["recommendation"],
-                    "recommendation_reason": r["recommendation_reason"],
-                    "sector": r["sector"],
-                    "cap_bucket": r["cap_bucket"],
-                    "low_confidence": bool(r["low_confidence"]) if r["low_confidence"] is not None else False,
-                    "return_1y_pct": float(ret_1y) if ret_1y is not None else None,
-                    "morningstar_rating": int(r["morningstar_rating"]) if r["morningstar_rating"] is not None else None,
-                }
-        except Exception as e:  # noqa: BLE001
-            logger.warning("enriched_portfolio: stock score join failed: %s", e)
-        return scores, backfill
+                        # DaaS unavailable — fall back to PG-direct lateral join
+                        # against the NIDP view (or legacy stock_primitives).
+                        nidp_view_present = await conn.fetchval(
+                            """
+                            SELECT EXISTS (
+                                SELECT 1 FROM information_schema.views
+                                 WHERE table_schema = 'nidp'
+                                   AND table_name   = 'v_v3_stock_primitives'
+                            )
+                            """
+                        )
+                        if nidp_view_present:
+                            sql_returns_join = """
+                               LEFT JOIN LATERAL (
+                                 SELECT return_252d_pct AS return_1y_pct
+                                   FROM nidp.v_v3_stock_primitives
+                                  WHERE symbol = ss.nse_symbol
+                                  ORDER BY as_of_date DESC LIMIT 1
+                               ) sp ON TRUE
+                            """
+                        else:
+                            sql_returns_join = """
+                               LEFT JOIN LATERAL (
+                                 SELECT return_1y_pct FROM stock_primitives
+                                  WHERE nse_symbol = ss.nse_symbol
+                                  ORDER BY as_of_date DESC LIMIT 1
+                               ) sp ON TRUE
+                            """
+                        rows = await conn.fetch(
+                            f"""SELECT ss.nse_symbol, sm.sector, sm.cap_bucket,
+                                      ss.quality_score, ss.health_score,
+                                      ss.exit_score, ss.add_score,
+                                      ss.recommendation, ss.recommendation_reason,
+                                      ss.low_confidence, ss.morningstar_rating,
+                                      sp.return_1y_pct
+                               FROM stock_scores ss
+                               JOIN stock_master sm ON sm.nse_symbol = ss.nse_symbol
+                               {sql_returns_join}
+                               WHERE ss.nse_symbol = ANY($1::text[])""",
+                            symbols,
+                        )
+                for r in rows:
+                    sym = r["nse_symbol"]
+                    ret_1y = nidp_returns.get(sym) if nidp_returns else r.get("return_1y_pct")
+                    stock_scores_by_sym[sym] = {
+                        "scores": {
+                            "quality": float(r["quality_score"]) if r["quality_score"] else None,
+                            "health":  float(r["health_score"])  if r["health_score"]  else None,
+                            "exit":    float(r["exit_score"])    if r["exit_score"]    else None,
+                            "add":     float(r["add_score"])     if r["add_score"]     else None,
+                        },
+                        "recommendation": r["recommendation"],
+                        "recommendation_reason": r["recommendation_reason"],
+                        "sector": r["sector"],
+                        "cap_bucket": r["cap_bucket"],
+                        "low_confidence": bool(r["low_confidence"]) if r["low_confidence"] is not None else False,
+                        "return_1y_pct": float(ret_1y) if ret_1y is not None else None,
+                        "morningstar_rating": int(r["morningstar_rating"]) if r["morningstar_rating"] is not None else None,
+                    }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("enriched_portfolio: stock score join failed: %s", e)
 
-    async def _load_mf_scores() -> Dict[str, Any]:
-        """Returns mf_scores_by_name."""
-        result: Dict[str, Any] = {}
-        try:
-            from services import v3_integration
-            mf_holdings = [h for h in holdings
-                           if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
-            if not mf_holdings:
-                return result
+    # Load MF V3 scores via the existing v3_portfolio endpoint's logic
+    mf_scores_by_name: Dict[str, Dict[str, Any]] = {}
+    try:
+        from services import v3_integration
+        mf_holdings = [h for h in holdings
+                       if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")]
+        if mf_holdings:
             mf_inv = [
                 {
                     "scheme_name": h.get("name"),
@@ -587,7 +562,7 @@ async def build_enriched_portfolio(
                 if v3:
                     key = (m["scheme_name"] or "").lower().strip()
                     prim = v3.get("v3_primitives") or {}
-                    result[key] = {
+                    mf_scores_by_name[key] = {
                         "instrument_id": v3.get("instrument_id"),
                         "scores": {
                             "quality": v3.get("quality_score"),
@@ -603,79 +578,44 @@ async def build_enriched_portfolio(
                         "ret_5y": prim.get("ret_5y"),
                         "morningstar_rating": prim.get("morningstar_rating"),
                     }
-        except Exception as e:  # noqa: BLE001
-            logger.warning("enriched_portfolio: MF V3 join failed: %s", e)
-        return result
+    except Exception as e:  # noqa: BLE001
+        logger.warning("enriched_portfolio: MF V3 join failed: %s", e)
 
-    # Run stock scores and MF V3 concurrently (independent data sources).
-    (stock_scores_by_sym, isin_to_symbol_backfill), mf_scores_by_name = (
-        await _asyncio.gather(_load_stock_scores(), _load_mf_scores())
-    )
+    # Category rank (sub_category partition, Direct-plan only, ranked by
+    # quality_score desc). Keyed by instrument_id so per-row lookup is
+    # O(1) regardless of CAS name formatting.
+    category_rank_by_iid: Dict[str, Dict[str, Any]] = {}
+    try:
+        from routes.admin_v3_master import _fetch_master_funds
+        all_funds = await _fetch_master_funds(limit=None)
+        # Partition by sub_category (fallback to category if sub is missing)
+        # so rankings are meaningful (Flexi Cap vs Flexi Cap, not "equity"
+        # vs everything).
+        by_cat: Dict[str, List[Dict[str, Any]]] = {}
+        for f in all_funds:
+            sub = f.get("sub_category") or f.get("category")
+            q = (f.get("scores") or {}).get("quality")
+            if sub and q is not None and f.get("plan_type") != "regular":
+                by_cat.setdefault(sub, []).append(f)
+        for sub, funds in by_cat.items():
+            funds.sort(key=lambda x: x["scores"]["quality"] or 0, reverse=True)
+            total = len(funds)
+            for i, f in enumerate(funds, start=1):
+                iid = f.get("instrument_id")
+                if iid:
+                    category_rank_by_iid[iid] = {
+                        "rank": i, "total": total, "sub_category": sub,
+                    }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("enriched_portfolio: category rank build failed: %s", e)
 
-    # ── Fan-out 2: category rank (needs mf_scores) + portfolio health (independent) ──
-
-    async def _load_category_rank() -> Dict[str, Any]:
-        """Lazy: fetch only the sub_categories the user holds, not the full master."""
-        result: Dict[str, Any] = {}
-        try:
-            user_iids = [
-                v3.get("instrument_id")
-                for v3 in mf_scores_by_name.values()
-                if v3.get("instrument_id")
-            ]
-            user_subcats = list({
-                v3.get("sub_category") or v3.get("category")
-                for v3 in mf_scores_by_name.values()
-                if v3.get("sub_category") or v3.get("category")
-            })
-            if not (user_iids and user_subcats):
-                return result
-            pool = await pg_client.get_pool()
-            if pool is None:
-                return result
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT im.instrument_id,
-                           COALESCE(mfm.sub_category, mfm.category) AS sub_cat,
-                           mfm.quality_score
-                      FROM mutual_fund_metadata mfm
-                      JOIN instrument_master im ON im.instrument_id = mfm.instrument_id
-                     WHERE im.is_active = TRUE
-                       AND COALESCE(mfm.sub_category, mfm.category) = ANY($1::text[])
-                       AND mfm.quality_score IS NOT NULL
-                     ORDER BY mfm.quality_score DESC NULLS LAST
-                    """,
-                    user_subcats,
-                )
-            user_iids_set = set(user_iids)
-            by_cat: Dict[str, List[Dict[str, Any]]] = {}
-            for r in rows:
-                by_cat.setdefault(r["sub_cat"], []).append({
-                    "instrument_id": r["instrument_id"],
-                    "quality_score": r["quality_score"],
-                })
-            for sub, funds in by_cat.items():
-                total = len(funds)
-                for i, f in enumerate(funds, start=1):
-                    iid = f["instrument_id"]
-                    if iid in user_iids_set:
-                        result[iid] = {"rank": i, "total": total, "sub_category": sub}
-        except Exception as e:  # noqa: BLE001
-            logger.warning("enriched_portfolio: category rank build failed: %s", e)
-        return result
-
-    async def _load_health() -> Optional[Dict[str, Any]]:
-        try:
-            hr = await ph.build_portfolio_health(user_id)
-            return hr.to_dict()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("enriched_portfolio: health failed: %s", e)
-            return None
-
-    category_rank_by_iid, health_payload = await _asyncio.gather(
-        _load_category_rank(), _load_health()
-    )
+    # Portfolio Health (for risk drivers + totals)
+    try:
+        hr = await ph.build_portfolio_health(user_id)
+        health_payload = hr.to_dict()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("enriched_portfolio: health failed: %s", e)
+        health_payload = None
 
     # Build per-holding rows
     enriched: List[Dict[str, Any]] = []
@@ -989,10 +929,6 @@ async def build_enriched_portfolio(
             "is_equity_fund": is_equity_fund if at in ("mutual_fund", "etf") else None,
             "weight_pct": (round(weight_pct, 2)
                            if weight_pct is not None else None),
-            "asset_class": _asset_class_for(at, category),
-            "amfi_matched": bool(h.get("amfi_matched", False)),
-            "benchmark_return": h.get("benchmark_return"),
-            "benchmark_delta": h.get("benchmark_delta"),
             "low_confidence": (
                 score_bundle is None
                 or (stock_scores_by_sym.get((h.get("nse_symbol") or "").upper()) or {}).get("low_confidence", False)
@@ -1271,9 +1207,52 @@ async def build_enriched_portfolio(
         except Exception as e:  # noqa: BLE001
             logger.debug("nse_symbol backfill persist skipped: %s", e)
 
+    # B-4: one-time backfill of mutual_fund_metadata.asset_class for NULL rows.
+    # Runs inline (best-effort) so the Composition Explorer "Asset class" dimension
+    # is populated without a separate migration re-run or manual script.
+    try:
+        from services import pg_client as _pg
+        _pool = await _pg.get_pool()
+        if _pool:
+            await _backfill_mfm_asset_class(_pool)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("asset_class backfill skipped: %s", e)
+
     # Cache for 5 minutes — refresh-fundamentals and refresh-prices evict this key.
     try:
         await _rc.cache_set(cache_key, result, ttl_s=300)
     except Exception:  # noqa: BLE001
         pass
     return result
+
+
+async def _backfill_mfm_asset_class(pool) -> None:
+    """Populate mutual_fund_metadata.asset_class for rows where it is NULL.
+
+    Uses a single UPDATE … CASE so all rows are fixed in one round-trip.
+    The CASE logic mirrors _asset_class_for() in routes/portfolio_composition.py.
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE mutual_fund_metadata
+               SET asset_class = CASE
+                   WHEN category ILIKE ANY(ARRAY['%liquid%','%debt%','%bond%','%gilt%',
+                                                  '%corporate%','%short term%',
+                                                  '%low duration%','%overnight%',
+                                                  '%money market%'])
+                        THEN 'Debt'
+                   WHEN category ILIKE ANY(ARRAY['%hybrid%','%balanced%',
+                                                  '%multi asset%','%arbitrage%'])
+                        THEN 'Hybrid'
+                   WHEN category ILIKE '%gold%' OR category ILIKE '%commodity%'
+                        THEN 'Gold'
+                   WHEN category ILIKE ANY(ARRAY['%international%','%global%',
+                                                  '%overseas%','%us equity%',
+                                                  '%nasdaq%'])
+                        THEN 'International'
+                   ELSE 'Equity'
+               END
+             WHERE asset_class IS NULL
+            """
+        )
