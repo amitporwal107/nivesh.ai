@@ -37,7 +37,7 @@ Nivesh.ai is an AI-powered wealth management copilot for Indian retail investors
 │                                                                                │
 │  ┌────────────────────────────────┐   ┌───────────────────────────────────┐  │
 │  │      NIVESH APPLICATION         │   │         NIDP DATA PLATFORM         │  │
-│  │  nivesh-app-vm (34.100.186.141) │   │   nidp-stack-vm (34.93.60.254)    │  │
+│  │  nivesh-app-vm (34.47.250.214) │   │   nidp-stack-vm (34.93.60.254)    │  │
 │  │                                 │   │                                    │  │
 │  │  React 19 / Vite Frontend       │   │  28 Cloud Run Ingesters            │  │
 │  │  FastAPI Backend (Python 3.11)  │   │  DaaS API (FastAPI)                │  │
@@ -150,7 +150,7 @@ Nivesh.ai is an AI-powered wealth management copilot for Indian retail investors
 
 | Property | Value |
 |---|---|
-| External IP | `34.100.186.141` |
+| External IP | `34.47.250.214` |
 | Machine type | `e2-standard-4` |
 | Zone | `asia-south1-a` |
 | OS | Debian 12 |
@@ -252,7 +252,7 @@ Internet
 Cloudflare CDN (TLS termination, DDoS)
     │
     ▼
-GCP External IP (34.100.186.141 / 34.93.60.254)
+GCP External IP (34.47.250.214 / 34.93.60.254)
     │
     ▼
 Nginx (TLS re-termination with Cloudflare Origin Cert)
@@ -1302,7 +1302,7 @@ NIDP_POSTGRES_URL="$NIDP_POSTGRES_URL" python -m alembic downgrade -1
 
 ```bash
 # nivesh-app-vm (production)
-ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.100.186.141
+ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.47.250.214
 
 # nidp-stack-vm (data platform)
 ssh aporwal107_gmail_com@34.93.60.254
@@ -2157,7 +2157,7 @@ Replays historical ingestion from GCS raw archives with updated parsers or valid
 
 ### 19.1 Production URLs
 
-#### Nivesh Application (`nivesh-app-vm`, 34.100.186.141)
+#### Nivesh Application (`nivesh-app-vm`, 34.47.250.214)
 
 | Service | URL | Notes |
 |---|---|---|
@@ -2169,7 +2169,7 @@ Replays historical ingestion from GCS raw archives with updated parsers or valid
 | **API docs (Swagger)** | https://niveshcopilot.com/api/docs | Dev/internal only |
 | **Admin console** | https://niveshcopilot.com/v2/ (admin tab) | Visible only to `is_admin=true` users |
 | **Dev auth cookie** | https://niveshcopilot.com/api/auth/dev-set-cookie?token=... | Headless / script auth |
-| **nip.io domain** | http://34.100.186.141.nip.io/ | Fallback / internal |
+| **nip.io domain** | http://34.47.250.214.nip.io/ | Fallback / internal |
 
 #### NIDP Data Platform (`nidp-stack-vm`, 34.93.60.254)
 
@@ -2367,7 +2367,7 @@ SENTRY_AUTH_TOKEN=<sentry-auth-token>
 | GCP owner account | `gcloud auth login aporwal107@gmail.com` | All IAM changes |
 | GCP OAuth access token | `gcloud auth print-access-token > /app/.gcp-token` | Expires in 1 hour |
 | Runtime SA key | `gcloud secrets versions access latest --secret=<KEY>` | Via nidp-sa impersonation |
-| SSH to nivesh-app-vm | `ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.100.186.141` | Ed25519 key |
+| SSH to nivesh-app-vm | `ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.47.250.214` | Ed25519 key |
 | SSH to nidp-stack-vm | `ssh aporwal107_gmail_com@34.93.60.254` | OS Login |
 | SSH CI/CD user | `ssh devops@<vm-ip>` | Ed25519, `~/.ssh/nivesh_devops_ci` |
 | Jenkins SSH creds | Jenkins → Credentials → `nivesh-app-vm-ssh`, `nidp-stack-vm-ssh` | Stored in Jenkins |

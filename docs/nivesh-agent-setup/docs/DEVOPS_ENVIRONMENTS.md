@@ -54,32 +54,6 @@ Origin Cert. ~$50–66/month.
 - Burn-rate SLO alerts (pager/ticket) for ingester failures, snapshot blocks, replication lag,
   parquet export, DLQ backlog, bhavcopy/NAV staleness.
 
-## Deploy commands
-
-### Staging (from repo root on `nivesh-app-vm` or via SSH)
-```bash
-# Full staging redeploy (backend + frontend + frontend-v5)
-ssh -i ~/.ssh/google_compute_engine aporwal107_gmail_com@34.47.250.214 \
-  "cd /opt/nivesh-staging/repo && sudo bash deploy/nivesh-staging/redeploy-staging.sh"
-
-# The script: pulls latest dev branch, recreates Docker Compose services,
-# waits for healthy, reloads nginx, runs smoke check → {"status":"ok"}
-```
-
-### Production (from repo root on `nivesh-app-vm`)
-```bash
-bash deploy/nivesh-app/redeploy.sh                  # full
-bash deploy/nivesh-app/redeploy.sh --frontend-only  # CSS/JS only
-bash deploy/nivesh-app/redeploy.sh --backend-only   # Python, no new deps
-```
-
-### NIDP VM
-```bash
-bash deploy/nidp-vm/redeploy.sh
-```
-
-**Rule:** deploy via git push + the redeploy script only. Never `docker cp` or `rsync` files directly into containers.
-
 ## Runbooks
 SSH, health checks, service restart, manual ingester runs, Cloud Run/Build triggers, DB access:
 see `TECHNICAL_ARCHITECTURE.md` §15 (Operations Cheat Sheet).

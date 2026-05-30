@@ -24,7 +24,7 @@
 
 | VM | External IP | Purpose | SSH User |
 |---|---|---|---|
-| `nivesh-app-vm` | `34.100.186.141` | Nivesh application stack (prod + staging) | `aporwal107_gmail_com` |
+| `nivesh-app-vm` | `34.47.250.214` | Nivesh application stack (prod + staging) | `aporwal107_gmail_com` |
 | `nidp-stack-vm` | `34.93.60.254` | NIDP data platform + infra observability stack | `aporwal107_gmail_com` |
 
 ---

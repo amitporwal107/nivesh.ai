@@ -8,7 +8,7 @@ Two identities serve distinct purposes. `nivesh_dev_ops@niveshcopilot.com` is a 
 
 - You are authenticated as `aporwal107@gmail.com` (project owner)
 - `gcloud` CLI is installed and authenticated
-- Both VMs are running: `nidp-stack-vm` (`34.93.60.254`) and `nivesh-app-vm` (`34.100.186.141`)
+- Both VMs are running: `nidp-stack-vm` (`34.93.60.254`) and `nivesh-app-vm` (`34.47.250.214`)
 
 ---
 
@@ -110,7 +110,7 @@ gcloud compute os-login describe-profile \
 
 # SSH to VMs as OS Login user
 ssh nivesh_dev_ops_niveshcopilot_com@34.93.60.254    # nidp-stack-vm
-ssh nivesh_dev_ops_niveshcopilot_com@34.100.186.141  # nivesh-app-vm
+ssh nivesh_dev_ops_niveshcopilot_com@34.47.250.214  # nivesh-app-vm
 ```
 
 ---
@@ -124,7 +124,7 @@ Add or update the following secrets in the repository (`Settings → Secrets and
 | `DEVOPS_SSH_KEY` | Content of `~/.ssh/nivesh_devops_ci` | Private key — replaces `NIDP_VM_SSH_KEY`, `NIVESH_APP_VM_SSH_KEY` |
 | `DEVOPS_SSH_USER` | `devops` | Linux username on both VMs |
 | `NIDP_VM_HOST` | `34.93.60.254` | Already exists — no change |
-| `NIVESH_VM_HOST` | `34.100.186.141` | Rename from `NIVESH_APP_VM_HOST` |
+| `NIVESH_VM_HOST` | `34.47.250.214` | Rename from `NIVESH_APP_VM_HOST` |
 
 Old secrets to delete once the new ones are confirmed working:
 
@@ -147,7 +147,7 @@ Go to `github.com/amitporwal107/nivesh.ai → Settings → Collaborators → Add
 ```bash
 # Test CI SSH access
 ssh -i ~/.ssh/nivesh_devops_ci devops@34.93.60.254 'sudo -u nidp echo "nidp sudo OK"'
-ssh -i ~/.ssh/nivesh_devops_ci devops@34.100.186.141 'sudo echo "app sudo OK"'
+ssh -i ~/.ssh/nivesh_devops_ci devops@34.47.250.214 'sudo echo "app sudo OK"'
 
 # Verify GCP roles
 gcloud projects get-iam-policy niveshdataintelligence \

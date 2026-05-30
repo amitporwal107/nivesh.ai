@@ -32,20 +32,13 @@ Never `--no-verify`.
 
 ## Deploy
 
-### Staging (SSH to nivesh-app-vm, run as sudo)
-```bash
-ssh -i ~/.ssh/google_compute_engine aporwal107_gmail_com@34.47.250.214 \
-  "cd /opt/nivesh-staging/repo && sudo bash deploy/nivesh-staging/redeploy-staging.sh"
-```
-Steps: git reset --hard origin/dev → docker compose up → wait healthy → reload nginx → smoke `{"status":"ok"}`.
-
-### Production (run on nivesh-app-vm, run as sudo)
+### Nivesh app (via git — never rsync for manual)
 ```bash
 bash deploy/nivesh-app/redeploy.sh                 # full
 bash deploy/nivesh-app/redeploy.sh --frontend-only # CSS/JS
 bash deploy/nivesh-app/redeploy.sh --backend-only  # Python, no new deps
 ```
-Steps: `git reset --hard origin/main` → docker build → `docker compose up -d --remove-orphans` → health-check `/api/health`.
+Steps: `git reset --hard origin/<branch>` → docker build → `docker compose up -d --remove-orphans` → health-check `/api/health`.
 
 ### NIDP VM
 ```bash

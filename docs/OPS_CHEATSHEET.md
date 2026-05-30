@@ -6,8 +6,8 @@ Two GCP VMs, one GCP project:
 
 | VM | IP | Public URL | Role |
 |---|---|---|---|
-| `nivesh-app-vm` | `34.100.186.141` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
-| `nivesh-app-vm` | `34.100.186.141` | `https://staging.niveshcopilot.com` | **Staging** — same VM, separate Docker stack under `/opt/nivesh-staging/` |
+| `nivesh-app-vm` | `34.47.250.214` | `https://niveshcopilot.com` | Main app (Nginx + FastAPI + MongoDB + Postgres + Redis) |
+| `nivesh-app-vm` | `34.47.250.214` | `https://staging.niveshcopilot.com` | **Staging** — same VM, separate Docker stack under `/opt/nivesh-staging/` |
 | `nidp-stack-vm` | `34.93.60.254` | `https://data.niveshcopilot.com` | NIDP data plane (DaaS API + Query API + cron jobs + Grafana) |
 
 **Project:** `niveshdataintelligence` · **Zone:** `asia-south1-a`
@@ -19,7 +19,7 @@ Two GCP VMs, one GCP project:
 ```bash
 # nivesh-app-vm — direct SSH key (no GCP token needed)
 # Key: ~/.ssh/nivesh_vm  (ed25519, added 2026-05-28)
-ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.100.186.141
+ssh -i ~/.ssh/nivesh_vm aporwal107_gmail_com@34.47.250.214
 
 # nidp-stack-vm — direct SSH
 ssh aporwal107_gmail_com@34.93.60.254
@@ -51,7 +51,7 @@ gcloud compute ssh nivesh-app-vm \
 sudo bash ~/nivesh-app/bootstrap.sh
 
 # Step 5: On the VM — first deploy
-sudo EXTERNAL_IP=34.100.186.141 bash /opt/nivesh/deploy/deploy.sh
+sudo EXTERNAL_IP=34.47.250.214 bash /opt/nivesh/deploy/deploy.sh
 ```
 
 ---
@@ -222,7 +222,7 @@ $COMPOSE down
 $COMPOSE --env-file /opt/nivesh/.env.prod up -d
 
 # ── Health check ──────────────────────────────────────────────────────────────
-curl -sf http://34.100.186.141.nip.io/health
+curl -sf http://34.47.250.214.nip.io/health
 
 # ── Run DB migrations (idempotent) ────────────────────────────────────────────
 $COMPOSE --env-file /opt/nivesh/.env.prod --profile migrate up migrate
