@@ -12,11 +12,17 @@
 #   nivesh-log-triage-sa  → merged into nivesh-devops (already has logging.viewer)
 #
 # Usage:
-#   bash deploy/setup-iam.sh                       # dry-run, shows all changes
-#   bash deploy/setup-iam.sh --confirm             # apply everything
-#   bash deploy/setup-iam.sh --sa=nidp-sa          # dry-run one SA only
-#   bash deploy/setup-iam.sh --sa=nivesh-devops --confirm
+#   bash deploy/setup-iam.sh                        # dry-run IAM roles (all SAs)
+#   bash deploy/setup-iam.sh --confirm              # apply IAM roles (all SAs)
+#   bash deploy/setup-iam.sh --confirm --ssh        # apply IAM + generate/register SSH keys
+#   bash deploy/setup-iam.sh --sa=nivesh-devops --confirm --ssh
+#   bash deploy/setup-iam.sh --sa=nidp-sa --confirm
 #   bash deploy/setup-iam.sh --sa=nidp-admin --confirm
+#
+# SSH keys generated (in ~/.ssh/nivesh/):
+#   nivesh-devops-deploy   Jenkins/CI → both VMs   (1-year TTL, no passphrase)
+#   nidp-sa-deploy         Orchestrator → nidp-stack-vm (1-year TTL, no passphrase)
+#   nidp-admin-deploy      Break-glass → both VMs  (1-hour TTL, passphrase protected)
 #
 # Requirements:
 #   gcloud authenticated as project Owner (only Owners can grant iam.securityAdmin)
@@ -33,9 +39,14 @@ SA_DEVOPS="nivesh-devops@${PROJECT}.iam.gserviceaccount.com"
 SA_ADMIN="nidp-admin@${PROJECT}.iam.gserviceaccount.com"
 
 CB_BUCKET="gs://${PROJECT}_cloudbuild"
+VM_NIVESH_IP="34.100.186.141"
+VM_NIDP_IP="34.93.60.254"
+OS_LOGIN_USER="aporwal107_gmail_com"    # GCP OS Login username (email dots/@ → underscores)
+SSH_KEY_DIR="${HOME}/.ssh/nivesh"       # where generated keys are stored
 
 DRY=true
 TARGET_SA="all"
+DO_SSH=false                            # --ssh flag enables key generation + registration
 
 for arg in "$@"; do
   case "$arg" in
@@ -43,6 +54,7 @@ for arg in "$@"; do
     --dry-run)   DRY=true ;;
     --sa=*)      TARGET_SA="${arg#*=}" ;;
     --project=*) PROJECT="${arg#*=}" ;;
+    --ssh)       DO_SSH=true ;;
     -h|--help)   sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Unknown arg: $arg" >&2; exit 2 ;;
   esac
@@ -241,6 +253,213 @@ setup_nidp_admin() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SSH Key Setup — generate ed25519 keys + register via OS Login API
+#
+# One key pair per role:
+#   nivesh-devops-deploy  → used by Jenkins / CI pipeline for VM SSH
+#   nidp-sa-deploy        → used by NIDP orchestrator for nidp-stack-vm backfills
+#   nidp-admin-deploy     → break-glass emergency SSH (passphrase protected)
+#
+# Registration uses the OS Login API (not metadata ssh-keys).
+# Keys expire after TTL_HOURS (default 8760h = 1 year for persistent keys,
+# 1h for the break-glass key).
+# ══════════════════════════════════════════════════════════════════════════════
+setup_ssh() {
+  section "SSH Key Generation + OS Login Registration"
+  log "Key dir : $SSH_KEY_DIR"
+  log "VMs     : nivesh-app-vm ($VM_NIVESH_IP) | nidp-stack-vm ($VM_NIDP_IP)"
+  log "OS user : $OS_LOGIN_USER"
+  echo
+
+  mkdir -p "$SSH_KEY_DIR"
+  chmod 700 "$SSH_KEY_DIR"
+
+  # ── Helper: generate key if missing ───────────────────────────────
+  gen_key() {
+    local name=$1 comment=$2 passphrase=${3:-}
+    local key="$SSH_KEY_DIR/$name"
+    if [[ -f "$key" ]]; then
+      ok "Key already exists: $key"
+    else
+      if $DRY; then
+        echo -e "  ${YEL}DRY:${RESET} ssh-keygen -t ed25519 -f $key -C '$comment' -N '<passphrase>'"
+      else
+        ssh-keygen -t ed25519 -f "$key" -C "$comment" -N "$passphrase" -q
+        chmod 600 "$key" && chmod 644 "${key}.pub"
+        ok "Generated: $key"
+      fi
+    fi
+  }
+
+  # ── Helper: register public key via OS Login API ───────────────────
+  # TTL in microseconds. 0 = no expiry (persistent).
+  register_key() {
+    local key_file=$1 sa_email=$2 ttl_hours=${3:-8760}
+    local pub_key token expiry_usec
+
+    if [[ ! -f "${key_file}.pub" ]]; then
+      warn "Public key not found: ${key_file}.pub — skipping registration"
+      return
+    fi
+
+    pub_key=$(cat "${key_file}.pub")
+
+    if $DRY; then
+      echo -e "  ${YEL}DRY:${RESET} register ${key_file}.pub via OS Login API as $sa_email (TTL=${ttl_hours}h)"
+      return
+    fi
+
+    log "Getting token for $sa_email ..."
+    token=$(gcloud auth print-access-token \
+      --impersonate-service-account="$sa_email" 2>/dev/null \
+      || gcloud auth print-access-token 2>/dev/null)
+
+    if [[ -z "$token" ]]; then
+      warn "Could not get token for $sa_email — skipping key registration"
+      warn "Run manually: gcloud auth print-access-token [--impersonate-service-account=$sa_email]"
+      return
+    fi
+
+    expiry_usec=$(python3 -c "import time; print(int((time.time() + $ttl_hours * 3600) * 1e6))")
+
+    local payload="{\"key\": \"${pub_key}\", \"expirationTimeUsec\": \"${expiry_usec}\"}"
+    local http_code
+    http_code=$(curl -sf -o /dev/null -w "%{http_code}" -X POST \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      "https://oslogin.googleapis.com/v1/users/${OS_LOGIN_USER}/sshPublicKeys" \
+      -d "$payload" 2>/dev/null || echo "000")
+
+    if [[ "$http_code" == "200" ]]; then
+      ok "Registered ${key_file}.pub → OS Login (TTL=${ttl_hours}h, expires in ~$((ttl_hours/24)) days)"
+    else
+      warn "OS Login API returned HTTP $http_code for $sa_email"
+      warn "Key may still work if it was previously registered, or register manually:"
+      warn "  gcloud compute os-login ssh-keys add --key-file=${key_file}.pub --ttl=${ttl_hours}h"
+    fi
+  }
+
+  # ── Helper: test SSH connectivity ─────────────────────────────────
+  test_ssh() {
+    local key=$1 ip=$2 vm_name=$3
+    if $DRY; then
+      echo -e "  ${YEL}DRY:${RESET} ssh -i $key -o ConnectTimeout=10 $OS_LOGIN_USER@$ip 'echo SSH_OK'"
+      return
+    fi
+    log "Testing SSH to $vm_name ($ip) ..."
+    if ssh -i "$key" \
+         -o StrictHostKeyChecking=no \
+         -o ConnectTimeout=10 \
+         -o BatchMode=yes \
+         "${OS_LOGIN_USER}@${ip}" "echo SSH_OK" 2>/dev/null; then
+      ok "SSH to $vm_name: OK"
+    else
+      warn "SSH to $vm_name failed — key may need a few seconds to propagate. Retry:"
+      warn "  ssh -i $key $OS_LOGIN_USER@$ip"
+    fi
+  }
+
+  # ════════════════════════════════════════════════════════════════════
+  # Key 1: nivesh-devops-deploy
+  # Used by Jenkins pipelines and manual deploys to both VMs
+  # ════════════════════════════════════════════════════════════════════
+  log "── Key 1: nivesh-devops-deploy (CI/CD + Jenkins) ──"
+  gen_key "nivesh-devops-deploy" "nivesh-devops-ci-cd-$(date +%Y%m%d)" ""
+  register_key "$SSH_KEY_DIR/nivesh-devops-deploy" "$SA_DEVOPS" 8760
+  echo
+  log "Testing SSH access with nivesh-devops-deploy key:"
+  test_ssh "$SSH_KEY_DIR/nivesh-devops-deploy" "$VM_NIVESH_IP" "nivesh-app-vm"
+  test_ssh "$SSH_KEY_DIR/nivesh-devops-deploy" "$VM_NIDP_IP"   "nidp-stack-vm"
+  echo
+
+  # ════════════════════════════════════════════════════════════════════
+  # Key 2: nidp-sa-deploy
+  # Used by NIDP orchestrator / backfill triggers → nidp-stack-vm only
+  # ════════════════════════════════════════════════════════════════════
+  log "── Key 2: nidp-sa-deploy (NIDP orchestrator → nidp-stack-vm) ──"
+  gen_key "nidp-sa-deploy" "nidp-sa-orchestrator-$(date +%Y%m%d)" ""
+  register_key "$SSH_KEY_DIR/nidp-sa-deploy" "$SA_RUNTIME" 8760
+  echo
+  log "Testing SSH access with nidp-sa-deploy key:"
+  test_ssh "$SSH_KEY_DIR/nidp-sa-deploy" "$VM_NIDP_IP" "nidp-stack-vm"
+  echo
+
+  # ════════════════════════════════════════════════════════════════════
+  # Key 3: nidp-admin-deploy (break-glass)
+  # Passphrase protected. Short TTL (1h) — re-register each use.
+  # ════════════════════════════════════════════════════════════════════
+  log "── Key 3: nidp-admin-deploy (break-glass, passphrase protected) ──"
+  warn "This key is passphrase-protected. You will be prompted if generating fresh."
+  if $DRY; then
+    echo -e "  ${YEL}DRY:${RESET} ssh-keygen -t ed25519 -f $SSH_KEY_DIR/nidp-admin-deploy (passphrase required)"
+    echo -e "  ${YEL}DRY:${RESET} register via OS Login API as $SA_ADMIN (TTL=1h)"
+  else
+    local key="$SSH_KEY_DIR/nidp-admin-deploy"
+    if [[ ! -f "$key" ]]; then
+      log "Generating passphrase-protected key (you will be prompted)..."
+      ssh-keygen -t ed25519 -f "$key" -C "nidp-admin-breakglass-$(date +%Y%m%d)"
+      chmod 600 "$key" && chmod 644 "${key}.pub"
+      ok "Generated: $key"
+    else
+      ok "Key already exists: $key"
+    fi
+    # Register for 1h only — must re-register each break-glass use
+    register_key "$key" "$SA_ADMIN" 1
+  fi
+  echo
+
+  # ════════════════════════════════════════════════════════════════════
+  # Print SSH config block for ~/.ssh/config
+  # ════════════════════════════════════════════════════════════════════
+  cat <<SSHCONF
+
+$(echo -e "${BOLD}── Add to ~/.ssh/config ──────────────────────────────────────${RESET}")
+
+Host nivesh-app-vm
+  HostName $VM_NIVESH_IP
+  User $OS_LOGIN_USER
+  IdentityFile $SSH_KEY_DIR/nivesh-devops-deploy
+  StrictHostKeyChecking no
+  ServerAliveInterval 30
+
+Host nidp-stack-vm
+  HostName $VM_NIDP_IP
+  User $OS_LOGIN_USER
+  IdentityFile $SSH_KEY_DIR/nivesh-devops-deploy
+  StrictHostKeyChecking no
+  ServerAliveInterval 30
+
+# After adding the above, connect with:
+#   ssh nivesh-app-vm
+#   ssh nidp-stack-vm
+
+$(echo -e "${BOLD}── Jenkins Credentials to add ───────────────────────────────${RESET}")
+
+  Kind    : SSH Username with private key
+  ID      : nivesh-devops-vm-ssh
+  Username: $OS_LOGIN_USER
+  Key     : (paste contents of $SSH_KEY_DIR/nivesh-devops-deploy)
+
+  Kind    : Secret text
+  ID      : NIVESH_APP_VM_HOST
+  Value   : $VM_NIVESH_IP
+
+  Kind    : Secret text
+  ID      : NIDP_STACK_VM_HOST
+  Value   : $VM_NIDP_IP
+
+$(echo -e "${BOLD}── Jenkins Pipeline SSH snippet ─────────────────────────────${RESET}")
+
+  // In Jenkinsfile:
+  sshagent(['nivesh-devops-vm-ssh']) {
+    sh "ssh $OS_LOGIN_USER@$VM_NIVESH_IP 'bash /opt/nivesh/deploy/redeploy.sh'"
+    sh "ssh $OS_LOGIN_USER@$VM_NIDP_IP  'bash /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh'"
+  }
+
+SSHCONF
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Run selected SAs
 # ══════════════════════════════════════════════════════════════════════════════
 case "$TARGET_SA" in
@@ -252,12 +471,18 @@ case "$TARGET_SA" in
   nidp-sa)        setup_nidp_sa ;;
   nivesh-devops)  setup_nivesh_devops ;;
   nidp-admin)     setup_nidp_admin ;;
+  ssh)            DO_SSH=true ;;   # allow --sa=ssh as alias
   *)
     echo "Unknown --sa value: $TARGET_SA" >&2
     echo "Valid values: all | nidp-sa | nivesh-devops | nidp-admin" >&2
     exit 2
     ;;
 esac
+
+# SSH setup runs after IAM (keys need OS Login roles to be in place first)
+if $DO_SSH; then
+  setup_ssh
+fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Summary
