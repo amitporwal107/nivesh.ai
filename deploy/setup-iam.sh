@@ -2,6 +2,8 @@
 # setup-iam.sh — Single script to provision ALL service account roles
 # and permissions for the Nivesh + NIDP platform.
 #
+# Compatible with: Linux, macOS, Windows (Git Bash / WSL)
+#
 # Service accounts managed:
 #   nidp-sa            Runtime SA  — Cloud Run jobs/services, ingesters
 #   nivesh-devops      CI/CD SA    — Jenkins, Cloud Build, VM deploys, IAM admin
@@ -19,15 +21,43 @@
 #   bash deploy/setup-iam.sh --sa=nidp-sa --confirm
 #   bash deploy/setup-iam.sh --sa=nidp-admin --confirm
 #
-# SSH keys generated (in ~/.ssh/nivesh/):
+# SSH keys generated (in ~/.ssh/nivesh/ or %USERPROFILE%\.ssh\nivesh on Windows):
 #   nivesh-devops-deploy   Jenkins/CI → both VMs   (1-year TTL, no passphrase)
 #   nidp-sa-deploy         Orchestrator → nidp-stack-vm (1-year TTL, no passphrase)
 #   nidp-admin-deploy      Break-glass → both VMs  (1-hour TTL, passphrase protected)
 #
 # Requirements:
-#   gcloud authenticated as project Owner (only Owners can grant iam.securityAdmin)
+#   - gcloud CLI  (https://cloud.google.com/sdk/docs/install)
+#   - ssh-keygen  (built-in on Linux/macOS; Git Bash or OpenSSH on Windows)
+#   - curl        (built-in on Linux/macOS/Windows 10+)
+#   - python3     (or python on Windows)
+#   - Authenticated as project Owner:
+#       gcloud auth login
+#       gcloud config set project niveshdataintelligence
 
 set -euo pipefail
+
+# ── OS detection + portable paths ────────────────────────────────────────────
+case "$(uname -s 2>/dev/null || echo Windows)" in
+  Linux*)   OS=linux ;;
+  Darwin*)  OS=mac ;;
+  MINGW*|MSYS*|CYGWIN*|Windows*) OS=windows ;;
+  *)        OS=linux ;;
+esac
+
+# Portable home dir: Git Bash sets $HOME; fallback to USERPROFILE on Windows
+_HOME="${HOME:-${USERPROFILE:-$PWD}}"
+
+# Convert Windows backslash path to forward-slash for bash tools
+if [[ "$OS" == "windows" ]]; then
+  _HOME="$(echo "$_HOME" | tr '\\' '/')"
+fi
+
+# python3 is 'python' on many Windows installs
+PYTHON="python3"
+if ! command -v python3 &>/dev/null && command -v python &>/dev/null; then
+  PYTHON="python"
+fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJECT="${GCP_PROJECT:-niveshdataintelligence}"
@@ -42,7 +72,7 @@ CB_BUCKET="gs://${PROJECT}_cloudbuild"
 VM_NIVESH_IP="34.100.186.141"
 VM_NIDP_IP="34.93.60.254"
 OS_LOGIN_USER="aporwal107_gmail_com"    # GCP OS Login username (email dots/@ → underscores)
-SSH_KEY_DIR="${HOME}/.ssh/nivesh"       # where generated keys are stored
+SSH_KEY_DIR="${_HOME}/.ssh/nivesh"      # portable across Linux/macOS/Windows Git Bash
 
 DRY=true
 TARGET_SA="all"
@@ -266,13 +296,34 @@ setup_nidp_admin() {
 # ══════════════════════════════════════════════════════════════════════════════
 setup_ssh() {
   section "SSH Key Generation + OS Login Registration"
+  log "OS      : $OS"
   log "Key dir : $SSH_KEY_DIR"
   log "VMs     : nivesh-app-vm ($VM_NIVESH_IP) | nidp-stack-vm ($VM_NIDP_IP)"
   log "OS user : $OS_LOGIN_USER"
   echo
 
+  # ── Prereq check ──────────────────────────────────────────────────
+  local missing=()
+  command -v ssh-keygen &>/dev/null || missing+=("ssh-keygen")
+  command -v ssh        &>/dev/null || missing+=("ssh")
+  command -v curl       &>/dev/null || missing+=("curl")
+  command -v "$PYTHON"  &>/dev/null || missing+=("python3 (or python)")
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    warn "Missing tools: ${missing[*]}"
+    if [[ "$OS" == "windows" ]]; then
+      warn "On Windows, install via one of:"
+      warn "  • Git for Windows (includes ssh, curl):  https://git-scm.com/download/win"
+      warn "  • OpenSSH feature: Settings → Apps → Optional Features → OpenSSH Client"
+      warn "  • WSL2 (full Linux environment):         https://aka.ms/wsl"
+      warn "  • Python: https://www.python.org/downloads/windows/"
+    fi
+    $DRY || { echo "Aborting — install missing tools first." >&2; exit 1; }
+  fi
+
   mkdir -p "$SSH_KEY_DIR"
-  chmod 700 "$SSH_KEY_DIR"
+  # chmod is a no-op on Windows but harmless
+  chmod 700 "$SSH_KEY_DIR" 2>/dev/null || true
 
   # ── Helper: generate key if missing ───────────────────────────────
   gen_key() {
@@ -320,7 +371,7 @@ setup_ssh() {
       return
     fi
 
-    expiry_usec=$(python3 -c "import time; print(int((time.time() + $ttl_hours * 3600) * 1e6))")
+    expiry_usec=$($PYTHON -c "import time; print(int((time.time() + $ttl_hours * 3600) * 1e6))")
 
     local payload="{\"key\": \"${pub_key}\", \"expirationTimeUsec\": \"${expiry_usec}\"}"
     local http_code
@@ -414,6 +465,8 @@ setup_ssh() {
   cat <<SSHCONF
 
 $(echo -e "${BOLD}── Add to ~/.ssh/config ──────────────────────────────────────${RESET}")
+# Linux/macOS: ~/.ssh/config
+# Windows:     %USERPROFILE%\.ssh\config  (create if missing)
 
 Host nivesh-app-vm
   HostName $VM_NIVESH_IP
@@ -432,6 +485,9 @@ Host nidp-stack-vm
 # After adding the above, connect with:
 #   ssh nivesh-app-vm
 #   ssh nidp-stack-vm
+#
+# Windows Git Bash note: use forward slashes in IdentityFile path, e.g.:
+#   IdentityFile C:/Users/<you>/.ssh/nivesh/nivesh-devops-deploy
 
 $(echo -e "${BOLD}── Jenkins Credentials to add ───────────────────────────────${RESET}")
 
