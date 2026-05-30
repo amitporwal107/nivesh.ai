@@ -23,6 +23,11 @@ fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || fail "Run as root (sudo)."
 [[ -f "${ENV_FILE}" ]] || fail "Missing ${ENV_FILE}. Run bootstrap-staging.sh first."
 [[ -d "${REPO_DIR}/.git" ]] || fail "Missing ${REPO_DIR}. Clone the repo there first."
+
+# Git ≥2.35.2 refuses to operate on repos owned by a different user.
+# Running as root (sudo) on a repo owned by another user triggers this.
+# Mark it safe globally so git fetch/reset work regardless of ownership.
+git config --global --add safe.directory "${REPO_DIR}"
 [[ -f "${COMPOSE_FILE}" ]] || fail "Missing ${COMPOSE_FILE}."
 
 log "Refreshing repo at ${REPO_DIR} (branch=${BRANCH})..."
