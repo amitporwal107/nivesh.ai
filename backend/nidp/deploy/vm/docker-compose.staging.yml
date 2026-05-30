@@ -54,8 +54,8 @@ services:
     ports:
       - "127.0.0.1:8084:8084"
     volumes:
-      # Code from dev branch (same repo as prod, nginx staging routes to this)
-      - /opt/nidp/repo/backend:/app/backend:ro
+      # Code from dev branch — isolated from prod's /opt/nidp/repo/backend (main)
+      - /opt/nidp/dev-repo/nivesh.ai/backend:/app/backend:ro
       # Staging venv at /opt/nidp-staging/venv — separate from prod /opt/nidp/venv
       - /opt/nidp-staging/venv:/opt/nidp-staging/venv:ro
     # Use the container's python3 with PYTHONPATH pointing at the staging
