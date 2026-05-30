@@ -9,7 +9,7 @@ containers, network, volumes and ports. Never touches any prod file.
 ```
                     Cloudflare (proxy)
                     │
-staging.niveshcopilot.com ─── 34.100.186.141:8443 ── nivesh-staging-nginx
+staging.niveshcopilot.com ─── 34.47.250.214:8443 ── nivesh-staging-nginx
                                                        │ (proxy_pass)
                                                        ▼
                                        nivesh-staging-ingestion (FastAPI :8002)
@@ -75,7 +75,7 @@ stack only answers on 127.0.0.1:8443 inside the VM.
    ```
    Type: A
    Name: staging
-   Value: 34.100.186.141
+   Value: 34.47.250.214
    Proxy: ON (orange cloud)
    ```
 

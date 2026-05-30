@@ -19,7 +19,7 @@
 #
 # Env overrides:
 #   STAGING_BRANCH   default feat/portfolio-ingestion-staging
-#   VM_HOST          default 34.100.186.141
+#   VM_HOST          default 34.47.250.214
 #   VM_USER          default aporwal107_gmail_com
 #   SSH_KEY          default ~/.ssh/google_compute_engine
 #   REPO_PATHS       default "deploy/nivesh-staging backend/portfolio_ingestion"
@@ -28,7 +28,7 @@ set -euo pipefail
 
 # ── Defaults / config ────────────────────────────────────────────────────────
 STAGING_BRANCH="${STAGING_BRANCH:-feat/portfolio-ingestion-staging}"
-VM_HOST="${VM_HOST:-34.100.186.141}"
+VM_HOST="${VM_HOST:-34.47.250.214}"
 VM_USER="${VM_USER:-aporwal107_gmail_com}"
 SSH_KEY="${SSH_KEY:-${HOME:-/root}/.ssh/google_compute_engine}"
 REMOTE_REPO_DIR="/opt/nivesh-staging/repo"

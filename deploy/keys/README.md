@@ -43,7 +43,7 @@ chmod 600 deploy/keys/nidp-admin-deploy
 
 ```bash
 # Connect to VMs
-ssh -i deploy/keys/nivesh-devops-deploy aporwal107_gmail_com@34.100.186.141  # nivesh-app-vm
+ssh -i deploy/keys/nivesh-devops-deploy aporwal107_gmail_com@34.47.250.214  # nivesh-app-vm
 ssh -i deploy/keys/nivesh-devops-deploy aporwal107_gmail_com@34.93.60.254    # nidp-stack-vm
 ```
 

@@ -69,7 +69,7 @@ SA_DEVOPS="nivesh-devops@${PROJECT}.iam.gserviceaccount.com"
 SA_ADMIN="nidp-admin@${PROJECT}.iam.gserviceaccount.com"
 
 CB_BUCKET="gs://${PROJECT}_cloudbuild"
-VM_NIVESH_IP="34.100.186.141"
+VM_NIVESH_IP="34.47.250.214"
 VM_NIDP_IP="34.93.60.254"
 OS_LOGIN_USER="aporwal107_gmail_com"    # GCP OS Login username (email dots/@ → underscores)
 
@@ -597,7 +597,7 @@ JENKINS SSH SETUP
          -d '{"key":"'"'\$(cat ~/.ssh/nivesh-devops-deploy.pub)'"'"}'
 
   3. SSH to VM:
-       ssh -i ~/.ssh/nivesh-devops-deploy aporwal107_gmail_com@34.100.186.141  # nivesh-app-vm
+       ssh -i ~/.ssh/nivesh-devops-deploy aporwal107_gmail_com@34.47.250.214  # nivesh-app-vm
        ssh -i ~/.ssh/nivesh-devops-deploy aporwal107_gmail_com@34.93.60.254    # nidp-stack-vm
 
   4. Or via IAP tunnel (no public SSH port needed):

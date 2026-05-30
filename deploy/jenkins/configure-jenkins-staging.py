@@ -3,7 +3,7 @@
 #
 # Run ON the VM (Jenkins is bound to 127.0.0.1:8080 — not reachable externally):
 #
-#   ssh aporwal107_gmail_com@34.100.186.141
+#   ssh aporwal107_gmail_com@34.47.250.214
 #   cd /opt/nivesh/repo
 #   git pull origin dev
 #   NIVESH_APP_VM_HOST=34.47.250.214 python3 deploy/jenkins/configure-jenkins-staging.py

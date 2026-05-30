@@ -118,7 +118,7 @@ import org.jenkinsci.plugins.plaincredentials.impl.*
 def store = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0].getStore()
 if (!store.getCredentials(Domain.global()).find { it.id == 'NIVESH_APP_VM_HOST' }) {
   store.addCredentials(Domain.global(), new StringCredentialsImpl(CredentialsScope.GLOBAL,
-    'NIVESH_APP_VM_HOST', 'nivesh-app-vm IP', hudson.util.Secret.fromString('34.100.186.141')))
+    'NIVESH_APP_VM_HOST', 'nivesh-app-vm IP', hudson.util.Secret.fromString('34.47.250.214')))
   println 'Created NIVESH_APP_VM_HOST'
 } else { println 'Already exists' }
 Jenkins.instance.save()

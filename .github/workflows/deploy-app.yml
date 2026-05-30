@@ -60,7 +60,7 @@ jobs:
       # Secrets required:
       #   DEVOPS_SSH_KEY   Ed25519 private key for the 'devops' Linux user
       #   DEVOPS_SSH_USER  'devops'  (the CI/CD Linux user on both VMs)
-      #   NIVESH_VM_HOST   IP of nivesh-app-vm (34.100.186.141)
+      #   NIVESH_VM_HOST   IP of nivesh-app-vm (34.47.250.214)
       #
       # One-time VM setup: sudo bash backend/nidp/deploy/vm/setup_devops_access.sh '<pub-key>'
       # See: docs/DEVOPS_IDENTITY_SETUP.md
