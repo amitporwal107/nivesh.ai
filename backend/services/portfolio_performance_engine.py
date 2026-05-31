@@ -180,8 +180,8 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         try:
             from services.copilot_tools import daas_client as _daas
             import feature_flags as _ff
-            # Flag is checked without email (None = respect 'everyone' / 'disabled' modes)
-            daas_flag = _ff.is_enabled("v3_data_source_daas", None)
+            # Pass user_id (email) so allowlist-mode flags resolve correctly
+            daas_flag = _ff.is_enabled("v3_data_source_daas", user_id)
             if _daas.is_configured() and daas_flag:
                 daas_primitives = await _daas.get_v3_mf_primitives_bulk(isins)
                 logger.info("perf_engine: DaaS returned %d/%d primitives", len(daas_primitives), len(isins))
@@ -304,8 +304,8 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     if portfolio_xirr is not None and benchmark_xirr is not None:
         alpha = round(portfolio_xirr - benchmark_xirr, 2)
 
-    # ── Sharpe (from risk-analytics primitives; best-effort) ─────────────────
-    sharpe = await _portfolio_sharpe(user_id)
+    # ── Sharpe (weighted average from DaaS primitives fetched above) ────────
+    sharpe = _weighted_sharpe(mf_holdings, daas_primitives, grand_total)
 
     # ── Attribution waterfall (fund-contribution model) ───────────────────────
     waterfall = _build_waterfall(holdings, ratings_by_name, grand_total,
@@ -393,17 +393,26 @@ def _weighted_benchmark_xirr(
     return round(weighted_sum / weight_den, 2)
 
 
-async def _portfolio_sharpe(user_id: str) -> Optional[float]:
-    """Best-effort: read weighted_sharpe from risk-analytics if available."""
-    try:
-        from deps import db
-        perf_doc = await db.fund_performance.find_one({"user_id": user_id}) or {}
-        sharpe = perf_doc.get("weighted_sharpe")
-        if sharpe is not None:
-            return round(float(sharpe), 3)
-    except Exception:
-        pass
-    return None
+def _weighted_sharpe(
+    mf_holdings: list[dict],
+    daas_primitives: dict[str, dict],
+    grand_total: float,
+) -> Optional[float]:
+    """Value-weighted portfolio Sharpe from per-fund DaaS primitives."""
+    num = den = 0.0
+    for h in mf_holdings:
+        isin = (h.get("ticker") or "").upper()
+        prim = daas_primitives.get(isin) or {}
+        qty = float(h.get("quantity") or 0)
+        cp = float(h.get("current_price") or 0)
+        val = qty * cp
+        if val <= 0:
+            continue
+        sharpe_val = prim.get("sharpe") or prim.get("sharpe_1y")
+        if isinstance(sharpe_val, (int, float)):
+            num += float(sharpe_val) * val
+            den += val
+    return round(num / den, 3) if den > 0 else None
 
 
 def _build_waterfall(
