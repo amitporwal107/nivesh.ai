@@ -1524,15 +1524,29 @@ function CompanyAllocationPie({ heatmapData, onCompanyClick }: { heatmapData: He
 function HoldingDetailDrawer({
   name,
   fundRatings,
+  heatmapData,
   recommendationsData,
   onClose,
 }: {
   name: string | null;
   fundRatings: FundRating[];
+  heatmapData: HeatmapTile[];
   recommendationsData?: { holdings: RecHolding[]; top5_by_asset_class: Record<string, RecHolding[]> };
   onClose: () => void;
 }) {
-  const fund = name ? fundRatings.find((f) => f.name === name) : null;
+  // Try fund_ratings first; fall back to heatmap tile for direct-equity holdings
+  const fundFromRatings = name ? fundRatings.find((f) => f.name === name) : null;
+  const heatmapTile     = !fundFromRatings && name ? heatmapData.find((t) => t.name === name) : null;
+  const fund: FundRating | null = fundFromRatings ?? (heatmapTile ? {
+    name:              heatmapTile.name,
+    invested:          heatmapTile.invested,
+    current_value:     heatmapTile.value,
+    simple_return_pct: heatmapTile.return_pct,
+    rating:            "no_data",
+    asset_type:        heatmapTile.asset_type ?? "equity",
+    sector:            heatmapTile.sector,
+  } : null);
+
   const rec  = name && recommendationsData?.holdings
     ? recommendationsData.holdings.find((h) => h.name === name) ?? null
     : null;
@@ -2077,6 +2091,7 @@ export default function PerformancePage() {
       <HoldingDetailDrawer
         name={detailFund}
         fundRatings={fundPerf.data?.fund_ratings ?? []}
+        heatmapData={heatmap.data ?? []}
         recommendationsData={recommendations.data}
         onClose={() => setDetailFund(null)}
       />
