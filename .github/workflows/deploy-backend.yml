@@ -84,34 +84,9 @@ jobs:
           timeout:         2m
           command_timeout: 3m
           script: |
-            # Clear stale per-user performance caches so users see data
-            # computed with the newly deployed code, not the previous version.
-            # Runs inside the backend container against localhost — no auth needed.
             echo "=== Clearing performance caches ==="
             sudo docker compose \
               -f /opt/nivesh/deploy/docker-compose.prod.yml \
               --env-file /opt/nivesh/.env.prod \
-              exec -T backend python3 - <<'PYEOF'
-import asyncio, os, sys
-async def clear():
-    from motor.motor_asyncio import AsyncIOMotorClient
-    import asyncpg
-    mongo_uri  = os.environ.get("MONGODB_URL", "")
-    pg_dsn     = os.environ.get("DATABASE_URL", "")
-    db_name    = os.environ.get("MONGO_DB_NAME", "nivesh")
-    results    = {}
-    if mongo_uri:
-        client = AsyncIOMotorClient(mongo_uri)
-        db     = client[db_name]
-        r      = await db.fund_performance_cache.delete_many({})
-        results["mongo"] = r.deleted_count
-        client.close()
-    if pg_dsn:
-        conn   = await asyncpg.connect(pg_dsn)
-        status = await conn.execute("DELETE FROM portfolio_performance_cache")
-        results["pg"]    = int(status.split()[-1])
-        await conn.close()
-    print("cache clear:", results)
-asyncio.run(clear())
-PYEOF
+              exec -T backend python3 /app/deploy/nivesh-app/clear-performance-caches.sh
             echo "=== Cache clear done ==="
