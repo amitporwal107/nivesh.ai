@@ -300,20 +300,41 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
             fund_ratings = []
             ratings_by_name = {}
 
-    # ── Portfolio-level XIRR (weighted average of per-holding XIRRs) ────────
-    portfolio_xirr = await _portfolio_xirr(holdings)
+    # ── Portfolio return — period-matched for bounded periods, XIRR for inception ──
+    # For bounded periods (1M/3M/6M/1Y) compute:
+    #   period_return = (current_value - value_N_months_ago) / value_N_months_ago × 100
+    # using the cas_monthly_values stored in user_profiles.
+    # For "inception" (or when CAS history is too short) use weighted XIRR.
+    portfolio_xirr: Optional[float] = None
+    period_return: Optional[float] = None   # bounded-period portfolio return %
 
-    # ── Benchmark XIRR ───────────────────────────────────────────────────────
-    # When DaaS provides category_avg_1y, use weighted peer average.
-    # When falling back to mfapi.in, the category averages are computed from
-    # the user's own holdings only — a biased sample that can go negative.
-    # Use the Nifty 500 1Y return instead: it's a proper broad-market benchmark
-    # and avoids the apples-to-oranges XIRR vs simple-return comparison.
-    if has_useful_returns:
-        # DaaS path: use category peer averages (proper universe)
+    _N_MONTHS = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12}
+
+    if period in _N_MONTHS:
+        period_return = await _period_portfolio_return(user_id, period, grand_total)
+
+    if period_return is not None:
+        # Use period return as the primary KPI for bounded periods
+        portfolio_xirr = period_return
+    else:
+        # inception or no CAS data → fall back to weighted XIRR
+        portfolio_xirr = await _portfolio_xirr(holdings)
+
+    # ── Benchmark return — match same window as portfolio return ─────────────
+    # Bounded periods: use weighted average of fund period returns vs category avg.
+    # For 6M we use the same weights as 1Y (6M DaaS field not always populated).
+    # inception: use weighted category peer average.
+    _PERIOD_FIELD_MAP = {"1M": "return_1m", "3M": "return_3m", "6M": "return_3m", "1Y": "return_1y"}
+    bm_period_field = _PERIOD_FIELD_MAP.get(period, "return_1y")
+
+    # Rebuild benchmark using period-appropriate fund return fields from fund_ratings
+    if period in _N_MONTHS:
+        benchmark_xirr = _weighted_benchmark_period(
+            holdings, fund_ratings, bm_period_field, grand_total, daas_primitives
+        )
+    elif has_useful_returns:
         benchmark_xirr = _weighted_benchmark_xirr(holdings, ratings_by_name, grand_total)
     else:
-        # mfapi.in fallback: use broad market index
         benchmark_xirr = await _index_benchmark_return()
 
     # ── Alpha ────────────────────────────────────────────────────────────────
@@ -343,6 +364,7 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     return {
         "period": period,
         "portfolio_xirr": portfolio_xirr,
+        "period_matched": period_return is not None,  # True = bounded period return; False = XIRR
         "benchmark_xirr": benchmark_xirr,
         "alpha": alpha,
         "sharpe": sharpe,
@@ -377,6 +399,111 @@ async def _portfolio_xirr(holdings: list[dict]) -> Optional[float]:
         if xirr is not None:
             weighted_sum += xirr * val
             weight_den += val
+    if weight_den <= 0:
+        return None
+    return round(weighted_sum / weight_den, 2)
+
+
+async def _period_portfolio_return(
+    user_id: str, period: str, current_value: float
+) -> Optional[float]:
+    """Compute period-matched portfolio return from stored CAS monthly values.
+
+    Returns (current_value - value_N_months_ago) / value_N_months_ago * 100, or
+    None if there is insufficient CAS history for the requested period.
+    """
+    from deps import db as _db
+    from dateutil.parser import parse as _dp
+    from dateutil.relativedelta import relativedelta
+    from datetime import date
+
+    _N_MONTHS = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12}
+    n = _N_MONTHS.get(period)
+    if n is None:
+        return None
+
+    try:
+        profile = await _db.user_profiles.find_one(
+            {"user_id": user_id}, {"_id": 0, "cas_monthly_values": 1}
+        ) or {}
+        cas_monthly = profile.get("cas_monthly_values") or []
+        if len(cas_monthly) < 2:
+            return None
+
+        # Parse and sort entries oldest-first
+        parsed = []
+        for entry in cas_monthly:
+            try:
+                dt = _dp("1 " + entry["month"]).date()
+                v = float(entry.get("value_rs") or 0)
+                if v > 0:
+                    parsed.append((dt, v))
+            except Exception:
+                continue
+        parsed.sort(key=lambda x: x[0])
+        if not parsed:
+            return None
+
+        # Target date = today minus N months
+        target_date = date.today() - relativedelta(months=n)
+
+        # Find the CAS entry closest to target_date (prefer the one just before)
+        before = [(dt, v) for dt, v in parsed if dt <= target_date]
+        if not before:
+            return None  # No data old enough for this period
+        _, value_n_months_ago = before[-1]
+
+        if value_n_months_ago <= 0:
+            return None
+
+        period_ret = (current_value - value_n_months_ago) / value_n_months_ago * 100
+        return round(period_ret, 2)
+    except Exception as exc:
+        logger.warning("_period_portfolio_return failed: %s", exc)
+        return None
+
+
+def _weighted_benchmark_period(
+    holdings: list[dict],
+    fund_ratings: list[dict],
+    period_field: str,
+    grand_total: float,
+    daas_primitives: dict,
+) -> Optional[float]:
+    """Portfolio-level benchmark for a bounded period using fund period returns.
+
+    Uses DaaS per-fund period return vs its category average for the same window.
+    Falls back to weighted 1Y benchmark if period field is absent.
+    """
+    weighted_sum = 0.0
+    weight_den = 0.0
+    rating_by_isin = {(r.get("ticker") or "").upper(): r for r in fund_ratings}
+
+    for h in holdings:
+        qty = float(h.get("quantity") or 0)
+        cp = float(h.get("current_price") or 0)
+        val = qty * cp
+        if val <= 0:
+            continue
+        isin = (h.get("ticker") or "").upper()
+        prim = daas_primitives.get(isin) or {}
+        rating = rating_by_isin.get(isin) or {}
+
+        # For the benchmark, use category_avg for the same period window.
+        # DaaS currently only guarantees category_avg_1y; for shorter periods
+        # we use category_avg_1y as a proxy (conservative assumption).
+        bm = (
+            prim.get(f"category_avg_{period_field.replace('return_', '')}")
+            or prim.get("category_avg_1y")
+            or rating.get("benchmark_return")
+        )
+        if bm is not None:
+            try:
+                weighted_sum += float(bm) * val
+                weight_den += val
+            except (TypeError, ValueError):
+                pass
+
     if weight_den <= 0:
         return None
     return round(weighted_sum / weight_den, 2)

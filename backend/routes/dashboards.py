@@ -379,6 +379,13 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
     # Sharpe ≥ 1.0 marker
     sharpe_marker = "above 1.0 ✓" if (sharpe is not None and sharpe >= 1.0) else None
 
+    # Period-aware KPI label: bounded periods show "Return (1Y)" etc.;
+    # inception (or fallback) shows "XIRR" (money-weighted since buy date).
+    _RETURN_LABEL = {
+        "1M": "Return (1M)", "3M": "Return (3M)",
+        "6M": "Return (6M)", "1Y": "Return (1Y)",
+    }.get(period, "XIRR")
+
     return {
         "badge": {
             "label": status_pill.title(),
@@ -386,16 +393,20 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
         },
         "insight": {
             "headline": perf.get("verdict_headline") or "Performance data loading.",
-            "subtext": f"{period} annualised returns vs category peer average.",
+            "subtext": (
+                f"{period} returns vs category peer average."
+                if period != "inception"
+                else "XIRR since inception vs category peer average."
+            ),
             "hero": {
-                "label": "XIRR",
+                "label": _RETURN_LABEL,
                 "value": f"{xirr:+.1f}%" if xirr is not None else "—",
                 "tone": tone,
             },
         },
         "stat_tiles": [
             {
-                "label": "XIRR",
+                "label": _RETURN_LABEL,
                 "value": f"{xirr:.1f}%" if xirr is not None else "—",
                 **( {"sub": f"Nifty 500 {bm_xirr:+.1f}%"} if bm_xirr is not None else {} ),
                 "tone": tone,

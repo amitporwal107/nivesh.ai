@@ -510,47 +510,94 @@ def _mf_recommendation(ret_1y, category_avg_1y, quality_score, is_regular: bool)
 
 @router.get("/portfolio/recommendations/v5")
 async def get_portfolio_recommendations_v5(request: Request):
-    """Per-holding NIDP-scored recommendations (Hold / Exit / Buy More / Switch)
-    plus top-5 per asset class.
+    """Recommendations driven by the full persona + risk + goal recommendation engine.
 
-    Sources:
-      Equity  — Postgres stock_scores (quality, health, exit, recommendation)
-      MF/ETF  — DaaS v3-primitives (ret_1y, category_avg_1y) + rule logic
-      Gold/SGB — HOLD by default (government-backed, guaranteed returns)
+    Primary source: active action plan (db.action_plans, status=active) — this is
+    the output of ActionPlanManager.refresh_plan() which runs all engines including
+    AMCConcentrationEngine, RiskAlignmentEngine, GoalAlignmentEngine, BehaviouralPersonaFilter,
+    CategorySuitabilityEngine, OverlapEngine, etc.
+
+    Supplementary: stock_scores table for equity holdings not in the active plan
+    (plan may not cover every stock individually).
+
+    Returns top-5 actionable items per asset class for the Performance page tile.
     """
     user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    # ── 1. Load active plan (persona/risk/goal-driven engine output) ───────────
+    active_plan: dict = {}
+    try:
+        active_plan = await db.action_plans.find_one(
+            {"user_id": user_id, "status": "active"},
+            {"_id": 0, "actions": 1},
+        ) or {}
+    except Exception as e:
+        logger.warning("recommendations/v5: active plan fetch failed: %s", e)
+
+    plan_actions = active_plan.get("actions") or []
+
+    # Map plan action type vocabulary → frontend vocabulary
+    _PLAN_ACTION_NORM: dict = {
+        "ADD":     "BUY_MORE",
+        "BUY":     "BUY_MORE",
+        "EXIT":    "EXIT",
+        "TRIM":    "REVIEW",
+        "SWITCH":  "SWITCH",
+        "HOLD":    "HOLD",
+        "REVIEW":  "REVIEW",
+        "HARVEST": "EXIT",
+        "RAISE_SIP": "BUY_MORE",
+        "MERGE":   "SWITCH",
+    }
+
+    # Normalize an asset_type value from the plan to the canonical set
+    def _norm_at(raw: str) -> str:
+        r = (raw or "").lower().replace("-", "_").replace(" ", "_")
+        if r in ("equity", "stock"):          return "equity"
+        if r in ("mutual_fund", "fund", "mf"): return "mutual_fund"
+        if r == "etf":                         return "etf"
+        if r in ("gold", "sgb"):               return "gold"
+        return r
+
+    # Build per-holding entry from a plan action
+    def _action_to_rec(a: dict) -> dict:
+        raw_type = (a.get("type") or a.get("action_type") or "HOLD").upper()
+        action = _PLAN_ACTION_NORM.get(raw_type, "HOLD")
+        scores = a.get("scores") or {}
+        qs = scores.get("quality") or scores.get("quality_score")
+        hs = scores.get("health") or scores.get("health_score")
+        reason = a.get("reason_text") or a.get("reason") or "See plan for details"
+        # Surface the source domain (concentration / diversification / goals / risk)
+        domain = a.get("source_domain") or ""
+        if domain:
+            reason = f"[{domain}] {reason}"
+        return {
+            "name": (a.get("asset_name") or a.get("instrument_name") or "")[:70],
+            "action": action,
+            "reason": reason,
+            "quality_score": float(qs) if qs is not None else None,
+            "health_score":  float(hs) if hs is not None else None,
+            "asset_type": _norm_at(a.get("asset_type") or ""),
+            "current_value_rs": float(a.get("amount") or 0),
+            "confidence": "high",
+            "source": "plan",
+        }
+
+    plan_recs = [_action_to_rec(a) for a in plan_actions
+                 if (a.get("asset_type") or "portfolio") != "portfolio"]
+
+    # ── 2. Supplement equity with stock_scores for holdings not in the plan ───
     all_holdings = await db.holdings.find(
-        {"user_id": user["user_id"]},
-        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1, "nse_symbol": 1,
-         "quantity": 1, "current_price": 1, "buy_price": 1},
-    ).to_list(2000)
+        {"user_id": user_id, "asset_type": "equity"},
+        {"_id": 0, "name": 1, "nse_symbol": 1, "asset_type": 1,
+         "quantity": 1, "current_price": 1},
+    ).to_list(500)
 
-    if not all_holdings:
-        return {"holdings": [], "top5_by_asset_class": {}}
-
-    # ── MF/ETF: DaaS primitives ─────────────────────────────────────────────
-    mf_isins = list({
-        (h.get("ticker") or "").upper().strip()
-        for h in all_holdings
-        if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")
-        and (h.get("ticker") or "").strip()
-    })
-    daas_by_isin: dict = {}
-    if mf_isins:
-        try:
-            from services.copilot_tools import daas_client as _daas
-            import feature_flags as _ff
-            if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas"):
-                daas_by_isin = await _daas.get_v3_mf_primitives_bulk(mf_isins) or {}
-        except Exception as e:
-            logger.warning("recommendations: DaaS fetch failed: %s", e)
-
-    # ── Equity: stock_scores ────────────────────────────────────────────────
     eq_symbols = list({
         (h.get("nse_symbol") or "").upper()
         for h in all_holdings
-        if (h.get("asset_type") or "").lower() == "equity"
-        and (h.get("nse_symbol") or "").strip()
+        if (h.get("nse_symbol") or "").strip()
     })
     stock_scores_map: dict = {}
     if eq_symbols:
@@ -567,93 +614,64 @@ async def get_portfolio_recommendations_v5(request: Request):
                     )
                 stock_scores_map = {r["nse_symbol"]: dict(r) for r in rows}
         except Exception as e:
-            logger.warning("recommendations: stock_scores fetch failed: %s", e)
+            logger.warning("recommendations/v5: stock_scores fetch failed: %s", e)
 
-    # BUY/TRIM from stock_scoring vocab → frontend vocab; TRIM = reduce but not full exit
-    _ACTION_NORM = {"BUY": "BUY_MORE", "TRIM": "REVIEW"}
-    _ACTION_ORDER = {"BUY_MORE": 0, "EXIT": 1, "SWITCH": 2, "REVIEW": 3, "HOLD": 4}
-    results = []
+    # Names already covered by the plan (avoid duplicates)
+    plan_names_lower = {r["name"].lower() for r in plan_recs}
 
+    _STOCK_NORM = {"BUY": "BUY_MORE", "TRIM": "REVIEW"}
     for h in all_holdings:
-        at   = (h.get("asset_type") or "other").lower()
-        isin = (h.get("ticker") or "").upper().strip()
-        sym  = (h.get("nse_symbol") or "").upper()
         name = (h.get("name") or "")[:60]
-        val  = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
-        rec  = {"action": "HOLD", "reason": "No scoring data", "quality_score": None, "health_score": None, "confidence": "low"}
-
-        if at == "equity" and sym and sym in stock_scores_map:
-            ss  = stock_scores_map[sym]
-            qs  = float(ss["quality_score"]) if ss.get("quality_score") is not None else None
-            hs  = float(ss["health_score"])  if ss.get("health_score")  is not None else None
-            # recommendation is stored as {"action": "...", "reason": "..."} dict in the DB
-            raw_rec = ss.get("recommendation") or {}
-            if isinstance(raw_rec, dict):
-                raw_action = raw_rec.get("action") or "HOLD"
-                raw_reason = raw_rec.get("reason") or ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores"
-            else:
-                raw_action = str(raw_rec) or "HOLD"
-                raw_reason = ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores"
-            action = _ACTION_NORM.get(raw_action, raw_action)
-            # Append scores to reason for transparency
-            score_note = f" · Quality {qs:.0f}/100" if qs is not None else ""
-            if hs is not None:
-                score_note += f" · Health {hs:.0f}/100"
-            rec = {"action": action,
-                   "reason": raw_reason + score_note,
-                   "quality_score": qs, "health_score": hs, "confidence": "high"}
-
-        elif at in ("mutual_fund", "etf") and isin and isin in daas_by_isin:
-            prim = daas_by_isin[isin]
-            qs   = prim.get("quality_score")
-            hs   = prim.get("health_score")
-            r1y  = prim.get("ret_1y") or prim.get("return_1y")
-            cat  = prim.get("category_avg_1y")
-            category    = prim.get("scheme_category") or prim.get("category") or None
-            cat_rank    = prim.get("category_rank") or prim.get("rank_in_category") or None
-            cat_total   = prim.get("total_in_category") or None
-            is_regular = "regular" in name.lower() and "direct" not in name.lower()
-            mf_rec = _mf_recommendation(
-                float(r1y) if r1y is not None else None,
-                float(cat) if cat is not None else None,
-                float(qs)  if qs  is not None else None,
-                is_regular,
-            )
-            rec = {**mf_rec,
-                   "quality_score": float(qs) if qs is not None else None,
-                   "health_score":  float(hs) if hs is not None else None,
-                   "category": category,
-                   "category_rank": int(cat_rank) if cat_rank is not None else None,
-                   "category_total": int(cat_total) if cat_total is not None else None,
-                   "confidence": "medium"}
-
-        elif at == "gold":
-            rec = {"action": "HOLD", "reason": "SGB — government-backed with guaranteed gold price returns",
-                   "quality_score": None, "health_score": None, "confidence": "high"}
-
-        results.append({
-            "isin": isin, "nse_symbol": sym, "name": name,
-            "asset_type": at, "current_value_rs": round(val, 2),
-            **rec,
+        if name.lower() in plan_names_lower:
+            continue
+        sym = (h.get("nse_symbol") or "").upper()
+        if sym not in stock_scores_map:
+            continue
+        ss = stock_scores_map[sym]
+        qs = float(ss["quality_score"]) if ss.get("quality_score") is not None else None
+        hs = float(ss["health_score"])  if ss.get("health_score")  is not None else None
+        raw_rec = ss.get("recommendation") or {}
+        if isinstance(raw_rec, dict):
+            raw_action = raw_rec.get("action") or "HOLD"
+            raw_reason = raw_rec.get("reason") or "Based on NIDP V3 quality and health scores"
+        else:
+            raw_action = str(raw_rec) or "HOLD"
+            raw_reason = "Based on NIDP V3 quality and health scores"
+        action = _STOCK_NORM.get(raw_action, raw_action)
+        score_note = f" · Quality {qs:.0f}/100" if qs is not None else ""
+        if hs is not None:
+            score_note += f" · Health {hs:.0f}/100"
+        val = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        plan_recs.append({
+            "name": name,
+            "action": action,
+            "reason": raw_reason + score_note,
+            "quality_score": qs,
+            "health_score": hs,
+            "asset_type": "equity",
+            "current_value_rs": round(val, 2),
+            "confidence": "medium",
+            "source": "stock_scores",
         })
 
-    # ── Top 5 per asset class (actionable first, then by quality score) ────────
+    # ── 3. Build top-5 per asset class ────────────────────────────────────────
+    _ACTION_ORDER = {"BUY_MORE": 0, "EXIT": 1, "SWITCH": 2, "REVIEW": 3, "HOLD": 4}
+
     def _top5(asset_type_filter: str) -> list:
-        bucket = [r for r in results if r["asset_type"] == asset_type_filter]
+        bucket = [r for r in plan_recs if r["asset_type"] == asset_type_filter]
         actionable = [r for r in bucket if r["action"] != "HOLD"]
-        ranked = sorted(actionable or bucket,
-                        key=lambda x: (_ACTION_ORDER.get(x["action"], 9), -(x.get("quality_score") or 0)))
+        ranked = sorted(
+            actionable or bucket,
+            key=lambda x: (_ACTION_ORDER.get(x["action"], 9), -(x.get("quality_score") or 0)),
+        )
         return [{"name": r["name"], "action": r["action"], "reason": r["reason"],
                  "quality_score": r.get("quality_score"),
                  "health_score": r.get("health_score"),
-                 "category": r.get("category"),
-                 "category_rank": r.get("category_rank"),
-                 "category_total": r.get("category_total"),
                  "current_value_rs": r["current_value_rs"]}
                 for r in ranked[:5]]
 
     return {
-        "holdings": results,
+        "holdings": plan_recs,
         "top5_by_asset_class": {
             "mutual_fund": _top5("mutual_fund"),
             "equity":      _top5("equity"),

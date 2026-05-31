@@ -1477,8 +1477,8 @@ export default function PerformancePage() {
                 style={{ background: "rgb(var(--surface-2))", border: "1px solid rgba(var(--line),0.08)" }}>
                 <div className="text-[10px] uppercase tracking-widest mb-1.5 opacity-50"
                   style={{ fontFamily: "var(--font-mono)" }}>
-                  {/* For XIRR tile, show period-aware label */}
-                  {isXirrTile ? (period === "inception" ? "XIRR (since inception)" : `Return (${period.toUpperCase()})`) : tile.label}
+                  {/* Backend now sends period-aware label ("Return (1Y)" etc.) — render verbatim */}
+                  {tile.label}
                 </div>
                 <div className="text-[28px] font-semibold leading-none"
                   style={{ color: toneColor(tile.tone), fontFamily: "var(--font-mono)" }}>
@@ -1489,10 +1489,11 @@ export default function PerformancePage() {
                     {tile.sub}
                   </div>
                 )}
-                {/* Note: bounded-period returns show XIRR (since inception) until backend is updated */}
-                {isXirrTile && period !== "inception" && (
+                {/* If CAS history too short for the selected period, backend falls back to XIRR —
+                    show a note so user understands the value is still since-inception */}
+                {isXirrTile && period !== "inception" && tile.label === "XIRR" && (
                   <div className="text-[9px] mt-1 opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
-                    Showing XIRR (since inception) — period returns coming
+                    Not enough CAS history — showing XIRR (since inception)
                   </div>
                 )}
                 {isSharpeTile && sharpePass && (
