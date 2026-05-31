@@ -569,7 +569,9 @@ async def get_portfolio_recommendations_v5(request: Request):
         except Exception as e:
             logger.warning("recommendations: stock_scores fetch failed: %s", e)
 
-    _ACTION_ORDER = {"BUY_MORE": 0, "HOLD": 1, "SWITCH": 2, "EXIT": 3, "REVIEW": 4}
+    # BUY/TRIM from stock_scoring vocab → frontend vocab; TRIM = reduce but not full exit
+    _ACTION_NORM = {"BUY": "BUY_MORE", "TRIM": "REVIEW"}
+    _ACTION_ORDER = {"BUY_MORE": 0, "EXIT": 1, "SWITCH": 2, "REVIEW": 3, "HOLD": 4}
     results = []
 
     for h in all_holdings:
@@ -584,8 +586,21 @@ async def get_portfolio_recommendations_v5(request: Request):
             ss  = stock_scores_map[sym]
             qs  = float(ss["quality_score"]) if ss.get("quality_score") is not None else None
             hs  = float(ss["health_score"])  if ss.get("health_score")  is not None else None
-            rec = {"action": ss.get("recommendation") or "HOLD",
-                   "reason": ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores",
+            # recommendation is stored as {"action": "...", "reason": "..."} dict in the DB
+            raw_rec = ss.get("recommendation") or {}
+            if isinstance(raw_rec, dict):
+                raw_action = raw_rec.get("action") or "HOLD"
+                raw_reason = raw_rec.get("reason") or ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores"
+            else:
+                raw_action = str(raw_rec) or "HOLD"
+                raw_reason = ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores"
+            action = _ACTION_NORM.get(raw_action, raw_action)
+            # Append scores to reason for transparency
+            score_note = f" · Quality {qs:.0f}/100" if qs is not None else ""
+            if hs is not None:
+                score_note += f" · Health {hs:.0f}/100"
+            rec = {"action": action,
+                   "reason": raw_reason + score_note,
                    "quality_score": qs, "health_score": hs, "confidence": "high"}
 
         elif at in ("mutual_fund", "etf") and isin and isin in daas_by_isin:
@@ -594,6 +609,9 @@ async def get_portfolio_recommendations_v5(request: Request):
             hs   = prim.get("health_score")
             r1y  = prim.get("ret_1y") or prim.get("return_1y")
             cat  = prim.get("category_avg_1y")
+            category    = prim.get("scheme_category") or prim.get("category") or None
+            cat_rank    = prim.get("category_rank") or prim.get("rank_in_category") or None
+            cat_total   = prim.get("total_in_category") or None
             is_regular = "regular" in name.lower() and "direct" not in name.lower()
             mf_rec = _mf_recommendation(
                 float(r1y) if r1y is not None else None,
@@ -604,6 +622,9 @@ async def get_portfolio_recommendations_v5(request: Request):
             rec = {**mf_rec,
                    "quality_score": float(qs) if qs is not None else None,
                    "health_score":  float(hs) if hs is not None else None,
+                   "category": category,
+                   "category_rank": int(cat_rank) if cat_rank is not None else None,
+                   "category_total": int(cat_total) if cat_total is not None else None,
                    "confidence": "medium"}
 
         elif at == "gold":
@@ -616,14 +637,19 @@ async def get_portfolio_recommendations_v5(request: Request):
             **rec,
         })
 
-    # ── Top 5 per asset class (prioritise actionable > HOLD, then by quality) ─
+    # ── Top 5 per asset class (actionable first, then by quality score) ────────
     def _top5(asset_type_filter: str) -> list:
         bucket = [r for r in results if r["asset_type"] == asset_type_filter]
         actionable = [r for r in bucket if r["action"] != "HOLD"]
         ranked = sorted(actionable or bucket,
-                        key=lambda x: (_ACTION_ORDER.get(x["action"], 5), -(x.get("quality_score") or 0)))
+                        key=lambda x: (_ACTION_ORDER.get(x["action"], 9), -(x.get("quality_score") or 0)))
         return [{"name": r["name"], "action": r["action"], "reason": r["reason"],
-                 "quality_score": r.get("quality_score"), "current_value_rs": r["current_value_rs"]}
+                 "quality_score": r.get("quality_score"),
+                 "health_score": r.get("health_score"),
+                 "category": r.get("category"),
+                 "category_rank": r.get("category_rank"),
+                 "category_total": r.get("category_total"),
+                 "current_value_rs": r["current_value_rs"]}
                 for r in ranked[:5]]
 
     return {

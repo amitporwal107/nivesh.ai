@@ -79,14 +79,24 @@ function useFundPerformance() {
 
 // ── Recommendations (Issue 5) ─────────────────────────────────────────────────
 
-type RecHolding = { name: string; asset_type: string; action: string; reason: string; quality_score: number | null; current_value_rs: number };
+type RecHolding = {
+  name: string; asset_type: string; action: string; reason: string;
+  quality_score: number | null; health_score?: number | null;
+  category?: string | null; category_rank?: number | null; category_total?: number | null;
+  current_value_rs: number;
+};
 const ACTION_STYLES: Record<string, { color: string; bg: string; label: string }> = {
-  BUY_MORE: { color: "rgb(var(--pos))",   bg: "rgba(var(--pos),0.12)",   label: "Buy More" },
+  BUY_MORE: { color: "rgb(var(--pos))",   bg: "rgba(var(--pos),0.12)",   label: "Add"      },
   HOLD:     { color: "rgb(var(--ink-2))", bg: "rgba(var(--line),0.08)",  label: "Hold"     },
   EXIT:     { color: "rgb(var(--neg))",   bg: "rgba(var(--neg),0.12)",   label: "Exit"     },
   SWITCH:   { color: "rgb(var(--warm))",  bg: "rgba(var(--warm),0.12)",  label: "Switch"   },
   REVIEW:   { color: "rgb(var(--warm))",  bg: "rgba(var(--warm),0.12)",  label: "Review"   },
 };
+
+const QUALITY_SCORE_EXPLANATION =
+  "NIDP quality score (0–100) combines: expense ratio vs peers, " +
+  "rolling alpha (3Y), fund manager tenure, AUM stability, and " +
+  "category peer percentile rank. Score ≥70 = strong · 45–70 = neutral · <45 = weak.";
 
 function useRecommendations() {
   return useQuery({
@@ -103,48 +113,81 @@ function RecommendationsPanel({ data, assetTabFilter }: {
   data?: { holdings: RecHolding[]; top5_by_asset_class: Record<string, RecHolding[]> };
   assetTabFilter?: AssetTab;
 }) {
-  // Map the page assetTab to the rec asset_class key
+  // Tab is driven by outer assetTabFilter — no internal class picker
   const TAB_TO_CLASS: Partial<Record<AssetTab, string>> = {
     mf: "mutual_fund", stocks: "equity", etf: "etf", sgb: "gold",
   };
-  const defaultClass = (assetTabFilter && assetTabFilter !== "all")
+  const activeClass = (assetTabFilter && assetTabFilter !== "all")
     ? (TAB_TO_CLASS[assetTabFilter] ?? "mutual_fund")
     : "mutual_fund";
-  const [activeClass, setActiveClass] = useState<string>(defaultClass);
-  // Sync when parent tab changes
-  if (assetTabFilter && assetTabFilter !== "all" && TAB_TO_CLASS[assetTabFilter] !== activeClass) {
-    setActiveClass(TAB_TO_CLASS[assetTabFilter] ?? "mutual_fund");
-  }
+
   if (!data) return null;
-  const top5 = data.top5_by_asset_class?.[activeClass] ?? [];
-  const CLASS_LABELS: Record<string, string> = { mutual_fund: "MF", equity: "Stocks", etf: "ETF", gold: "SGB" };
+
+  // For ALL tab: combine all asset classes into a flat list ordered by actionability
+  const ACTION_RANK: Record<string, number> = { BUY_MORE: 0, EXIT: 1, SWITCH: 2, REVIEW: 3, HOLD: 4 };
+  const allRecs = assetTabFilter === "all"
+    ? Object.values(data.top5_by_asset_class ?? {}).flat()
+        .sort((a, b) => (ACTION_RANK[a.action] ?? 9) - (ACTION_RANK[b.action] ?? 9))
+        .slice(0, 5)
+    : (data.top5_by_asset_class?.[activeClass] ?? []);
+
+  // Quality score color
+  function qsColor(qs: number | null) {
+    if (qs === null) return "rgba(var(--ink-1),0.35)";
+    if (qs >= 70) return "rgb(var(--pos))";
+    if (qs >= 45) return "rgb(var(--warm))";
+    return "rgb(var(--neg))";
+  }
+
   return (
     <div>
-      <div className="flex gap-1.5 mb-4 flex-wrap">
-        {Object.entries(CLASS_LABELS).map(([key, label]) => {
-          const active = activeClass === key;
-          return (
-            <button key={key} onClick={() => setActiveClass(key)}
-              className="px-2.5 py-1 rounded text-[10px] uppercase tracking-widest transition-colors"
-              style={{ fontFamily: "var(--font-mono)", background: active ? "rgba(var(--accent),0.18)" : "transparent", color: active ? "rgb(var(--accent))" : "rgb(var(--ink-3))", border: `1px solid ${active ? "rgba(var(--accent),0.4)" : "rgba(var(--line),0.12)"}` }}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      {top5.length === 0
+      {/* Quality score methodology note */}
+      <p className="text-[10px] opacity-40 mb-3 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+        {QUALITY_SCORE_EXPLANATION}
+      </p>
+      {allRecs.length === 0
         ? <p className="text-[11px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>No scoring data yet for this asset class.</p>
-        : <div className="space-y-2">
-            {top5.map((r, i) => {
+        : <div className="divide-y" style={{ borderColor: "rgba(var(--line),0.08)" }}>
+            {allRecs.map((r, i) => {
               const st = ACTION_STYLES[r.action] ?? ACTION_STYLES.HOLD;
+              const qs = r.quality_score;
+              const hs = r.health_score;
               return (
-                <div key={i} className="flex items-start gap-3 py-2.5 border-b last:border-0" style={{ borderColor: "rgba(var(--line),0.08)" }}>
-                  <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold uppercase" style={{ background: st.bg, color: st.color, fontFamily: "var(--font-mono)" }}>{st.label}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] truncate">{r.name}</p>
-                    <p className="text-[10px] opacity-50 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>{r.reason}</p>
+                <div key={i} className="py-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold uppercase"
+                      style={{ background: st.bg, color: st.color, fontFamily: "var(--font-mono)" }}>
+                      {st.label}
+                    </span>
+                    <p className="flex-1 text-[12px] font-medium truncate">{r.name}</p>
                   </div>
-                  {r.quality_score != null && <span className="shrink-0 text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>Q:{Math.round(r.quality_score)}</span>}
+                  {/* Category + rank row */}
+                  {(r.category || r.category_rank != null) && (
+                    <p className="text-[10px] opacity-50 mb-1" style={{ fontFamily: "var(--font-mono)" }}>
+                      {r.category}
+                      {r.category_rank != null && r.category_total != null
+                        ? ` · Rank ${r.category_rank}/${r.category_total} in category`
+                        : r.category_rank != null ? ` · Rank #${r.category_rank}` : ""}
+                    </p>
+                  )}
+                  <p className="text-[10px] opacity-55 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+                    {r.reason}
+                  </p>
+                  {/* Score badges */}
+                  {(qs !== null || hs !== null) && (
+                    <div className="flex gap-3 mt-1.5">
+                      {qs !== null && (
+                        <span className="text-[10px] font-semibold" style={{ fontFamily: "var(--font-mono)", color: qsColor(qs) }}>
+                          Quality {Math.round(qs)}/100
+                        </span>
+                      )}
+                      {hs != null && (
+                        <span className="text-[10px]" style={{ fontFamily: "var(--font-mono)", color: qsColor(hs ?? null) }}>
+                          Health {Math.round(hs)}/100
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -217,6 +260,19 @@ function performersFromRatings(ratings: FundRating[], period: "inception" | "1Y"
     top:    sorted.slice(0, 10).map((r) => ({ name: r.name, return_pct: r[field] as number | null, period_field: field as string, rating: r.rating })),
     bottom: sorted.slice(-10).reverse().map((r) => ({ name: r.name, return_pct: r[field] as number | null, period_field: field as string, rating: r.rating })),
   };
+}
+
+// ── Period badge — small label shown on each widget card ─────────────────────
+
+function PeriodBadge({ period }: { period: PeriodId }) {
+  const labels: Record<PeriodId, string> = {
+    inception: "SINCE INCEPTION", "1Y": "1 YEAR", "6M": "6 MONTHS", "3M": "3 MONTHS", "1M": "1 MONTH",
+  };
+  return (
+    <span className="text-[9px] opacity-40 ml-2" style={{ fontFamily: "var(--font-mono)" }}>
+      · {labels[period] ?? period}
+    </span>
+  );
 }
 
 // Heatmap — sourced from /api/portfolio/analytics which has heatmap_data already built
@@ -607,12 +663,12 @@ const PERF_PERIOD_LABELS: Record<PerfPeriodKey, string> = {
 
 function BestWorstPerformers({
   performersByPeriod,
-  // Legacy fallback when new performers_by_period is not yet available
   topPerformers,
   bottomPerformers,
   meetingPerformers = [],
   activeSegment,
   onFundClick,
+  outerPeriod,
 }: {
   performersByPeriod?: PerformersByPeriod | null;
   topPerformers: Array<{ name: string; return_1y: number | null }>;
@@ -620,9 +676,16 @@ function BestWorstPerformers({
   meetingPerformers?: Array<{ name: string; return_1y: number | null }>;
   activeSegment?: string | null;
   onFundClick?: (name: string) => void;
+  outerPeriod?: PeriodId;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const [perfPeriod, setPerfPeriod] = useState<PerfPeriodKey>("1Y");
+
+  // Map the page-level period to the performers_by_period key.
+  // No 6M bucket in the API yet — fall back to 1Y.
+  const PERIOD_MAP: Partial<Record<PeriodId, PerfPeriodKey>> = {
+    inception: "inception", "1Y": "1Y", "6M": "1Y", "3M": "3M", "1M": "1M",
+  };
+  const perfPeriod: PerfPeriodKey = (outerPeriod ? PERIOD_MAP[outerPeriod] : undefined) ?? "inception";
 
   // Derive top/bottom from performers_by_period when available, else legacy arrays
   const hasByPeriod = !!performersByPeriod;
@@ -672,30 +735,12 @@ function BestWorstPerformers({
 
   return (
     <div>
-      {/* Period selector — only shown when new API data is available */}
-      {hasByPeriod && (
-        <div className="flex gap-1 mb-4 flex-wrap">
-          {(Object.keys(PERF_PERIOD_LABELS) as PerfPeriodKey[]).map(p => (
-            <button key={p} onClick={() => { setPerfPeriod(p); setShowAll(false); }}
-              className="px-2.5 py-1 rounded text-[10px] uppercase tracking-widest transition-colors"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: perfPeriod === p ? "rgba(var(--accent),0.18)" : "transparent",
-                color: perfPeriod === p ? "rgb(var(--accent))" : "rgb(var(--ink-3))",
-                border: `1px solid ${perfPeriod === p ? "rgba(var(--accent),0.4)" : "rgba(var(--line),0.12)"}`,
-              }}>
-              {PERF_PERIOD_LABELS[p]}
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className={showMeeting ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 sm:grid-cols-2 gap-5"}>
         {showTop && activeTop.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--pos))" }}>
-              Top performers · {PERF_PERIOD_LABELS[hasByPeriod ? perfPeriod : "1Y"]}
+              Top performers · {PERF_PERIOD_LABELS[perfPeriod]}
             </p>
             {activeTop.map((f, i) => <FundRow key={i} fund={f} positive />)}
           </div>
@@ -704,7 +749,7 @@ function BestWorstPerformers({
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--neg))" }}>
-              Needs review · {PERF_PERIOD_LABELS[hasByPeriod ? perfPeriod : "1Y"]}
+              Needs review · {PERF_PERIOD_LABELS[perfPeriod]}
             </p>
             {activeBottom.map((f, i) => <FundRow key={i} fund={f} positive={false} />)}
           </div>
@@ -1421,8 +1466,8 @@ export default function PerformancePage() {
       {env?.stat_tiles && env.stat_tiles.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
           {env.stat_tiles.map((tile) => {
-            // Sharpe ≥1.0 marker (AC-3)
             const isSharpeTile = tile.label === "Sharpe";
+            const isXirrTile   = tile.label === "XIRR";
             const sharpeVal = isSharpeTile ? parseFloat(String(tile.value)) : null;
             const sharpePass = sharpeVal != null && !isNaN(sharpeVal) && sharpeVal >= 1.0;
 
@@ -1432,7 +1477,8 @@ export default function PerformancePage() {
                 style={{ background: "rgb(var(--surface-2))", border: "1px solid rgba(var(--line),0.08)" }}>
                 <div className="text-[10px] uppercase tracking-widest mb-1.5 opacity-50"
                   style={{ fontFamily: "var(--font-mono)" }}>
-                  {tile.label}
+                  {/* For XIRR tile, show period-aware label */}
+                  {isXirrTile ? (period === "inception" ? "XIRR (since inception)" : `Return (${period.toUpperCase()})`) : tile.label}
                 </div>
                 <div className="text-[28px] font-semibold leading-none"
                   style={{ color: toneColor(tile.tone), fontFamily: "var(--font-mono)" }}>
@@ -1443,7 +1489,12 @@ export default function PerformancePage() {
                     {tile.sub}
                   </div>
                 )}
-                {/* Sharpe ≥1.0 pass marker (AC-3) */}
+                {/* Note: bounded-period returns show XIRR (since inception) until backend is updated */}
+                {isXirrTile && period !== "inception" && (
+                  <div className="text-[9px] mt-1 opacity-35" style={{ fontFamily: "var(--font-mono)" }}>
+                    Showing XIRR (since inception) — period returns coming
+                  </div>
+                )}
                 {isSharpeTile && sharpePass && (
                   <div className="text-[10px] mt-1" style={{ color: "rgb(var(--pos))", fontFamily: "var(--font-mono)" }}
                     aria-label="Sharpe above 1.0">
@@ -1470,7 +1521,7 @@ export default function PerformancePage() {
 
       {/* 3. Monthly returns vs benchmark */}
       <Card className="mt-5 p-5">
-        <CardLabel>Monthly returns vs benchmark</CardLabel>
+        <CardLabel>Monthly returns vs benchmark<PeriodBadge period={period} /></CardLabel>
         <MonthlyReturnsGrid breakdown={env?.breakdown} />
       </Card>
 
@@ -1515,7 +1566,7 @@ export default function PerformancePage() {
         {/* 4b. VS Category Benchmark + Best/Worst Performers */}
         <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mb-5">
           <Card className="p-5">
-            <CardLabel>vs category benchmark</CardLabel>
+            <CardLabel>vs category benchmark<PeriodBadge period={period} /></CardLabel>
             <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
               {BENCHMARK_EXPLANATION[assetTab]}
             </p>
@@ -1541,7 +1592,7 @@ export default function PerformancePage() {
 
           <Card className="p-5">
             <CardLabel>
-              Best &amp; worst performers · top 5
+              Best &amp; worst performers · top 5<PeriodBadge period={period} />
               {benchmarkFilter && benchmarkFilter !== "meeting" && (
                 <span className="ml-2 text-[10px] opacity-50" style={{ fontFamily: "var(--font-mono)" }}>
                   — filtered by {benchmarkFilter}
@@ -1555,17 +1606,15 @@ export default function PerformancePage() {
                 ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
                 : (() => {
                     const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
-                    const useServerPeriods = (assetTab === "all" || assetTab === "mf") && !!fundPerf.data?.performers_by_period;
-                    const derivedByPeriod: PerformersByPeriod | null = useServerPeriods
-                      ? (fundPerf.data!.performers_by_period ?? null)
-                      : tabRatings.length > 0
-                        ? {
-                            inception: performersFromRatings(tabRatings, "inception"),
-                            "1Y":      performersFromRatings(tabRatings, "1Y"),
-                            "3M":      performersFromRatings(tabRatings, "3M"),
-                            "1M":      performersFromRatings(tabRatings, "1M"),
-                          }
-                        : null;
+                    // Always build derivedByPeriod from fund_ratings so non-MF tabs also get period data
+                    const serverPeriods = (assetTab === "all" || assetTab === "mf") ? fundPerf.data?.performers_by_period ?? null : null;
+                    const derivedByPeriod: PerformersByPeriod | null = serverPeriods ??
+                      (tabRatings.length > 0 ? {
+                        inception: performersFromRatings(tabRatings, "inception"),
+                        "1Y":      performersFromRatings(tabRatings, "1Y"),
+                        "3M":      performersFromRatings(tabRatings, "3M"),
+                        "1M":      performersFromRatings(tabRatings, "1M"),
+                      } : null);
                     return (
                       <BestWorstPerformers
                         performersByPeriod={derivedByPeriod}
@@ -1573,6 +1622,7 @@ export default function PerformancePage() {
                         bottomPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.bottom_performers ?? []) : []}
                         meetingPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.meeting_performers ?? []) : []}
                         activeSegment={benchmarkFilter}
+                        outerPeriod={period}
                         onFundClick={(name) => name ? drillToFund(name) : navigate("/portfolio")}
                       />
                     );
@@ -1585,9 +1635,6 @@ export default function PerformancePage() {
         {/* 4c. Recommendations (filtered by tab) */}
         <Card className="p-5 mb-5">
           <CardLabel>Recommendations</CardLabel>
-          <p className="text-[10px] opacity-40 mt-0.5 mb-4" style={{ fontFamily: "var(--font-mono)" }}>
-            Top 5 actions · powered by NIDP V3 quality + health scores
-          </p>
           {recommendations.isPending
             ? <LoadingSkeleton variant="card" />
             : recommendations.isError
