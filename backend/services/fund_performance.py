@@ -112,9 +112,31 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "summary": {},
         }
 
-    # Step 1: Get scheme_codes from our AMFI NAV cache
-    scheme_code_map = {}  # holding_name -> scheme_code
-    for h in mf_holdings:
+    # Step 1: Fetch DaaS primitives by ISIN — correct, ISIN-based matching.
+    # DaaS returns ret_1y / return_3m / return_1m / category_avg_1y already
+    # computed from NIDP's own daily NAV ingestion (no name-matching, no stale
+    # mfapi.in data).  We fall back to mfapi.in only for ISINs DaaS doesn't cover.
+    isins = list({(h.get("ticker") or "").upper().strip() for h in mf_holdings
+                  if (h.get("ticker") or "").strip()})
+    daas_by_isin: dict = {}
+    if isins:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            import feature_flags as _ff
+            if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas"):
+                daas_by_isin = await _daas.get_v3_mf_primitives_bulk(isins) or {}
+                logger.info("fund_performance: DaaS returned %d/%d primitives", len(daas_by_isin), len(isins))
+        except Exception as e:
+            logger.warning("fund_performance: DaaS fetch failed, using mfapi.in: %s", e)
+
+    # Step 2: For ISINs not covered by DaaS, fall back to mfapi.in name matching.
+    # Build scheme_code_map only for the uncovered holdings.
+    daas_isins_covered = set(daas_by_isin.keys())
+    mfapi_holdings = [h for h in mf_holdings
+                      if (h.get("ticker") or "").upper().strip() not in daas_isins_covered]
+
+    scheme_code_map = {}  # holding_name -> scheme_code (mfapi.in fallback only)
+    for h in mfapi_holdings:
         isin = (h.get("ticker") or "").upper().strip()
         name = h.get("name", "")
         entry = None
@@ -135,34 +157,37 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         if entry and entry.get("scheme_code"):
             scheme_code_map[name] = entry["scheme_code"]
 
-    # Step 2: Fetch historical data from mfapi.in (batch with rate limiting)
+    # Fetch mfapi.in data only for the fallback set
     scheme_data = {}
-    codes_to_fetch = list(set(scheme_code_map.values()))
+    if scheme_code_map:
+        semaphore = asyncio.Semaphore(5)
 
-    # Limit to 20 concurrent requests to be respectful
-    semaphore = asyncio.Semaphore(5)
+        async def fetch_one(code):
+            async with semaphore:
+                result = await fetch_scheme_history(code)
+                if result:
+                    scheme_data[code] = result
+                await asyncio.sleep(0.2)
 
-    async def fetch_one(code):
-        async with semaphore:
-            result = await fetch_scheme_history(code)
-            if result:
-                scheme_data[code] = result
-            await asyncio.sleep(0.2)  # Rate limit
+        codes_to_fetch = list(set(scheme_code_map.values()))
+        await asyncio.gather(*[fetch_one(c) for c in codes_to_fetch[:100]], return_exceptions=True)
 
-    tasks = [fetch_one(code) for code in codes_to_fetch[:100]]
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Step 3: Group by category and compute category averages
-    category_returns = {}  # category -> [return_1y, ...]
-    for code, data in scheme_data.items():
+    # Step 3: Build category averages from DaaS (preferred) then mfapi.in
+    category_returns = {}
+    for prim in daas_by_isin.values():
+        cat = prim.get("sub_category") or prim.get("category") or ""
+        r1y = prim.get("ret_1y") or prim.get("return_1y")
+        if cat and r1y is not None:
+            try:
+                category_returns.setdefault(cat, []).append(float(r1y))
+            except (TypeError, ValueError):
+                pass
+    for data in scheme_data.values():
         cat = data.get("scheme_category", "Other")
         if data.get("return_1y") is not None:
             category_returns.setdefault(cat, []).append(data["return_1y"])
 
-    category_avg = {}
-    for cat, returns in category_returns.items():
-        if returns:
-            category_avg[cat] = round(sum(returns) / len(returns), 2)
+    category_avg = {cat: round(sum(v)/len(v), 2) for cat, v in category_returns.items() if v}
 
     # Step 4: Rate each fund
     fund_ratings = []
@@ -172,6 +197,9 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
 
     for h in mf_holdings:
         name = h.get("name", "")
+        isin = (h.get("ticker") or "").upper().strip()
+        # Prefer DaaS data (correct ISIN match); fall back to mfapi.in
+        prim = daas_by_isin.get(isin)
         code = scheme_code_map.get(name)
         data = scheme_data.get(code) if code else None
 
@@ -200,41 +228,60 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "scheme_code": code,
         }
 
-        if data and data.get("return_1y") is not None:
+        # Resolve period returns: DaaS (ISIN-matched, correct) → mfapi.in fallback
+        # DaaS fields: ret_1y, return_3m, return_1m, return_6m, category_avg_1y
+        # mfapi.in fields: return_1y, return_3m, return_1m, return_3y, scheme_category
+        if prim is not None:
+            r1y = prim.get("ret_1y") or prim.get("return_1y")
+            cat = prim.get("sub_category") or prim.get("category") or ""
+            if r1y is not None:
+                rating["return_1m"]       = prim.get("return_1m")
+                rating["return_3m"]       = prim.get("return_3m")
+                rating["return_1y"]       = float(r1y)
+                rating["return_3y"]       = prim.get("return_3y") or prim.get("return_3y_cagr")
+                rating["scheme_category"] = cat
+                rating["benchmark_name"]  = f"{cat} Avg" if cat else None
+                # Use DaaS-provided category_avg_1y if available; else client-computed avg
+                bm = prim.get("category_avg_1y") or category_avg.get(cat)
+                if bm is not None:
+                    rating["benchmark_return"] = float(bm)
+                    rating["alpha"] = round(float(r1y) - float(bm), 2)
+                    if float(r1y) > float(bm) + 2:
+                        rating["rating"] = "overperforming"; over_count += 1
+                    elif float(r1y) < float(bm) - 2:
+                        rating["rating"] = "underperforming"; under_count += 1
+                    else:
+                        rating["rating"] = "meeting"; meet_count += 1
+                else:
+                    rating["rating"] = "meeting"; meet_count += 1
+            # prim present but ret_1y missing → falls through to mfapi.in below
+
+        if rating["return_1y"] is None and data and data.get("return_1y") is not None:
+            # mfapi.in fallback for funds DaaS didn't cover
             cat = data.get("scheme_category", "Other")
             avg = category_avg.get(cat)
-            # Populate all available period returns from mfapi.in
-            rating["return_1m"] = data.get("return_1m")
-            rating["return_3m"] = data.get("return_3m")
-            rating["return_1y"] = data["return_1y"]
-            rating["return_3y"] = data.get("return_3y")
+            rating["return_1m"]       = data.get("return_1m")
+            rating["return_3m"]       = data.get("return_3m")
+            rating["return_1y"]       = data["return_1y"]
+            rating["return_3y"]       = data.get("return_3y")
             rating["scheme_category"] = cat
-            rating["benchmark_name"] = f"{cat} Avg"
-
+            rating["benchmark_name"]  = f"{cat} Avg"
             if avg is not None:
                 rating["benchmark_return"] = avg
                 rating["alpha"] = round(data["return_1y"] - avg, 2)
-
-                # Threshold: ±2% for "meeting"
                 if data["return_1y"] > avg + 2:
-                    rating["rating"] = "overperforming"
-                    over_count += 1
+                    rating["rating"] = "overperforming"; over_count += 1
                 elif data["return_1y"] < avg - 2:
-                    rating["rating"] = "underperforming"
-                    under_count += 1
+                    rating["rating"] = "underperforming"; under_count += 1
                 else:
-                    rating["rating"] = "meeting"
-                    meet_count += 1
+                    rating["rating"] = "meeting"; meet_count += 1
             else:
-                meet_count += 1
-                rating["rating"] = "meeting"
-        else:
-            # No 1Y NAV data — leave return_1y as None so it's excluded from
-            # Best/Worst Performers. simple_return_pct (total since purchase) is
-            # kept in the rating dict for display when explicitly labeled, but must
-            # NOT be stored in return_1y (which would make a since-inception metric
-            # appear as a 1-year return and corrupt the ranked list).
-            pass  # return_1y stays None; fund.rating stays "no_data"
+                rating["rating"] = "meeting"; meet_count += 1
+
+        if rating["return_1y"] is None:
+            # No data from either source — leave return_1y=None so the fund is
+            # excluded from period ranked lists (never substitute simple_return_pct).
+            pass
 
         fund_ratings.append(rating)
 
