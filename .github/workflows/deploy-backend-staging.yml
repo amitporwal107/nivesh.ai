@@ -68,6 +68,19 @@ jobs:
                 run --rm app-migrate
             fi
 
+      - name: Install cache-clear cron [staging]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         1m
+          command_timeout: 1m
+          script: |
+            sudo install -m 644 /opt/nivesh-staging/repo/deploy/nivesh-staging/cache-clear.cron \
+              /etc/cron.d/nivesh-staging-cache-clear
+
       - name: Health check [staging]
         run: |
           sleep 15
@@ -88,8 +101,5 @@ jobs:
           command_timeout: 3m
           script: |
             echo "=== Clearing performance caches [staging] ==="
-            sudo docker compose \
-              -f /opt/nivesh-staging/repo/deploy/nivesh-staging/docker-compose.staging.yml \
-              --env-file /opt/nivesh-staging/.env.staging \
-              exec -T backend python3 /app/deploy/nivesh-staging/clear-performance-caches.sh
+            sudo /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.clear_performance_caches
             echo "=== Cache clear done [staging] ==="

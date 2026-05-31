@@ -65,6 +65,19 @@ jobs:
                 run --rm migrate
             fi
 
+      - name: Install cache-clear cron [prod]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         1m
+          command_timeout: 1m
+          script: |
+            sudo install -m 644 /opt/nivesh/repo/deploy/nivesh-app/cache-clear.cron \
+              /etc/cron.d/nivesh-cache-clear
+
       - name: Health check [prod]
         run: |
           sleep 15
@@ -85,8 +98,5 @@ jobs:
           command_timeout: 3m
           script: |
             echo "=== Clearing performance caches ==="
-            sudo docker compose \
-              -f /opt/nivesh/deploy/docker-compose.prod.yml \
-              --env-file /opt/nivesh/.env.prod \
-              exec -T backend python3 /app/deploy/nivesh-app/clear-performance-caches.sh
+            sudo /usr/bin/docker exec nivesh-backend python -m scripts.clear_performance_caches
             echo "=== Cache clear done ==="

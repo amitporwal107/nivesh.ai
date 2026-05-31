@@ -1,0 +1,22 @@
+# /etc/cron.d/nivesh-cache-clear — nightly performance cache invalidation.
+#
+# Clears fund_performance_cache (MongoDB) and portfolio_performance_cache
+# (Postgres) so users never see data more than 24 hours old even when no
+# deploy has occurred.  The same script runs automatically after every
+# backend deploy via GitHub Actions.
+#
+# Owner: nivesh (must be in the docker group).
+# Container: nivesh-backend (prod).
+#
+# Install:
+#   sudo install -m 644 /opt/nivesh/repo/deploy/nivesh-app/cache-clear.cron \
+#       /etc/cron.d/nivesh-cache-clear
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+# 00:30 IST daily — after midnight analytics_refresh (00:10) has run and
+# written fresh V3 scores, so the next page load recomputes from current data.
+30 0 * * *  nivesh  /usr/bin/docker exec nivesh-backend python -m scripts.clear_performance_caches >> /opt/nivesh/logs/cache-clear.log 2>&1
