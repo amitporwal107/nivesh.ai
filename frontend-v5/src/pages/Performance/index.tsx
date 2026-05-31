@@ -525,11 +525,13 @@ function PerformanceHeatmap({
   const totalValue = heatmapData.reduce((s, d) => s + d.value, 0);
 
   function retColor(pct: number | null) {
-    if (pct === null) return "rgba(var(--ink-1),0.12)";
-    if (pct > 15)  return "rgba(var(--pos),0.85)";
-    if (pct > 0)   return "rgba(var(--pos),0.45)";
-    if (pct > -15) return "rgba(var(--neg),0.45)";
-    return "rgba(var(--neg),0.85)";
+    // --pos / --neg are space-separated RGB values (e.g. "14 138 85")
+    // so alpha must use the CSS4 slash notation: rgb(var(--X) / alpha)
+    if (pct === null) return "rgb(var(--ink-1) / 0.12)";
+    if (pct > 15)  return "rgb(var(--pos) / 0.85)";
+    if (pct > 0)   return "rgb(var(--pos) / 0.45)";
+    if (pct > -15) return "rgb(var(--neg) / 0.45)";
+    return "rgb(var(--neg) / 0.85)";
   }
 
   return (
