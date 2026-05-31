@@ -1,17 +1,51 @@
 /**
  * Performance dashboard — v5
- * Wired to GET /api/dashboards/performance?period=
- * Design: verdict headline · KPI strip · attribution waterfall · top contributors · monthly returns
+ * Wired to:
+ *   GET /api/dashboards/performance?period=  → KPI strip, waterfall, contributors, monthly
+ *   GET /api/portfolio/fund-performance      → benchmark donut, best/worst performers
+ *   GET /api/portfolio/deep-analytics        → performance heatmap
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDashboard } from "@/hooks/use-dashboards";
+import { http } from "@/services/api/http";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { useResync } from "@/hooks/use-resync";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, TrendingUp, TrendingDown, Minus } from "lucide-react";
+
+// ── Supplemental data hooks ──────────────────────────────────────────────────
+
+function useFundPerformance() {
+  return useQuery({
+    queryKey: ["fund-performance"],
+    queryFn: async () => {
+      const res = await http({ path: "/api/portfolio/fund-performance" });
+      return res.data as {
+        performance_distribution?: { overperforming: number; meeting: number; underperforming: number };
+        top_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
+        bottom_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+function useDeepAnalytics() {
+  return useQuery({
+    queryKey: ["deep-analytics"],
+    queryFn: async () => {
+      const res = await http({ path: "/api/portfolio/deep-analytics" });
+      return res.data as {
+        heatmap_data?: Array<{ name: string; value: number; invested: number; return_pct: number; asset_type: string; sector: string }>;
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 // ── Period selector ────────────────────────────────────────────────────────
 
@@ -254,12 +288,253 @@ function MonthlyReturnsGrid({ breakdown }: { breakdown: unknown }) {
   );
 }
 
+// ── Benchmark donut (Outperforming / Meeting / Underperforming) ──────────────
+
+type BenchmarkDistribution = { overperforming: number; meeting: number; underperforming: number };
+
+function BenchmarkDonut({
+  distribution,
+  onSegmentClick,
+  activeSegment,
+}: {
+  distribution: BenchmarkDistribution;
+  onSegmentClick: (seg: string | null) => void;
+  activeSegment: string | null;
+}) {
+  const total = distribution.overperforming + distribution.meeting + distribution.underperforming;
+  if (total === 0) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      No benchmark data yet.
+    </div>
+  );
+
+  const segments = [
+    { key: "overperforming", label: "Outperforming", count: distribution.overperforming, color: "rgb(var(--pos))" },
+    { key: "meeting",        label: "Meeting",        count: distribution.meeting,        color: "rgba(var(--ink-1),0.35)" },
+    { key: "underperforming",label: "Underperforming",count: distribution.underperforming,color: "rgb(var(--neg))" },
+  ];
+
+  // SVG donut
+  const R = 70, r = 42, cx = 90, cy = 90;
+  let cumAngle = -Math.PI / 2;
+  const arcs = segments.map((s) => {
+    const frac = s.count / total;
+    const angle = frac * 2 * Math.PI;
+    const x1 = cx + R * Math.cos(cumAngle);
+    const y1 = cy + R * Math.sin(cumAngle);
+    cumAngle += angle;
+    const x2 = cx + R * Math.cos(cumAngle);
+    const y2 = cy + R * Math.sin(cumAngle);
+    const ix1 = cx + r * Math.cos(cumAngle);
+    const iy1 = cy + r * Math.sin(cumAngle);
+    cumAngle -= angle;
+    const ix2 = cx + r * Math.cos(cumAngle);
+    const iy2 = cy + r * Math.sin(cumAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    cumAngle += angle;
+    const d = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${r} ${r} 0 ${large} 0 ${ix2} ${iy2} Z`;
+    return { ...s, d, frac };
+  });
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-5">
+      <svg viewBox="0 0 180 180" className="w-[140px] h-[140px] shrink-0" aria-label="Benchmark donut chart">
+        {arcs.map((arc) => (
+          <path
+            key={arc.key}
+            d={arc.d}
+            fill={arc.color}
+            opacity={activeSegment && activeSegment !== arc.key ? 0.3 : 0.85}
+            className="cursor-pointer transition-opacity"
+            aria-label={`${arc.label}: ${arc.count} of ${total} funds`}
+            onClick={() => onSegmentClick(activeSegment === arc.key ? null : arc.key)}
+          />
+        ))}
+        {/* centre count */}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={22} fontWeight={600}
+          fontFamily="var(--font-mono)" fill="rgb(var(--ink-1))">{total}</text>
+        <text x={cx} y={cy + 13} textAnchor="middle" fontSize={8}
+          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.4)">FUNDS</text>
+      </svg>
+
+      <div className="flex flex-col gap-2 flex-1 w-full">
+        {arcs.map((arc) => (
+          <button
+            key={arc.key}
+            onClick={() => onSegmentClick(activeSegment === arc.key ? null : arc.key)}
+            className="flex items-center gap-2.5 w-full text-left rounded-md px-2.5 py-1.5 transition-colors"
+            style={{
+              background: activeSegment === arc.key ? "rgba(var(--surface-3),0.8)" : "transparent",
+              border: "1px solid " + (activeSegment === arc.key ? "rgba(var(--line),0.15)" : "transparent"),
+            }}
+            aria-pressed={activeSegment === arc.key}>
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: arc.color }} aria-hidden />
+            <span className="flex-1 text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>{arc.label}</span>
+            <span className="text-[12px] font-semibold" style={{ fontFamily: "var(--font-mono)", color: arc.color }}>
+              {arc.count}
+            </span>
+            <span className="text-[10px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+              {total > 0 ? Math.round((arc.count / total) * 100) : 0}%
+            </span>
+          </button>
+        ))}
+        {activeSegment && (
+          <button onClick={() => onSegmentClick(null)}
+            className="text-[10px] opacity-50 hover:opacity-80 text-left px-2.5 mt-0.5"
+            style={{ fontFamily: "var(--font-mono)" }}>
+            ✕ Clear filter
+          </button>
+        )}
+        <p className="text-[10px] opacity-30 px-2.5" style={{ fontFamily: "var(--font-mono)" }}>
+          {total} funds matched · click to filter holdings
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Best & Worst Performers ──────────────────────────────────────────────────
+
+function BestWorstPerformers({
+  topPerformers,
+  bottomPerformers,
+}: {
+  topPerformers: Array<{ name: string; return_1y: number | null }>;
+  bottomPerformers: Array<{ name: string; return_1y: number | null }>;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const top = showAll ? topPerformers : topPerformers.slice(0, 4);
+  const bottom = showAll ? bottomPerformers : bottomPerformers.slice(0, 4);
+  const hasMore = topPerformers.length > 4 || bottomPerformers.length > 4;
+
+  function FundRow({ fund, positive }: { fund: { name: string; return_1y: number | null }; positive: boolean }) {
+    const ret = fund.return_1y;
+    return (
+      <div className="flex items-center gap-2.5 py-2 border-b last:border-0"
+        style={{ borderColor: "rgba(var(--line),0.08)" }}>
+        <span className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+          style={{ background: positive ? "rgba(var(--pos),0.12)" : "rgba(var(--neg),0.12)" }}>
+          {positive
+            ? <TrendingUp size={11} style={{ color: "rgb(var(--pos))" }} />
+            : <TrendingDown size={11} style={{ color: "rgb(var(--neg))" }} />}
+        </span>
+        <span className="flex-1 text-[12px] truncate">{fund.name}</span>
+        {ret != null && (
+          <span className="text-[12px] font-semibold shrink-0"
+            style={{ fontFamily: "var(--font-mono)", color: ret >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
+            aria-label={`${ret > 0 ? "+" : ""}${ret.toFixed(1)}% return`}>
+            {ret > 0 ? "+" : ""}{ret.toFixed(1)}%
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {top.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-widest mb-2"
+              style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--pos))" }}>
+              Top performers
+            </p>
+            {top.map((f, i) => <FundRow key={i} fund={f} positive />)}
+          </div>
+        )}
+        {bottom.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-widest mb-2"
+              style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--neg))" }}>
+              Needs review
+            </p>
+            {bottom.map((f, i) => <FundRow key={i} fund={f} positive={false} />)}
+          </div>
+        )}
+      </div>
+      {hasMore && (
+        <button onClick={() => setShowAll((v) => !v)}
+          className="mt-3 text-[11px] opacity-50 hover:opacity-80"
+          style={{ fontFamily: "var(--font-mono)" }}>
+          {showAll ? "Show less" : `View all ${topPerformers.length + bottomPerformers.length} funds →`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Performance heatmap ───────────────────────────────────────────────────────
+
+function PerformanceHeatmap({
+  heatmapData,
+  onTileClick,
+}: {
+  heatmapData: Array<{ name: string; value: number; invested: number; return_pct: number; asset_type: string }>;
+  onTileClick?: (name: string) => void;
+}) {
+  if (!heatmapData.length) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      No holdings data yet.
+    </div>
+  );
+
+  const totalValue = heatmapData.reduce((s, d) => s + d.value, 0);
+
+  function retColor(pct: number) {
+    if (pct > 15)  return "rgba(var(--pos),0.85)";
+    if (pct > 0)   return "rgba(var(--pos),0.45)";
+    if (pct > -15) return "rgba(var(--neg),0.45)";
+    return "rgba(var(--neg),0.85)";
+  }
+  function retTextColor(pct: number) {
+    return pct >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))";
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5" role="list" aria-label="Performance heatmap">
+      {heatmapData.map((d) => {
+        const weight = totalValue > 0 ? d.value / totalValue : 0;
+        // Tile area proportional to current value (weight); clamp min/max for readability
+        const size = Math.max(48, Math.min(140, Math.round(weight * 1200)));
+        return (
+          <button
+            key={d.name}
+            role="listitem"
+            onClick={() => onTileClick?.(d.name)}
+            className="rounded-md flex flex-col justify-end p-1.5 transition-opacity hover:opacity-90"
+            style={{
+              width: size,
+              height: Math.max(44, size * 0.72),
+              background: retColor(d.return_pct),
+              flexShrink: 0,
+            }}
+            aria-label={`${d.name}: ${d.return_pct > 0 ? "+" : ""}${d.return_pct}% return`}
+            title={`${d.name}\n${d.return_pct > 0 ? "+" : ""}${d.return_pct}%`}>
+            <span className="text-[9px] leading-tight truncate w-full opacity-80"
+              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.7)" }}>
+              {d.name.slice(0, 18)}
+            </span>
+            <span className="text-[10px] font-bold leading-none mt-0.5"
+              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.85)" }}
+              aria-hidden>
+              {d.return_pct > 0 ? "+" : ""}{d.return_pct}%
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
-  // API period param: backend accepts 1M/3M/6M/1Y/3Y/inception
+  const [benchmarkFilter, setBenchmarkFilter] = useState<string | null>(null);
+
   const dash = useDashboard("performance", { period });
+  const fundPerf = useFundPerformance();
+  const deepAnalytics = useDeepAnalytics();
   const { resync, isPending: resyncing, lastSyncedAt, error: resyncError } = useResync(
     (dash.data?.breakdown as any)?.computed_at
   );
@@ -388,6 +663,52 @@ export default function PerformancePage() {
       <Card className="mt-5 p-5">
         <CardLabel>Monthly returns vs benchmark</CardLabel>
         <MonthlyReturnsGrid breakdown={env?.breakdown} />
+      </Card>
+
+      {/* Benchmark donut + Best/Worst — sourced from /api/portfolio/fund-performance */}
+      {fundPerf.data && (
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mt-5">
+          <Card className="p-5">
+            <CardLabel>vs category benchmark</CardLabel>
+            <div className="mt-3">
+              {fundPerf.isPending
+                ? <LoadingSkeleton variant="list" />
+                : <BenchmarkDonut
+                    distribution={fundPerf.data.performance_distribution ?? { overperforming: 0, meeting: 0, underperforming: 0 }}
+                    onSegmentClick={setBenchmarkFilter}
+                    activeSegment={benchmarkFilter}
+                  />
+              }
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <CardLabel>Best &amp; worst performers</CardLabel>
+            <div className="mt-2">
+              {fundPerf.isPending
+                ? <LoadingSkeleton variant="list" />
+                : <BestWorstPerformers
+                    topPerformers={fundPerf.data.top_performers ?? []}
+                    bottomPerformers={fundPerf.data.bottom_performers ?? []}
+                  />
+              }
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Performance heatmap — sourced from /api/portfolio/deep-analytics */}
+      <Card className="mt-5 p-5">
+        <CardLabel>Performance heatmap</CardLabel>
+        <p className="text-[10px] opacity-40 mt-0.5 mb-3" style={{ fontFamily: "var(--font-mono)" }}>
+          Tile size = current value · colour = P&amp;L % (green &gt;0%, red &lt;0%) · click to drill down
+        </p>
+        {deepAnalytics.isPending
+          ? <LoadingSkeleton variant="card" />
+          : <PerformanceHeatmap
+              heatmapData={deepAnalytics.data?.heatmap_data ?? []}
+            />
+        }
       </Card>
 
       {/* Resync error (AC-25: prior data preserved, error shown) */}
