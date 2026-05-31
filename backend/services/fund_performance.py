@@ -169,16 +169,19 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
     # as simple-return rows (buy_price → current_price) until the reclassification backfill runs.
     def _holding_is_etf(h: dict, nav_cache: dict) -> bool:
         # Fund of Funds that invest IN ETFs are mutual funds, not ETFs themselves.
-        # "Mirae Asset NYSE FANG+ ETF Fund of Fund" → MF, stays in MF pipeline.
-        name_upper = (h.get("name") or "").upper()
-        if "FUND OF FUND" in name_upper or " FOF" in name_upper:
+        # CAS-parsed names often contain commas: "FANG+ ETF Fund, of Fund" —
+        # normalise before checking so comma variants match the same pattern.
+        raw_name = (h.get("name") or "").upper().replace(",", " ")
+        while "  " in raw_name:
+            raw_name = raw_name.replace("  ", " ")
+        if "FUND OF FUND" in raw_name or " FOF" in raw_name:
             return False
         if (h.get("asset_type") or "").lower() == "etf":
             return True
         isin = (h.get("ticker") or "").upper().strip()
         if isin and nav_cache.get(isin, {}).get("is_etf"):
             return True
-        return any(m in name_upper for m in ("ETF", "EXCHANGE TRADED FUND", "BEES FUND"))
+        return any(m in raw_name for m in ("ETF", "EXCHANGE TRADED FUND", "BEES FUND"))
 
     true_mf_holdings = [h for h in holdings
                         if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")

@@ -29,12 +29,19 @@ def _is_etf_scheme(scheme_name: str) -> bool:
     it has AMFI NAV, AMFI ISIN, and belongs in the MF benchmark pipeline.
     e.g. "Mirae Asset NYSE FANG+ ETF Fund of Fund" → MF, NOT an ETF.
     Only schemes that ARE the exchange-traded instrument itself are ETFs.
+
+    Names from MongoDB holdings often contain commas from CAS parsing
+    (e.g. "FANG+ ETF Fund, of Fund") — normalise before checking.
     """
-    name_upper = scheme_name.upper()
-    # FoF schemes contain "FUND OF FUND" — exclude them regardless of other keywords
-    if "FUND OF FUND" in name_upper or "FOF" in name_upper:
+    # Normalise: remove commas and collapse multiple spaces so
+    # "Fund, of Fund" and "Fund of Fund" both match the same pattern.
+    normalised = scheme_name.upper().replace(",", " ")
+    while "  " in normalised:
+        normalised = normalised.replace("  ", " ")
+    # FoF schemes — exclude regardless of other keywords
+    if "FUND OF FUND" in normalised or " FOF" in normalised:
         return False
-    return any(marker in name_upper for marker in _ETF_NAME_MARKERS)
+    return any(marker in normalised for marker in _ETF_NAME_MARKERS)
 
 
 async def fetch_nav_data() -> dict:
