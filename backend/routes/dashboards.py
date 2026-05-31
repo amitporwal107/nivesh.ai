@@ -351,17 +351,18 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     }
 
 
-async def _performance_composite(user_id: str, period: str) -> dict[str, Any]:
+async def _performance_composite(user_id: str, period: str, force: bool = False) -> dict[str, Any]:
     """Serves screen 08 Performance Dashboard — v5 full payload.
 
     Delegates to portfolio_performance_engine which computes:
       XIRR, benchmark_xirr, alpha, Sharpe, hit_rate,
       attribution waterfall, monthly returns strip, top contributors.
     Results are cached in portfolio_performance_cache (24h TTL).
+    Pass force=True (or ?force=1 query param) to skip the cache.
     """
     from services.portfolio_performance_engine import compute_performance
 
-    perf = await compute_performance(user_id, period, use_cache=True)
+    perf = await compute_performance(user_id, period, use_cache=not force)
 
     xirr = perf.get("portfolio_xirr")
     bm_xirr = perf.get("benchmark_xirr")
@@ -554,7 +555,8 @@ async def get_dashboard(
         elif type == "risk":
             domain = await _risk_composite(user_id)
         elif type == "performance":
-            domain = await _performance_composite(user_id, period)
+            force = request.query_params.get("force") == "1"
+            domain = await _performance_composite(user_id, period, force=force)
         elif type == "goals":
             domain = await _goals_composite(user_id)
         else:  # tax

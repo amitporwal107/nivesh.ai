@@ -511,12 +511,12 @@ async def resync_portfolio(request: Request) -> dict:
             pool = await pg_client.get_pool()
             if pool:
                 async with pool.acquire() as conn:
-                    deleted = await conn.fetchval(
-                        "DELETE FROM portfolio_performance_cache WHERE user_id = $1"
-                        " RETURNING COUNT(*)",
+                    # RETURNING COUNT(*) is invalid; use execute() and check status
+                    status = await conn.execute(
+                        "DELETE FROM portfolio_performance_cache WHERE user_id = $1",
                         user_id,
                     )
-                    logger.info("resync: cleared %s cache rows for %s", deleted, user_id)
+                    logger.info("resync: perf cache clear for %s: %s", user_id, status)
         except Exception as pg_err:
             logger.warning("resync: pg cache clear failed (non-fatal): %s", pg_err)
 
