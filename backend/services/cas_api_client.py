@@ -652,6 +652,24 @@ def map_api_response_to_holdings(data: dict) -> List[Dict]:
             if h:
                 holdings.append(h)
 
+        # sovereign_gold_bonds — output key from nivesh_cas_normalizer.
+        # Field names differ from government_securities: num_units / market_price_per_unit_inr /
+        # value_inr / face_value_per_unit_inr.  Map to the shape _holding_from_bond expects.
+        for g in hold_section.get("sovereign_gold_bonds") or []:
+            mapped = {
+                "isin":   g.get("isin"),
+                "issuer": g.get("series") or g.get("issuer") or "Sovereign Gold Bond",
+                "units":  g.get("num_units"),
+                "price":  g.get("market_price_per_unit_inr"),
+                "value":  g.get("value_inr"),
+            }
+            h = _holding_from_bond(mapped, asset_type="gold")
+            if h:
+                # Use RBI issue price as cost basis when available
+                if g.get("face_value_per_unit_inr"):
+                    h["buy_price"] = round(float(g["face_value_per_unit_inr"]), 4)
+                holdings.append(h)
+
         for a in hold_section.get("aifs") or []:
             h = _holding_from_bond(a, asset_type="other")
             if h:
