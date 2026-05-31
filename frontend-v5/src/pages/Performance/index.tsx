@@ -237,8 +237,14 @@ function filterByTab(ratings: FundRating[], tab: AssetTab): FundRating[] {
 /** Derive BenchmarkDistribution counts from fund_ratings for a given tab.
  *  ETFs carry rating="etf_equity" — reclassify them by actual return vs benchmark. */
 function distributionFromRatings(ratings: FundRating[]) {
-  let overperforming = 0, meeting = 0, underperforming = 0;
+  // Deduplicate by name first — same fund in multiple folios should count once
+  const uniqueByName = new Map<string, FundRating>();
   for (const r of ratings) {
+    if (!uniqueByName.has(r.name)) uniqueByName.set(r.name, r);
+  }
+
+  let overperforming = 0, meeting = 0, underperforming = 0;
+  for (const r of uniqueByName.values()) {
     let effectiveRating = r.rating;
     if (effectiveRating === "etf_equity") {
       const ret = r.return_1y ?? r.simple_return_pct;
@@ -265,7 +271,19 @@ function performersFromRatings(ratings: FundRating[], period: "inception" | "1Y"
   };
   const field = fieldMap[period] as keyof FundRating;
   const withData = ratings.filter((r) => (r[field] as number | null) != null);
-  const sorted = [...withData].sort((a, b) => ((b[field] as number) ?? 0) - ((a[field] as number) ?? 0));
+
+  // Deduplicate by name — same fund in multiple folios; keep the row with the
+  // highest return for top-performers and the worst for bottom-performers.
+  const byName = new Map<string, FundRating>();
+  for (const r of withData) {
+    const existing = byName.get(r.name);
+    const rv = r[field] as number;
+    const ev = existing ? (existing[field] as number) : null;
+    if (!existing || ev === null || rv > ev) byName.set(r.name, r);
+  }
+  const unique = [...byName.values()];
+
+  const sorted = [...unique].sort((a, b) => ((b[field] as number) ?? 0) - ((a[field] as number) ?? 0));
   return {
     top:    sorted.slice(0, 10).map((r) => ({ name: r.name, return_pct: r[field] as number | null, period_field: field as string, rating: r.rating })),
     bottom: sorted.slice(-10).reverse().map((r) => ({ name: r.name, return_pct: r[field] as number | null, period_field: field as string, rating: r.rating })),
