@@ -156,13 +156,15 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     top_gainers = holding_perf[:10]
     top_losers = list(reversed(holding_perf[-10:])) if len(holding_perf) > 10 else []
 
-    # Heatmap data — use buy_price if positive, else fall back to current_price
-    # (CAS imports often have buy_price=0 when cost basis is unavailable; without
-    # this fallback all tiles show 0% return and the heatmap is colourless).
+    # Heatmap data — only compute return_pct when real cost basis exists.
+    # CAS imports often have buy_price=0 (cost basis unknown); falling back to
+    # current_price makes inv==cur and pct==0 for every tile, which is wrong.
+    # When buy_price is absent, emit return_pct=None so the tile renders as
+    # muted grey (cost_basis_estimated=True) rather than a fake 0% green.
     heatmap_data = []
     for h in holdings:
-        buy_p = h["buy_price"] if h.get("buy_price", 0) > 0 else h["current_price"]
-        inv = h["quantity"] * buy_p
+        cost_basis_estimated = h.get("buy_price", 0) <= 0
+        inv = h["quantity"] * h["buy_price"] if not cost_basis_estimated else 0
         cur = h["quantity"] * h["current_price"]
         pct = ((cur - inv) / inv * 100) if inv > 0 else None
         if cur > 0:
@@ -170,9 +172,9 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
                 "name": h["name"][:30],
                 "ticker": h.get("ticker", ""),
                 "value": round(cur, 2),
-                "invested": round(inv, 2),
+                "invested": round(inv, 2) if not cost_basis_estimated else None,
                 "return_pct": round(pct, 1) if pct is not None else None,
-                "cost_basis_estimated": h.get("buy_price", 0) <= 0,
+                "cost_basis_estimated": cost_basis_estimated,
                 "asset_type": h.get("asset_type", "other"),
                 "sector": h.get("sector", "Other"),
             })
