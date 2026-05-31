@@ -37,34 +37,16 @@ function useFundPerformance() {
   });
 }
 
-// Heatmap data lives in performance_cards inside deep-analytics
+// Heatmap — sourced from /api/portfolio/analytics which has heatmap_data already built
 type HeatmapTile = { name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string };
 
-function useDeepAnalytics() {
+function useHeatmapData() {
   return useQuery({
-    queryKey: ["deep-analytics"],
+    queryKey: ["portfolio-heatmap"],
     queryFn: async () => {
-      const res = await http({ path: "/api/portfolio/deep-analytics" });
-      const raw = res.data as {
-        performance_cards?: Array<{
-          name: string; asset_type: string; sector: string;
-          current_value: number; invested: number; pct_return: number | null;
-          buy_price: number;
-        }>;
-        heatmap_data?: HeatmapTile[];
-      };
-      // Map performance_cards to the heatmap tile shape
-      const cards = raw?.performance_cards ?? [];
-      const tiles: HeatmapTile[] = cards.map((c) => ({
-        name: c.name,
-        value: c.current_value,
-        invested: c.invested ?? 0,
-        return_pct: c.pct_return ?? null,
-        cost_basis_estimated: !c.buy_price || c.buy_price <= 0,
-        asset_type: c.asset_type,
-        sector: c.sector,
-      }));
-      return { heatmap_data: tiles };
+      const res = await http({ path: "/api/portfolio/analytics" });
+      const raw = res.data as { heatmap_data?: HeatmapTile[] };
+      return raw?.heatmap_data ?? [];
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -598,90 +580,104 @@ function PortfolioValueChart({
     </div>
   );
 
-  // Append current value as "Now" if not already the last point
   const points = [...monthlyValues];
-  if (currentValue > 0) {
-    points.push({ month: "Now", value_rs: currentValue });
-  }
+  if (currentValue > 0) points.push({ month: "Now", value_rs: currentValue });
 
-  const W = 600, H = 160;
-  const pad = { t: 16, r: 16, b: 36, l: 64 };
+  const W = 700, H = 180;
+  const pad = { t: 20, r: 24, b: 40, l: 80 };
   const iW = W - pad.l - pad.r;
   const iH = H - pad.t - pad.b;
 
   const values = points.map((p) => p.value_rs);
-  const minV = Math.min(...values) * 0.97;
-  const maxV = Math.max(...values) * 1.03;
+  const minV = Math.min(...values) * 0.96;
+  const maxV = Math.max(...values) * 1.04;
   const range = maxV - minV || 1;
 
-  const xScale = (i: number) => pad.l + (i / (points.length - 1)) * iW;
+  const xScale = (i: number) => pad.l + (i / Math.max(points.length - 1, 1)) * iW;
   const yScale = (v: number) => pad.t + iH - ((v - minV) / range) * iH;
 
-  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yScale(p.value_rs)}`).join(" ");
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(i).toFixed(1)} ${yScale(p.value_rs).toFixed(1)}`).join(" ");
   const areaD = `${pathD} L ${xScale(points.length - 1)} ${pad.t + iH} L ${xScale(0)} ${pad.t + iH} Z`;
 
   const first = points[0].value_rs;
-  const last = points[points.length - 1].value_rs;
+  const last  = points[points.length - 1].value_rs;
   const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
   const isPos = changePct >= 0;
 
-  function fmtCrore(v: number) {
-    if (v >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
-    if (v >= 1e5) return `₹${(v / 1e5).toFixed(1)} L`;
-    return `₹${v.toLocaleString("en-IN")}`;
+  // Compact crore/lakh format — short enough to fit in 80px y-axis column
+  function fmt(v: number) {
+    if (v >= 1e7) return `${(v / 1e7).toFixed(2)} Cr`;
+    if (v >= 1e5) return `${(v / 1e5).toFixed(1)} L`;
+    return `${Math.round(v / 1000)}k`;
   }
 
-  // Show every Nth label to avoid crowding
-  const step = Math.max(1, Math.floor(points.length / 6));
+  // X-axis: show ~6 evenly spaced labels, always include first and last
+  const labelIdxs = new Set<number>([0, points.length - 1]);
+  const step = Math.max(1, Math.floor((points.length - 1) / 5));
+  for (let i = step; i < points.length - 1; i += step) labelIdxs.add(i);
+
+  // Y-axis: 4 guide lines
+  const yTicks = [0, 0.33, 0.67, 1.0].map((f) => minV + f * range);
 
   return (
     <div>
-      <div className="flex items-baseline gap-3 mb-2">
-        <span className="text-[28px] font-semibold" style={{ fontFamily: "var(--font-mono)" }}>
-          {fmtCrore(last)}
+      <div className="flex items-baseline gap-3 mb-3">
+        <span className="font-mono text-[26px] font-semibold tracking-tight">
+          ₹{fmt(last)}
         </span>
-        <span className="text-[12px]"
-          style={{ fontFamily: "var(--font-mono)", color: isPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
+        <span className="font-mono text-[11px]"
+          style={{ color: isPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
           {isPos ? "↑" : "↓"} {Math.abs(changePct).toFixed(1)}% over the period
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 160 }}
-        role="img" aria-label="Portfolio value over time">
-        {/* area fill */}
-        <defs>
-          <linearGradient id="pvGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={areaD} fill="url(#pvGrad)" />
-        <path d={pathD} fill="none" stroke={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"}
-          strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
 
-        {/* month labels */}
-        {points.map((p, i) => i % step === 0 && (
-          <text key={i} x={xScale(i)} y={H - 4}
-            textAnchor="middle" fontSize={8} fontFamily="var(--font-mono)"
-            fill="rgba(var(--ink-1),0.35)">
-            {p.month}
-          </text>
-        ))}
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 380, width: "100%", maxHeight: 200 }}
+          role="img" aria-label="Portfolio value over time">
+          <defs>
+            <linearGradient id="pvGrad2" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0.15" />
+              <stop offset="100%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0" />
+            </linearGradient>
+          </defs>
 
-        {/* y-axis: min and max */}
-        <text x={pad.l - 4} y={pad.t + 6} textAnchor="end" fontSize={8}
-          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.35)">
-          {fmtCrore(maxV)}
-        </text>
-        <text x={pad.l - 4} y={pad.t + iH} textAnchor="end" fontSize={8}
-          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.35)">
-          {fmtCrore(minV)}
-        </text>
+          {/* Y-axis guide lines */}
+          {yTicks.map((v, i) => (
+            <g key={i}>
+              <line x1={pad.l} y1={yScale(v)} x2={W - pad.r} y2={yScale(v)}
+                stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />
+              <text x={pad.l - 8} y={yScale(v) + 3}
+                textAnchor="end" fontSize={9}
+                fill="rgba(255,255,255,0.3)"
+                fontFamily="ui-monospace,SFMono-Regular,Menlo,monospace">
+                {fmt(v)}
+              </text>
+            </g>
+          ))}
 
-        {/* dot on last point */}
-        <circle cx={xScale(points.length - 1)} cy={yScale(last)} r={3}
-          fill={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"}  />
-      </svg>
-      <p className="text-[10px] opacity-30 mt-1" style={{ fontFamily: "var(--font-mono)" }}>
+          {/* Area fill + line */}
+          <path d={areaD} fill="url(#pvGrad2)" />
+          <path d={pathD} fill="none"
+            stroke={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"}
+            strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+
+          {/* X-axis labels */}
+          {points.map((p, i) => labelIdxs.has(i) && (
+            <text key={i} x={xScale(i)} y={H - 8}
+              textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}
+              fontSize={9} fill="rgba(255,255,255,0.35)"
+              fontFamily="ui-monospace,SFMono-Regular,Menlo,monospace">
+              {p.month}
+            </text>
+          ))}
+
+          {/* Endpoint dot */}
+          <circle cx={xScale(points.length - 1)} cy={yScale(last)} r={4}
+            fill={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} />
+        </svg>
+      </div>
+
+      <p className="font-mono text-[10px] opacity-25 mt-1">
         Source: CAS statement · {points.length - 1} months of history
       </p>
     </div>
@@ -698,7 +694,7 @@ export default function PerformancePage() {
 
   const dash = useDashboard("performance", { period });
   const fundPerf = useFundPerformance();
-  const deepAnalytics = useDeepAnalytics();
+  const heatmap = useHeatmapData();
   const valueHistory = useValueHistory();
   const { resync, isPending: resyncing, lastSyncedAt, error: resyncError } = useResync(
     (dash.data?.breakdown as any)?.computed_at
@@ -898,11 +894,11 @@ export default function PerformancePage() {
         <p className="text-[10px] opacity-40 mt-0.5 mb-3" style={{ fontFamily: "var(--font-mono)" }}>
           Tile size = current value · colour = P&amp;L % · click any tile to jump to that holding
         </p>
-        {deepAnalytics.isPending
+        {heatmap.isPending
           ? <LoadingSkeleton variant="card" />
           : <PerformanceHeatmap
-              heatmapData={deepAnalytics.data?.heatmap_data ?? []}
-              isError={deepAnalytics.isError}
+              heatmapData={heatmap.data ?? []}
+              isError={heatmap.isError}
               onTileClick={(name) => drillToFund(name)}
             />
         }

@@ -314,8 +314,8 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     # ── Top contributors ─────────────────────────────────────────────────────
     top_contributors = _build_top_contributors(holdings, ratings_by_name, grand_total)
 
-    # ── Monthly returns strip ─────────────────────────────────────────────────
-    monthly_returns = _build_monthly_returns(fund_ratings, period)
+    # ── Monthly returns strip (from CAS monthly values where available) ──────
+    monthly_returns = await _build_monthly_returns_from_cas(user_id, period, fund_ratings)
 
     # ── Hit rate (months portfolio beat benchmark) ────────────────────────────
     hit_rate = _compute_hit_rate(monthly_returns)
@@ -562,6 +562,68 @@ def _build_monthly_returns(fund_ratings: list[dict], period: str) -> list[dict]:
         row["benchmark"] = monthly_bm
 
     return rows
+
+
+async def _build_monthly_returns_from_cas(
+    user_id: str, period: str, fund_ratings: list[dict]
+) -> list[dict]:
+    """Build monthly returns strip from CAS statement monthly values.
+
+    CAS Vision API extracts month→portfolio_value pairs from the statement.
+    Month-over-month return = (curr - prev) / prev * 100.
+    Falls back to the flat-line method if fewer than 2 CAS data points exist.
+    """
+    try:
+        from deps import db as _db
+        from dateutil.parser import parse as _dp
+        profile = await _db.user_profiles.find_one(
+            {"user_id": user_id}, {"_id": 0, "cas_monthly_values": 1}
+        ) or {}
+        cas_monthly = profile.get("cas_monthly_values") or []
+
+        if len(cas_monthly) >= 2:
+            def _sort_key(item: dict):
+                try:
+                    return _dp("1 " + item["month"])
+                except Exception:
+                    return _dp("1 Jan 2000")
+
+            cas_monthly = sorted(cas_monthly, key=_sort_key)
+
+            # Determine how many months to return for the period
+            n_months = {
+                "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "3Y": 36,
+            }.get(period, len(cas_monthly))
+
+            # Compute category-avg benchmark return per month (flat proxy — same
+            # month-over-month spread for every month, using annual rate / 12)
+            bm_monthly: Optional[float] = None
+            matched = [r for r in fund_ratings
+                       if r.get("return_1y") is not None and r.get("benchmark_return") is not None]
+            if matched:
+                avg_bm = sum(float(r["benchmark_return"]) for r in matched) / len(matched)
+                bm_monthly = round(avg_bm / 12, 2)
+
+            rows = []
+            for i in range(1, len(cas_monthly)):
+                prev_val = float(cas_monthly[i - 1].get("value_rs") or 0)
+                curr_val = float(cas_monthly[i].get("value_rs") or 0)
+                if prev_val > 0:
+                    pct = round((curr_val - prev_val) / prev_val * 100, 2)
+                else:
+                    pct = None
+                rows.append({
+                    "month": cas_monthly[i]["month"],
+                    "portfolio": pct,
+                    "benchmark": bm_monthly,
+                })
+
+            # Return the last n_months rows
+            return rows[-n_months:] if len(rows) > n_months else rows
+    except Exception as exc:
+        logger.warning("monthly_returns_from_cas failed, falling back: %s", exc)
+
+    return _build_monthly_returns(fund_ratings, period)
 
 
 def _compute_hit_rate(monthly_returns: list[dict]) -> Optional[float]:
