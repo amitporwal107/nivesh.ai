@@ -17,8 +17,39 @@ _perf_cache_ts = 0
 PERF_CACHE_TTL = 7200  # 2 hours
 
 
+def _nav_return(current_nav: float, nav_data: list, days: int, trading_day_approx: int) -> Optional[float]:
+    """Return % gain from `days` ago to today using the NAV history list (newest first).
+
+    First tries to find an entry within ±15 days of the target date by calendar days.
+    Falls back to the `trading_day_approx`-th entry in the list (newest-first ordering).
+    Returns None when no usable NAV is found or the fund is younger than the period.
+    """
+    target = datetime.now(timezone.utc) - timedelta(days=days)
+    nav_past = None
+    for entry in nav_data:
+        try:
+            d = datetime.strptime(entry["date"], "%d-%m-%Y")
+            if abs((d - target.replace(tzinfo=None)).days) < 15:
+                nav_past = float(entry["nav"])
+                break
+        except (ValueError, KeyError):
+            continue
+    if nav_past is None and len(nav_data) > trading_day_approx:
+        try:
+            nav_past = float(nav_data[min(trading_day_approx, len(nav_data) - 1)]["nav"])
+        except (ValueError, IndexError):
+            pass
+    if nav_past and nav_past > 0:
+        return round(((current_nav - nav_past) / nav_past) * 100, 2)
+    return None
+
+
 async def fetch_scheme_history(scheme_code: str) -> Optional[dict]:
-    """Fetch scheme details + 1-year-ago NAV from mfapi.in."""
+    """Fetch scheme details + multi-period NAV returns from mfapi.in.
+
+    Returns return_1m, return_3m, return_1y, return_3y (any may be None if
+    the fund doesn't have enough history for that period).
+    """
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(f"{MFAPI_BASE}/{scheme_code}")
@@ -35,29 +66,11 @@ async def fetch_scheme_history(scheme_code: str) -> Optional[dict]:
         current_nav = float(nav_data[0]["nav"])
         current_date = nav_data[0]["date"]
 
-        # Find NAV closest to 1 year ago
-        target_date = datetime.now(timezone.utc) - timedelta(days=365)
-        nav_1y = None
-        for entry in nav_data:
-            try:
-                d = datetime.strptime(entry["date"], "%d-%m-%Y")
-                diff = abs((d - target_date.replace(tzinfo=None)).days)
-                if diff < 15:  # Within 15 days of 1 year ago
-                    nav_1y = float(entry["nav"])
-                    break
-            except (ValueError, KeyError):
-                continue
-
-        # Fallback: use entry ~250-370 trading days in
-        if nav_1y is None and len(nav_data) > 250:
-            try:
-                nav_1y = float(nav_data[min(260, len(nav_data) - 1)]["nav"])
-            except (ValueError, IndexError):
-                pass
-
-        return_1y = None
-        if nav_1y and nav_1y > 0:
-            return_1y = round(((current_nav - nav_1y) / nav_1y) * 100, 2)
+        # Compute returns for each period (calendar days, trading-day fallback)
+        return_1m  = _nav_return(current_nav, nav_data, days=30,   trading_day_approx=21)
+        return_3m  = _nav_return(current_nav, nav_data, days=91,   trading_day_approx=63)
+        return_1y  = _nav_return(current_nav, nav_data, days=365,  trading_day_approx=260)
+        return_3y  = _nav_return(current_nav, nav_data, days=1095, trading_day_approx=780)
 
         return {
             "scheme_code": scheme_code,
@@ -67,8 +80,10 @@ async def fetch_scheme_history(scheme_code: str) -> Optional[dict]:
             "scheme_type": meta.get("scheme_type", ""),
             "current_nav": current_nav,
             "current_date": current_date,
-            "nav_1y_ago": nav_1y,
-            "return_1y": return_1y,
+            "return_1m":  return_1m,
+            "return_3m":  return_3m,
+            "return_1y":  return_1y,
+            "return_3y":  return_3y,
         }
     except Exception as e:
         logger.warning("mfapi.in fetch failed for %s: %s", scheme_code, e)
@@ -170,8 +185,13 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "sector": h.get("sector", "Other"),
             "invested": round(invested, 2),
             "current_value": round(current, 2),
+            # simple_return_pct = total P&L since purchase (since-inception, NOT 1Y)
+            # Used for "Since inception" period view; never put in return_1y.
             "simple_return_pct": simple_return,
-            "return_1y": None,
+            "return_1m":  None,
+            "return_3m":  None,
+            "return_1y":  None,
+            "return_3y":  None,
             "benchmark_return": None,
             "benchmark_name": None,
             "alpha": None,
@@ -183,7 +203,11 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         if data and data.get("return_1y") is not None:
             cat = data.get("scheme_category", "Other")
             avg = category_avg.get(cat)
+            # Populate all available period returns from mfapi.in
+            rating["return_1m"] = data.get("return_1m")
+            rating["return_3m"] = data.get("return_3m")
             rating["return_1y"] = data["return_1y"]
+            rating["return_3y"] = data.get("return_3y")
             rating["scheme_category"] = cat
             rating["benchmark_name"] = f"{cat} Avg"
 
@@ -205,18 +229,54 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                 meet_count += 1
                 rating["rating"] = "meeting"
         else:
-            # Use simple return as fallback for display, but mark as no_data
-            rating["return_1y"] = simple_return
+            # No 1Y NAV data — leave return_1y as None so it's excluded from
+            # Best/Worst Performers. simple_return_pct (total since purchase) is
+            # kept in the rating dict for display when explicitly labeled, but must
+            # NOT be stored in return_1y (which would make a since-inception metric
+            # appear as a 1-year return and corrupt the ranked list).
+            pass  # return_1y stays None; fund.rating stays "no_data"
 
         fund_ratings.append(rating)
 
-    # Sort: overperforming first, then meeting, then underperforming
+    # Sort: overperforming first, then meeting, then underperforming; no_data last
+    # Use -infinity as secondary key for no_data so None-return funds sort to bottom
     rating_order = {"overperforming": 0, "meeting": 1, "underperforming": 2, "no_data": 3}
-    fund_ratings.sort(key=lambda x: (rating_order.get(x["rating"], 3), -(x.get("return_1y") or 0)))
+    fund_ratings.sort(key=lambda x: (rating_order.get(x["rating"], 3), -(x.get("return_1y") if x.get("return_1y") is not None else float("-inf"))))
 
-    # Step 5: Performance distribution pie chart
-    best = sorted([r for r in fund_ratings if r.get("return_1y") is not None], key=lambda x: x["return_1y"], reverse=True)
-    worst = sorted([r for r in fund_ratings if r.get("return_1y") is not None], key=lambda x: x["return_1y"])
+    # Step 5: Performance distribution + multi-period ranked lists
+    def _ranked(field: str, reverse: bool = True) -> list:
+        """Return fund ratings sorted by `field`, excluding funds with no data for that field."""
+        return sorted(
+            [r for r in fund_ratings if r.get(field) is not None],
+            key=lambda x: x[field],
+            reverse=reverse,
+        )
+
+    best  = _ranked("return_1y", reverse=True)
+    worst = _ranked("return_1y", reverse=False)
+
+    # Multi-period performer rows — same shape as top_performers but keyed by period
+    def _performer_row(r: dict, field: str) -> dict:
+        return {"name": r["name"], "return_pct": r.get(field), "period_field": field, "rating": r["rating"]}
+
+    performers_by_period = {
+        "inception": {
+            "top":    [_performer_row(r, "simple_return_pct") for r in _ranked("simple_return_pct", True)[:10]],
+            "bottom": [_performer_row(r, "simple_return_pct") for r in _ranked("simple_return_pct", False)[:10]],
+        },
+        "1Y": {
+            "top":    [_performer_row(r, "return_1y") for r in _ranked("return_1y", True)[:10]],
+            "bottom": [_performer_row(r, "return_1y") for r in _ranked("return_1y", False)[:10]],
+        },
+        "3M": {
+            "top":    [_performer_row(r, "return_3m") for r in _ranked("return_3m", True)[:10]],
+            "bottom": [_performer_row(r, "return_3m") for r in _ranked("return_3m", False)[:10]],
+        },
+        "1M": {
+            "top":    [_performer_row(r, "return_1m") for r in _ranked("return_1m", True)[:10]],
+            "bottom": [_performer_row(r, "return_1m") for r in _ranked("return_1m", False)[:10]],
+        },
+    }
 
     # Step 6: Category overlap bar chart data
     category_count = {}
@@ -265,9 +325,13 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "underperforming": under_count,
             "no_data": len(mf_holdings) - over_count - meet_count - under_count,
         },
+        # Legacy fields (kept for backward compat — 1Y view)
         "top_performers":     [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in best[:5]],
         "bottom_performers":  [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in worst[:5]],
         "meeting_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in meeting],
+        # Multi-period ranked lists — keyed by "inception" | "1Y" | "3M" | "1M"
+        # Each entry: {name, return_pct, period_field, rating}
+        "performers_by_period": performers_by_period,
         "category_overlap": category_overlap,
         "total_uplift_per_year_rs": total_uplift_per_year_rs,
         "summary": {

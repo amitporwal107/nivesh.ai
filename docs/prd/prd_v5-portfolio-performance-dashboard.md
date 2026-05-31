@@ -32,7 +32,11 @@ Nivesh investors with large, fragmented MF portfolios (current dataset: 111 hold
 ### Functional
 1. **Shell** — Sidebar with DASHBOARDS (Overview, Concentration, Diversification, Risk, Performance, Goals, Tax) and WORKSPACE (Plan board, Portfolio builder, Chat copilot); active route highlighted. Top bar shows context breadcrumb `DASHBOARD · {VIEW} · {PERIOD}`, editorial verdict headline, status pill, Export, Resync, and `Plan a move →`.
 2. **Period selector** — Global control (1M/3M/6M/1Y/3Y/Since inception) that drives all time-bound metrics and persists within a session.
-3. **Performance KPI strip** — XIRR (with benchmark reference), Alpha (pp, after fees), Sharpe (with ≥1.0 pass marker), Hit rate (% of months beating benchmark).
+3. **Performance KPI strip** — Period-matched portfolio return, Alpha (pp, after fees), Sharpe (with ≥1.0 pass marker), Hit rate (% of months beating benchmark).
+   - **Return metric is period-matched:** when the period selector is "1M / 3M / 6M / 1Y / 3Y", the KPI shows the **period return** `= (current_value / value_N_periods_ago − 1)` for the portfolio AND the same-period benchmark return (e.g. `return_1y` when 1Y is selected). XIRR is **not** used for bounded periods.
+   - **Since inception** is the only period where XIRR is shown — because XIRR is inherently a lifespan metric (money-weighted, needs all cashflow dates). The matching benchmark metric is the index CAGR from the portfolio's first investment date to today.
+   - **Alpha** is always `portfolio_period_return − benchmark_period_return` on the *same* time window. Never mix XIRR (lifespan) with `return_1y` (365 days) in the same alpha computation.
+   - **Per-holding XIRR** in the Detailed Holdings table (§4.10) remains XIRR — it is calculated per fund over that fund's holding lifespan, and it is NOT compared to the period benchmark in the KPI strip.
 4. **Attribution waterfall** — Base benchmark → ordered contribution steps → drag steps → final portfolio return; positive steps green, negative red; auto caption naming top contributor and biggest leakage.
 5. **Top contributors** — Ranked list of N names driving X% of alpha; each row: name, return %, alpha contribution (pp); detractors in red.
 6. **Monthly returns strip** — 12 cells: month, portfolio return, benchmark delta, beat/miss dot.
@@ -54,8 +58,10 @@ Nivesh investors with large, fragmented MF portfolios (current dataset: 111 hold
 ## 5. Acceptance criteria (the QA contract)
 
 **Verdict & KPIs**
-- [ ] Given AMFI-matched data, when Performance loads, then the headline reads "You beat the benchmark by {alpha} points" where `alpha = round(portfolio_xirr − benchmark_xirr, 1)`, and the number is green.
+- [ ] Given AMFI-matched data, when Performance loads with period=1Y, then the headline reads "You beat the benchmark by {alpha} points" where `alpha = round(portfolio_1y_return − benchmark_1y_return, 1)`, and the number is green. Both values use the same 365-day window — XIRR (lifespan) is NOT used in this comparison.
+- [ ] Given period=Since inception, the headline uses `alpha = round(portfolio_xirr − benchmark_inception_cagr, 1)`, where `benchmark_inception_cagr` is the benchmark CAGR from the portfolio's first investment date to today (not a fixed 1-year window).
 - [ ] Given `alpha < 0`, then the headline reads "You trailed the benchmark by {abs(alpha)} points", the number is red, and the status pill is not `HEALTHY`.
+- [ ] The return KPI card label reads "Return (1Y)" / "Return (3Y)" / "XIRR (Since inception)" to make the measurement window explicit to the user.
 - [ ] Given Sharpe ≥ 1.0, then the Sharpe card shows the `above 1.0 ✓` marker; given < 1.0, the marker is absent/failed.
 - [ ] The XIRR card shows the benchmark reference value (e.g. `NIFTY +16.6%`) sourced from the same period as the selected range.
 

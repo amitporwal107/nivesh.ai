@@ -22,6 +22,14 @@ import { RefreshCw, Loader2, TrendingUp, TrendingDown } from "lucide-react";
 
 // ── Supplemental data hooks ──────────────────────────────────────────────────
 
+type PerformerRow = { name: string; return_pct: number | null; period_field: string; rating: string };
+type PerformersByPeriod = {
+  inception: { top: PerformerRow[]; bottom: PerformerRow[] };
+  "1Y":      { top: PerformerRow[]; bottom: PerformerRow[] };
+  "3M":      { top: PerformerRow[]; bottom: PerformerRow[] };
+  "1M":      { top: PerformerRow[]; bottom: PerformerRow[] };
+};
+
 function useFundPerformance() {
   return useQuery({
     queryKey: ["fund-performance"],
@@ -32,6 +40,7 @@ function useFundPerformance() {
         top_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
         bottom_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
         meeting_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
+        performers_by_period?: PerformersByPeriod;
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -416,13 +425,25 @@ function BenchmarkDonut({
 
 // ── Best & Worst Performers ──────────────────────────────────────────────────
 
+type PerfPeriodKey = "inception" | "1Y" | "3M" | "1M";
+
+const PERF_PERIOD_LABELS: Record<PerfPeriodKey, string> = {
+  inception: "Since purchase",
+  "1Y": "1 Year",
+  "3M": "3 Months",
+  "1M": "1 Month",
+};
+
 function BestWorstPerformers({
+  performersByPeriod,
+  // Legacy fallback when new performers_by_period is not yet available
   topPerformers,
   bottomPerformers,
   meetingPerformers = [],
   activeSegment,
   onFundClick,
 }: {
+  performersByPeriod?: PerformersByPeriod | null;
   topPerformers: Array<{ name: string; return_1y: number | null }>;
   bottomPerformers: Array<{ name: string; return_1y: number | null }>;
   meetingPerformers?: Array<{ name: string; return_1y: number | null }>;
@@ -430,19 +451,31 @@ function BestWorstPerformers({
   onFundClick?: (name: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [perfPeriod, setPerfPeriod] = useState<PerfPeriodKey>("1Y");
+
+  // Derive top/bottom from performers_by_period when available, else legacy arrays
+  const hasByPeriod = !!performersByPeriod;
+  const periodData  = hasByPeriod ? performersByPeriod![perfPeriod] : null;
+
+  // Legacy mode: convert return_1y arrays to PerformerRow shape for unified rendering
+  const legacyTop: PerformerRow[]    = topPerformers.map(f => ({ name: f.name, return_pct: f.return_1y, period_field: "return_1y", rating: "overperforming" }));
+  const legacyBottom: PerformerRow[] = bottomPerformers.map(f => ({ name: f.name, return_pct: f.return_1y, period_field: "return_1y", rating: "underperforming" }));
+
+  const activeTop    = (periodData?.top    ?? legacyTop).slice(0, showAll ? 10 : 4);
+  const activeBottom = (periodData?.bottom ?? legacyBottom).slice(0, showAll ? 10 : 4);
+  const totalTop     = (periodData?.top    ?? legacyTop).length;
+  const totalBottom  = (periodData?.bottom ?? legacyBottom).length;
 
   // When a donut segment is active, show only that group
   const showTop     = !activeSegment || activeSegment === "overperforming";
   const showMeeting = activeSegment === "meeting";
-  const showBottom = !activeSegment || activeSegment === "underperforming";
+  const showBottom  = !activeSegment || activeSegment === "underperforming";
 
-  const top     = showAll ? topPerformers     : topPerformers.slice(0, 4);
-  const bottom  = showAll ? bottomPerformers  : bottomPerformers.slice(0, 4);
-  const meeting = showAll ? meetingPerformers : meetingPerformers.slice(0, 6);
-  const hasMore = topPerformers.length > 4 || bottomPerformers.length > 4 || meetingPerformers.length > 6;
+  const meeting     = showAll ? meetingPerformers : meetingPerformers.slice(0, 6);
+  const hasMore     = totalTop > 4 || totalBottom > 4 || meetingPerformers.length > 6;
 
-  function FundRow({ fund, positive }: { fund: { name: string; return_1y: number | null }; positive: boolean }) {
-    const ret = fund.return_1y;
+  function FundRow({ fund, positive }: { fund: PerformerRow; positive: boolean }) {
+    const ret = fund.return_pct;
     return (
       <button
         onClick={() => onFundClick?.(fund.name)}
@@ -468,23 +501,41 @@ function BestWorstPerformers({
 
   return (
     <div>
+      {/* Period selector — only shown when new API data is available */}
+      {hasByPeriod && (
+        <div className="flex gap-1 mb-4 flex-wrap">
+          {(Object.keys(PERF_PERIOD_LABELS) as PerfPeriodKey[]).map(p => (
+            <button key={p} onClick={() => { setPerfPeriod(p); setShowAll(false); }}
+              className="px-2.5 py-1 rounded text-[10px] uppercase tracking-widest transition-colors"
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: perfPeriod === p ? "rgba(var(--accent),0.18)" : "transparent",
+                color: perfPeriod === p ? "rgb(var(--accent))" : "rgb(var(--ink-3))",
+                border: `1px solid ${perfPeriod === p ? "rgba(var(--accent),0.4)" : "rgba(var(--line),0.12)"}`,
+              }}>
+              {PERF_PERIOD_LABELS[p]}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={showMeeting ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 sm:grid-cols-2 gap-5"}>
-        {showTop && top.length > 0 && (
+        {showTop && activeTop.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--pos))" }}>
-              Top performers
+              Top performers · {PERF_PERIOD_LABELS[hasByPeriod ? perfPeriod : "1Y"]}
             </p>
-            {top.map((f, i) => <FundRow key={i} fund={f} positive />)}
+            {activeTop.map((f, i) => <FundRow key={i} fund={f} positive />)}
           </div>
         )}
-        {showBottom && bottom.length > 0 && (
+        {showBottom && activeBottom.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--neg))" }}>
-              Needs review
+              Needs review · {PERF_PERIOD_LABELS[hasByPeriod ? perfPeriod : "1Y"]}
             </p>
-            {bottom.map((f, i) => <FundRow key={i} fund={f} positive={false} />)}
+            {activeBottom.map((f, i) => <FundRow key={i} fund={f} positive={false} />)}
           </div>
         )}
         {showMeeting && meeting.length > 0 && (
@@ -494,7 +545,7 @@ function BestWorstPerformers({
               Meeting benchmark — {meetingPerformers.length} funds (within ±2%)
             </p>
             {meeting.map((f, i) => (
-              <FundRow key={i} fund={f} positive={(f.return_1y ?? 0) >= 0} />
+              <FundRow key={i} fund={{ name: f.name, return_pct: f.return_1y, period_field: "return_1y", rating: "meeting" }} positive={(f.return_1y ?? 0) >= 0} />
             ))}
           </div>
         )}
@@ -511,7 +562,7 @@ function BestWorstPerformers({
           {showAll ? "Show less" : (
             showMeeting
               ? `View all ${meetingPerformers.length} meeting funds →`
-              : `View all ${topPerformers.length + bottomPerformers.length} funds →`
+              : `View all ${totalTop + totalBottom} funds →`
           )}
         </button>
       )}
@@ -899,6 +950,7 @@ export default function PerformancePage() {
               : fundPerf.isError
               ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
               : <BestWorstPerformers
+                  performersByPeriod={fundPerf.data?.performers_by_period ?? null}
                   topPerformers={fundPerf.data?.top_performers ?? []}
                   bottomPerformers={fundPerf.data?.bottom_performers ?? []}
                   meetingPerformers={fundPerf.data?.meeting_performers ?? []}
