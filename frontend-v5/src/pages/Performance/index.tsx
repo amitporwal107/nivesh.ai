@@ -9,7 +9,7 @@
  * Feature A: Asset class tabs — MF | Stocks | ETF | SGB / Bonds
  * Feature B: Holdings composition pie chart with drill-down
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -234,13 +234,23 @@ function filterByTab(ratings: FundRating[], tab: AssetTab): FundRating[] {
   return ratings.filter((r) => ratingToTab(r) === tab);
 }
 
-/** Derive BenchmarkDistribution counts from fund_ratings for a given tab */
+/** Derive BenchmarkDistribution counts from fund_ratings for a given tab.
+ *  ETFs carry rating="etf_equity" — reclassify them by actual return vs benchmark. */
 function distributionFromRatings(ratings: FundRating[]) {
   let overperforming = 0, meeting = 0, underperforming = 0;
   for (const r of ratings) {
-    if (r.rating === "overperforming") overperforming++;
-    else if (r.rating === "meeting")   meeting++;
-    else if (r.rating === "underperforming") underperforming++;
+    let effectiveRating = r.rating;
+    if (effectiveRating === "etf_equity") {
+      const ret = r.return_1y ?? r.simple_return_pct;
+      const bench = r.benchmark_return;
+      if (ret != null && bench != null) {
+        const diff = ret - bench;
+        effectiveRating = diff >= 2 ? "overperforming" : diff >= -2 ? "meeting" : "underperforming";
+      }
+    }
+    if (effectiveRating === "overperforming") overperforming++;
+    else if (effectiveRating === "meeting")   meeting++;
+    else if (effectiveRating === "underperforming") underperforming++;
   }
   return { overperforming, meeting, underperforming };
 }
@@ -817,7 +827,6 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
   const [sortKey, setSortKey]     = useState<DrillSortKey>("return");
   const [showAll, setShowAll]     = useState(false);
   const [catFilter, setCatFilter] = useState<string | null>(null);
-  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [amcFilter, setAmcFilter] = useState<string | null>(null);
 
   // Build per-asset-class current_value sums.
@@ -825,11 +834,12 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
   // Heatmap (deep-analytics) has value + asset_type for all holdings.
   const assetValues = { mf: 0, stocks: 0, etf: 0, sgb: 0 };
 
+  // MF and ETF come from fund_ratings (which has accurate NAV-based current_value)
   for (const r of fundRatings) {
     const tab = ratingToTab(r);
-    if (tab !== "all") assetValues[tab] += r.current_value ?? 0;
+    if (tab === "mf" || tab === "etf") assetValues[tab] += r.current_value ?? 0;
   }
-  // Fill stocks + sgb from heatmap (which includes equity + gold)
+  // Stocks and SGB come exclusively from heatmap (demat/equity tiles) to avoid double-counting
   for (const tile of heatmapData) {
     const at = (tile.asset_type ?? "").toLowerCase();
     if (at === "equity")               assetValues.stocks += tile.value;
@@ -899,9 +909,6 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
   const categories = outerTab === "mf"
     ? [...new Set(drillData.map((r) => r.scheme_category).filter(Boolean))] as string[]
     : [];
-  const sectors = outerTab === "stocks"
-    ? [...new Set(drillData.map((r) => r.sector).filter(Boolean))] as string[]
-    : [];
   const amcs = outerTab === "mf"
     ? [...new Set(
         drillData
@@ -915,8 +922,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
     : [];
 
   const filtered = sorted.filter((r) => {
-    if (catFilter    && r.scheme_category !== catFilter) return false;
-    if (sectorFilter && r.sector          !== sectorFilter) return false;
+    if (catFilter && r.scheme_category !== catFilter) return false;
     if (amcFilter) {
       const amc = r.name.match(/^([A-Za-z]+(?:\s[A-Za-z]+)?)\s/)?.[1] ?? "";
       if (amc !== amcFilter) return false;
@@ -931,7 +937,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
     <div>
       {/* Pie chart */}
       <div className="flex flex-col sm:flex-row items-center gap-6">
-        <div className="shrink-0" style={{ width: 220, height: 220 }}>
+        <div className="shrink-0" style={{ width: 220, height: 220, overflow: "visible" }}>
           <ResponsiveContainer width={220} height={220}>
             <PieChart>
               <Pie
@@ -957,13 +963,15 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
                 ))}
               </Pie>
               <Tooltip
+                wrapperStyle={{ zIndex: 100 }}
                 contentStyle={{
-                  background: "rgb(var(--surface-2))",
-                  border: "1px solid rgba(var(--line),0.15)",
+                  background: "#1e2330",
+                  border: "1px solid rgba(255,255,255,0.15)",
                   borderRadius: 8,
-                  color: "rgb(var(--ink-1))",
+                  color: "#e8eaf0",
                   fontSize: 12,
                   fontFamily: "var(--font-mono)",
+                  padding: "8px 12px",
                 }}
                 formatter={(value: number, name: string) => [
                   formatINRCompact(value),
@@ -1040,20 +1048,6 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
                   whiteSpace: "nowrap",
                 }}>
                 {cat}
-              </button>
-            ))}
-            {/* Sector chips for stocks */}
-            {sectors.length > 0 && sectors.slice(0, 8).map((sec) => (
-              <button key={sec}
-                onClick={() => { setSectorFilter(sectorFilter === sec ? null : sec); setShowAll(false); }}
-                className="px-2 py-0.5 rounded text-[10px] transition-colors"
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  background: sectorFilter === sec ? "rgba(var(--warm),0.2)" : "rgba(var(--surface-3),0.7)",
-                  color: sectorFilter === sec ? "rgb(var(--warm))" : "rgb(var(--ink-3))",
-                  border: `1px solid ${sectorFilter === sec ? "rgba(var(--warm),0.35)" : "rgba(var(--line),0.1)"}`,
-                }}>
-                {sec}
               </button>
             ))}
             {/* AMC chips for MF */}
@@ -1373,12 +1367,385 @@ function PortfolioValueChart({
   );
 }
 
+// ── Stock-tab allocation charts ───────────────────────────────────────────────
+
+const SECTOR_COLORS = [
+  "rgb(var(--accent))",
+  "rgb(var(--pos))",
+  "rgb(var(--warm))",
+  "#e879f9",
+  "#38bdf8",
+  "#fb923c",
+  "#a3e635",
+  "#f472b6",
+  "#94a3b8",
+];
+
+function buildDonutArcs(items: Array<{ value: number }>, total: number, R = 70, r = 42, cx = 90, cy = 90) {
+  let cumAngle = -Math.PI / 2;
+  return items.map((s) => {
+    const frac = s.value / total;
+    const angle = frac * 2 * Math.PI;
+    const x1 = cx + R * Math.cos(cumAngle);
+    const y1 = cy + R * Math.sin(cumAngle);
+    cumAngle += angle;
+    const x2 = cx + R * Math.cos(cumAngle);
+    const y2 = cy + R * Math.sin(cumAngle);
+    const ix1 = cx + r * Math.cos(cumAngle);
+    const iy1 = cy + r * Math.sin(cumAngle);
+    cumAngle -= angle;
+    const ix2 = cx + r * Math.cos(cumAngle);
+    const iy2 = cy + r * Math.sin(cumAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    cumAngle += angle;
+    return {
+      d: `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${r} ${r} 0 ${large} 0 ${ix2} ${iy2} Z`,
+      frac,
+    };
+  });
+}
+
+function SectorAllocationPie({ heatmapData }: { heatmapData: HeatmapTile[] }) {
+  const equity = heatmapData.filter((t) => (t.asset_type ?? "").toLowerCase() === "equity");
+  if (equity.length === 0) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      No equity holdings found.
+    </div>
+  );
+
+  const map = new Map<string, number>();
+  for (const t of equity) map.set(t.sector || "Other", (map.get(t.sector || "Other") ?? 0) + t.value);
+  const total = [...map.values()].reduce((s, v) => s + v, 0);
+  const sectors = [...map.entries()].sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({
+    name, value, color: SECTOR_COLORS[i % SECTOR_COLORS.length],
+  }));
+  const arcs = buildDonutArcs(sectors, total);
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center gap-5">
+      <svg viewBox="0 0 180 180" className="w-[130px] h-[130px] shrink-0" aria-label="Sector allocation donut">
+        {arcs.map((arc, i) => (
+          <path key={sectors[i].name} d={arc.d} fill={sectors[i].color} opacity={0.85}
+            aria-label={`${sectors[i].name}: ${Math.round(arc.frac * 100)}%`} />
+        ))}
+        <text x={90} y={86} textAnchor="middle" fontSize={13} fontWeight={600}
+          fontFamily="var(--font-mono)" fill="rgb(var(--ink-1))">{sectors.length}</text>
+        <text x={90} y={100} textAnchor="middle" fontSize={8}
+          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.4)">SECTORS</text>
+      </svg>
+      <div className="flex flex-col gap-1.5 flex-1 w-full overflow-y-auto" style={{ maxHeight: 180 }}>
+        {sectors.map((s) => (
+          <div key={s.name} className="flex items-center gap-2.5 px-2 py-1">
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
+            <span className="flex-1 text-[11px] truncate" style={{ fontFamily: "var(--font-mono)" }}>{s.name}</span>
+            <span className="text-[11px] font-semibold shrink-0" style={{ fontFamily: "var(--font-mono)", color: s.color }}>
+              {formatINRCompact(s.value)}
+            </span>
+            <span className="text-[10px] opacity-40 w-8 text-right" style={{ fontFamily: "var(--font-mono)" }}>
+              {Math.round((s.value / total) * 100)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompanyAllocationPie({ heatmapData, onCompanyClick }: { heatmapData: HeatmapTile[]; onCompanyClick?: (name: string) => void }) {
+  const equity = [...heatmapData.filter((t) => (t.asset_type ?? "").toLowerCase() === "equity")]
+    .sort((a, b) => b.value - a.value);
+  if (equity.length === 0) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      No equity holdings found.
+    </div>
+  );
+
+  const total = equity.reduce((s, t) => s + t.value, 0);
+  const TOP_N = 8;
+  const top = equity.slice(0, TOP_N);
+  const rest = equity.slice(TOP_N);
+  const restValue = rest.reduce((s, t) => s + t.value, 0);
+
+  const pieItems = [
+    ...top.map((t, i) => ({ name: t.name, value: t.value, color: SECTOR_COLORS[i % SECTOR_COLORS.length], return_pct: t.return_pct })),
+    ...(restValue > 0 ? [{ name: `+${rest.length} more`, value: restValue, color: "rgba(150,150,150,0.4)", return_pct: null as number | null }] : []),
+  ];
+  const arcs = buildDonutArcs(pieItems, total);
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row items-center gap-5 mb-3">
+        <svg viewBox="0 0 180 180" className="w-[120px] h-[120px] shrink-0" aria-label="Company allocation donut">
+          {arcs.map((arc, i) => (
+            <path key={pieItems[i].name} d={arc.d} fill={pieItems[i].color} opacity={0.85}
+              className={pieItems[i].return_pct !== undefined ? "cursor-pointer hover:opacity-100 transition-opacity" : ""}
+              onClick={() => { if (pieItems[i].return_pct !== undefined && pieItems[i].name && !pieItems[i].name.startsWith("+")) onCompanyClick?.(pieItems[i].name); }}
+              aria-label={`${pieItems[i].name}: ${Math.round(arc.frac * 100)}%`}
+            />
+          ))}
+          <text x={90} y={86} textAnchor="middle" fontSize={13} fontWeight={600}
+            fontFamily="var(--font-mono)" fill="rgb(var(--ink-1))">{equity.length}</text>
+          <text x={90} y={100} textAnchor="middle" fontSize={8}
+            fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.4)">STOCKS</text>
+        </svg>
+      </div>
+      <div className="divide-y" style={{ borderColor: "rgba(var(--line),0.07)" }}>
+        {top.map((t, i) => {
+          const isPos = (t.return_pct ?? 0) >= 0;
+          return (
+            <button key={t.name} onClick={() => onCompanyClick?.(t.name)}
+              className="flex items-center gap-2 w-full text-left py-2 hover:opacity-80 transition-opacity">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: SECTOR_COLORS[i % SECTOR_COLORS.length] }} />
+              <span className="flex-1 text-[11px] truncate" style={{ fontFamily: "var(--font-mono)" }}>{t.name}</span>
+              <span className="text-[11px] shrink-0 opacity-70" style={{ fontFamily: "var(--font-mono)" }}>
+                {formatINRCompact(t.value)}
+              </span>
+              {t.return_pct != null && (
+                <span className="text-[10px] font-semibold shrink-0 w-14 text-right"
+                  style={{ fontFamily: "var(--font-mono)", color: isPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
+                  {t.return_pct > 0 ? "+" : ""}{t.return_pct.toFixed(1)}%
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {restValue > 0 && (
+          <p className="py-1.5 text-[10px] opacity-35 pl-5" style={{ fontFamily: "var(--font-mono)" }}>
+            +{rest.length} more · {formatINRCompact(restValue)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Holding detail drawer ────────────────────────────────────────────────────
+
+function HoldingDetailDrawer({
+  name,
+  fundRatings,
+  recommendationsData,
+  onClose,
+}: {
+  name: string | null;
+  fundRatings: FundRating[];
+  recommendationsData?: { holdings: RecHolding[]; top5_by_asset_class: Record<string, RecHolding[]> };
+  onClose: () => void;
+}) {
+  const fund = name ? fundRatings.find((f) => f.name === name) : null;
+  const rec  = name && recommendationsData?.holdings
+    ? recommendationsData.holdings.find((h) => h.name === name) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!name) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [name, onClose]);
+
+  if (!name || !fund) return null;
+
+  const st = rec ? (ACTION_STYLES[rec.action] ?? ACTION_STYLES.HOLD) : null;
+  const qs = rec?.quality_score;
+  const hs = rec?.health_score;
+
+  function scoreColor(v: number | null | undefined) {
+    if (v == null) return "rgba(var(--ink-1),0.35)";
+    if (v >= 70) return "rgb(var(--pos))";
+    if (v >= 45) return "rgb(var(--warm))";
+    return "rgb(var(--neg))";
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.35)" }} onClick={onClose} />
+      <div
+        className="fixed right-0 top-0 h-full flex flex-col z-50"
+        style={{
+          width: "min(420px, 100vw)",
+          background: "rgb(var(--surface-1))",
+          borderLeft: "1px solid rgba(var(--line),0.12)",
+          boxShadow: "-8px 0 32px rgba(0,0,0,0.25)",
+        }}
+        role="dialog" aria-modal="true" aria-label={`${name} detail`}>
+        {/* Header */}
+        <div className="flex items-start gap-3 p-5 border-b shrink-0"
+          style={{ borderColor: "rgba(var(--line),0.1)" }}>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1"
+              style={{ fontFamily: "var(--font-mono)" }}>
+              {fund.asset_type ?? "holding"}
+              {(fund.scheme_category || fund.sector) ? ` · ${fund.scheme_category ?? fund.sector}` : ""}
+            </p>
+            <h2 className="text-[15px] font-semibold leading-snug">{fund.name}</h2>
+          </div>
+          <button onClick={onClose}
+            className="shrink-0 p-1.5 rounded-md opacity-50 hover:opacity-90 transition-opacity mt-0.5"
+            aria-label="Close">
+            <svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+              <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+          {/* Value summary */}
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { label: "Invested",  value: formatINRCompact(fund.invested),      colored: false, pos: true },
+              { label: "Cur. Value", value: formatINRCompact(fund.current_value), colored: false, pos: true },
+              {
+                label: "P&L",
+                value: fund.simple_return_pct != null
+                  ? `${fund.simple_return_pct > 0 ? "+" : ""}${fund.simple_return_pct.toFixed(1)}%`
+                  : "—",
+                colored: true,
+                pos: (fund.simple_return_pct ?? 0) >= 0,
+              },
+            ] as Array<{label: string; value: string; colored: boolean; pos: boolean}>).map((f) => (
+              <div key={f.label} className="rounded-lg p-3"
+                style={{ background: "rgba(var(--surface-3),0.6)" }}>
+                <p className="text-[9px] uppercase tracking-widest opacity-40 mb-1"
+                  style={{ fontFamily: "var(--font-mono)" }}>{f.label}</p>
+                <p className="text-[13px] font-semibold"
+                  style={{ fontFamily: "var(--font-mono)", color: f.colored ? (f.pos ? "rgb(var(--pos))" : "rgb(var(--neg))") : undefined }}>
+                  {f.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Quality + Health scores */}
+          {(qs != null || hs != null) && (
+            <div>
+              <p className="text-[10px] uppercase tracking-widest opacity-40 mb-2"
+                style={{ fontFamily: "var(--font-mono)" }}>Scores</p>
+              <div className="flex gap-2">
+                {qs != null && (
+                  <div className="flex-1 rounded-lg p-3 text-center"
+                    style={{ background: "rgba(var(--surface-3),0.6)", border: `1px solid ${scoreColor(qs)}30` }}>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 mb-1"
+                      style={{ fontFamily: "var(--font-mono)" }}>Quality</p>
+                    <p className="text-[24px] font-semibold leading-none"
+                      style={{ fontFamily: "var(--font-mono)", color: scoreColor(qs) }}>{Math.round(qs)}</p>
+                    <p className="text-[9px] opacity-30 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>/100</p>
+                  </div>
+                )}
+                {hs != null && (
+                  <div className="flex-1 rounded-lg p-3 text-center"
+                    style={{ background: "rgba(var(--surface-3),0.6)", border: `1px solid ${scoreColor(hs)}30` }}>
+                    <p className="text-[9px] uppercase tracking-widest opacity-40 mb-1"
+                      style={{ fontFamily: "var(--font-mono)" }}>Health</p>
+                    <p className="text-[24px] font-semibold leading-none"
+                      style={{ fontFamily: "var(--font-mono)", color: scoreColor(hs) }}>{Math.round(hs)}</p>
+                    <p className="text-[9px] opacity-30 mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>/100</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-[9px] opacity-25 mt-2 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+                {QUALITY_SCORE_EXPLANATION}
+              </p>
+            </div>
+          )}
+
+          {/* Returns */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest opacity-40 mb-2"
+              style={{ fontFamily: "var(--font-mono)" }}>Returns</p>
+            <div className="grid grid-cols-4 gap-2">
+              {([
+                { label: "1M", value: fund.return_1m ?? null },
+                { label: "3M", value: fund.return_3m ?? null },
+                { label: "1Y", value: fund.return_1y ?? null },
+                { label: "3Y", value: fund.return_3y ?? null },
+              ] as Array<{label: string; value: number | null}>).map((r) => (
+                <div key={r.label} className="rounded-lg p-2.5"
+                  style={{ background: "rgba(var(--surface-3),0.6)" }}>
+                  <p className="text-[9px] uppercase tracking-widest opacity-40 mb-1"
+                    style={{ fontFamily: "var(--font-mono)" }}>{r.label}</p>
+                  <p className="text-[12px] font-semibold" style={{
+                    fontFamily: "var(--font-mono)",
+                    color: r.value != null ? (r.value >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))") : undefined,
+                  }}>
+                    {r.value != null ? `${r.value > 0 ? "+" : ""}${r.value.toFixed(1)}%` : "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Benchmark */}
+          {(fund.benchmark_return != null || fund.alpha != null) && (
+            <div>
+              <p className="text-[10px] uppercase tracking-widest opacity-40 mb-1.5"
+                style={{ fontFamily: "var(--font-mono)" }}>vs Benchmark</p>
+              <div className="rounded-lg p-3" style={{ background: "rgba(var(--surface-3),0.6)" }}>
+                <p className="text-[11px] opacity-60 mb-1" style={{ fontFamily: "var(--font-mono)" }}>
+                  {fund.benchmark_name ?? "Benchmark"}
+                </p>
+                <div className="flex items-baseline gap-3">
+                  {fund.benchmark_return != null && (
+                    <span className="text-[14px] font-semibold" style={{
+                      fontFamily: "var(--font-mono)",
+                      color: fund.benchmark_return >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))",
+                    }}>
+                      {fund.benchmark_return > 0 ? "+" : ""}{fund.benchmark_return.toFixed(1)}%
+                    </span>
+                  )}
+                  {fund.alpha != null && (
+                    <span className="text-[11px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
+                      Alpha: {fund.alpha > 0 ? "+" : ""}{fund.alpha.toFixed(2)} pp
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Recommendation */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest opacity-40 mb-2"
+              style={{ fontFamily: "var(--font-mono)" }}>Recommendation</p>
+            {rec && st ? (
+              <div className="rounded-lg p-4"
+                style={{ background: st.bg, border: `1px solid ${st.color}33` }}>
+                <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase mb-2"
+                  style={{ background: `${st.color}22`, color: st.color, fontFamily: "var(--font-mono)" }}>
+                  {st.label}
+                </span>
+                <p className="text-[12px] leading-relaxed opacity-70" style={{ fontFamily: "var(--font-mono)" }}>
+                  {rec.reason}
+                </p>
+                {rec.category_rank != null && (
+                  <p className="text-[10px] opacity-45 mt-2" style={{ fontFamily: "var(--font-mono)" }}>
+                    Rank {rec.category_rank}
+                    {rec.category_total != null ? `/${rec.category_total}` : ""} in {rec.category ?? "category"}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+                No recommendation data available.
+              </p>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
   const [benchmarkFilter, setBenchmarkFilter] = useState<string | null>(null);
   const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const [detailFund, setDetailFund] = useState<string | null>(null);
   const navigate = useNavigate();
   const { setFilter } = useHoldingsFilter();
 
@@ -1391,11 +1758,9 @@ export default function PerformancePage() {
     (dash.data?.breakdown as any)?.computed_at
   );
 
-  // Drill-down: set Zustand filter then navigate to /portfolio
-  // HoldingsTable reads from useHoldingsFilter() and applies dimension filter
+  // Open holding detail drawer (quality/health/returns/recommendation)
   const drillToFund = (fundName: string) => {
-    setFilter({ dimension: "fund", value: fundName, label: fundName });
-    navigate("/portfolio");
+    setDetailFund(fundName);
   };
 
   if (dash.isPending) {
@@ -1564,74 +1929,102 @@ export default function PerformancePage() {
           }
         </Card>
 
-        {/* 4b. VS Category Benchmark + Best/Worst Performers */}
-        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mb-5">
-          <Card className="p-5">
-            <CardLabel>vs category benchmark<PeriodBadge period={period} /></CardLabel>
-            <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
-              {BENCHMARK_EXPLANATION[assetTab]}
-            </p>
-            {fundPerf.isPending
-              ? <LoadingSkeleton variant="list" />
-              : fundPerf.isError
-              ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
-              : (() => {
-                  const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
-                  const distribution = (assetTab === "all" || assetTab === "mf") && fundPerf.data?.performance_distribution
-                    ? fundPerf.data.performance_distribution
-                    : distributionFromRatings(tabRatings);
-                  return (
-                    <BenchmarkDonut
-                      distribution={distribution}
-                      onSegmentClick={(seg) => setBenchmarkFilter(benchmarkFilter === seg ? null : seg)}
-                      activeSegment={benchmarkFilter}
-                    />
-                  );
-                })()
-            }
-          </Card>
-
-          <Card className="p-5">
-            <CardLabel>
-              Best &amp; worst performers · top 5<PeriodBadge period={period} />
-              {benchmarkFilter && benchmarkFilter !== "meeting" && (
-                <span className="ml-2 text-[10px] opacity-50" style={{ fontFamily: "var(--font-mono)" }}>
-                  — filtered by {benchmarkFilter}
-                </span>
-              )}
-            </CardLabel>
-            <div className="mt-2">
+        {/* 4b. VS Category Benchmark + Best/Worst Performers (MF/ETF/SGB)
+               OR Sector + Company Allocation (Stocks) */}
+        {assetTab === "stocks" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mb-5">
+            <Card className="p-5">
+              <CardLabel>Sector allocation</CardLabel>
+              <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+                Current value by sector · all equity holdings
+              </p>
+              {heatmap.isPending
+                ? <LoadingSkeleton variant="list" />
+                : <SectorAllocationPie heatmapData={heatmap.data ?? []} />
+              }
+            </Card>
+            <Card className="p-5">
+              <CardLabel>Company allocation · top 8</CardLabel>
+              <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+                Top holdings by current value · click to view detail
+              </p>
+              {heatmap.isPending
+                ? <LoadingSkeleton variant="list" />
+                : <CompanyAllocationPie
+                    heatmapData={heatmap.data ?? []}
+                    onCompanyClick={(name) => drillToFund(name)}
+                  />
+              }
+            </Card>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mb-5">
+            <Card className="p-5">
+              <CardLabel>vs category benchmark<PeriodBadge period={period} /></CardLabel>
+              <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+                {BENCHMARK_EXPLANATION[assetTab]}
+              </p>
               {fundPerf.isPending
                 ? <LoadingSkeleton variant="list" />
                 : fundPerf.isError
-                ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
+                ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
                 : (() => {
                     const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
-                    // Always build derivedByPeriod from fund_ratings so non-MF tabs also get period data
-                    const serverPeriods = (assetTab === "all" || assetTab === "mf") ? fundPerf.data?.performers_by_period ?? null : null;
-                    const derivedByPeriod: PerformersByPeriod | null = serverPeriods ??
-                      (tabRatings.length > 0 ? {
-                        inception: performersFromRatings(tabRatings, "inception"),
-                        "1Y":      performersFromRatings(tabRatings, "1Y"),
-                        "3M":      performersFromRatings(tabRatings, "3M"),
-                        "1M":      performersFromRatings(tabRatings, "1M"),
-                      } : null);
+                    const distribution = (assetTab === "all" || assetTab === "mf") && fundPerf.data?.performance_distribution
+                      ? fundPerf.data.performance_distribution
+                      : distributionFromRatings(tabRatings);
                     return (
-                      <BestWorstPerformers
-                        performersByPeriod={derivedByPeriod}
-                        topPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.top_performers ?? []) : []}
-                        bottomPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.bottom_performers ?? []) : []}
-                        meetingPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.meeting_performers ?? []) : []}
+                      <BenchmarkDonut
+                        distribution={distribution}
+                        onSegmentClick={(seg) => setBenchmarkFilter(benchmarkFilter === seg ? null : seg)}
                         activeSegment={benchmarkFilter}
-                        outerPeriod={period}
-                        onFundClick={(name) => name ? drillToFund(name) : navigate("/portfolio")}
                       />
                     );
                   })()
               }
-            </div>
-          </Card>
-        </div>
+            </Card>
+
+            <Card className="p-5">
+              <CardLabel>
+                Best &amp; worst performers · top 5<PeriodBadge period={period} />
+                {benchmarkFilter && benchmarkFilter !== "meeting" && (
+                  <span className="ml-2 text-[10px] opacity-50" style={{ fontFamily: "var(--font-mono)" }}>
+                    — filtered by {benchmarkFilter}
+                  </span>
+                )}
+              </CardLabel>
+              <div className="mt-2">
+                {fundPerf.isPending
+                  ? <LoadingSkeleton variant="list" />
+                  : fundPerf.isError
+                  ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
+                  : (() => {
+                      const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
+                      const serverPeriods = (assetTab === "all" || assetTab === "mf") ? fundPerf.data?.performers_by_period ?? null : null;
+                      const derivedByPeriod: PerformersByPeriod | null = serverPeriods ??
+                        (tabRatings.length > 0 ? {
+                          inception: performersFromRatings(tabRatings, "inception"),
+                          "1Y":      performersFromRatings(tabRatings, "1Y"),
+                          "3M":      performersFromRatings(tabRatings, "3M"),
+                          "1M":      performersFromRatings(tabRatings, "1M"),
+                        } : null);
+                      return (
+                        <BestWorstPerformers
+                          performersByPeriod={derivedByPeriod}
+                          topPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.top_performers ?? []) : []}
+                          bottomPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.bottom_performers ?? []) : []}
+                          meetingPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.meeting_performers ?? []) : []}
+                          activeSegment={benchmarkFilter}
+                          outerPeriod={period}
+                          onFundClick={(name) => drillToFund(name)}
+                        />
+                      );
+                    })()
+                }
+              </div>
+            </Card>
+          </div>
+        )}
 
         {/* 4c. Recommendations (filtered by tab) */}
         <Card className="p-5 mb-5">
@@ -1679,6 +2072,14 @@ export default function PerformancePage() {
           {(env.breakdown as any).coverage.total_funds} funds matched via AMFI
         </p>
       )}
+
+      {/* Holding detail drawer */}
+      <HoldingDetailDrawer
+        name={detailFund}
+        fundRatings={fundPerf.data?.fund_ratings ?? []}
+        recommendationsData={recommendations.data}
+        onClose={() => setDetailFund(null)}
+      />
     </div>
   );
 }

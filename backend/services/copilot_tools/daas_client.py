@@ -185,6 +185,32 @@ async def get_shareholding_history(
     return rows if isinstance(rows, list) else []
 
 
+async def get_top_add_funds_by_category(
+    category: str,
+    n: int = 5,
+    timeout: float = 8.0,
+) -> List[Dict[str, Any]]:
+    """Return the top-N MF candidates for an ADD recommendation in a given category.
+
+    Calls GET /mf/performance/screener/top?metric=composite_rank&category_filter=<category>&limit=<n>.
+    Returns rows with at minimum {scheme_name, isin, category, composite_rank, composite_score, return_3y}.
+    Returns an empty list on DaaS unavailability so callers fall back to static defaults.
+    """
+    try:
+        payload = await _get(
+            "/mf/performance/screener/top",
+            params={"metric": "composite_rank", "category_filter": category, "limit": n},
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        logger.debug("get_top_add_funds_by_category(%s): %s", category, exc)
+        return []
+    if not payload:
+        return []
+    rows = payload.get("data") or payload.get("rows") or []
+    return rows if isinstance(rows, list) else []
+
+
 async def get_mf_scorecard(scheme_code: str) -> Optional[Dict[str, Any]]:
     """Full category scorecard for a scheme: composite_score, quality_label, quartile ranks.
 

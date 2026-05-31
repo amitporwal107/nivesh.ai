@@ -29,9 +29,32 @@ export const ActionSeverityC = z.enum(["aligned", "minor", "mismatch", "severe"]
 /** PRD §9 tax-aware execution path */
 export const ExecutionPathC = z.enum(["redirect", "harvest", "stagger", "sell-now"]).or(z.string());
 
+const TaxImpactC = z.object({
+  tax_liability:        z.number().nullable().optional(),
+  stcg:                 z.number().nullable().optional(),
+  ltcg:                 z.number().nullable().optional(),
+  exit_load_rs:         z.number().nullable().optional(),
+  holding_period_days:  z.number().nullable().optional(),
+  lock_in:              z.boolean().nullable().optional(),
+}).passthrough();
+
+const ExpectedEffectC = z.object({
+  risk_band_delta:            z.enum(["lower", "higher", "neutral"]).or(z.string()),
+  score_delta_pct:            z.number(),
+  funding_probability_delta:  z.number(),
+}).passthrough();
+
 export const PlanActionC = z.object({
-  action_id:    z.string(),
-  action_type:  ActionTypeC.or(z.string()).optional(),
+  // PRD §12 canonical field names
+  id:          z.string().optional(),
+  action:      z.string().optional(),
+  magnitude:   z.number().optional(),
+  execution:   ExecutionPathC.optional(),
+  // Legacy aliases (kept for backward compat; adapter reads both)
+  action_id:   z.string(),
+  action_type: ActionTypeC.or(z.string()).optional(),
+  amount_rs:   z.number().optional(),
+  // Shared fields
   priority:     z.union([z.number(), z.string().transform(Number)]).optional(),
   rule_triggered: z.string().optional(),
   holding_name: z.string().optional(),
@@ -39,22 +62,30 @@ export const PlanActionC = z.object({
   holding_id:   z.string().nullable().optional(),
   rationale:    z.string().optional(),
   reason_text:  z.string().optional(),
-  amount_rs:    z.number().optional(),
   suggested_alternative:      z.string().nullable().optional(),
   suggested_alternative_isin: z.string().nullable().optional(),
   estimated_impact: EstimatedImpactC.nullable().optional(),
   status:       ActionStatusC.or(z.string()).optional(),
   completion_note: z.string().nullable().optional(),
-  // PRD §12 persona output contract fields
+  // PRD §12 output contract fields
   severity:              ActionSeverityC.optional(),
   execution_path:        ExecutionPathC.optional(),
   requires_confirmation: z.boolean().optional(),
+  tax_impact:            TaxImpactC.nullable().optional(),
+  expected_effect:       ExpectedEffectC.nullable().optional(),
   engine_name:           z.string().optional(),
   source_domain:         z.string().optional(),
 }).passthrough();
 export type PlanActionC = z.infer<typeof PlanActionC>;
 export type ActionSeverity = z.infer<typeof ActionSeverityC>;
 export type ExecutionPath = z.infer<typeof ExecutionPathC>;
+
+export const GateFlagsC = z.object({
+  requires_persona:          z.boolean().optional(),
+  requires_goal:             z.boolean().optional(),
+  capacity_tolerance_diverged: z.boolean().optional(),
+}).passthrough();
+export type GateFlagsC = z.infer<typeof GateFlagsC>;
 
 export const PlanC = z.object({
   plan_id:                z.string(),
@@ -69,6 +100,7 @@ export const PlanC = z.object({
   actions:          z.array(PlanActionC).optional(),
   created_at:       z.string().optional(),
   last_updated_at:  z.string().optional(),
+  gate_flags:       GateFlagsC.optional(),
 }).passthrough();
 export type PlanC = z.infer<typeof PlanC>;
 

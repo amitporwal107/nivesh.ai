@@ -29,16 +29,16 @@ _EQUITY_CEILING = [
     (999.0, 90.0),
 ]
 
+# Static fallback fund names (used when NIDP DaaS is unavailable)
 _DEFAULT_EQUITY_FUND = "Parag Parikh Flexi Cap Fund - Direct Growth"
 _DEFAULT_DEBT_FUND   = "HDFC Corporate Bond Fund - Direct Plan - Growth"
 
-# Goal-type → preferred asset class when horizon ≥ 5y
-_GOAL_EQUITY_FUNDS: Dict[str, str] = {
+_GOAL_EQUITY_FUNDS_FALLBACK: Dict[str, str] = {
     "retirement": "DSP Nifty 50 Index Fund - Direct Growth",
     "education":  "Mirae Asset Large Cap Fund - Direct Growth",
     "wealth":     "Parag Parikh Flexi Cap Fund - Direct Growth",
 }
-_GOAL_DEBT_FUNDS: Dict[str, str] = {
+_GOAL_DEBT_FUNDS_FALLBACK: Dict[str, str] = {
     "home":       "HDFC Corporate Bond Fund - Direct Plan - Growth",
     "emergency":  "ICICI Prudential Liquid Fund - Direct Growth",
 }
@@ -51,14 +51,33 @@ def _equity_ceiling(horizon_years: float) -> float:
     return 90.0
 
 
-def _preferred_fund(goal_type: str, horizon_years: float) -> tuple[str, str]:
-    """Return (fund_name, asset_class) best suited for a goal + horizon."""
+def _preferred_fund(
+    goal_type: str,
+    horizon_years: float,
+    top_add_candidates: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+) -> tuple[str, str]:
+    """Return (fund_name, asset_class) best suited for a goal + horizon.
+
+    Prefers the top-ranked live NIDP DaaS candidate in the relevant category;
+    falls back to static defaults when DaaS is unavailable.
+    """
+    candidates = top_add_candidates or {}
+
+    def _best_from_category(cat: str, fallback: str) -> str:
+        rows = candidates.get(cat) or []
+        if rows:
+            return rows[0].get("scheme_name") or rows[0].get("fund_name") or fallback
+        return fallback
+
     if horizon_years < 3.0:
-        return _GOAL_DEBT_FUNDS.get(goal_type, _DEFAULT_DEBT_FUND), "debt"
+        fallback = _GOAL_DEBT_FUNDS_FALLBACK.get(goal_type, _DEFAULT_DEBT_FUND)
+        return _best_from_category("debt", fallback), "debt"
     if horizon_years < 5.0:
-        # Balanced — use a hybrid / balanced advantage fund
-        return "HDFC Balanced Advantage Fund - Direct Growth", "hybrid"
-    return _GOAL_EQUITY_FUNDS.get(goal_type, _DEFAULT_EQUITY_FUND), "equity"
+        fallback = "HDFC Balanced Advantage Fund - Direct Growth"
+        return _best_from_category("hybrid", fallback), "hybrid"
+    fallback = _GOAL_EQUITY_FUNDS_FALLBACK.get(goal_type, _DEFAULT_EQUITY_FUND)
+    cat = "large cap" if goal_type in ("retirement", "education") else "flexi cap"
+    return _best_from_category(cat, fallback), "equity"
 
 
 class GoalBucketFirstEngine(BaseEngine):
@@ -100,7 +119,7 @@ class GoalBucketFirstEngine(BaseEngine):
             if goal_gap_rs <= 0:
                 continue
 
-            fund_name, asset_class = _preferred_fund(goal_type, horizon_yrs)
+            fund_name, asset_class = _preferred_fund(goal_type, horizon_yrs, ctx.top_add_candidates)
 
             # Don't double-emit an ADD for a bucket already added by AllocationEngine
             dedup_key = f"ADD::{asset_class}::goal_bucket::{goal_name[:20]}"

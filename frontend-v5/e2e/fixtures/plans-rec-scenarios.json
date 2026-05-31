@@ -1,0 +1,64 @@
+{
+  "has_plan": true,
+  "plan": {
+    "plan_id": "plan_rec_e2e",
+    "status": "active",
+    "gate_flags": { "requires_persona": false, "requires_goal": false, "capacity_tolerance_diverged": false },
+    "actions": [
+      {
+        "id": "act_severe_001",
+        "action_id": "act_severe_001",
+        "action": "TRIM",
+        "type": "TRIM",
+        "asset_name": "Nippon Small Cap Fund",
+        "magnitude": 74000,
+        "amount": 74000,
+        "severity": "severe",
+        "execution": "stagger",
+        "execution_path": "stagger",
+        "reason_text": "Small-cap is 18% — above your Moderate band of 10%. More downside than your plan allows.",
+        "confidence": "HIGH",
+        "status": "PENDING",
+        "requires_confirmation": true,
+        "tax_impact": {
+          "tax_liability": 8200,
+          "ltcg": 8200,
+          "stcg": 0,
+          "holding_period_days": 420,
+          "lock_in": false
+        },
+        "expected_effect": {
+          "risk_band_delta": "lower",
+          "score_delta_pct": 8.5,
+          "funding_probability_delta": 5.0
+        },
+        "priority": 1
+      },
+      {
+        "id": "act_minor_002",
+        "action_id": "act_minor_002",
+        "action": "ADD",
+        "type": "ADD",
+        "asset_name": "HDFC Corporate Bond Fund",
+        "magnitude": 46000,
+        "amount": 46000,
+        "severity": "minor",
+        "execution": "redirect",
+        "execution_path": "redirect",
+        "reason_text": "Debt is 18% — slightly below your Moderate target. Redirect next SIP.",
+        "confidence": "MEDIUM",
+        "status": "PENDING",
+        "requires_confirmation": false,
+        "tax_impact": null,
+        "expected_effect": {
+          "risk_band_delta": "lower",
+          "score_delta_pct": 2.0,
+          "funding_probability_delta": 1.0
+        },
+        "priority": 2
+      }
+    ],
+    "total_actions": 2,
+    "pending_actions": 2
+  }
+}

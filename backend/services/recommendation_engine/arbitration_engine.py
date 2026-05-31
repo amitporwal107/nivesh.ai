@@ -38,6 +38,17 @@ class ArbitrationEngine:
         active: List[EngineSignal] = []
 
         for sig in signals:
+            # DV-4: ELSS lock-in hard stop — suppress EXIT/TRIM for locked instruments.
+            # DataValidationEngine populates ctx.tax_suppressed_instrument_ids with locked IDs.
+            if (
+                sig.action_type in ("EXIT", "TRIM")
+                and sig.instrument_id
+                and sig.instrument_id in ctx.tax_suppressed_instrument_ids
+            ):
+                sig = _suppress(sig, "ELSS lock-in or missing cost basis — EXIT/TRIM blocked")
+                active.append(sig)
+                continue
+
             # AR-2: tax suppression
             if (
                 sig.action_type == "EXIT"
@@ -81,8 +92,11 @@ class ArbitrationEngine:
         deduped = list(best_by_key.values())
         suppressed = [s for s in active if s.suppressed]
 
-        # AR-3 priority sort
-        deduped.sort(key=lambda s: s.ar3_priority, reverse=True)
+        # PRD §8: severity ordering — severe → mismatch → minor → aligned, then by AR-3 priority
+        _SEV_RANK = {"severe": 0, "mismatch": 1, "minor": 2, "aligned": 3}
+        deduped.sort(
+            key=lambda s: (_SEV_RANK.get(s.severity or "minor", 2), -s.ar3_priority),
+        )
 
         logger.info(
             "[Arbitration] %d signals → %d active, %d suppressed",

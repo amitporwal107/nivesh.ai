@@ -1,27 +1,28 @@
 import { cn } from "@/lib/utils";
 import { RecommendationCard } from "@/components/shared/RecommendationCard";
-import type { Recommendation, RecAction } from "@/types/recommendation";
+import type { Recommendation, RecFilterGroup } from "@/types/recommendation";
+import { actionToFilterGroup } from "@/types/recommendation";
 
 interface Props {
   recs: Recommendation[];
-  filter: RecAction | "all";
-  onFilter: (a: RecAction | "all") => void;
+  filter: RecFilterGroup;
+  onFilter: (f: RecFilterGroup) => void;
   onApply: (id: string) => void;
   isApplying: boolean;
 }
 
 export function Recommendations({ recs, filter, onFilter, onApply }: Props) {
-  // counts include unfiltered counts via this trick: the server can return filtered;
-  // but for the UI we show "all" as the active set size.
-  const counts: Record<string, number> = { all: recs.length, keep: 0, reduce: 0, add: 0 };
-  recs.forEach((r) => { counts[r.action]++; });
+  const counts: Record<RecFilterGroup, number> = { all: recs.length, reduce: 0, add: 0, hold: 0 };
+  recs.forEach((r) => { counts[actionToFilterGroup(r.action)] += 1; });
 
-  const filters: Array<{ k: RecAction | "all"; label: string }> = [
+  const filters: Array<{ k: RecFilterGroup; label: string }> = [
     { k: "all",    label: "All" },
-    { k: "keep",   label: "Keep" },
     { k: "reduce", label: "Reduce" },
     { k: "add",    label: "Add" },
+    { k: "hold",   label: "Hold" },
   ];
+
+  const visible = filter === "all" ? recs : recs.filter((r) => actionToFilterGroup(r.action) === filter);
 
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
@@ -30,16 +31,17 @@ export function Recommendations({ recs, filter, onFilter, onApply }: Props) {
           Recommendations
         </div>
         <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-          3 categories, {recs.length} moves.
+          {recs.length} personalised actions.
         </h1>
         <p className="text-[15.5px] text-ink-2 mt-3 max-w-[580px] leading-relaxed">
-          We never push trades. Each card explains why, the benefit, and the risk impact before you apply.
+          Every recommendation explains why, the expected effect, and the tax impact before you apply.
         </p>
       </div>
 
       <div role="tablist" className="inline-flex gap-1 mt-7 p-1 rounded-md bg-surface-2 border border-hairline">
         {filters.map((f) => {
           const on = filter === f.k;
+          const count = f.k === "all" ? recs.length : counts[f.k];
           return (
             <button
               key={f.k}
@@ -53,15 +55,20 @@ export function Recommendations({ recs, filter, onFilter, onApply }: Props) {
                   : "text-ink-2 hover:text-ink",
               )}
             >
-              {f.label} · {counts[f.k] ?? 0}
+              {f.label} · {count}
             </button>
           );
         })}
       </div>
 
       <div className="mt-6 flex flex-col gap-3">
-        {recs.map((r) => (
-          <RecommendationCard key={r.id} rec={r} onApply={() => onApply(r.id)} onLearnMore={() => {/* navigate to drawer */}} />
+        {visible.map((r) => (
+          <RecommendationCard
+            key={r.id}
+            rec={r}
+            onApply={() => onApply(r.id)}
+            onLearnMore={() => {}}
+          />
         ))}
       </div>
     </div>

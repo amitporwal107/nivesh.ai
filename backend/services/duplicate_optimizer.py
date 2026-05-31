@@ -51,11 +51,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Tax constants (FY24-25 equity/equity-MF) ─────────────────────────
-STCG_RATE = 0.15
-LTCG_RATE = 0.10
-LTCG_EXEMPTION_RS = 100_000
-LT_THRESHOLD_DAYS = 365
+# ── Tax constants — sourced from tax_constants.py (FY 2025-26) ───────
+from services.tax_constants import (
+    EQUITY_STCG_RATE as STCG_RATE,
+    EQUITY_LTCG_RATE as LTCG_RATE,
+    EQUITY_LTCG_EXEMPTION as LTCG_EXEMPTION_RS,
+    EQUITY_LT_DAYS as LT_THRESHOLD_DAYS,
+)
 
 # ── Heuristic expense ratios when fund-master not available ───────────
 ER_REGULAR_DEFAULT = 0.0165  # 1.65% — typical equity regular plan

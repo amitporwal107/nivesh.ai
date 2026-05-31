@@ -80,6 +80,12 @@ class CategorySuitabilityEngine(BaseEngine):
                     float(h.get("quantity", 0)) * float(h.get("current_price", 0))
                     if h else amount_rs
                 )
+                candidate = next(
+                    (c for c in ctx.exit_candidates if c.get("instrument_id") == iid), None
+                )
+                estimated_tax = float(
+                    (candidate.get("tax_impact") or {}).get("tax_liability") or 0
+                ) if candidate else 0.0
                 sig = EngineSignal(
                     signal_id=f"cat_suit::exit::{iid or fund_name[:20]}",
                     engine_name=self.engine_name,
@@ -93,6 +99,7 @@ class CategorySuitabilityEngine(BaseEngine):
                     risk_reduction=0.9,
                     urgency=0.8,
                     implementation_ease=0.5,
+                    estimated_tax_rs=estimated_tax,
                     reason_codes=["CATEGORY_SUITABILITY_BREACH"],
                     reason_text=(
                         f"{category} funds are not permitted for your {persona.persona_type.value} risk profile. "
@@ -105,11 +112,8 @@ class CategorySuitabilityEngine(BaseEngine):
                 )
                 if h:
                     sig.__dict__["_holding"] = h
-                    candidate = next(
-                        (c for c in ctx.exit_candidates if c.get("instrument_id") == iid), None
-                    )
-                    if candidate:
-                        sig.__dict__["_candidate"] = candidate
+                if candidate:
+                    sig.__dict__["_candidate"] = candidate
                 signals.append(sig)
                 if iid:
                     seen_ids.add(iid)
@@ -138,11 +142,19 @@ class CategorySuitabilityEngine(BaseEngine):
                 excess_pct = round(total_sub_weight - cap_pct, 1)
                 h = fuzzy_match_holding(mf.get("scheme_name", ""), ctx.mf_holdings)
                 fund_name = (h or {}).get("name") or mf.get("scheme_name") or sub_kw
-                amt = (
+                full_amt = (
                     float(h.get("quantity", 0)) * float(h.get("current_price", 0))
                     if h else amount_rs
                 )
                 trim_rs = (excess_pct / 100.0) * ctx.total_value_rs
+                candidate = next(
+                    (c for c in ctx.exit_candidates if c.get("instrument_id") == iid), None
+                )
+                # Tax is proportional to the trimmed fraction of the holding
+                trim_fraction = (trim_rs / full_amt) if full_amt > 0 else 0.0
+                estimated_tax = float(
+                    (candidate.get("tax_impact") or {}).get("tax_liability") or 0
+                ) * trim_fraction if candidate else 0.0
                 sig = EngineSignal(
                     signal_id=f"cat_suit::trim::{sub_kw}::{ctx.risk_profile}",
                     engine_name=self.engine_name,
@@ -156,6 +168,7 @@ class CategorySuitabilityEngine(BaseEngine):
                     risk_reduction=0.7,
                     urgency=0.6,
                     implementation_ease=0.5,
+                    estimated_tax_rs=estimated_tax,
                     reason_codes=["SUB_CATEGORY_CAP_BREACH"],
                     reason_text=(
                         f"{sub_kw.title()} allocation ({total_sub_weight:.0f}%) exceeds your "
@@ -169,6 +182,8 @@ class CategorySuitabilityEngine(BaseEngine):
                 )
                 if h:
                     sig.__dict__["_holding"] = h
+                if candidate:
+                    sig.__dict__["_candidate"] = candidate
                 signals.append(sig)
                 if iid:
                     seen_ids.add(iid)

@@ -15,7 +15,7 @@ import {
   SignalsRes,
   type PlanActionC,
 } from "@/services/contracts/plan.contract";
-import type { Recommendation, RecAction } from "@/types/recommendation";
+import type { Recommendation, RecAction, Severity, ExecutionPath, TaxImpact, ExpectedEffect } from "@/types/recommendation";
 
 export interface PlansAdapter {
   getActive(): Promise<PlanC | null>;
@@ -150,42 +150,56 @@ export const realPlansAdapter: PlansAdapter = {
   },
 };
 
-/**
- * Plan action (backend) → Recommendation card (UI).
- *   sell · switch · sip_decrease → REDUCE
- *   buy · sip_increase            → ADD
- *   hold                          → KEEP
- */
+/** Plan action (backend) → Recommendation card (UI) using PRD §12 field names. */
 function mapActionToRecommendation(a: PlanActionC): Recommendation {
-  const at = String(a.action_type ?? "").toLowerCase();
-  const recAction: RecAction =
-    at === "sell" || at === "switch" || at === "sip_decrease" || at === "trim" || at === "exit" || at === "reduce" ? "reduce" :
-    at === "buy"  || at === "sip_increase" || at === "add" ? "add" :
-    at === "hold" || at === "keep" ? "keep" :
-    "add";
+  // `action` field (new name) takes priority; fall back to `action_type` (legacy)
+  const rawAction = String((a as Record<string, unknown>)["action"] ?? a.action_type ?? "").toUpperCase();
+  const recAction = normaliseAction(rawAction);
 
-  const annualSavingsRs = a.estimated_impact?.annual_savings_rs;
-  const healthDelta = a.estimated_impact?.health_score_delta;
-  const displayName = a.holding_name ?? a.asset_name;
-  const displayRationale = a.rationale ?? a.reason_text;
+  const displayName = a.holding_name ?? a.asset_name ?? "";
+  const at = rawAction.toLowerCase();
+
+  // `magnitude` (new name) takes priority; fall back to `amount_rs` (legacy)
+  const magnitude = (a as Record<string, unknown>)["magnitude"] as number | undefined
+    ?? a.amount_rs;
+
+  // `execution` (new name) takes priority; fall back to `execution_path` (legacy)
+  const execution = ((a as Record<string, unknown>)["execution"] as ExecutionPath | undefined)
+    ?? (a.execution_path as ExecutionPath | undefined);
+
+  const severity = (a.severity as Severity | undefined) ?? "minor";
+  const taxImpact = (a as Record<string, unknown>)["tax_impact"] as TaxImpact | undefined;
+  const expectedEffect = (a as Record<string, unknown>)["expected_effect"] as ExpectedEffect | undefined;
 
   return {
-    id: a.action_id,
+    id: (a as Record<string, unknown>)["id"] as string ?? a.action_id,
     action: recAction,
     title: displayName ? `${verbLabel(at)} ${displayName}` : verbLabel(at),
-    why: displayRationale ?? "",
-    benefit: annualSavingsRs != null
-      ? `Saves about ₹${Math.round(annualSavingsRs).toLocaleString("en-IN")} / year`
-      : healthDelta != null
-        ? `Lifts health score by ${healthDelta} points`
-        : "Improves portfolio quality",
-    riskImpact: "Neutral to lower",
+    reason: a.reason_text ?? a.rationale ?? "",
     suggestedAction: a.suggested_alternative
       ? `${verbLabel(at)} → ${a.suggested_alternative}`
       : verbLabel(at),
-    estAnnualGain: annualSavingsRs != null ? annualSavingsRs * 100 : undefined,
-    estHealthDelta: healthDelta ?? undefined,
+    severity,
+    execution,
+    magnitude,
+    taxImpact,
+    requiresConfirmation: a.requires_confirmation,
+    expectedEffect,
+    confidence: (a as Record<string, unknown>)["confidence"] as Recommendation["confidence"] | undefined,
   };
+}
+
+function normaliseAction(raw: string): RecAction {
+  switch (raw) {
+    case "EXIT":  case "SELL":  case "REDUCE": return "EXIT";
+    case "TRIM":  case "SIP_DECREASE":         return "TRIM";
+    case "CONSOLIDATE":                         return "CONSOLIDATE";
+    case "ADD":   case "BUY":   case "SIP_INCREASE": return "ADD";
+    case "REDIRECT":                            return "REDIRECT";
+    case "DIVERSIFY":                           return "DIVERSIFY";
+    case "HOLD":  case "KEEP":  case "SWITCH":  return "HOLD";
+    default:                                    return "ADD";
+  }
 }
 
 function verbLabel(at: string): string {

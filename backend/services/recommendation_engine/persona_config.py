@@ -342,8 +342,17 @@ def classify_risk_persona(
 def get_persona_profile(
     risk_profile_str: Optional[str] = None,
     risk_score: Optional[float] = None,
-) -> RiskPersonaProfile:
-    """Classify and return the matching RiskPersonaProfile."""
+) -> Optional[RiskPersonaProfile]:
+    """Classify and return the matching RiskPersonaProfile.
+
+    Returns None when neither a risk_score nor a meaningful risk_profile_str is
+    present — this signals the orchestrator's mandatory-gate (AC-1) that the user
+    has not yet completed their risk assessment.
+    """
+    has_score = risk_score is not None
+    has_str = bool(risk_profile_str and risk_profile_str.strip())
+    if not has_score and not has_str:
+        return None  # no profile set → orchestrator emits requires_persona gate flag
     persona_type = classify_risk_persona(risk_profile_str, risk_score)
     return PERSONA_PROFILES[persona_type]
 

@@ -15,8 +15,8 @@ from services.recommendation_engine.context import EngineSignal, RecommendationC
 
 logger = logging.getLogger(__name__)
 
-# Static debt fund suggestions (no DB call needed)
-_DEBT_FUNDS = [
+# Static fallback debt fund suggestions (used when NIDP DaaS is unavailable)
+_DEBT_FUNDS_FALLBACK = [
     {"fund_name": "ICICI Prudential Corporate Bond Fund - Direct Growth", "amc": "ICICI", "fund_type": "Corporate Bond", "expense_ratio": 0.23, "aum": "₹18,500 Cr", "rating": "5-Star (CRISIL)", "returns_3y": "7.1%"},
     {"fund_name": "Axis Treasury Advantage Fund - Direct Growth",          "amc": "AXIS",  "fund_type": "Ultra Short Duration", "expense_ratio": 0.18, "aum": "₹12,000 Cr", "rating": "4-Star", "returns_3y": "6.8%"},
     {"fund_name": "SBI Magnum Gilt Fund - Direct Growth",                  "amc": "SBI",   "fund_type": "Gilt Fund",           "expense_ratio": 0.35, "aum": "₹9,500 Cr",  "rating": "4-Star", "returns_3y": "6.9%"},
@@ -41,8 +41,36 @@ def _calc_asset_allocation(holdings: List[Dict[str, Any]]) -> Dict[str, float]:
     }
 
 
-def _suggest_debt_fund(amount: float, excluded_amcs: List[str]) -> Dict[str, Any]:
-    available = [f for f in _DEBT_FUNDS if f["amc"] not in excluded_amcs] or _DEBT_FUNDS
+def _normalise_daas_fund(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalise a NIDP DaaS screener row to the fund dict shape used by this engine."""
+    return {
+        "fund_name": row.get("scheme_name") or row.get("fund_name") or "",
+        "amc": row.get("amc") or "",
+        "fund_type": row.get("category") or row.get("sub_category") or "Debt",
+        "expense_ratio": row.get("ter") or row.get("expense_ratio"),
+        "aum": row.get("aum_cr"),
+        "composite_score": row.get("composite_score"),
+        "returns_3y": row.get("return_3y"),
+        "isin": row.get("isin"),
+    }
+
+
+def _suggest_debt_fund(
+    amount: float,
+    excluded_amcs: List[str],
+    live_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Pick the best available debt fund.
+
+    Prefers live NIDP DaaS candidates (already sorted by composite_rank ASC);
+    falls back to the static list when DaaS is unavailable.
+    """
+    candidates = (
+        [_normalise_daas_fund(r) for r in live_candidates]
+        if live_candidates
+        else _DEBT_FUNDS_FALLBACK
+    )
+    available = [f for f in candidates if f.get("amc") not in excluded_amcs] or candidates
     if amount >= 500_000:
         return available[0]
     if amount >= 200_000:
@@ -114,7 +142,8 @@ class AllocationEngine(BaseEngine):
 
         gap_pct = target - debt_pct
         gap_rs = ctx.total_value_rs * (gap_pct / 100.0)
-        fund = _suggest_debt_fund(gap_rs, excluded_amcs)
+        live_debt = ctx.top_add_candidates.get("debt") or []
+        fund = _suggest_debt_fund(gap_rs, excluded_amcs, live_debt)
         fund_name = fund["fund_name"]
         fund_type = fund.get("fund_type", "")
 

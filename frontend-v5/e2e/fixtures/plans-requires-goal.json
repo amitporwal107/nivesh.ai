@@ -1,0 +1,11 @@
+{
+  "has_plan": true,
+  "plan": {
+    "plan_id": "plan_gate_goal",
+    "status": "active",
+    "actions": [],
+    "total_actions": 0,
+    "pending_actions": 0,
+    "gate_flags": { "requires_persona": false, "requires_goal": true, "capacity_tolerance_diverged": false }
+  }
+}

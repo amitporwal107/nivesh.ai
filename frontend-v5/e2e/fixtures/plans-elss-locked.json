@@ -1,0 +1,39 @@
+{
+  "has_plan": true,
+  "plan": {
+    "plan_id": "plan_elss_e2e",
+    "status": "active",
+    "gate_flags": { "requires_persona": false, "requires_goal": false, "capacity_tolerance_diverged": false },
+    "actions": [
+      {
+        "id": "act_elss_001",
+        "action_id": "act_elss_001",
+        "action": "EXIT",
+        "type": "EXIT",
+        "asset_name": "Quant ELSS Tax Saver Fund",
+        "magnitude": 50000,
+        "amount": 50000,
+        "severity": "mismatch",
+        "execution": "redirect",
+        "execution_path": "redirect",
+        "reason_text": "ELSS not permitted for Conservative profile — but lock-in applies.",
+        "confidence": "HIGH",
+        "status": "PENDING",
+        "requires_confirmation": false,
+        "tax_impact": {
+          "tax_liability": 0,
+          "lock_in": true,
+          "holding_period_days": 180
+        },
+        "expected_effect": {
+          "risk_band_delta": "lower",
+          "score_delta_pct": 4.0,
+          "funding_probability_delta": 0.0
+        },
+        "priority": 1
+      }
+    ],
+    "total_actions": 1,
+    "pending_actions": 1
+  }
+}

@@ -172,13 +172,14 @@ def test_signal_to_action_produces_required_fields():
     )
     action = _signal_to_action(sig, priority=1)
 
-    required = {"action_id", "type", "priority", "asset_name", "amount", "confidence", "reason_codes", "status", "created_at"}
+    required = {"id", "action", "priority", "asset_name", "magnitude", "confidence", "reason_codes", "status", "created_at"}
     missing = required - set(action.keys())
     assert not missing, f"Missing fields: {missing}"
 
-    assert action["type"] == "ADD"
+    assert action["action"] == "ADD"
     assert action["priority"] == 1
     assert action["confidence"] == "MEDIUM"  # 0.6 → MEDIUM
+    assert "execution" in action  # PRD §12 field name
 
 
 # ── Async pipeline end-to-end ─────────────────────────────────────────────────
@@ -188,7 +189,12 @@ async def test_run_engine_pipeline_returns_actions_and_simulation():
     from tests.test_recommendation_engine.fixtures import _mf_holding, _mf_investment
     holdings = [_mf_holding("Flexi Cap Fund A", 1_000_000, "Flexi Cap")]
 
-    actions, simulation = await run_engine_pipeline(
+    # Provide one active goal so the goal gate passes
+    active_goals = [{"goal_name": "Retirement", "goal_type": "retirement", "horizon_years": 20,
+                     "on_track_pct": 60, "goal_health": "at_risk", "shortfall_rs": 500_000,
+                     "health_status": "at_risk", "gap_rs": 500_000, "monthly_sip_rs": 5000,
+                     "priority": "high"}]
+    actions, simulation, gate_flags = await run_engine_pipeline(
         user_id="u1",
         risk_profile="medium",
         total_value_rs=1_000_000,
@@ -204,14 +210,20 @@ async def test_run_engine_pipeline_returns_actions_and_simulation():
         v3_scores={},
         rules_cfg=_BASE_RULES_CFG,
         signals=[],
+        goal_evaluations=active_goals,
     )
 
     assert isinstance(actions, list)
-    # All actions must have required shape
+    assert isinstance(gate_flags, dict)
+    assert gate_flags["requires_persona"] is False
+    assert gate_flags["requires_goal"] is False
+    # All actions must have required PRD §12 field names
     for a in actions:
-        assert "action_id" in a
-        assert "type" in a
-        assert a["type"] in ("EXIT", "ADD", "SWITCH", "HOLD", "TRIM", "DIVERSIFY", "REDIRECT", "CONSOLIDATE")
+        assert "id" in a
+        assert "action" in a
+        assert a["action"] in ("EXIT", "ADD", "SWITCH", "HOLD", "TRIM", "DIVERSIFY", "REDIRECT", "CONSOLIDATE")
+        assert "magnitude" in a
+        assert "execution" in a
 
     # Simulation result (may be None if switch_simulator unavailable in test env)
     # If populated, must have before/after/delta keys

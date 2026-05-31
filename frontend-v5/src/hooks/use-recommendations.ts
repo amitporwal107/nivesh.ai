@@ -7,15 +7,10 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { plansService } from "@/services";
-import type { RecAction } from "@/types/recommendation";
-
-export function useRecommendations(action?: RecAction) {
+export function useRecommendations() {
   return useQuery({
-    queryKey: ["recommendations", action ?? "all"],
-    queryFn: async () => {
-      const all = await plansService.getRecommendations();
-      return action ? all.filter((r) => r.action === action) : all;
-    },
+    queryKey: ["recommendations"],
+    queryFn: () => plansService.getRecommendations(),
   });
 }
 

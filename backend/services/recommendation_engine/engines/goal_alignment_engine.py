@@ -81,17 +81,25 @@ class GoalAlignmentEngine(BaseEngine):
         smallcap_pct_val = _smallcap_pct(ctx)
 
         for eval_ in ctx.goal_evaluations:
-            # Resolve fields — support both GoalEvaluation dataclass and dict wrappers
-            health = getattr(eval_, "goal_health", None) or ""
-            on_track_pct = float(getattr(eval_, "on_track_pct", None) or
-                                 getattr(eval_, "on_track_probability_pct", 50.0) or 50.0)
-            goal_name = (getattr(eval_, "goal_name", "") or
-                         getattr(eval_, "name", "") or "Goal")
-            goal_gap_rs = float(getattr(eval_, "shortfall_rs", None) or
-                                getattr(eval_, "gap_rs", 0) or 0)
-            horizon_years = float(getattr(eval_, "horizon_years", None) or 10.0)
-            goal_type = (getattr(eval_, "goal_type", "") or
-                         getattr(eval_, "type", "") or "").upper()
+            # Resolve fields — support both GoalEvaluation dataclass and plain dict wrappers
+            if isinstance(eval_, dict):
+                health        = eval_.get("goal_health") or eval_.get("health_status") or ""
+                on_track_pct  = float(eval_.get("on_track_pct") or eval_.get("on_track_probability_pct") or 50.0)
+                goal_name     = eval_.get("goal_name") or eval_.get("name") or "Goal"
+                goal_gap_rs   = float(eval_.get("shortfall_rs") or eval_.get("gap_rs") or 0)
+                horizon_years = float(eval_.get("horizon_years") or 10.0)
+                goal_type     = (eval_.get("goal_type") or eval_.get("type") or "").upper()
+            else:
+                health        = getattr(eval_, "goal_health", None) or ""
+                on_track_pct  = float(getattr(eval_, "on_track_pct", None) or
+                                      getattr(eval_, "on_track_probability_pct", 50.0) or 50.0)
+                goal_name     = (getattr(eval_, "goal_name", "") or
+                                 getattr(eval_, "name", "") or "Goal")
+                goal_gap_rs   = float(getattr(eval_, "shortfall_rs", None) or
+                                      getattr(eval_, "gap_rs", 0) or 0)
+                horizon_years = float(getattr(eval_, "horizon_years", None) or 10.0)
+                goal_type     = (getattr(eval_, "goal_type", "") or
+                                 getattr(eval_, "type", "") or "").upper()
 
             goal_impact_val = max(0.0, 1.0 - on_track_pct / 100.0)
             urgency_val = 1.0 if health == "critical" else 0.7

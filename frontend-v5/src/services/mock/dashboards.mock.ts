@@ -17,8 +17,8 @@ export const mockDashboardsAdapter: DashboardsAdapter = {
       source_domain: domain,
       verb: r.action,
       title: r.title,
-      impact: r.benefit,
-      trade_off: r.riskImpact,
+      impact: r.reason,
+      trade_off: r.suggestedAction,
       priority_label: "Closes most",
       exclusive: false,
     }));

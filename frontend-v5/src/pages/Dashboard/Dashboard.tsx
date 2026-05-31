@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle, Check } from "lucide-react";
+import { RefreshCw, Upload, Info, ArrowRight, Lock, AlertTriangle, Check, ShieldAlert, Target } from "lucide-react";
+import { useActivePlan, useGateFlags } from "@/hooks/use-active-plan";
 import type { PortfolioSummary, NavPoint, PortfolioInsight } from "@/types/portfolio";
 import { PortfolioValueCard } from "./PortfolioValueCard";
 import { HealthScoreCard, type HealthBreakdown } from "./HealthScoreCard";
@@ -66,13 +67,7 @@ function useCasState() {
   });
 }
 
-function useActivePlan() {
-  return useQuery<PlanC | null>({
-    queryKey: ["plans", "active-summary"],
-    queryFn: () => plansService.getActive(),
-    staleTime: 2 * 60_000,
-  });
-}
+// useActivePlan + useGateFlags imported from @/hooks/use-active-plan at the top
 
 // ── CAS banner ────────────────────────────────────────────────────────────────
 
@@ -349,6 +344,7 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStart, setWizardStart] = useState<0 | 1 | 2>(0);
 
+  const gates = useGateFlags();
   const score = Math.round(summary.healthScore);
   const { phrase, tone } = healthLabel(summary.healthScore);
 
@@ -549,26 +545,54 @@ export function Dashboard({ summary, navHistory, healthBreakdown, insights, risk
         <ActionMatrix actions={pending} total={totalPending} onViewAll={() => navigate("/recommendations")} />
       </SafeWidget>
 
-      {/* The one thing */}
-      {showCta && (
-        <SafeWidget name="ImproveCTA" flagKey="improve_cta">
-        <div className="mt-7 p-6 sm:p-7 rounded-lg bg-ink text-on-accent flex flex-col sm:flex-row gap-5 sm:items-center">
-          <div className="flex-1">
-            <div className="text-[13px] tracking-[.04em] opacity-60">The one thing</div>
-            <div className="font-display text-2xl sm:text-[28px] tracking-tightish mt-1 leading-tight">
-              Apply the top {Math.min(pending.length, 5)} action{pending.length !== 1 ? "s" : ""} to lift your score from{" "}
-              <span className="text-warm">{score}</span> → <span className="text-pos">{targetScore}</span>.
+      {/* The one thing / gate CTA */}
+      <SafeWidget name="ImproveCTA" flagKey="improve_cta">
+        {gates.requiresPersona ? (
+          <div className="mt-7 p-5 rounded-lg border border-[rgba(var(--warm)/0.35)] bg-[rgba(var(--warm)/0.06)] flex flex-col sm:flex-row gap-4 sm:items-center">
+            <ShieldAlert className="h-5 w-5 text-warm shrink-0" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-[14px]">Set up your risk profile to unlock recommendations</div>
+              <div className="text-[12.5px] text-ink-3 mt-0.5">Personalised actions require a risk profile. It takes about 2 minutes.</div>
             </div>
+            <button
+              onClick={() => navigate("/settings/profile")}
+              className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-on-accent text-[12px] font-medium hover:opacity-90"
+            >
+              Set up profile <ArrowRight className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <button
-            onClick={() => navigate("/recommendations")}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-accent text-on-accent font-medium text-[14px] hover:opacity-90 transition-opacity self-start sm:self-auto shrink-0"
-          >
-            View action plan <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
-        </SafeWidget>
-      )}
+        ) : gates.requiresGoal ? (
+          <div className="mt-7 p-5 rounded-lg border border-[rgba(var(--accent)/0.35)] bg-[rgba(var(--accent)/0.06)] flex flex-col sm:flex-row gap-4 sm:items-center">
+            <Target className="h-5 w-5 text-accent shrink-0" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-[14px]">Add a goal to unlock recommendations</div>
+              <div className="text-[12.5px] text-ink-3 mt-0.5">Goals tell the engine what you're investing for so it can prioritise what matters.</div>
+            </div>
+            <button
+              onClick={() => navigate("/goals")}
+              className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent text-on-accent text-[12px] font-medium hover:opacity-90"
+            >
+              Add goal <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : showCta ? (
+          <div className="mt-7 p-6 sm:p-7 rounded-lg bg-ink text-on-accent flex flex-col sm:flex-row gap-5 sm:items-center">
+            <div className="flex-1">
+              <div className="text-[13px] tracking-[.04em] opacity-60">The one thing</div>
+              <div className="font-display text-2xl sm:text-[28px] tracking-tightish mt-1 leading-tight">
+                Apply the top {Math.min(pending.length, 5)} action{pending.length !== 1 ? "s" : ""} to lift your score from{" "}
+                <span className="text-warm">{score}</span> → <span className="text-pos">{targetScore}</span>.
+              </div>
+            </div>
+            <button
+              onClick={() => navigate("/recommendations")}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-accent text-on-accent font-medium text-[14px] hover:opacity-90 transition-opacity self-start sm:self-auto shrink-0"
+            >
+              View action plan <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+      </SafeWidget>
     </div>
   );
 }

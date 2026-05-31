@@ -51,6 +51,15 @@ class ConcentrationEngine(BaseEngine):
             # Severity: 2× cap → severe; otherwise mismatch
             severity = "severe" if weight_pct >= pp.max_single_holding_pct * 2 else "mismatch"
 
+            # Tax: proportional to trimmed fraction of holding value
+            candidate = next(
+                (c for c in ctx.exit_candidates if c.get("instrument_id") == iid), None
+            )
+            trim_fraction = (trim_rs / value) if value > 0 else 0.0
+            estimated_tax = float(
+                (candidate.get("tax_impact") or {}).get("tax_liability") or 0
+            ) * trim_fraction if candidate else 0.0
+
             sig = EngineSignal(
                 signal_id=f"concentration::cc1::holding::{iid or fund_name[:20]}",
                 engine_name=self.engine_name,
@@ -65,6 +74,7 @@ class ConcentrationEngine(BaseEngine):
                 diversification_gain=0.4,
                 urgency=0.6 if severity == "severe" else 0.4,
                 implementation_ease=0.7,
+                estimated_tax_rs=estimated_tax,
                 reason_codes=["SINGLE_HOLDING_CONCENTRATION", "CC1"],
                 reason_text=(
                     f"{fund_name[:40]} is {weight_pct:.1f}% of your portfolio — "
@@ -76,6 +86,9 @@ class ConcentrationEngine(BaseEngine):
                 execution_path="redirect",
                 requires_confirmation=trim_rs > pp.confirmation_threshold_rs,
             )
+            sig.__dict__["_holding"] = h
+            if candidate:
+                sig.__dict__["_candidate"] = candidate
             signals.append(sig)
 
         # ── CC-2: Single-sector concentration (persona-calibrated) ────────────

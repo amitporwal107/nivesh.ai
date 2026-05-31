@@ -15,6 +15,7 @@ import logging
 
 from deps import db
 from services import signal_detector, decision_engine, instrument_scoring, tax_calculator
+from services import goal_engine as _goal_engine
 from services.instrument_scoring import (
     PORTFOLIO_HEALTHY_SCORE, MAX_ACTIONS_PER_PLAN,
 )
@@ -114,6 +115,8 @@ class ActionPlanManager:
     
     def __init__(self):
         self.scoring_engine = instrument_scoring.get_scoring_engine()
+        self._last_simulation: Optional[Dict[str, Any]] = None
+        self._last_gate_flags: Dict[str, bool] = {}
     
     # ══════════════════════════════════════════════════════════════════════
     # PLAN GENERATION
@@ -277,7 +280,11 @@ class ActionPlanManager:
                 _dropped_by_guardrail,
             )
 
-        # 3. Apply V2 Action Generation Rules (6 core rules)
+        # 3. Evaluate active goals (feeds GoalAlignmentEngine + GoalBucketFirstEngine)
+        goal_evals = await self._evaluate_user_goals(user_id, risk_profile)
+        logger.info("[ActionPlanManager] user=%s: %d active goal(s) evaluated", user_id, len(goal_evals))
+
+        # 4. Apply V2 Action Generation Rules (6 core rules)
         actions = await self._apply_action_rules(
             mf_holdings=mf_holdings,
             mf_investments=mf_investments,
@@ -287,6 +294,7 @@ class ActionPlanManager:
             portfolio_context=portfolio_context,
             signals=signals,
             v3_scores_by_id=v3_scores_by_id,
+            goal_evaluations=goal_evals,
         )
 
         # 3b. Augment with Decision Engine drift / cap rules
@@ -444,6 +452,8 @@ class ActionPlanManager:
             # New optional fields (engine pipeline only; old clients ignore unknown fields)
             # simulation: IS-1 before/after 10Y projection + IS-2 suppression summary
             "simulation": getattr(self, "_last_simulation", None),
+            # gate_flags: why recommendations may be empty (PRD §4 mandatory gates)
+            "gate_flags": getattr(self, "_last_gate_flags", {}),
         }
         
         logger.info("Plan generated: %s with %s actions · score=%s · conf=%s", plan_id, len(actions), portfolio_score, confidence_score)
@@ -904,6 +914,66 @@ class ActionPlanManager:
 
 
     # ══════════════════════════════════════════════════════════════════════
+    # GOAL EVALUATION HELPER
+    # ══════════════════════════════════════════════════════════════════════
+
+    async def _evaluate_user_goals(
+        self,
+        user_id: str,
+        risk_profile: str,
+    ) -> List[Dict[str, Any]]:
+        """Fetch active goals from DB, run goal_engine.evaluate_goal() for each,
+        and return a list of enriched dicts combining goal metadata + evaluation fields.
+
+        Returns an empty list (not an error) when no goals exist.
+        """
+        try:
+            goals = await db.goals.find(
+                {"user_id": user_id, "status": {"$ne": "archived"}},
+                {"_id": 0},
+            ).to_list(50)
+        except Exception as exc:
+            logger.warning("[ActionPlanManager] goal fetch failed for user=%s: %s", user_id, exc)
+            return []
+
+        results: List[Dict[str, Any]] = []
+        for goal in goals:
+            try:
+                target_rs    = float(goal.get("target_amount_rs") or goal.get("target_rs") or 0)
+                horizon_yrs  = float(goal.get("horizon_years") or goal.get("years_to_goal") or 10)
+                corpus_rs    = float(goal.get("current_corpus_rs") or goal.get("corpus_rs") or 0)
+                monthly_sip  = float(goal.get("monthly_sip_rs") or goal.get("sip_amount") or 0)
+                if target_rs <= 0 or horizon_yrs <= 0:
+                    continue
+                ev = _goal_engine.evaluate_goal(
+                    target_today_rs=target_rs,
+                    horizon_years=horizon_yrs,
+                    starting_corpus_rs=corpus_rs,
+                    monthly_sip_rs=monthly_sip,
+                    risk_profile=risk_profile,
+                )
+                ev_dict = ev.to_dict()
+                ev_dict.update({
+                    # Goal metadata
+                    "goal_id":       str(goal.get("goal_id") or goal.get("_id") or ""),
+                    "goal_name":     goal.get("goal_name") or goal.get("name") or "Goal",
+                    "goal_type":     goal.get("goal_type") or goal.get("type") or "wealth",
+                    "horizon_years": horizon_yrs,
+                    "priority":      goal.get("priority") or "medium",
+                    "monthly_sip_rs": monthly_sip,
+                    # Compatibility aliases (GoalBucketFirstEngine uses these dict keys)
+                    "health_status": ev_dict.get("goal_health"),
+                    "gap_rs":        ev_dict.get("shortfall_rs"),
+                })
+                results.append(ev_dict)
+            except Exception as exc:
+                logger.warning(
+                    "[ActionPlanManager] goal evaluation failed for goal=%s user=%s: %s",
+                    goal.get("goal_name") or goal.get("goal_id"), user_id, exc,
+                )
+        return results
+
+    # ══════════════════════════════════════════════════════════════════════
     # V2 ACTION GENERATION RULES (6 Core Rules)
     # ══════════════════════════════════════════════════════════════════════
 
@@ -917,6 +987,7 @@ class ActionPlanManager:
         portfolio_context: Dict[str, Any],
         signals: List[Dict[str, Any]],
         v3_scores_by_id: Optional[Dict[str, Any]] = None,
+        goal_evaluations: Optional[List] = None,
     ) -> List[Dict[str, Any]]:
         """Apply Action Generation Rules in priority order.
 
@@ -950,7 +1021,7 @@ class ActionPlanManager:
                 ).sort("fetched_at", -1).to_list(50)
             except Exception:
                 pass
-            _pipeline_actions, _pipeline_sim = await run_engine_pipeline(
+            _pipeline_actions, _pipeline_sim, _gate_flags = await run_engine_pipeline(
                 user_id=portfolio_context.get("user_id", ""),
                 risk_profile=portfolio_context.get("risk_profile", "medium"),
                 total_value_rs=portfolio_context.get("total_value", 0.0),
@@ -963,6 +1034,7 @@ class ActionPlanManager:
                 v3_scores=v3_scores_by_id or {},
                 rules_cfg=rcfg,
                 signals=signals,
+                goal_evaluations=goal_evaluations,
                 international_funds_cache=_intl_cache,
                 risk_score_numeric=portfolio_context.get("risk_score_numeric"),
                 behavioural_persona=portfolio_context.get("behavioural_persona"),
@@ -971,9 +1043,10 @@ class ActionPlanManager:
                 tolerance_score=portfolio_context.get("tolerance_score", 50.0),
                 capacity_tolerance_diverged=portfolio_context.get("capacity_tolerance_diverged", False),
             )
-            # Stash simulation result so generate_plan() can add it to the plan doc.
+            # Stash simulation result + gate flags so generate_plan() can add them to the plan doc.
             # Thread-safe: one generate_plan() call per instance (request-scoped).
             self._last_simulation = _pipeline_sim
+            self._last_gate_flags = _gate_flags
             return _pipeline_actions
         # ─────────────────────────────────────────────────────────────────────
 

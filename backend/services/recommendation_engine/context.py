@@ -143,6 +143,11 @@ class RecommendationContext:
     # Each row: {left_security_id, right_security_id, correlation_value, abs_correlation, window_days}
     portfolio_correlations: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Pre-fetched live ADD candidates from NIDP DaaS, keyed by normalised category
+    # (e.g. "debt", "large cap", "equity").  Populated by orchestrator; engines read only.
+    # Falls back to static defaults inside each engine when empty.
+    top_add_candidates: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
     # ── Mutable dedup state (written by orchestrator only, never by engines) ──
     exited_ids: set = field(default_factory=set)
     exited_holding_keys: set = field(default_factory=set)

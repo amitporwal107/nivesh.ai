@@ -1,69 +1,174 @@
+/**
+ * RecommendationCard — PRD §12 full output contract.
+ *
+ * States: data-normal | data-requires-confirmation | data-ELSS-locked
+ *
+ * Accessibility:
+ *   - Apply button: aria-label="Apply: {suggestedAction}" to disambiguate multiple cards
+ *   - ELSS lock: aria-disabled="true" (not disabled) + aria-describedby on tooltip
+ *   - Post-apply: role="status" live region announces success
+ *   - Severity colour is backed by text label (WCAG 1.4.1)
+ */
+
+import { useState, useId } from "react";
+import { Lock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { SeverityBadge } from "@/components/shared/SeverityBadge";
+import { ExecutionChip } from "@/components/shared/ExecutionChip";
+import { TaxImpactPanel } from "@/components/shared/TaxImpactPanel";
+import { ConfirmationDrawer } from "@/components/shared/ConfirmationDrawer";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-import { formatINR } from "@/lib/formatters";
+import { formatINRCompact } from "@/lib/formatters";
 import type { Recommendation } from "@/types/recommendation";
 import { cn } from "@/lib/utils";
 
 interface Props {
   rec: Recommendation;
-  onApply?: () => void;
+  onApply?: () => Promise<void> | void;
   onLearnMore?: () => void;
   className?: string;
 }
 
-/**
- * Single recommendation card showing the four contract fields:
- * Why this matters · Expected benefit · Risk impact · Suggested action.
- */
 export function RecommendationCard({ rec, onApply, onLearnMore, className }: Props) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [applied, setApplied]     = useState(false);
+  const lockDescId = useId();
+  const liveRegionId = useId();
+
+  const magLabel   = rec.magnitude != null ? formatINRCompact(rec.magnitude) : null;
+  const isLocked   = !!rec.taxImpact?.lock_in;
+  const isApplied  = applied || !!rec.appliedAt;
+  const needsConfirm = rec.requiresConfirmation && !isApplied;
+
+  async function handleApply() {
+    if (isLocked || isApplied) return;
+    if (needsConfirm) {
+      setDrawerOpen(true);
+      return;
+    }
+    await onApply?.();
+    setApplied(true);
+  }
+
+  async function handleConfirm() {
+    await onApply?.();
+    setApplied(true);
+  }
+
   return (
-    <Card className={cn("p-6", className)}>
-      <div className="flex items-center gap-3">
-        <StatusBadge action={rec.action} />
-        <span className="font-mono text-[10.5px] tracking-[.06em] text-ink-3">
-          {rec.suggestedAction}
-        </span>
-        {rec.estAnnualGain != null && (
-          <span className="ml-auto font-mono text-[12px] text-pos num">
-            +{formatINR(rec.estAnnualGain, { compact: true })}/yr
-          </span>
+    <>
+      <Card
+        className={cn(
+          "p-6",
+          rec.severity === "severe" && "border-neg/40",
+          rec.severity === "mismatch" && "border-warm/30",
+          className,
         )}
-      </div>
+      >
+        {/* Badge row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <StatusBadge action={rec.action} />
+          <SeverityBadge severity={rec.severity} />
+          {rec.execution && <ExecutionChip execution={rec.execution} />}
+          {magLabel && (
+            <span className="ml-auto font-mono text-[12px] text-ink-2 num">{magLabel}</span>
+          )}
+        </div>
 
-      <h3 className="font-display text-xl sm:text-[22px] tracking-tightish mt-3 leading-snug">
-        {rec.title}
-      </h3>
+        {/* Title */}
+        <h3 className="font-display text-xl sm:text-[22px] tracking-tightish mt-3 leading-snug">
+          {rec.title}
+        </h3>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-5 gap-y-4 mt-5 pt-4 border-t border-hairline">
-        <Field label="Why this matters" body={rec.why} />
-        <Field label="Expected benefit" body={rec.benefit} tone="pos" />
-        <Field label="Risk impact" body={rec.riskImpact} />
-      </div>
+        {/* Reason */}
+        {rec.reason && (
+          <p className="text-[13.5px] text-ink-2 mt-2 leading-relaxed">{rec.reason}</p>
+        )}
 
-      <div className="flex gap-2 mt-5">
-        <Button variant="accent" size="sm" onClick={onApply}>
-          Apply <ArrowRight className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={onLearnMore}>Learn more</Button>
-      </div>
-    </Card>
+        {/* Tax impact (collapsible) */}
+        {rec.taxImpact && (
+          <div className="mt-4">
+            <TaxImpactPanel taxImpact={rec.taxImpact} />
+          </div>
+        )}
+
+        {/* Expected effect */}
+        {rec.expectedEffect && (
+          <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-hairline text-[12px]">
+            <EffectCell label="Risk band" value={rec.expectedEffect.risk_band_delta} />
+            <EffectCell
+              label="Score Δ"
+              value={`${rec.expectedEffect.score_delta_pct > 0 ? "+" : ""}${rec.expectedEffect.score_delta_pct}pts`}
+            />
+            <EffectCell
+              label="Goal prob Δ"
+              value={`${rec.expectedEffect.funding_probability_delta > 0 ? "+" : ""}${rec.expectedEffect.funding_probability_delta}%`}
+            />
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-2 mt-5 items-center">
+          {isLocked ? (
+            <>
+              <button
+                type="button"
+                aria-disabled="true"
+                aria-describedby={lockDescId}
+                className="inline-flex items-center gap-1.5 px-3 h-9 rounded-md text-[13px] font-medium border border-hairline-2 bg-surface-2 text-ink-3 cursor-not-allowed"
+              >
+                <Lock className="h-3.5 w-3.5" aria-hidden />
+                Locked
+              </button>
+              <span id={lockDescId} className="text-[12px] text-ink-3">
+                ELSS lock-in applies — not redeemable yet.
+              </span>
+            </>
+          ) : (
+            <Button
+              variant="accent"
+              size="sm"
+              onClick={handleApply}
+              aria-label={`Apply: ${rec.suggestedAction}`}
+              disabled={isApplied}
+            >
+              {isApplied ? "Applied" : needsConfirm ? "Review & Apply" : "Apply"}
+              {!isApplied && <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onLearnMore}>
+            Learn more
+          </Button>
+        </div>
+
+        {/* Post-apply live region */}
+        <div role="status" id={liveRegionId} aria-live="polite" className="sr-only">
+          {isApplied ? `Applied: ${rec.suggestedAction}` : ""}
+        </div>
+      </Card>
+
+      {/* Confirmation drawer */}
+      <ConfirmationDrawer
+        open={drawerOpen}
+        actionLabel={rec.action}
+        fundName={rec.title}
+        magnitude={magLabel ?? undefined}
+        reason={rec.reason}
+        taxImpact={rec.taxImpact}
+        onConfirm={handleConfirm}
+        onCancel={() => setDrawerOpen(false)}
+      />
+    </>
   );
 }
 
-function Field({ label, body, tone = "default" }: { label: string; body: string; tone?: "default" | "pos" }) {
+function EffectCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3">{label}</div>
-      <div
-        className={cn(
-          "text-[13.5px] mt-1.5 leading-relaxed",
-          tone === "pos" ? "text-pos font-medium" : "text-ink-2",
-        )}
-      >
-        {body}
-      </div>
+      <div className="text-[13px] mt-1 font-medium text-ink">{value}</div>
     </div>
   );
 }

@@ -198,18 +198,28 @@ def _signal_to_action(
     priority: int,
 ) -> Dict[str, Any]:
     """Convert an EngineSignal to the backward-compatible action dict shape."""
+    _id = f"act_{uuid4().hex[:8]}"
+    _confidence = (
+        "HIGH" if sig.confidence >= 0.85
+        else "MEDIUM" if sig.confidence >= 0.55
+        else "LOW"
+    )
     base: Dict[str, Any] = {
-        "action_id": f"act_{uuid4().hex[:8]}",
+        # PRD §12 canonical field names
+        "id": _id,
+        "action": sig.action_type,
+        "magnitude": round(sig.amount_rs, 2),
+        "execution": sig.execution_path,
+        # Legacy aliases — kept for backward compat with action_plan_manager consumers
+        "action_id": _id,
         "type": sig.action_type,
+        "amount": round(sig.amount_rs, 2),
+        "execution_path": sig.execution_path,
+        # Shared fields
         "priority": priority,
         "asset_type": "mutual_fund",
         "asset_name": sig.instrument_name,
-        "amount": round(sig.amount_rs, 2),
-        "confidence": (
-            "HIGH" if sig.confidence >= 0.85
-            else "MEDIUM" if sig.confidence >= 0.55
-            else "LOW"
-        ),
+        "confidence": _confidence,
         "reason_text": sig.reason_text,
         "reason_codes": sig.reason_codes,
         "status": "PENDING",
@@ -218,7 +228,6 @@ def _signal_to_action(
         "engine_name": sig.engine_name,
         # PRD §12 output contract fields
         "severity": sig.severity,
-        "execution_path": sig.execution_path,
         "requires_confirmation": sig.requires_confirmation,
     }
 
@@ -229,10 +238,14 @@ def _signal_to_action(
     holding = sig.__dict__.get("_holding")
     candidate = sig.__dict__.get("_candidate")
 
-    if sig.action_type in ("EXIT", "SWITCH") and holding:
+    if sig.action_type in ("EXIT", "SWITCH", "TRIM") and holding:
         base["asset_name"] = holding.get("name") or sig.instrument_name
         base["asset_type"] = holding.get("asset_type", "mutual_fund")
         ti = (candidate or {}).get("tax_impact") or {}
+        # For TRIM, carry estimated_tax_rs from the signal (pre-computed as a proportional fraction)
+        if sig.action_type == "TRIM" and sig.estimated_tax_rs:
+            ti = dict(ti)
+            ti.setdefault("tax_liability", round(sig.estimated_tax_rs, 2))
         base["tax_impact"] = ti
         base["exit_score"] = (candidate or {}).get("exit_score")
         base["score_breakdown"] = (candidate or {}).get("score_breakdown")
@@ -331,7 +344,12 @@ async def run_engine_pipeline(
     # 1a. Mandatory gate (PRD §4 Rule 1): no persona → prompt user, don't generate.
     if not ctx.persona_profile:
         logger.info("[Orchestrator] user=%s: no risk persona — skipping engine pipeline", user_id)
-        return [], None
+        return [], None, {"requires_persona": True, "requires_goal": False, "capacity_tolerance_diverged": False}
+
+    # 1a-2. Mandatory gate (PRD §4 Rule 1): no goals → prompt user, don't generate.
+    if not goal_evaluations:
+        logger.info("[Orchestrator] user=%s: no active goals — skipping engine pipeline", user_id)
+        return [], None, {"requires_persona": False, "requires_goal": True, "capacity_tolerance_diverged": ctx.capacity_tolerance_diverged}
 
     # 1b. Pre-fetch MF quality scores from DAAS (best-effort)
     # Merges quality_score, health_score, category_rank into v3_scores keyed by ISIN.
@@ -413,6 +431,22 @@ async def run_engine_pipeline(
         except Exception as _exc:
             logger.debug("[Orchestrator] stock primitives prefetch skipped: %s", _exc)
 
+    # 1f. Pre-fetch top ADD fund candidates from NIDP DaaS (best-effort, Step 4)
+    # Keyed by normalised category; engines fall back to static defaults when empty.
+    _add_categories = ["debt", "large cap", "mid cap", "small cap", "flexi cap", "equity"]
+    try:
+        from services.copilot_tools import daas_client as _daas_add
+        import asyncio as _asyncio
+        _add_results = await _asyncio.gather(
+            *[_daas_add.get_top_add_funds_by_category(cat, n=5) for cat in _add_categories],
+            return_exceptions=True,
+        )
+        for cat, rows in zip(_add_categories, _add_results):
+            if isinstance(rows, list) and rows:
+                ctx.top_add_candidates[cat] = rows
+    except Exception as _exc:
+        logger.debug("[Orchestrator] ADD fund pre-fetch skipped: %s", _exc)
+
     # 2. Collect signals from all engines (pure, no I/O)
     all_signals: List[EngineSignal] = []
     for engine in ENGINE_REGISTRY:
@@ -470,13 +504,13 @@ async def run_engine_pipeline(
     if not actions and exit_candidates:
         logger.info("[Orchestrator] no actions from engines — falling back to top exit candidates")
         for i, cand in enumerate(exit_candidates[:2]):
+            _fb_id = f"act_{uuid4().hex[:8]}"
             actions.append({
-                "action_id": f"act_{uuid4().hex[:8]}",
-                "type": "EXIT",
+                "id": _fb_id, "action": "EXIT", "magnitude": 0, "execution": "sell-now",
+                "action_id": _fb_id, "type": "EXIT", "amount": 0, "execution_path": "sell-now",
                 "priority": i + 1,
                 "asset_type": "mutual_fund",
                 "asset_name": cand.get("instrument_name", ""),
-                "amount": 0,
                 "confidence": "MEDIUM",
                 "reason_text": f"Exit score {cand.get('exit_score', 5.0):.1f} — consider reviewing this holding.",
                 "reason_codes": ["EXIT_CANDIDATE"],
@@ -498,4 +532,9 @@ async def run_engine_pipeline(
         sum(1 for s in arbitrated if s.suppressed),
     )
 
-    return actions, simulation_result
+    gate_flags: Dict[str, bool] = {
+        "requires_persona": False,
+        "requires_goal": False,
+        "capacity_tolerance_diverged": ctx.capacity_tolerance_diverged,
+    }
+    return actions, simulation_result, gate_flags
