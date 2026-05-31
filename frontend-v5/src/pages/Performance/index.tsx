@@ -10,6 +10,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useDashboard } from "@/hooks/use-dashboards";
+import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
 import { http } from "@/services/api/http";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,14 +37,34 @@ function useFundPerformance() {
   });
 }
 
+// Heatmap data lives in performance_cards inside deep-analytics
+type HeatmapTile = { name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string };
+
 function useDeepAnalytics() {
   return useQuery({
     queryKey: ["deep-analytics"],
     queryFn: async () => {
       const res = await http({ path: "/api/portfolio/deep-analytics" });
-      return res.data as {
-        heatmap_data?: Array<{ name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string }>;
+      const raw = res.data as {
+        performance_cards?: Array<{
+          name: string; asset_type: string; sector: string;
+          current_value: number; invested: number; pct_return: number | null;
+          buy_price: number;
+        }>;
+        heatmap_data?: HeatmapTile[];
       };
+      // Map performance_cards to the heatmap tile shape
+      const cards = raw?.performance_cards ?? [];
+      const tiles: HeatmapTile[] = cards.map((c) => ({
+        name: c.name,
+        value: c.current_value,
+        invested: c.invested ?? 0,
+        return_pct: c.pct_return ?? null,
+        cost_basis_estimated: !c.buy_price || c.buy_price <= 0,
+        asset_type: c.asset_type,
+        sector: c.sector,
+      }));
+      return { heatmap_data: tiles };
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -415,20 +436,32 @@ function BenchmarkDonut({
 function BestWorstPerformers({
   topPerformers,
   bottomPerformers,
+  activeSegment,
+  onFundClick,
 }: {
   topPerformers: Array<{ name: string; return_1y: number | null }>;
   bottomPerformers: Array<{ name: string; return_1y: number | null }>;
+  activeSegment?: string | null;
+  onFundClick?: (name: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const top = showAll ? topPerformers : topPerformers.slice(0, 4);
+
+  // When a donut segment is active, show only that group
+  const showTop    = !activeSegment || activeSegment === "overperforming";
+  const showBottom = !activeSegment || activeSegment === "underperforming";
+
+  const top    = showAll ? topPerformers    : topPerformers.slice(0, 4);
   const bottom = showAll ? bottomPerformers : bottomPerformers.slice(0, 4);
   const hasMore = topPerformers.length > 4 || bottomPerformers.length > 4;
 
   function FundRow({ fund, positive }: { fund: { name: string; return_1y: number | null }; positive: boolean }) {
     const ret = fund.return_1y;
     return (
-      <div className="flex items-center gap-2.5 py-2 border-b last:border-0"
-        style={{ borderColor: "rgba(var(--line),0.08)" }}>
+      <button
+        onClick={() => onFundClick?.(fund.name)}
+        className="flex items-center gap-2.5 py-2 border-b last:border-0 w-full text-left hover:opacity-80 transition-opacity"
+        style={{ borderColor: "rgba(var(--line),0.08)" }}
+        aria-label={`View ${fund.name} in portfolio`}>
         <span className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
           style={{ background: positive ? "rgba(var(--pos),0.12)" : "rgba(var(--neg),0.12)" }}>
           {positive
@@ -438,19 +471,24 @@ function BestWorstPerformers({
         <span className="flex-1 text-[12px] truncate">{fund.name}</span>
         {ret != null && (
           <span className="text-[12px] font-semibold shrink-0"
-            style={{ fontFamily: "var(--font-mono)", color: ret >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))" }}
-            aria-label={`${ret > 0 ? "+" : ""}${ret.toFixed(1)}% return`}>
+            style={{ fontFamily: "var(--font-mono)", color: ret >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
             {ret > 0 ? "+" : ""}{ret.toFixed(1)}%
           </span>
         )}
-      </div>
+      </button>
     );
   }
 
   return (
     <div>
+      {activeSegment === "meeting" && (
+        <p className="text-[11px] opacity-50 mb-3 px-1" style={{ fontFamily: "var(--font-mono)" }}>
+          Meeting funds are within ±2% of their category benchmark — no list available here.
+          <button onClick={() => onFundClick?.("")} className="ml-2 underline">View portfolio →</button>
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {top.length > 0 && (
+        {showTop && top.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--pos))" }}>
@@ -459,7 +497,7 @@ function BestWorstPerformers({
             {top.map((f, i) => <FundRow key={i} fund={f} positive />)}
           </div>
         )}
-        {bottom.length > 0 && (
+        {showBottom && bottom.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
               style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--neg))" }}>
@@ -469,7 +507,7 @@ function BestWorstPerformers({
           </div>
         )}
       </div>
-      {hasMore && (
+      {!activeSegment && hasMore && (
         <button onClick={() => setShowAll((v) => !v)}
           className="mt-3 text-[11px] opacity-50 hover:opacity-80"
           style={{ fontFamily: "var(--font-mono)" }}>
@@ -656,6 +694,7 @@ export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
   const [benchmarkFilter, setBenchmarkFilter] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { setFilter } = useHoldingsFilter();
 
   const dash = useDashboard("performance", { period });
   const fundPerf = useFundPerformance();
@@ -665,13 +704,11 @@ export default function PerformancePage() {
     (dash.data?.breakdown as any)?.computed_at
   );
 
-  // Drill-down helpers
-  const drillToHoldings = (filter?: string) =>
-    navigate(filter ? `/portfolio?search=${encodeURIComponent(filter)}` : "/portfolio");
-  const drillToBenchmarkSegment = (seg: string | null) => {
-    if (!seg) return;
-    // Navigate to holdings filtered by the benchmark rating
-    navigate(`/portfolio?benchmark_rating=${seg}`);
+  // Drill-down: set Zustand filter then navigate to /portfolio
+  // HoldingsTable reads from useHoldingsFilter() and applies dimension filter
+  const drillToFund = (fundName: string) => {
+    setFilter({ dimension: "fund", value: fundName, label: fundName });
+    navigate("/portfolio");
   };
 
   if (dash.isPending) {
@@ -823,10 +860,7 @@ export default function PerformancePage() {
               ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
               : <BenchmarkDonut
                   distribution={fundPerf.data?.performance_distribution ?? { overperforming: 0, meeting: 0, underperforming: 0 }}
-                  onSegmentClick={(seg) => {
-                    setBenchmarkFilter(seg);
-                    if (seg) navigate(`/portfolio?benchmark_rating=${seg}`);
-                  }}
+                  onSegmentClick={(seg) => setBenchmarkFilter(benchmarkFilter === seg ? null : seg)}
                   activeSegment={benchmarkFilter}
                 />
             }
@@ -834,7 +868,14 @@ export default function PerformancePage() {
         </Card>
 
         <Card className="p-5">
-          <CardLabel>Best &amp; worst performers</CardLabel>
+          <CardLabel>
+            Best &amp; worst performers
+            {benchmarkFilter && benchmarkFilter !== "meeting" && (
+              <span className="ml-2 text-[10px] opacity-50" style={{ fontFamily: "var(--font-mono)" }}>
+                — filtered by {benchmarkFilter}
+              </span>
+            )}
+          </CardLabel>
           <div className="mt-2">
             {fundPerf.isPending
               ? <LoadingSkeleton variant="list" />
@@ -843,24 +884,26 @@ export default function PerformancePage() {
               : <BestWorstPerformers
                   topPerformers={fundPerf.data?.top_performers ?? []}
                   bottomPerformers={fundPerf.data?.bottom_performers ?? []}
+                  activeSegment={benchmarkFilter}
+                  onFundClick={(name) => name ? drillToFund(name) : navigate("/portfolio")}
                 />
             }
           </div>
         </Card>
       </div>
 
-      {/* Performance heatmap — sourced from /api/portfolio/deep-analytics */}
+      {/* Performance heatmap — sourced from performance_cards in /api/portfolio/deep-analytics */}
       <Card className="mt-5 p-5">
         <CardLabel>Performance heatmap</CardLabel>
         <p className="text-[10px] opacity-40 mt-0.5 mb-3" style={{ fontFamily: "var(--font-mono)" }}>
-          Tile size = current value · colour = P&amp;L % · click any tile to view that holding
+          Tile size = current value · colour = P&amp;L % · click any tile to jump to that holding
         </p>
         {deepAnalytics.isPending
           ? <LoadingSkeleton variant="card" />
           : <PerformanceHeatmap
               heatmapData={deepAnalytics.data?.heatmap_data ?? []}
               isError={deepAnalytics.isError}
-              onTileClick={(name) => navigate(`/portfolio?search=${encodeURIComponent(name)}`)}
+              onTileClick={(name) => drillToFund(name)}
             />
         }
       </Card>
