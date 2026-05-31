@@ -397,7 +397,7 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
             {
                 "label": "XIRR",
                 "value": f"{xirr:.1f}%" if xirr is not None else "—",
-                **( {"sub": f"Benchmark {bm_xirr:.1f}%"} if bm_xirr is not None else {} ),
+                **( {"sub": f"Nifty 500 {bm_xirr:+.1f}%"} if bm_xirr is not None else {} ),
                 "tone": tone,
             },
             {

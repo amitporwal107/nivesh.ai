@@ -303,8 +303,18 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
     # ── Portfolio-level XIRR (weighted average of per-holding XIRRs) ────────
     portfolio_xirr = await _portfolio_xirr(holdings)
 
-    # ── Benchmark XIRR (weighted category-average) ──────────────────────────
-    benchmark_xirr = _weighted_benchmark_xirr(holdings, ratings_by_name, grand_total)
+    # ── Benchmark XIRR ───────────────────────────────────────────────────────
+    # When DaaS provides category_avg_1y, use weighted peer average.
+    # When falling back to mfapi.in, the category averages are computed from
+    # the user's own holdings only — a biased sample that can go negative.
+    # Use the Nifty 500 1Y return instead: it's a proper broad-market benchmark
+    # and avoids the apples-to-oranges XIRR vs simple-return comparison.
+    if has_useful_returns:
+        # DaaS path: use category peer averages (proper universe)
+        benchmark_xirr = _weighted_benchmark_xirr(holdings, ratings_by_name, grand_total)
+    else:
+        # mfapi.in fallback: use broad market index
+        benchmark_xirr = await _index_benchmark_return()
 
     # ── Alpha ────────────────────────────────────────────────────────────────
     alpha: Optional[float] = None
@@ -420,6 +430,35 @@ def _weighted_sharpe(
             num += float(sharpe_val) * val
             den += val
     return round(num / den, 3) if den > 0 else None
+
+
+async def _index_benchmark_return() -> Optional[float]:
+    """Return Nifty 500 1Y return (%) as a broad market benchmark.
+
+    Used when DaaS category_avg_1y is unavailable (mfapi.in fallback path).
+    Nifty 500 is the widest-coverage Indian equity index and a fair reference
+    for diversified MF portfolios. Returns None if the index snapshot is missing.
+    """
+    try:
+        from services.benchmark_index import get_latest_index
+        snap = await get_latest_index("nifty_500")
+        if not snap:
+            snap = await get_latest_index("nifty_50")
+        if snap:
+            r1y = (snap.get("metrics") or {}).get("return_1y")
+            if r1y is not None:
+                # return_1y is stored as decimal (0.08 = 8%); convert to %
+                val = float(r1y)
+                # Guard: if already in percent form (abs > 1), use as-is
+                if abs(val) <= 1.5:
+                    val = round(val * 100, 2)
+                else:
+                    val = round(val, 2)
+                logger.info("perf_engine: using Nifty 500 benchmark = %s%%", val)
+                return val
+    except Exception as e:
+        logger.debug("perf_engine: index benchmark lookup failed: %s", e)
+    return None
 
 
 def _build_waterfall(
