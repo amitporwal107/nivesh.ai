@@ -278,9 +278,15 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         fund_ratings.append(rating)
         ratings_by_name[name] = rating
 
-    # Fallback to mfapi.in if DaaS returned nothing
-    if not daas_primitives:
-        logger.warning("perf_engine: DaaS unavailable, falling back to mfapi.in")
+    # Fallback to mfapi.in if DaaS returned nothing OR if it returned primitives
+    # but none have useful return data (ret_1y / category_avg_1y all null).
+    # This happens when the NIDP analytics pipeline hasn't run for these ISINs.
+    has_useful_returns = any(
+        r.get("return_1y") is not None or r.get("benchmark_return") is not None
+        for r in fund_ratings
+    )
+    if not daas_primitives or not has_useful_returns:
+        logger.warning("perf_engine: DaaS missing return data, falling back to mfapi.in")
         try:
             from services.fund_performance import compute_benchmark_ratings
             nav_cache_doc = await db.fund_holdings_cache.find_one({}) or {}
