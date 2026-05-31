@@ -491,6 +491,152 @@ async def get_user_stock_scores(request: Request):
     return {"holdings": out, "coverage_pct": coverage, "scored": scored, "total": len(holdings)}
 
 
+# ── Per-holding recommendation helper ─────────────────────────────────────────
+
+def _mf_recommendation(ret_1y, category_avg_1y, quality_score, is_regular: bool) -> dict:
+    """Derive Hold/Exit/Buy More/Switch for a MF/ETF holding."""
+    if is_regular:
+        return {"action": "SWITCH", "reason": "Switch to Direct plan — save ~0.7–1% p.a. in expense ratio"}
+    if quality_score is not None and quality_score < 40:
+        return {"action": "EXIT", "reason": f"Quality score {quality_score:.0f}/100 — below acceptable threshold"}
+    if ret_1y is not None and category_avg_1y is not None:
+        alpha = round(float(ret_1y) - float(category_avg_1y), 1)
+        if alpha <= -5:
+            return {"action": "EXIT", "reason": f"Trailing category by {abs(alpha):.1f}pp over 1 year"}
+        if alpha >= 3 and (quality_score or 0) > 70:
+            return {"action": "BUY_MORE", "reason": f"Outperforming category by {alpha:.1f}pp with strong quality score"}
+    return {"action": "HOLD", "reason": "Performing in line with category; no action needed"}
+
+
+@router.get("/portfolio/recommendations/v5")
+async def get_portfolio_recommendations_v5(request: Request):
+    """Per-holding NIDP-scored recommendations (Hold / Exit / Buy More / Switch)
+    plus top-5 per asset class.
+
+    Sources:
+      Equity  — Postgres stock_scores (quality, health, exit, recommendation)
+      MF/ETF  — DaaS v3-primitives (ret_1y, category_avg_1y) + rule logic
+      Gold/SGB — HOLD by default (government-backed, guaranteed returns)
+    """
+    user = await get_current_user(request)
+    all_holdings = await db.holdings.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1, "nse_symbol": 1,
+         "quantity": 1, "current_price": 1, "buy_price": 1},
+    ).to_list(2000)
+
+    if not all_holdings:
+        return {"holdings": [], "top5_by_asset_class": {}}
+
+    # ── MF/ETF: DaaS primitives ─────────────────────────────────────────────
+    mf_isins = list({
+        (h.get("ticker") or "").upper().strip()
+        for h in all_holdings
+        if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")
+        and (h.get("ticker") or "").strip()
+    })
+    daas_by_isin: dict = {}
+    if mf_isins:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            import feature_flags as _ff
+            if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas"):
+                daas_by_isin = await _daas.get_v3_mf_primitives_bulk(mf_isins) or {}
+        except Exception as e:
+            logger.warning("recommendations: DaaS fetch failed: %s", e)
+
+    # ── Equity: stock_scores ────────────────────────────────────────────────
+    eq_symbols = list({
+        (h.get("nse_symbol") or "").upper()
+        for h in all_holdings
+        if (h.get("asset_type") or "").lower() == "equity"
+        and (h.get("nse_symbol") or "").strip()
+    })
+    stock_scores_map: dict = {}
+    if eq_symbols:
+        try:
+            from services import pg_client
+            pool = await pg_client.get_pool()
+            if pool:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """SELECT nse_symbol, quality_score, health_score, exit_score,
+                                  recommendation, recommendation_reason
+                             FROM stock_scores WHERE nse_symbol = ANY($1::text[])""",
+                        eq_symbols,
+                    )
+                stock_scores_map = {r["nse_symbol"]: dict(r) for r in rows}
+        except Exception as e:
+            logger.warning("recommendations: stock_scores fetch failed: %s", e)
+
+    _ACTION_ORDER = {"BUY_MORE": 0, "HOLD": 1, "SWITCH": 2, "EXIT": 3, "REVIEW": 4}
+    results = []
+
+    for h in all_holdings:
+        at   = (h.get("asset_type") or "other").lower()
+        isin = (h.get("ticker") or "").upper().strip()
+        sym  = (h.get("nse_symbol") or "").upper()
+        name = (h.get("name") or "")[:60]
+        val  = float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+        rec  = {"action": "HOLD", "reason": "No scoring data", "quality_score": None, "health_score": None, "confidence": "low"}
+
+        if at == "equity" and sym and sym in stock_scores_map:
+            ss  = stock_scores_map[sym]
+            qs  = float(ss["quality_score"]) if ss.get("quality_score") is not None else None
+            hs  = float(ss["health_score"])  if ss.get("health_score")  is not None else None
+            rec = {"action": ss.get("recommendation") or "HOLD",
+                   "reason": ss.get("recommendation_reason") or "Based on NIDP V3 quality and health scores",
+                   "quality_score": qs, "health_score": hs, "confidence": "high"}
+
+        elif at in ("mutual_fund", "etf") and isin and isin in daas_by_isin:
+            prim = daas_by_isin[isin]
+            qs   = prim.get("quality_score")
+            hs   = prim.get("health_score")
+            r1y  = prim.get("ret_1y") or prim.get("return_1y")
+            cat  = prim.get("category_avg_1y")
+            is_regular = "regular" in name.lower() and "direct" not in name.lower()
+            mf_rec = _mf_recommendation(
+                float(r1y) if r1y is not None else None,
+                float(cat) if cat is not None else None,
+                float(qs)  if qs  is not None else None,
+                is_regular,
+            )
+            rec = {**mf_rec,
+                   "quality_score": float(qs) if qs is not None else None,
+                   "health_score":  float(hs) if hs is not None else None,
+                   "confidence": "medium"}
+
+        elif at == "gold":
+            rec = {"action": "HOLD", "reason": "SGB — government-backed with guaranteed gold price returns",
+                   "quality_score": None, "health_score": None, "confidence": "high"}
+
+        results.append({
+            "isin": isin, "nse_symbol": sym, "name": name,
+            "asset_type": at, "current_value_rs": round(val, 2),
+            **rec,
+        })
+
+    # ── Top 5 per asset class (prioritise actionable > HOLD, then by quality) ─
+    def _top5(asset_type_filter: str) -> list:
+        bucket = [r for r in results if r["asset_type"] == asset_type_filter]
+        actionable = [r for r in bucket if r["action"] != "HOLD"]
+        ranked = sorted(actionable or bucket,
+                        key=lambda x: (_ACTION_ORDER.get(x["action"], 5), -(x.get("quality_score") or 0)))
+        return [{"name": r["name"], "action": r["action"], "reason": r["reason"],
+                 "quality_score": r.get("quality_score"), "current_value_rs": r["current_value_rs"]}
+                for r in ranked[:5]]
+
+    return {
+        "holdings": results,
+        "top5_by_asset_class": {
+            "mutual_fund": _top5("mutual_fund"),
+            "equity":      _top5("equity"),
+            "etf":         _top5("etf"),
+            "gold":        _top5("gold"),
+        },
+    }
+
+
 @router.get("/portfolio/simulate")
 async def simulate_portfolio(request: Request, portfolio_id: str = ""):
     """Simulate optimized portfolio."""
@@ -984,6 +1130,126 @@ Return STRICT JSON only."""
     except Exception as e:
         logger.error("Allocation analysis failed: %s", e)
         return {"error": f"Analysis failed: {str(e)}"}
+
+
+@router.get("/portfolio/holding-detail/{isin}")
+async def get_holding_detail(isin: str, request: Request):
+    """Return V3 DaaS primitives + category peer data for a single ISIN.
+
+    Fetches from NIDP DaaS using get_v3_mf_primitives_bulk([isin]).
+    Also fetches top-3 peers from analytics.fund_category_rank via
+    the category leaderboard DaaS endpoint.
+
+    Returns daas_available=false (not an error) when the ISIN has no V3
+    data — e.g. equities or funds not yet in the NIDP analytics lake.
+    """
+    await get_current_user(request)  # auth guard
+
+    isin_clean = (isin or "").strip().upper()
+    if not isin_clean:
+        raise HTTPException(status_code=400, detail="isin is required")
+
+    # ── 1. V3 MF primitives from DaaS ────────────────────────────────
+    from services.copilot_tools.daas_client import get_v3_mf_primitives_bulk, _get as daas_get, DaasError
+
+    prim: dict = {}
+    try:
+        bulk = await get_v3_mf_primitives_bulk([isin_clean])
+        prim = bulk.get(isin_clean) or {}
+    except Exception as exc:
+        logger.warning("holding-detail DaaS primitives error isin=%s: %s", isin_clean, exc)
+
+    daas_available = bool(prim)
+
+    if not daas_available:
+        return {
+            "isin": isin_clean,
+            "name": None,
+            "category": None,
+            "returns": {"1m": None, "3m": None, "1y": None, "3y": None},
+            "category_avg": {"1y": None, "3y": None},
+            "risk": {"sharpe": None, "sortino": None, "volatility_1y": None, "max_drawdown": None},
+            "ranking": {"composite_rank": None, "category_size": None, "top_position_pct": None},
+            "top_peers": [],
+            "daas_available": False,
+        }
+
+    # ── 2. Extract primitives ─────────────────────────────────────────
+    def _f(key: str):
+        v = prim.get(key)
+        return round(float(v), 2) if v is not None else None
+
+    name = prim.get("scheme_name")
+    sub_category = prim.get("sub_category") or prim.get("category")
+
+    returns = {
+        "1m": _f("return_1m"),
+        "3m": _f("return_3m"),
+        "1y": _f("ret_1y"),
+        "3y": _f("ret_3y"),
+    }
+    category_avg = {
+        "1y": _f("category_avg_1y"),
+        "3y": _f("category_avg_3y"),
+    }
+    risk = {
+        "sharpe": _f("sharpe"),
+        "sortino": _f("sortino"),
+        "volatility_1y": _f("volatility_1y"),
+        "max_drawdown": _f("max_drawdown_pct"),
+    }
+
+    composite_rank = prim.get("category_rank")
+    composite_rank_int = int(composite_rank) if composite_rank is not None else None
+
+    # ── 3. Category size + top peers via DaaS category leaderboard ────
+    category_size = None
+    top_peers: list = []
+
+    if sub_category:
+        try:
+            peers_resp = await daas_get(
+                f"/mf/performance/category/{sub_category}",
+                params={"metric": "composite_rank", "limit": "5"},
+            )
+            if peers_resp and isinstance(peers_resp.get("data"), list):
+                category_size = peers_resp.get("total") or len(peers_resp["data"])
+                for row in peers_resp["data"][:3]:
+                    if (row.get("isin") or "").upper() != isin_clean:
+                        top_peers.append({
+                            "name": row.get("scheme_name"),
+                            "return_1y": round(float(row["return_1y"]), 2) if row.get("return_1y") is not None else None,
+                            "composite_rank": int(row["composite_rank"]) if row.get("composite_rank") is not None else None,
+                        })
+                    if len(top_peers) >= 3:
+                        break
+        except DaasError as exc:
+            logger.warning("holding-detail peers error isin=%s sub_cat=%s: %s", isin_clean, sub_category, exc)
+        except Exception as exc:
+            logger.warning("holding-detail peers unexpected error isin=%s: %s", isin_clean, exc)
+
+    top_position_pct = None
+    if composite_rank_int is not None and category_size:
+        try:
+            top_position_pct = round(composite_rank_int / int(category_size) * 100, 1)
+        except Exception:
+            pass
+
+    return {
+        "isin": isin_clean,
+        "name": name,
+        "category": sub_category,
+        "returns": returns,
+        "category_avg": category_avg,
+        "risk": risk,
+        "ranking": {
+            "composite_rank": composite_rank_int,
+            "category_size": int(category_size) if category_size is not None else None,
+            "top_position_pct": top_position_pct,
+        },
+        "top_peers": top_peers,
+        "daas_available": True,
+    }
 
 
 @router.get("/portfolio/value-history")
