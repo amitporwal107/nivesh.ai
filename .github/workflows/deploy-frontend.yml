@@ -1,0 +1,63 @@
+name: Deploy frontend → nivesh-app-vm [prod]
+
+# Triggers on pushes to main when frontend code changes (v2 or v5).
+# Passes --frontend-only so the backend image is NOT rebuilt.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'frontend-v5/**'
+      - 'deploy/nivesh-app/Dockerfile.frontend.prod'
+      - 'deploy/nivesh-app/Dockerfile.frontend-v5.prod'
+      - 'deploy/nivesh-app/nginx.conf'
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy (default: main)'
+        type: string
+        default: main
+
+concurrency:
+  group: deploy-app
+  cancel-in-progress: false
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend [prod]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve branch
+        id: config
+        run: |
+          BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: SSH → redeploy frontend [prod]
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:            ${{ secrets.NIVESH_VM_HOST }}
+          username:        ${{ secrets.DEVOPS_SSH_USER }}
+          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          port:            22
+          timeout:         10m
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+            echo "=== PROD frontend deploy ==="
+            echo "    Branch : ${{ steps.config.outputs.branch }}"
+            echo "    Commit : ${{ github.sha }}"
+
+            sudo BRANCH="${{ steps.config.outputs.branch }}" \
+              bash /opt/nivesh/deploy/redeploy.sh --frontend-only
+
+      - name: Health check [prod]
+        run: |
+          sleep 15
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            --max-time 10 https://niveshcopilot.com/api/health \
+            2>/dev/null || echo "000")
+          echo "Health check → HTTP $HTTP"
+          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"

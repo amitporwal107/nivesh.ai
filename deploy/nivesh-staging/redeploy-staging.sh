@@ -5,7 +5,7 @@
 # but operates against /opt/nivesh-staging/repo and the staging docker-compose file.
 #
 # Usage:
-#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh [branch]
+#   sudo bash redeploy-staging.sh [branch] [--frontend-only|--backend-only]
 #
 # Idempotent. Safe to re-run.
 
@@ -15,7 +15,20 @@ STAGING_ROOT="/opt/nivesh-staging"
 REPO_DIR="${STAGING_ROOT}/repo"
 COMPOSE_FILE="${REPO_DIR}/deploy/nivesh-staging/docker-compose.staging.yml"
 ENV_FILE="${STAGING_ROOT}/.env.staging"
-BRANCH="${1:-dev}"   # staging tracks this branch; override with arg
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+BRANCH="dev"
+BUILD_FRONTEND=true
+BUILD_BACKEND=true
+
+for arg in "$@"; do
+  case "$arg" in
+    --frontend-only) BUILD_BACKEND=false  ;;
+    --backend-only)  BUILD_FRONTEND=false ;;
+    --*)             ;;            # ignore unknown flags
+    *)               BRANCH="$arg" ;;   # first non-flag = branch name
+  esac
+done
 
 log() { echo "[redeploy-staging] $*"; }
 fail() { echo "[redeploy-staging] FATAL: $*" >&2; exit 1; }
@@ -35,26 +48,40 @@ git -C "${REPO_DIR}" fetch --quiet origin
 git -C "${REPO_DIR}" checkout --quiet "${BRANCH}"
 git -C "${REPO_DIR}" reset --hard --quiet "origin/${BRANCH}"
 
+log "Mode: backend=${BUILD_BACKEND} frontend=${BUILD_FRONTEND}"
+
 log "Loading staging env..."
 set -a; source "${ENV_FILE}"; set +a
 
-log "Building images..."
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull
+# ── Build only the services that changed ─────────────────────────────────────
+if [[ "${BUILD_BACKEND}" == "true" && "${BUILD_FRONTEND}" == "true" ]]; then
+    log "Building all images..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
+elif [[ "${BUILD_BACKEND}" == "true" ]]; then
+    log "Building backend image only..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-backend
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-backend
+elif [[ "${BUILD_FRONTEND}" == "true" ]]; then
+    log "Building frontend images only (v2 + v5)..."
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" build --pull app-frontend app-frontend-v5
+    docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d app-frontend app-frontend-v5
+fi
 
-log "Bringing the stack up..."
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d --remove-orphans
-
-log "Waiting for nivesh-staging-app-backend to report healthy..."
-for i in {1..30}; do
-    status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null || echo "unknown")
-    if [[ "${status}" == "healthy" ]]; then
-        log "Healthy after ${i} checks."
-        break
-    fi
-    sleep 2
-done
-[[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null)" == "healthy" ]] \
-    || fail "nivesh-staging-app-backend did not become healthy."
+# ── Backend health check (skip for frontend-only deploys) ────────────────────
+if [[ "${BUILD_BACKEND}" == "true" ]]; then
+    log "Waiting for nivesh-staging-app-backend to report healthy..."
+    for i in {1..30}; do
+        status=$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null || echo "unknown")
+        if [[ "${status}" == "healthy" ]]; then
+            log "Healthy after ${i} checks."
+            break
+        fi
+        sleep 2
+    done
+    [[ "$(docker inspect --format='{{.State.Health.Status}}' nivesh-staging-app-backend 2>/dev/null)" == "healthy" ]] \
+        || fail "nivesh-staging-app-backend did not become healthy."
+fi
 
 # Reload the edge nginx so any nginx-staging.conf change lands and stale
 # upstream resolutions are cleared. (The config also uses dynamic DNS via
