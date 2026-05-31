@@ -965,14 +965,16 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
               <Tooltip
                 wrapperStyle={{ zIndex: 100 }}
                 contentStyle={{
-                  background: "#1e2330",
-                  border: "1px solid rgba(255,255,255,0.15)",
+                  background: "#ffffff",
+                  border: "1px solid #d0d5e8",
                   borderRadius: 8,
-                  color: "#e8eaf0",
+                  color: "#1a1f2e",
                   fontSize: 12,
                   fontFamily: "var(--font-mono)",
                   padding: "8px 12px",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
                 }}
+                labelStyle={{ color: "#1a1f2e", fontWeight: 600 }}
                 formatter={(value: number, name: string) => [
                   formatINRCompact(value),
                   name,
