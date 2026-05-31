@@ -250,7 +250,7 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         try:
             from services.copilot_tools import daas_client as _daas
             import feature_flags as _ff
-            if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas"):
+            if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas", None):
                 daas_by_isin = await _daas.get_v3_mf_primitives_bulk(isins) or {}
                 logger.info("fund_performance: DaaS returned %d/%d primitives", len(daas_by_isin), len(isins))
                 # Fetch category sizes for all unique categories to show "Rank X/Y"
