@@ -9,10 +9,13 @@
  * Feature A: Asset class tabs — MF | Stocks | ETF | SGB / Bonds
  * Feature B: Holdings composition pie chart with drill-down
  */
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, ReferenceLine,
+} from "recharts";
 import { useDashboard } from "@/hooks/use-dashboards";
 import { useHoldingsFilter } from "@/hooks/use-holdings-filter";
 import { http } from "@/services/api/http";
@@ -96,8 +99,22 @@ function useRecommendations() {
   });
 }
 
-function RecommendationsPanel({ data }: { data?: { holdings: RecHolding[]; top5_by_asset_class: Record<string, RecHolding[]> } }) {
-  const [activeClass, setActiveClass] = useState<string>("mutual_fund");
+function RecommendationsPanel({ data, assetTabFilter }: {
+  data?: { holdings: RecHolding[]; top5_by_asset_class: Record<string, RecHolding[]> };
+  assetTabFilter?: AssetTab;
+}) {
+  // Map the page assetTab to the rec asset_class key
+  const TAB_TO_CLASS: Partial<Record<AssetTab, string>> = {
+    mf: "mutual_fund", stocks: "equity", etf: "etf", sgb: "gold",
+  };
+  const defaultClass = (assetTabFilter && assetTabFilter !== "all")
+    ? (TAB_TO_CLASS[assetTabFilter] ?? "mutual_fund")
+    : "mutual_fund";
+  const [activeClass, setActiveClass] = useState<string>(defaultClass);
+  // Sync when parent tab changes
+  if (assetTabFilter && assetTabFilter !== "all" && TAB_TO_CLASS[assetTabFilter] !== activeClass) {
+    setActiveClass(TAB_TO_CLASS[assetTabFilter] ?? "mutual_fund");
+  }
   if (!data) return null;
   const top5 = data.top5_by_asset_class?.[activeClass] ?? [];
   const CLASS_LABELS: Record<string, string> = { mutual_fund: "MF", equity: "Stocks", etf: "ETF", gold: "SGB" };
@@ -139,14 +156,24 @@ function RecommendationsPanel({ data }: { data?: { holdings: RecHolding[]; top5_
 
 // ── Asset-class tab definitions ───────────────────────────────────────────────
 
-type AssetTab = "mf" | "stocks" | "etf" | "sgb";
+type AssetTab = "all" | "mf" | "stocks" | "etf" | "sgb";
 
 const ASSET_TABS: { id: AssetTab; label: string }[] = [
+  { id: "all",    label: "All" },
   { id: "mf",     label: "MF" },
   { id: "stocks", label: "Stocks" },
   { id: "etf",    label: "ETF" },
   { id: "sgb",    label: "SGB / Bonds" },
 ];
+
+/** Benchmark explanation shown under the donut per tab */
+const BENCHMARK_EXPLANATION: Record<AssetTab, string> = {
+  all:    "Portfolio XIRR vs Nifty 500 CAGR — broad India equity market benchmark",
+  mf:     "Each fund vs its sub-category peer average (e.g. Large Cap fund vs all Large Cap funds)",
+  stocks: "Each stock vs Nifty 500 total-return index for the selected period",
+  etf:    "ETF vs underlying index — Nifty ETF → Nifty 50, Gold ETF → MCX Gold price CAGR",
+  sgb:    "SGB return (gold price CAGR + 2.5% annual interest) vs MCX Gold spot price",
+};
 
 /** Classify a fund_rating row into an asset tab */
 function ratingToTab(r: FundRating): AssetTab {
@@ -158,8 +185,9 @@ function ratingToTab(r: FundRating): AssetTab {
   return "mf";   // mutual_fund + no asset_type falls to MF
 }
 
-/** Filter fund_ratings to only those for a given tab */
+/** Filter fund_ratings to only those for a given tab. "all" returns everything. */
 function filterByTab(ratings: FundRating[], tab: AssetTab): FundRating[] {
+  if (tab === "all") return ratings;
   return ratings.filter((r) => ratingToTab(r) === tab);
 }
 
@@ -224,12 +252,11 @@ function useValueHistory() {
 // ── Period selector ────────────────────────────────────────────────────────
 
 const PERIODS = [
-  { id: "1M",        label: "1M" },
-  { id: "3M",        label: "3M" },
-  { id: "6M",        label: "6M" },
-  { id: "1Y",        label: "1Y" },
-  { id: "3Y",        label: "3Y" },
   { id: "inception", label: "Since incep." },
+  { id: "1Y",        label: "1Y" },
+  { id: "6M",        label: "6M" },
+  { id: "3M",        label: "3M" },
+  { id: "1M",        label: "1M" },
 ] as const;
 
 type PeriodId = typeof PERIODS[number]["id"];
@@ -238,8 +265,8 @@ const SESSION_KEY = "perf_period";
 
 function usePeriod() {
   const [period, setPeriodState] = useState<PeriodId>(() => {
-    try { return (sessionStorage.getItem(SESSION_KEY) as PeriodId) ?? "1Y"; }
-    catch { return "1Y"; }
+    try { return (sessionStorage.getItem(SESSION_KEY) as PeriodId) ?? "inception"; }
+    catch { return "inception"; }
   });
   const setPeriod = (p: PeriodId) => {
     setPeriodState(p);
@@ -724,7 +751,7 @@ type PieSegment = {
   tab: AssetTab;
 };
 
-const PIE_COLORS: Record<AssetTab, string> = {
+const PIE_COLORS: Partial<Record<AssetTab, string>> = {
   mf:     "rgb(var(--accent))",
   stocks: "rgb(var(--pos))",
   etf:    "rgb(var(--warm))",
@@ -736,47 +763,42 @@ type DrillSortKey = "return" | "invested" | "name";
 type CompositionPieProps = {
   fundRatings: FundRating[];
   heatmapData: HeatmapTile[];
+  outerTab: AssetTab;
   onHoldingClick: (name: string) => void;
+  onPieSegmentClick?: (tab: AssetTab) => void;
 };
 
-function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: CompositionPieProps) {
-  const [activeTab, setActiveTab] = useState<AssetTab | null>(null);
+function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingClick, onPieSegmentClick }: CompositionPieProps) {
   const [sortKey, setSortKey]     = useState<DrillSortKey>("return");
   const [showAll, setShowAll]     = useState(false);
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [amcFilter, setAmcFilter] = useState<string | null>(null);
 
-  // Reset drill-down filters when tab changes
-  const selectTab = useCallback((tab: AssetTab | null) => {
-    setActiveTab(tab);
-    setSortKey("return");
-    setShowAll(false);
-    setCatFilter(null);
-    setSectorFilter(null);
-    setAmcFilter(null);
-  }, []);
-
   // Build per-asset-class current_value sums.
   // fund_ratings has invested + current_value for MF + ETF.
   // Heatmap (deep-analytics) has value + asset_type for all holdings.
-  const assetValues: Record<AssetTab, number> = { mf: 0, stocks: 0, etf: 0, sgb: 0 };
+  const assetValues = { mf: 0, stocks: 0, etf: 0, sgb: 0 };
 
   for (const r of fundRatings) {
     const tab = ratingToTab(r);
-    assetValues[tab] += r.current_value ?? 0;
+    if (tab !== "all") assetValues[tab] += r.current_value ?? 0;
   }
   // Fill stocks + sgb from heatmap (which includes equity + gold)
   for (const tile of heatmapData) {
     const at = (tile.asset_type ?? "").toLowerCase();
-    if (at === "equity")             assetValues.stocks += tile.value;
-    if (at === "gold" || at === "sgb") assetValues.sgb  += tile.value;
+    if (at === "equity")               assetValues.stocks += tile.value;
+    if (at === "gold" || at === "sgb") assetValues.sgb    += tile.value;
   }
-  // Deduplicate: if stocks/sgb already covered by fund_ratings (unlikely), prefer heatmap for equity
-  // Simple rule: heatmap covers all, fund_ratings covers MF+ETF well. Only add equity/sgb from heatmap.
 
   const segments: PieSegment[] = ASSET_TABS
-    .map((t) => ({ name: t.id, label: t.label, value: assetValues[t.id], color: PIE_COLORS[t.id], tab: t.id }))
+    .filter((t) => t.id !== "all")
+    .map((t) => ({
+      name: t.id, label: t.label,
+      value: assetValues[t.id as keyof typeof assetValues],
+      color: PIE_COLORS[t.id] ?? "rgba(var(--ink-1),0.3)",
+      tab: t.id,
+    }))
     .filter((s) => s.value > 0);
 
   const totalValue = segments.reduce((s, seg) => s + seg.value, 0);
@@ -787,11 +809,10 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
     </div>
   );
 
-  // Drill-down data for selected tab
-  const tabRatings = activeTab ? filterByTab(fundRatings, activeTab) : [];
+  // Drill-down data — driven by outerTab
+  const tabRatings = filterByTab(fundRatings, outerTab);
 
-  // For stocks tab, supplement from heatmap (fund_ratings doesn't include equity)
-  const drillData: FundRating[] = activeTab === "stocks"
+  const drillData: FundRating[] = outerTab === "stocks"
     ? heatmapData
         .filter((t) => (t.asset_type ?? "").toLowerCase() === "equity")
         .map((t) => ({
@@ -804,7 +825,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
           sector:             t.sector ?? "Other",
           asset_type:         "equity",
         }))
-    : activeTab === "sgb"
+    : outerTab === "sgb"
     ? heatmapData
         .filter((t) => ["gold","sgb"].includes((t.asset_type ?? "").toLowerCase()))
         .map((t) => ({
@@ -830,13 +851,13 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
   });
 
   // Category filter for MF, sector filter for stocks, AMC filter
-  const categories = activeTab === "mf"
+  const categories = outerTab === "mf"
     ? [...new Set(drillData.map((r) => r.scheme_category).filter(Boolean))] as string[]
     : [];
-  const sectors = activeTab === "stocks"
+  const sectors = outerTab === "stocks"
     ? [...new Set(drillData.map((r) => r.sector).filter(Boolean))] as string[]
     : [];
-  const amcs = activeTab === "mf"
+  const amcs = outerTab === "mf"
     ? [...new Set(
         drillData
           .map((r) => {
@@ -858,8 +879,8 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
     return true;
   });
 
-  const visible = showAll ? filtered : filtered.slice(0, 10);
-  const hasMore = filtered.length > 10;
+  const visible = showAll ? filtered : filtered.slice(0, 5);
+  const hasMore = filtered.length > 5;
 
   return (
     <div>
@@ -879,14 +900,14 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
                 stroke="rgb(var(--surface-2))"
                 strokeWidth={3}
                 isAnimationActive={false}
-                onClick={(entry: PieSegment) => selectTab(activeTab === entry.tab ? null : entry.tab)}
+                onClick={(entry: PieSegment) => { onPieSegmentClick?.(outerTab === entry.tab ? "all" : entry.tab); }}
                 style={{ cursor: "pointer" }}
               >
                 {segments.map((s) => (
                   <Cell
                     key={s.tab}
                     fill={s.color}
-                    opacity={activeTab && activeTab !== s.tab ? 0.3 : 0.9}
+                    opacity={outerTab !== "all" && outerTab !== s.tab ? 0.3 : 0.9}
                   />
                 ))}
               </Pie>
@@ -915,13 +936,13 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
             return (
               <button
                 key={s.tab}
-                onClick={() => selectTab(activeTab === s.tab ? null : s.tab)}
+                onClick={() => onPieSegmentClick?.(outerTab === s.tab ? "all" : s.tab)}
                 className="flex items-center gap-2.5 w-full text-left rounded-md px-2.5 py-1.5 transition-colors"
                 style={{
-                  background: activeTab === s.tab ? "rgba(var(--surface-3),0.8)" : "transparent",
-                  border: `1px solid ${activeTab === s.tab ? "rgba(var(--line),0.15)" : "transparent"}`,
+                  background: outerTab === s.tab ? "rgba(var(--surface-3),0.8)" : "transparent",
+                  border: `1px solid ${outerTab === s.tab ? "rgba(var(--line),0.15)" : "transparent"}`,
                 }}
-                aria-pressed={activeTab === s.tab}>
+                aria-pressed={outerTab === s.tab}>
                 <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} aria-hidden />
                 <span className="flex-1 text-[12px]" style={{ fontFamily: "var(--font-mono)" }}>{s.label}</span>
                 <span className="text-[12px] font-semibold" style={{ fontFamily: "var(--font-mono)", color: s.color }}>
@@ -931,27 +952,19 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
               </button>
             );
           })}
-          {activeTab && (
-            <button onClick={() => selectTab(null)}
-              className="text-[10px] opacity-50 hover:opacity-80 text-left px-2.5 mt-0.5"
-              style={{ fontFamily: "var(--font-mono)" }}>
-              ✕ Clear selection
-            </button>
-          )}
           <p className="text-[10px] opacity-30 px-2.5" style={{ fontFamily: "var(--font-mono)" }}>
-            Click a segment to drill into holdings
+            Click a segment to switch asset class
           </p>
         </div>
       </div>
 
-      {/* Drill-down */}
-      {activeTab && (
-        <div className="mt-5 border-t pt-4" style={{ borderColor: "rgba(var(--line),0.08)" }}>
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <span className="text-[11px] uppercase tracking-widest opacity-50 mr-1"
-              style={{ fontFamily: "var(--font-mono)" }}>
-              {ASSET_TABS.find((t) => t.id === activeTab)?.label} · {filtered.length} holdings
-            </span>
+      {/* Drill-down — always visible, driven by outerTab */}
+      <div className="mt-5 border-t pt-4" style={{ borderColor: "rgba(var(--line),0.08)" }}>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span className="text-[11px] uppercase tracking-widest opacity-50 mr-1"
+            style={{ fontFamily: "var(--font-mono)" }}>
+            {outerTab === "all" ? "Top holdings" : ASSET_TABS.find((t) => t.id === outerTab)?.label} · {filtered.length} holdings
+          </span>
             {/* Sort chips */}
             {(["return","invested","name"] as DrillSortKey[]).map((k) => (
               <button key={k}
@@ -1016,8 +1029,13 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
 
           {/* Holdings list */}
           {filtered.length === 0 ? (
-            <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
-              No holdings in this asset class.
+            <div className="py-6 text-center text-sm opacity-40 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+              {outerTab === "sgb"
+                ? <>No SGB holdings found. SGBs appear only in NSDL/CDSL eCAS — if you hold Sovereign Gold Bonds, please import a Consolidated Account Statement from NSDL or CDSL.</>
+                : outerTab === "stocks"
+                ? <>No direct equity holdings found. Stocks appear from the NSDL/CDSL eCAS demat section.</>
+                : "No holdings in this asset class."
+              }
             </div>
           ) : (
             <>
@@ -1079,22 +1097,22 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, onHoldingClick }: Co
                   className="mt-3 flex items-center gap-1 text-[11px] opacity-50 hover:opacity-80 transition-opacity"
                   style={{ fontFamily: "var(--font-mono)" }}>
                   {showAll
-                    ? <><ChevronUp size={12} /> Show top 10</>
+                    ? <><ChevronUp size={12} /> Show top 5</>
                     : <><ChevronDown size={12} /> Show all {filtered.length} holdings</>
                   }
                 </button>
               )}
             </>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
 
-// ── Performance heatmap ───────────────────────────────────────────────────────
+// ── Gain / Loss Distribution bubble chart ────────────────────────────────────
+// Replaces the flat heatmap. X = invested, Y = return %, bubble size = current value.
 
-function PerformanceHeatmap({
+function GainLossDistribution({
   heatmapData,
   onTileClick,
   isError,
@@ -1105,7 +1123,7 @@ function PerformanceHeatmap({
 }) {
   if (isError) return (
     <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
-      Could not load heatmap data — try resyncing.
+      Could not load data — try resyncing.
     </div>
   );
   if (!heatmapData.length) return (
@@ -1114,47 +1132,79 @@ function PerformanceHeatmap({
     </div>
   );
 
-  const totalValue = heatmapData.reduce((s, d) => s + d.value, 0);
+  const points = heatmapData
+    .filter((d) => d.invested > 0 && d.return_pct != null)
+    .map((d) => ({
+      x: d.invested,
+      y: d.return_pct as number,
+      z: Math.max(d.value, 1),
+      name: d.name,
+    }));
 
-  function retColor(pct: number | null) {
-    // --pos / --neg are space-separated RGB values (e.g. "14 138 85")
-    // so alpha must use the CSS4 slash notation: rgb(var(--X) / alpha)
-    if (pct === null) return "rgb(var(--ink-1) / 0.12)";
-    if (pct > 15)  return "rgb(var(--pos) / 0.85)";
-    if (pct > 0)   return "rgb(var(--pos) / 0.45)";
-    if (pct > -15) return "rgb(var(--neg) / 0.45)";
-    return "rgb(var(--neg) / 0.85)";
+  const pos = points.filter((p) => p.y >= 0);
+  const neg = points.filter((p) => p.y < 0);
+
+  const fmtL = (v: number) => `₹${(v / 1e5).toFixed(0)}L`;
+
+  function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: typeof points[number] }> }) {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload;
+    if (!d) return null;
+    return (
+      <div style={{
+        background: "rgb(var(--surface-2))", border: "1px solid rgba(var(--line),0.18)",
+        borderRadius: 8, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11,
+      }}>
+        <p style={{ color: "rgb(var(--ink-1))", marginBottom: 4, maxWidth: 220, wordBreak: "break-word" }}>{d.name}</p>
+        <p style={{ color: "rgba(var(--ink-1),0.55)" }}>Invested: {fmtL(d.x)}</p>
+        <p style={{ color: d.y >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
+          Return: {d.y > 0 ? "+" : ""}{d.y.toFixed(1)}%
+        </p>
+        <p style={{ color: "rgba(var(--ink-1),0.55)" }}>Current: {fmtL(d.z)}</p>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5" role="list" aria-label="Performance heatmap">
-      {heatmapData.map((d) => {
-        const weight = totalValue > 0 ? d.value / totalValue : 0;
-        const size = Math.max(52, Math.min(150, Math.round(weight * 1400)));
-        const retLabel = d.return_pct !== null
-          ? `${d.return_pct > 0 ? "+" : ""}${d.return_pct}%`
-          : "—";
-        return (
-          <button
-            key={d.name}
-            role="listitem"
-            onClick={() => onTileClick?.(d.name)}
-            className="rounded-md flex flex-col justify-end p-1.5 transition-opacity hover:opacity-90 cursor-pointer"
-            style={{ width: size, height: Math.max(48, size * 0.72), background: retColor(d.return_pct), flexShrink: 0 }}
-            aria-label={`${d.name}: ${retLabel} return — click to view holding`}
-            title={`${d.name}\n${retLabel}${d.cost_basis_estimated ? "\n(cost basis estimated)" : ""}`}>
-            <span className="text-[9px] leading-tight truncate w-full"
-              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.65)" }}>
-              {d.name.slice(0, 20)}
-            </span>
-            <span className="text-[10px] font-bold leading-none mt-0.5"
-              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.85)" }}
-              aria-hidden>
-              {retLabel}
-            </span>
-          </button>
-        );
-      })}
+    <div>
+      <p className="text-[10px] opacity-40 mb-1" style={{ fontFamily: "var(--font-mono)" }}>
+        Each dot = holding · X = invested · Y = return % · size = current value · click to view
+      </p>
+      <ResponsiveContainer width="100%" height={300}>
+        <ScatterChart margin={{ top: 12, right: 20, bottom: 8, left: 10 }}>
+          <CartesianGrid strokeDasharray="2 5" stroke="rgba(255,255,255,0.04)" />
+          <XAxis
+            type="number" dataKey="x" name="Invested"
+            tickFormatter={fmtL}
+            tick={{ fontSize: 9, fontFamily: "var(--font-mono)", fill: "rgba(255,255,255,0.35)" }}
+            axisLine={{ stroke: "rgba(255,255,255,0.08)" }} tickLine={false}
+          />
+          <YAxis
+            type="number" dataKey="y" name="Return"
+            tickFormatter={(v: number) => `${v}%`}
+            tick={{ fontSize: 9, fontFamily: "var(--font-mono)", fill: "rgba(255,255,255,0.35)" }}
+            axisLine={{ stroke: "rgba(255,255,255,0.08)" }} tickLine={false}
+          />
+          <ZAxis type="number" dataKey="z" range={[30, 700]} name="Current value" />
+          <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 3" />
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={{ strokeDasharray: "3 3", stroke: "rgba(255,255,255,0.15)" }}
+          />
+          <Scatter
+            data={pos}
+            fill="rgb(var(--pos))" fillOpacity={0.82}
+            onClick={(entry: typeof points[number]) => onTileClick?.(entry.name)}
+            style={{ cursor: "pointer" }}
+          />
+          <Scatter
+            data={neg}
+            fill="rgb(var(--neg))" fillOpacity={0.82}
+            onClick={(entry: typeof points[number]) => onTileClick?.(entry.name)}
+            style={{ cursor: "pointer" }}
+          />
+        </ScatterChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -1283,7 +1333,7 @@ function PortfolioValueChart({
 export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
   const [benchmarkFilter, setBenchmarkFilter] = useState<string | null>(null);
-  const [assetTab, setAssetTab] = useState<AssetTab>("mf");
+  const [assetTab, setAssetTab] = useState<AssetTab>("all");
   const navigate = useNavigate();
   const { setFilter } = useHoldingsFilter();
 
@@ -1406,30 +1456,7 @@ export default function PerformancePage() {
         </div>
       )}
 
-      {/* Waterfall + Top contributors */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
-        <Card className="p-5">
-          <CardLabel>Attribution waterfall</CardLabel>
-          <div className="mt-3">
-            <AttributionWaterfall breakdown={env?.breakdown} />
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <CardLabel>Top contributors</CardLabel>
-          <div className="mt-2">
-            <TopContributors breakdown={env?.breakdown} />
-          </div>
-        </Card>
-      </div>
-
-      {/* Monthly returns */}
-      <Card className="mt-5 p-5">
-        <CardLabel>Monthly returns vs benchmark</CardLabel>
-        <MonthlyReturnsGrid breakdown={env?.breakdown} />
-      </Card>
-
-      {/* Portfolio value chart — sourced from CAS monthly values */}
+      {/* 2. Portfolio value chart */}
       <Card className="mt-5 p-5">
         <CardLabel>Portfolio value</CardLabel>
         {valueHistory.isPending
@@ -1441,16 +1468,20 @@ export default function PerformancePage() {
         }
       </Card>
 
-      {/* Asset class tabs (Feature A) — filter donut + best/worst by asset class */}
+      {/* 3. Monthly returns vs benchmark */}
+      <Card className="mt-5 p-5">
+        <CardLabel>Monthly returns vs benchmark</CardLabel>
+        <MonthlyReturnsGrid breakdown={env?.breakdown} />
+      </Card>
+
+      {/* 4. Asset class tabs — ALL / MF / STOCKS / ETF / SGB — everything below is filtered by this */}
       <div className="mt-5">
-        <div className="flex gap-1 mb-4 flex-wrap" role="tablist" aria-label="Asset class filter">
+        {/* Tab row */}
+        <div className="flex gap-1 mb-5 flex-wrap" role="tablist" aria-label="Asset class filter">
           {ASSET_TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={assetTab === t.id}
+            <button key={t.id} role="tab" aria-selected={assetTab === t.id}
               onClick={() => { setAssetTab(t.id); setBenchmarkFilter(null); }}
-              className="px-3 py-1.5 rounded text-[11px] uppercase tracking-widest transition-colors"
+              className="px-3.5 py-1.5 rounded text-[11px] uppercase tracking-widest transition-colors"
               style={{
                 fontFamily: "var(--font-mono)",
                 background: assetTab === t.id ? "rgba(var(--accent),0.15)" : "rgba(var(--surface-3),0.6)",
@@ -1462,37 +1493,55 @@ export default function PerformancePage() {
           ))}
         </div>
 
-        {/* Benchmark donut + Best/Worst — filtered by selected asset tab */}
-        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5">
+        {/* 4a. Holdings composition pie (filtered by tab) */}
+        <Card className="p-5 mb-5">
+          <CardLabel>Holdings composition</CardLabel>
+          <p className="text-[10px] opacity-40 mt-0.5 mb-4" style={{ fontFamily: "var(--font-mono)" }}>
+            Current value by asset class · click a segment to drill into holdings · showing top 5 by return
+          </p>
+          {fundPerf.isPending || heatmap.isPending
+            ? <LoadingSkeleton variant="card" />
+            : <HoldingsCompositionPie
+                key={assetTab}
+                fundRatings={fundPerf.data?.fund_ratings ?? []}
+                heatmapData={heatmap.data ?? []}
+                outerTab={assetTab}
+                onHoldingClick={(name) => drillToFund(name)}
+                onPieSegmentClick={(tab) => { setAssetTab(tab); setBenchmarkFilter(null); }}
+              />
+          }
+        </Card>
+
+        {/* 4b. VS Category Benchmark + Best/Worst Performers */}
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mb-5">
           <Card className="p-5">
             <CardLabel>vs category benchmark</CardLabel>
-            <div className="mt-3">
-              {fundPerf.isPending
-                ? <LoadingSkeleton variant="list" />
-                : fundPerf.isError
-                ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
-                : (() => {
-                    const allRatings = fundPerf.data?.fund_ratings ?? [];
-                    const tabRatings = filterByTab(allRatings, assetTab);
-                    // For MF tab, use server distribution; for other tabs derive from fund_ratings
-                    const distribution = assetTab === "mf"
-                      ? (fundPerf.data?.performance_distribution ?? { overperforming: 0, meeting: 0, underperforming: 0 })
-                      : distributionFromRatings(tabRatings);
-                    return (
-                      <BenchmarkDonut
-                        distribution={distribution}
-                        onSegmentClick={(seg) => setBenchmarkFilter(benchmarkFilter === seg ? null : seg)}
-                        activeSegment={benchmarkFilter}
-                      />
-                    );
-                  })()
-              }
-            </div>
+            <p className="text-[10px] mt-1 mb-3 opacity-50 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
+              {BENCHMARK_EXPLANATION[assetTab]}
+            </p>
+            {fundPerf.isPending
+              ? <LoadingSkeleton variant="list" />
+              : fundPerf.isError
+              ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
+              : (() => {
+                  const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
+                  const distribution = (assetTab === "all" || assetTab === "mf") && fundPerf.data?.performance_distribution
+                    ? fundPerf.data.performance_distribution
+                    : distributionFromRatings(tabRatings);
+                  return (
+                    <BenchmarkDonut
+                      distribution={distribution}
+                      onSegmentClick={(seg) => setBenchmarkFilter(benchmarkFilter === seg ? null : seg)}
+                      activeSegment={benchmarkFilter}
+                    />
+                  );
+                })()
+            }
           </Card>
 
           <Card className="p-5">
             <CardLabel>
-              Best &amp; worst performers
+              Best &amp; worst performers · top 5
               {benchmarkFilter && benchmarkFilter !== "meeting" && (
                 <span className="ml-2 text-[10px] opacity-50" style={{ fontFamily: "var(--font-mono)" }}>
                   — filtered by {benchmarkFilter}
@@ -1505,11 +1554,9 @@ export default function PerformancePage() {
                 : fundPerf.isError
                 ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
                 : (() => {
-                    const allRatings = fundPerf.data?.fund_ratings ?? [];
-                    const tabRatings = filterByTab(allRatings, assetTab);
-                    // For MF tab with server-computed periods, prefer that; for other tabs derive from fund_ratings
-                    const hasByPeriod = assetTab === "mf" && !!fundPerf.data?.performers_by_period;
-                    const derivedByPeriod: PerformersByPeriod | null = hasByPeriod
+                    const tabRatings = filterByTab(fundPerf.data?.fund_ratings ?? [], assetTab);
+                    const useServerPeriods = (assetTab === "all" || assetTab === "mf") && !!fundPerf.data?.performers_by_period;
+                    const derivedByPeriod: PerformersByPeriod | null = useServerPeriods
                       ? (fundPerf.data!.performers_by_period ?? null)
                       : tabRatings.length > 0
                         ? {
@@ -1522,9 +1569,9 @@ export default function PerformancePage() {
                     return (
                       <BestWorstPerformers
                         performersByPeriod={derivedByPeriod}
-                        topPerformers={assetTab === "mf" ? (fundPerf.data?.top_performers ?? []) : []}
-                        bottomPerformers={assetTab === "mf" ? (fundPerf.data?.bottom_performers ?? []) : []}
-                        meetingPerformers={assetTab === "mf" ? (fundPerf.data?.meeting_performers ?? []) : []}
+                        topPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.top_performers ?? []) : []}
+                        bottomPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.bottom_performers ?? []) : []}
+                        meetingPerformers={(assetTab === "all" || assetTab === "mf") ? (fundPerf.data?.meeting_performers ?? []) : []}
                         activeSegment={benchmarkFilter}
                         onFundClick={(name) => name ? drillToFund(name) : navigate("/portfolio")}
                       />
@@ -1534,53 +1581,39 @@ export default function PerformancePage() {
             </div>
           </Card>
         </div>
+
+        {/* 4c. Recommendations (filtered by tab) */}
+        <Card className="p-5 mb-5">
+          <CardLabel>Recommendations</CardLabel>
+          <p className="text-[10px] opacity-40 mt-0.5 mb-4" style={{ fontFamily: "var(--font-mono)" }}>
+            Top 5 actions · powered by NIDP V3 quality + health scores
+          </p>
+          {recommendations.isPending
+            ? <LoadingSkeleton variant="card" />
+            : recommendations.isError
+            ? <p className="text-[11px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load recommendations.</p>
+            : <RecommendationsPanel data={recommendations.data} assetTabFilter={assetTab} />
+          }
+        </Card>
+
+        {/* 4d. Gain / loss distribution (filtered by tab) */}
+        <Card className="p-5">
+          <CardLabel>Gain / loss distribution</CardLabel>
+          {heatmap.isPending
+            ? <LoadingSkeleton variant="card" />
+            : <GainLossDistribution
+                heatmapData={
+                  assetTab === "all"    ? (heatmap.data ?? []) :
+                  assetTab === "stocks" ? (heatmap.data ?? []).filter((h) => h.asset_type === "equity") :
+                  assetTab === "sgb"    ? (heatmap.data ?? []).filter((h) => h.asset_type === "gold") :
+                  (heatmap.data ?? []).filter((h) => h.asset_type === assetTab)
+                }
+                isError={heatmap.isError}
+                onTileClick={(name) => drillToFund(name)}
+              />
+          }
+        </Card>
       </div>
-
-      {/* Holdings composition pie + drill-down (Feature B) */}
-      <Card className="mt-5 p-5">
-        <CardLabel>Holdings composition</CardLabel>
-        <p className="text-[10px] opacity-40 mt-0.5 mb-4" style={{ fontFamily: "var(--font-mono)" }}>
-          Current value by asset class · click a segment to drill into holdings
-        </p>
-        {fundPerf.isPending || heatmap.isPending
-          ? <LoadingSkeleton variant="card" />
-          : <HoldingsCompositionPie
-              fundRatings={fundPerf.data?.fund_ratings ?? []}
-              heatmapData={heatmap.data ?? []}
-              onHoldingClick={(name) => drillToFund(name)}
-            />
-        }
-      </Card>
-
-      {/* Recommendations — NIDP V3 scoring: Hold / Exit / Buy More / Switch */}
-      <Card className="mt-5 p-5">
-        <CardLabel>Recommendations</CardLabel>
-        <p className="text-[10px] opacity-40 mt-0.5 mb-4" style={{ fontFamily: "var(--font-mono)" }}>
-          Top 5 actions per asset class · powered by NIDP V3 quality + health scores
-        </p>
-        {recommendations.isPending
-          ? <LoadingSkeleton variant="card" />
-          : recommendations.isError
-          ? <p className="text-[11px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load recommendations.</p>
-          : <RecommendationsPanel data={recommendations.data} />
-        }
-      </Card>
-
-      {/* Performance heatmap — sourced from performance_cards in /api/portfolio/deep-analytics */}
-      <Card className="mt-5 p-5">
-        <CardLabel>Performance heatmap</CardLabel>
-        <p className="text-[10px] opacity-40 mt-0.5 mb-3" style={{ fontFamily: "var(--font-mono)" }}>
-          Tile size = current value · colour = P&amp;L % · click any tile to jump to that holding
-        </p>
-        {heatmap.isPending
-          ? <LoadingSkeleton variant="card" />
-          : <PerformanceHeatmap
-              heatmapData={heatmap.data ?? []}
-              isError={heatmap.isError}
-              onTileClick={(name) => drillToFund(name)}
-            />
-        }
-      </Card>
 
       {/* Resync error (AC-25: prior data preserved, error shown) */}
       {resyncError && (
