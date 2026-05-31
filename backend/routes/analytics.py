@@ -22,10 +22,43 @@ from deps import ai_engine
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
+_ANALYTICS_CACHE_TTL_SECONDS = 900  # 15 minutes
+
+
+async def _get_analytics_cache(user_id: str, portfolio_id: str) -> dict | None:
+    """Return cached analytics payload if fresher than TTL, else None."""
+    key = f"{user_id}:{portfolio_id or 'all'}"
+    doc = await db.portfolio_analytics_cache.find_one({"cache_key": key}, {"_id": 0})
+    if not doc:
+        return None
+    age = (datetime.now(timezone.utc) - doc["computed_at"].replace(tzinfo=timezone.utc)).total_seconds()
+    if age > _ANALYTICS_CACHE_TTL_SECONDS:
+        return None
+    return doc.get("payload")
+
+
+async def _set_analytics_cache(user_id: str, portfolio_id: str, payload: dict) -> None:
+    key = f"{user_id}:{portfolio_id or 'all'}"
+    await db.portfolio_analytics_cache.update_one(
+        {"cache_key": key},
+        {"$set": {"cache_key": key, "payload": payload, "computed_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+
 
 @router.get("/portfolio/analytics")
-async def get_analytics(request: Request, portfolio_id: str = ""):
+async def get_analytics(request: Request, portfolio_id: str = "", force_refresh: bool = False):
     user = await get_current_user(request)
+
+    # ── Cache hit ────────────────────────────────────────────────────────────
+    if not force_refresh:
+        cached = await _get_analytics_cache(user["user_id"], portfolio_id)
+        if cached is not None:
+            logger.info("analytics cache HIT for user %s", user["user_id"])
+            return cached
+    logger.info("analytics cache MISS for user %s — recomputing", user["user_id"])
+    # ── Cache miss — compute below ────────────────────────────────────────────
+
     query = {"user_id": user["user_id"]}
     if portfolio_id:
         query["portfolio_id"] = portfolio_id
@@ -250,7 +283,7 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
             "risk_drivers": [], "components": {},
         }
 
-    return {
+    result = {
         "total_invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
         "total_returns": round(total_returns, 2),
@@ -272,6 +305,14 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
         "risk_analysis": compute_risk_analysis(holdings, current_value),
         "recommendations": generate_recommendations(holdings, current_value, total_invested),
     }
+
+    # Store in MongoDB cache for subsequent requests
+    try:
+        await _set_analytics_cache(user["user_id"], portfolio_id, result)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to write analytics cache for %s: %s", user["user_id"], e)
+
+    return result
 
 
 @router.post("/portfolio/refresh-prices")
@@ -301,6 +342,12 @@ async def refresh_equity_prices(request: Request):
                     "nse_symbol": h.get("nse_symbol", ""),
                 }}
             )
+
+    # Invalidate analytics cache so next load picks up fresh prices
+    try:
+        await db.portfolio_analytics_cache.delete_many({"cache_key": {"$regex": f"^{uid}:"}})
+    except Exception as e:  # noqa: BLE001
+        logger.warning("analytics cache invalidation failed: %s", e)
 
     # Fire-and-forget enrichment (Groww stock fundamentals + inline MF scrape).
     # Redis cache (6h / 30d respectively) makes repeat refreshes near-free.

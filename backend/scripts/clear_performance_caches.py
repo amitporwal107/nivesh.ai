@@ -34,10 +34,13 @@ async def clear() -> dict:
         try:
             from motor.motor_asyncio import AsyncIOMotorClient
             client = AsyncIOMotorClient(mongo_uri)
-            r = await client[db_name].fund_performance_cache.delete_many({})
-            results["mongo_fund_performance_cache"] = r.deleted_count
+            r1 = await client[db_name].fund_performance_cache.delete_many({})
+            r2 = await client[db_name].portfolio_analytics_cache.delete_many({})
+            results["mongo_fund_performance_cache"] = r1.deleted_count
+            results["mongo_portfolio_analytics_cache"] = r2.deleted_count
             client.close()
-            logger.info("mongo fund_performance_cache cleared: %d docs", r.deleted_count)
+            logger.info("mongo fund_performance_cache cleared: %d docs", r1.deleted_count)
+            logger.info("mongo portfolio_analytics_cache cleared: %d docs", r2.deleted_count)
         except Exception as e:
             results["mongo_error"] = str(e)
             logger.error("mongo clear failed: %s", e)
