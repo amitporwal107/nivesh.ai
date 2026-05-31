@@ -234,17 +234,56 @@ function filterByTab(ratings: FundRating[], tab: AssetTab): FundRating[] {
   return ratings.filter((r) => ratingToTab(r) === tab);
 }
 
+/**
+ * Consolidate multiple folio-rows for the same fund into one row.
+ * Invested and current_value are summed; returns are investment-weighted averages.
+ * This gives one truthful view per fund regardless of how many folios a user holds.
+ */
+function consolidateByName(ratings: FundRating[]): FundRating[] {
+  const groups = new Map<string, FundRating[]>();
+  for (const r of ratings) {
+    const list = groups.get(r.name) ?? [];
+    list.push(r);
+    groups.set(r.name, list);
+  }
+
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+
+    const totalInvested = group.reduce((s, r) => s + (r.invested ?? 0), 0);
+    const totalCurrent  = group.reduce((s, r) => s + (r.current_value ?? 0), 0);
+    const blendedReturn = totalInvested > 0
+      ? parseFloat((((totalCurrent - totalInvested) / totalInvested) * 100).toFixed(2))
+      : null;
+
+    function weightedAvg(field: keyof FundRating): number | null {
+      const valid = group.filter((r) => (r[field] as number | null) != null);
+      if (valid.length === 0) return null;
+      const totalW = valid.reduce((s, r) => s + (r.invested ?? 1), 0) || 1;
+      const sum = valid.reduce((s, r) => s + ((r[field] as number) * (r.invested ?? 1)), 0);
+      return parseFloat((sum / totalW).toFixed(2));
+    }
+
+    return {
+      ...group[0],
+      invested:          totalInvested,
+      current_value:     totalCurrent,
+      simple_return_pct: blendedReturn,
+      return_1y:  weightedAvg("return_1y"),
+      return_3m:  weightedAvg("return_3m"),
+      return_1m:  weightedAvg("return_1m"),
+      return_3y:  weightedAvg("return_3y"),
+      xirr_pct:   weightedAvg("xirr_pct"),
+    };
+  });
+}
+
 /** Derive BenchmarkDistribution counts from fund_ratings for a given tab.
  *  ETFs carry rating="etf_equity" — reclassify them by actual return vs benchmark. */
 function distributionFromRatings(ratings: FundRating[]) {
-  // Deduplicate by name first — same fund in multiple folios should count once
-  const uniqueByName = new Map<string, FundRating>();
-  for (const r of ratings) {
-    if (!uniqueByName.has(r.name)) uniqueByName.set(r.name, r);
-  }
-
+  const consolidated = consolidateByName(ratings);
   let overperforming = 0, meeting = 0, underperforming = 0;
-  for (const r of uniqueByName.values()) {
+  for (const r of consolidated) {
     let effectiveRating = r.rating;
     if (effectiveRating === "etf_equity") {
       const ret = r.return_1y ?? r.simple_return_pct;
@@ -270,18 +309,9 @@ function performersFromRatings(ratings: FundRating[], period: "inception" | "1Y"
     "1M": "return_1m",
   };
   const field = fieldMap[period] as keyof FundRating;
-  const withData = ratings.filter((r) => (r[field] as number | null) != null);
 
-  // Deduplicate by name — same fund in multiple folios; keep the row with the
-  // highest return for top-performers and the worst for bottom-performers.
-  const byName = new Map<string, FundRating>();
-  for (const r of withData) {
-    const existing = byName.get(r.name);
-    const rv = r[field] as number;
-    const ev = existing ? (existing[field] as number) : null;
-    if (!existing || ev === null || rv > ev) byName.set(r.name, r);
-  }
-  const unique = [...byName.values()];
+  // Consolidate folios first, then filter to rows that have data for this period
+  const unique = consolidateByName(ratings).filter((r) => (r[field] as number | null) != null);
 
   const sorted = [...unique].sort((a, b) => ((b[field] as number) ?? 0) - ((a[field] as number) ?? 0));
   return {
@@ -882,7 +912,9 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
     </div>
   );
 
-  // Drill-down data — driven by outerTab
+  // Drill-down data — driven by outerTab.
+  // MF/ETF rows are consolidated across folios so each fund shows one row
+  // with summed values and blended returns.
   const tabRatings = filterByTab(fundRatings, outerTab);
 
   const drillData: FundRating[] = outerTab === "stocks"
@@ -910,7 +942,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
           rating:             "no_data",
           asset_type:         t.asset_type,
         }))
-    : tabRatings;
+    : consolidateByName(tabRatings);
 
   // Sorting
   const sorted = [...drillData].sort((a, b) => {
