@@ -26,9 +26,12 @@ logger = logging.getLogger("clear_performance_caches")
 async def clear() -> dict:
     results: dict = {}
 
-    mongo_uri = os.environ.get("MONGODB_URL", "")
+    mongo_uri = os.environ.get("MONGO_URL") or os.environ.get("MONGODB_URL", "")
     pg_dsn    = os.environ.get("DATABASE_URL", "")
-    db_name   = os.environ.get("MONGO_DB_NAME", "nivesh")
+    # db name embedded in URI after last slash, before any query string
+    db_name   = os.environ.get("MONGO_DB_NAME") or (
+        mongo_uri.rsplit("/", 1)[-1].split("?")[0] if mongo_uri else "nivesh"
+    )
 
     if mongo_uri:
         try:
