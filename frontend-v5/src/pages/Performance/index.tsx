@@ -917,6 +917,8 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
   // with summed values and blended returns.
   const tabRatings = filterByTab(fundRatings, outerTab);
 
+  const rawFolioCount = (outerTab !== "stocks" && outerTab !== "sgb") ? tabRatings.length : 0;
+
   const drillData: FundRating[] = outerTab === "stocks"
     ? heatmapData
         .filter((t) => (t.asset_type ?? "").toLowerCase() === "equity")
@@ -943,6 +945,9 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
           asset_type:         t.asset_type,
         }))
     : consolidateByName(tabRatings);
+
+  // How many folios were merged — only meaningful for MF/ETF
+  const mergedFolioCount = rawFolioCount - drillData.length;
 
   // Sorting
   const sorted = [...drillData].sort((a, b) => {
@@ -1065,6 +1070,28 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
 
       {/* Drill-down — always visible, driven by outerTab */}
       <div className="mt-5 border-t pt-4" style={{ borderColor: "rgba(var(--line),0.08)" }}>
+
+        {/* Consolidation info banner — shown when folios were merged */}
+        {mergedFolioCount > 0 && (
+          <div className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg"
+            style={{ background: "rgba(var(--accent),0.07)", border: "1px solid rgba(var(--accent),0.18)" }}>
+            <svg width={13} height={13} viewBox="0 0 13 13" fill="none" className="shrink-0 mt-0.5"
+              aria-hidden="true">
+              <circle cx={6.5} cy={6.5} r={6} stroke="rgb(var(--accent))" strokeWidth={1.2} />
+              <path d="M6.5 5.5v4M6.5 4h.01" stroke="rgb(var(--accent))" strokeWidth={1.3}
+                strokeLinecap="round" />
+            </svg>
+            <p className="text-[11px] leading-relaxed" style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--accent))" }}>
+              Showing <strong>{drillData.length} consolidated funds</strong> from{" "}
+              <strong>{rawFolioCount} total folios</strong>.{" "}
+              {mergedFolioCount} folio{mergedFolioCount > 1 ? "s were" : " was"} merged —
+              this happens when you purchase the same fund across different folios
+              (e.g. regular SIP + lump sum, or different AMC platforms).
+              Values and returns shown are the combined total.
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <span className="text-[11px] uppercase tracking-widest opacity-50 mr-1"
             style={{ fontFamily: "var(--font-mono)" }}>
