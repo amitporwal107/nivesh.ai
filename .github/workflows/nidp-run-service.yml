@@ -1,0 +1,83 @@
+name: NIDP — Run service manually
+
+# Manually trigger any NIDP cron service on the prod VM.
+# Useful for backfills, testing after a code fix, or recovering a missed run.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to run (e.g. bhavcopy, snapshot_builder, v3_scores_engine)'
+        type: string
+        required: true
+      args:
+        description: 'Extra args passed to run_service.sh (optional, e.g. --backfill=30)'
+        type: string
+        default: ''
+      environment:
+        description: 'Target environment'
+        type: choice
+        options:
+          - prod
+          - staging
+        default: prod
+
+jobs:
+  run:
+    name: Run ${{ github.event.inputs.service }} [${{ github.event.inputs.environment }}]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run service on VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ github.event.inputs.environment == 'staging' && secrets.NIDP_VM_HOST || secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  60m
+          script: |
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-run]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-run]\033[0m ✅ %s\n' "$*"; }
+
+            SERVICE="${{ github.event.inputs.service }}"
+            ARGS="${{ github.event.inputs.args }}"
+            ENV="${{ github.event.inputs.environment }}"
+
+            if [[ "$ENV" == "staging" ]]; then
+              REPO=/opt/nidp/dev-repo/nivesh.ai
+              NIDP_HOME=/opt/nidp-staging
+              ENV_FILE=$NIDP_HOME/nidp.env
+              VENV=$NIDP_HOME/venv
+              RUN_USER=nidp-staging
+            else
+              REPO=/opt/nidp/repo
+              NIDP_HOME=/opt/nidp
+              ENV_FILE=$NIDP_HOME/nidp.env
+              VENV=$NIDP_HOME/venv
+              RUN_USER=nidp
+            fi
+
+            log "=== Manual service run ==="
+            log "    Service     : $SERVICE"
+            log "    Args        : ${ARGS:-<none>}"
+            log "    Environment : $ENV"
+            log "    Triggered by: ${{ github.actor }}"
+            log "    Commit      : ${{ github.sha }}"
+            echo ""
+
+            # Validate the service directory exists
+            SVC_PATH="$REPO/backend/nidp/services/$SERVICE"
+            # Strip sub-service suffix (e.g. nse_financials.bank_npa_patch → nse_financials)
+            BASE_SVC="${SERVICE%%.*}"
+            if [[ ! -d "$REPO/backend/nidp/services/$BASE_SVC" ]]; then
+              echo "::error::Service directory not found: $REPO/backend/nidp/services/$BASE_SVC"
+              exit 1
+            fi
+
+            log "Running $SERVICE via run_service.sh ..."
+            sudo -u "$RUN_USER" \
+              /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh "$SERVICE" $ARGS
+
+            ok "Service run complete."

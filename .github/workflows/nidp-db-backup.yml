@@ -1,0 +1,122 @@
+name: NIDP — Database backup to GCS
+
+# Daily pg_dump of the NIDP TimescaleDB to GCS.
+# Keeps 30 days of backups. Also runnable on demand.
+#
+# Required secrets:
+#   DEVOPS_SSH_KEY    Ed25519 private key
+#   DEVOPS_SSH_USER   SA OS Login username
+#   NIDP_VM_HOST      IP of nidp-stack-vm
+#   GCS_BACKUP_BUCKET GCS bucket name (e.g. nidp-raw-niveshdataintelligence)
+on:
+  schedule:
+    # 02:30 IST daily = 21:00 UTC (after all nightly cron jobs finish)
+    - cron: '0 21 * * *'
+
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Days of backups to keep (default: 30)'
+        type: string
+        default: '30'
+
+concurrency:
+  group: nidp-db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Backup NIDP TimescaleDB → GCS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run pg_dump on VM and upload to GCS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:             ${{ secrets.NIDP_VM_HOST }}
+          username:         ${{ secrets.DEVOPS_SSH_USER }}
+          key:              ${{ secrets.DEVOPS_SSH_KEY }}
+          port:             22
+          timeout:          5m
+          command_timeout:  120m
+          script: |
+            set -euo pipefail
+            log() { printf '\033[1;36m[nidp-backup]\033[0m %s\n' "$*"; }
+            ok()  { printf '\033[1;32m[nidp-backup]\033[0m ✅ %s\n' "$*"; }
+
+            BUCKET="${{ secrets.GCS_BACKUP_BUCKET }}"
+            RETENTION="${{ github.event.inputs.retention_days || '30' }}"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            BACKUP_FILE="nidp_backup_${TIMESTAMP}.dump"
+            BACKUP_PATH="/tmp/$BACKUP_FILE"
+
+            # Load DB credentials from nidp.env
+            set -a; source /opt/nidp/nidp.env; set +a
+
+            log "=== NIDP database backup ==="
+            log "    Timestamp : $TIMESTAMP"
+            log "    Bucket    : gs://$BUCKET/nidp-backups/"
+            log "    Retention : ${RETENTION} days"
+
+            # pg_dump in custom format (compressed, parallel-restore capable)
+            log "Running pg_dump (custom format) ..."
+            docker exec nidp-postgres pg_dump \
+              -U nidp \
+              -d nidp \
+              -Fc \
+              --no-password \
+              -f "/tmp/$BACKUP_FILE" \
+              2>&1 || {
+                # Fallback: pg_dump directly via socket if Docker not accessible
+                log "Docker fallback — trying pg_dump via localhost:5433"
+                PGPASSWORD=$(echo "$NIDP_POSTGRES_URL" | python3 -c \
+                  "import sys,re; m=re.search(r':([^@]+)@',sys.stdin.read()); print(m.group(1) if m else '')") \
+                pg_dump -h localhost -p 5433 -U nidp -d nidp -Fc -f "$BACKUP_PATH"
+              }
+
+            BACKUP_SIZE=$(du -sh "$BACKUP_PATH" | cut -f1)
+            ok "Dump complete — size: $BACKUP_SIZE"
+
+            # Upload to GCS
+            log "Uploading to gs://$BUCKET/nidp-backups/$BACKUP_FILE ..."
+            gcloud storage cp "$BACKUP_PATH" "gs://$BUCKET/nidp-backups/$BACKUP_FILE" \
+              --project=niveshdataintelligence
+            ok "Uploaded: gs://$BUCKET/nidp-backups/$BACKUP_FILE"
+
+            # Clean up local dump file
+            rm -f "$BACKUP_PATH"
+
+            # Prune backups older than retention window
+            log "Pruning backups older than ${RETENTION} days ..."
+            CUTOFF=$(date -d "-${RETENTION} days" +%Y%m%d 2>/dev/null || \
+                     date -v -${RETENTION}d +%Y%m%d)  # Linux / macOS
+
+            gcloud storage ls "gs://$BUCKET/nidp-backups/" \
+              --project=niveshdataintelligence 2>/dev/null \
+              | grep 'nidp_backup_' \
+              | while read -r object; do
+                  # Extract date from filename: nidp_backup_YYYYMMDD_HHMMSS.dump
+                  file_date=$(basename "$object" | grep -oP '\d{8}' | head -1)
+                  if [[ -n "$file_date" && "$file_date" < "$CUTOFF" ]]; then
+                    gcloud storage rm "$object" --project=niveshdataintelligence
+                    log "  deleted old backup: $object"
+                  fi
+                done || log "No old backups to prune"
+
+            ok "Backup complete."
+
+      - name: Verify backup exists in GCS
+        run: |
+          echo "Verifying backup was uploaded..."
+          TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
+          if [[ -z "$TOKEN" ]]; then
+            echo "::warning::Cannot verify GCS backup from runner (no gcloud auth) — check GCS bucket manually"
+            exit 0
+          fi
+          BUCKET="${{ secrets.GCS_BACKUP_BUCKET }}"
+          COUNT=$(gsutil ls "gs://$BUCKET/nidp-backups/nidp_backup_$(date +%Y%m%d)*" 2>/dev/null | wc -l)
+          if [[ "$COUNT" -gt 0 ]]; then
+            echo "✅ Backup verified in GCS ($COUNT file(s) for today)"
+          else
+            echo "::warning::Could not verify today's backup in GCS"
+          fi
