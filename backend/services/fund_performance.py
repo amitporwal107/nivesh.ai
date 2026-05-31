@@ -16,6 +16,62 @@ _perf_cache = {}
 _perf_cache_ts = 0
 PERF_CACHE_TTL = 7200  # 2 hours
 
+# Keywords that must appear in a mfapi.in scheme_category when the fund name
+# contains the corresponding trigger word. Prevents a name-prefix match from
+# silently landing on a completely different fund type.
+# Format: (fund_name_keyword_lower, required_category_keyword_lower)
+_CATEGORY_CONSISTENCY_RULES: list[tuple[str, str]] = [
+    ("gold",        "gold"),
+    ("silver",      "silver"),
+    ("liquid",      "liquid"),
+    ("overnight",   "overnight"),
+    ("gilt",        "gilt"),
+    ("arbitrage",   "arbitrage"),
+    ("index",       "index"),
+    ("nifty",       "index"),
+    ("sensex",      "index"),
+    ("etf",         "etf"),
+    ("small cap",   "small"),
+    ("mid cap",     "mid"),
+    ("large cap",   "large"),
+    ("flexi cap",   "flexi"),
+    ("multi asset", "multi"),
+    ("hybrid",      "hybrid"),
+    # "balanced" intentionally omitted — "Balanced Advantage" funds map to
+    # "Dynamic Asset Allocation" in mfapi.in, not "balanced"; rule would reject valid matches.
+    ("elss",        "elss"),
+    ("tax saver",   "elss"),
+    ("debt",        "debt"),
+    ("credit risk", "credit"),
+    ("banking and financial", "banking"),
+    ("psu",         "psu"),
+    ("pharma",      "pharma"),
+    ("technology",  "technology"),
+    ("fmcg",        "fmcg"),
+    ("infrastructure", "infra"),
+    ("energy",      "energy"),
+    ("international", "international"),
+    ("global",      "international"),
+    ("us equity",   "international"),
+    ("nasdaq",      "international"),
+    ("fang",        "international"),
+]
+
+
+def _scheme_category_consistent(fund_name: str, matched_category: str) -> bool:
+    """Return False when a fund name contains a strong type signal that contradicts
+    the scheme's category from mfapi.in.  True = match is plausible; False = reject.
+
+    Only fires when a rule explicitly conflicts — ambiguous names pass through.
+    """
+    name_lower = fund_name.lower()
+    for name_kw, cat_kw in _CATEGORY_CONSISTENCY_RULES:
+        if name_kw in name_lower:
+            # Fund name contains this keyword — the matched category must also contain it
+            if cat_kw not in matched_category:
+                return False
+    return True
+
 
 def _nav_return(current_nav: float, nav_data: list, days: int, trading_day_approx: int) -> Optional[float]:
     """Return % gain from `days` ago to today using the NAV history list (newest first).
@@ -102,14 +158,77 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         "summary": {...}
     }
     """
-    mf_holdings = [h for h in holdings if h.get("asset_type") == "mutual_fund"]
+    # ETFs are equity instruments that trade on NSE/BSE — they live in security_master
+    # and prices_eod, NOT in mf_scheme_master or mf_nav_daily.  Holdings tagged
+    # asset_type="etf" come from the equity price pipeline and must not enter the MF
+    # performance path (which would attempt a scheme-code lookup that always fails for ETFs).
+    #
+    # Holdings still tagged asset_type="mutual_fund" that are actually ETFs (common when
+    # the CAS importer hasn't re-classified them yet) are detected via the nav_cache
+    # is_etf flag set by amfi_nav._is_etf_scheme().  Those are excluded here and returned
+    # as simple-return rows (buy_price → current_price) until the reclassification backfill runs.
+    def _holding_is_etf(h: dict, nav_cache: dict) -> bool:
+        if (h.get("asset_type") or "").lower() == "etf":
+            return True
+        isin = (h.get("ticker") or "").upper().strip()
+        if isin and nav_cache.get(isin, {}).get("is_etf"):
+            return True
+        name_upper = (h.get("name") or "").upper()
+        return any(m in name_upper for m in ("ETF", "EXCHANGE TRADED FUND", "BEES FUND"))
 
-    if not mf_holdings:
+    true_mf_holdings = [h for h in holdings
+                        if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")
+                        and not _holding_is_etf(h, nav_cache)]
+    etf_holdings     = [h for h in holdings
+                        if (h.get("asset_type") or "").lower() in ("mutual_fund", "etf")
+                        and _holding_is_etf(h, nav_cache)]
+
+    # Build simple ETF ratings using buy_price → current_price (equity return).
+    # These appear in fund_ratings with rating="etf_equity" so the frontend can
+    # label them correctly ("ETF — equity instrument") rather than vs category benchmark.
+    etf_ratings: list[dict] = []
+    for h in etf_holdings:
+        invested = h.get("quantity", 0) * h.get("buy_price", 0)
+        current  = h.get("quantity", 0) * h.get("current_price", 0)
+        simple   = round(((current - invested) / invested * 100), 2) if invested > 0 else 0
+        etf_ratings.append({
+            "name":              (h.get("name") or "")[:60],
+            "ticker":            (h.get("ticker") or ""),
+            "sector":            h.get("sector", "Other"),
+            "invested":          round(invested, 2),
+            "current_value":     round(current, 2),
+            "simple_return_pct": simple,
+            "return_1m":         None,  # ETF period returns need prices_eod — TODO wire DaaS stock endpoint
+            "return_3m":         None,
+            "return_1y":         None,
+            "return_3y":         None,
+            "benchmark_return":  None,
+            "benchmark_name":    "NSE — equity instrument",
+            "alpha":             None,
+            "rating":            "etf_equity",
+            "scheme_category":   "ETF",
+            "scheme_code":       None,
+        })
+    logger.info("fund_performance: %d ETF holdings separated from MF pipeline", len(etf_holdings))
+
+    mf_holdings = true_mf_holdings
+    if not mf_holdings and not etf_ratings:
         return {
             "fund_ratings": [],
             "performance_distribution": {"overperforming": 0, "meeting": 0, "underperforming": 0},
             "category_overlap": [],
             "summary": {},
+        }
+    if not mf_holdings:
+        # All holdings were ETFs — return them directly
+        return {
+            "fund_ratings": etf_ratings,
+            "performance_distribution": {"overperforming": 0, "meeting": 0, "underperforming": 0, "no_data": len(etf_ratings)},
+            "top_performers": [], "bottom_performers": [], "meeting_performers": [],
+            "performers_by_period": {"inception": {"top": [], "bottom": []}, "1Y": {"top": [], "bottom": []}, "3M": {"top": [], "bottom": []}, "1M": {"top": [], "bottom": []}},
+            "category_overlap": [],
+            "total_uplift_per_year_rs": 0,
+            "summary": {"total_mf": 0, "matched": 0, "categories": 0, "category_averages": {}},
         }
 
     # Step 1: Fetch DaaS primitives by ISIN — correct, ISIN-based matching.
@@ -147,15 +266,24 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             name_lower = name.lower().replace(" - ", " ").replace("  ", " ").strip()
             if name_lower in nav_cache:
                 entry = nav_cache[name_lower]
-            else:
-                for key, val in nav_cache.items():
-                    if isinstance(key, str) and not key.startswith("INF"):
-                        if name_lower[:25] in key:
-                            entry = val
-                            break
+            # Fuzzy 25-char substring match intentionally removed.
+            # That pattern silently matched wrong funds (e.g. Gold ETF → banking fund)
+            # and produced plausible-but-wrong returns with no error signal.
+            # Rule: if ISIN lookup and exact-name lookup both fail → no_data.
+            # This is correct; users see "—" instead of a subtly wrong return.
 
         if entry and entry.get("scheme_code"):
-            scheme_code_map[name] = entry["scheme_code"]
+            # Category-consistency guard: reject the match if the scheme's category
+            # contradicts the fund name. Catches cases where a name prefix matches
+            # a completely different fund type (the Gold ETF / banking fund scenario).
+            matched_cat = (entry.get("scheme_category") or "").lower()
+            if _scheme_category_consistent(name, matched_cat):
+                scheme_code_map[name] = entry["scheme_code"]
+            else:
+                logger.warning(
+                    "mfapi match rejected (category mismatch): fund=%r matched_cat=%r",
+                    name[:50], matched_cat,
+                )
 
     # Fetch mfapi.in data only for the fallback set
     scheme_data = {}
@@ -364,13 +492,18 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         reverse=True,
     )
 
+    # Merge ETF holdings back into fund_ratings (at the end — they don't affect
+    # MF benchmarking or category counts, but must appear in the full list).
+    all_ratings = fund_ratings + etf_ratings
+
     return {
-        "fund_ratings": fund_ratings,
+        "fund_ratings": all_ratings,
         "performance_distribution": {
             "overperforming": over_count,
             "meeting": meet_count,
             "underperforming": under_count,
             "no_data": len(mf_holdings) - over_count - meet_count - under_count,
+            "etf": len(etf_ratings),
         },
         # Legacy fields (kept for backward compat — 1Y view)
         "top_performers":     [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in best[:5]],

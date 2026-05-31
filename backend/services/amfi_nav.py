@@ -14,6 +14,19 @@ _nav_cache = {}
 _cache_timestamp = 0
 CACHE_TTL = 3600  # 1 hour
 
+# ETF detection: AMFI NAVAll.txt includes ETFs (Gold ETF, Nifty ETF, Bank ETF, etc.)
+# because SEBI requires AMFI to publish their iNAV. However ETFs are equity instruments
+# that trade on NSE/BSE — their prices come from prices_eod (security_master), not
+# from AMFI NAV. Any holding matching an ETF scheme must use the equity price path.
+# Substring matching on scheme_name is sufficient — AMFI always includes "ETF" in the name.
+_ETF_NAME_MARKERS = ("ETF", "EXCHANGE TRADED FUND", " BEES", " BEES ")
+
+
+def _is_etf_scheme(scheme_name: str) -> bool:
+    """Return True if the AMFI scheme is an ETF (not a regular mutual fund)."""
+    name_upper = scheme_name.upper()
+    return any(marker in name_upper for marker in _ETF_NAME_MARKERS)
+
 
 async def fetch_nav_data() -> dict:
     """Fetch and parse all NAV data from AMFI. Returns dict keyed by ISIN and scheme name."""
@@ -54,6 +67,9 @@ async def fetch_nav_data() -> dict:
                     "date": nav_date,
                     "isin_growth": isin_growth,
                     "isin_reinvest": isin_reinvest,
+                    # ETF flag — callers must route ETF ISINs to the equity price
+                    # pipeline (security_master → prices_eod), not to MF NAV logic.
+                    "is_etf": _is_etf_scheme(scheme_name),
                 }
 
                 # Key by ISIN (both growth and reinvest)
