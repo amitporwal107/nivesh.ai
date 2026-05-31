@@ -19,7 +19,7 @@ export const StatTileC = z.object({
   label: z.string(),
   value: z.union([z.number(), z.string()]).optional(),
   unit: z.string().optional(),
-  sub: z.string().optional(),
+  sub: z.string().nullish(),
   tone: z.enum(["good", "warm", "neg", "info", "default"]).or(z.string()).optional(),
 }).passthrough();
 

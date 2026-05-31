@@ -396,7 +396,7 @@ async def _performance_composite(user_id: str, period: str) -> dict[str, Any]:
             {
                 "label": "XIRR",
                 "value": f"{xirr:.1f}%" if xirr is not None else "—",
-                "sub": f"Benchmark {bm_xirr:.1f}%" if bm_xirr is not None else None,
+                **( {"sub": f"Benchmark {bm_xirr:.1f}%"} if bm_xirr is not None else {} ),
                 "tone": tone,
             },
             {
@@ -407,7 +407,7 @@ async def _performance_composite(user_id: str, period: str) -> dict[str, Any]:
             {
                 "label": "Sharpe",
                 "value": f"{sharpe:.2f}" if sharpe is not None else "—",
-                "sub": sharpe_marker,
+                **( {"sub": sharpe_marker} if sharpe_marker is not None else {} ),
                 "tone": "moss" if (sharpe or 0) >= 1.0 else "saffron",
             },
             {
