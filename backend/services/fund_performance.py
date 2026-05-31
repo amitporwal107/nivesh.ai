@@ -168,12 +168,16 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
     # is_etf flag set by amfi_nav._is_etf_scheme().  Those are excluded here and returned
     # as simple-return rows (buy_price → current_price) until the reclassification backfill runs.
     def _holding_is_etf(h: dict, nav_cache: dict) -> bool:
+        # Fund of Funds that invest IN ETFs are mutual funds, not ETFs themselves.
+        # "Mirae Asset NYSE FANG+ ETF Fund of Fund" → MF, stays in MF pipeline.
+        name_upper = (h.get("name") or "").upper()
+        if "FUND OF FUND" in name_upper or " FOF" in name_upper:
+            return False
         if (h.get("asset_type") or "").lower() == "etf":
             return True
         isin = (h.get("ticker") or "").upper().strip()
         if isin and nav_cache.get(isin, {}).get("is_etf"):
             return True
-        name_upper = (h.get("name") or "").upper()
         return any(m in name_upper for m in ("ETF", "EXCHANGE TRADED FUND", "BEES FUND"))
 
     true_mf_holdings = [h for h in holdings

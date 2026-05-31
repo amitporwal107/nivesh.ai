@@ -23,8 +23,17 @@ _ETF_NAME_MARKERS = ("ETF", "EXCHANGE TRADED FUND", " BEES", " BEES ")
 
 
 def _is_etf_scheme(scheme_name: str) -> bool:
-    """Return True if the AMFI scheme is an ETF (not a regular mutual fund)."""
+    """Return True if the AMFI scheme is a true ETF equity instrument.
+
+    A Fund of Funds (FoF) that *invests in* ETFs is still a mutual fund —
+    it has AMFI NAV, AMFI ISIN, and belongs in the MF benchmark pipeline.
+    e.g. "Mirae Asset NYSE FANG+ ETF Fund of Fund" → MF, NOT an ETF.
+    Only schemes that ARE the exchange-traded instrument itself are ETFs.
+    """
     name_upper = scheme_name.upper()
+    # FoF schemes contain "FUND OF FUND" — exclude them regardless of other keywords
+    if "FUND OF FUND" in name_upper or "FOF" in name_upper:
+        return False
     return any(marker in name_upper for marker in _ETF_NAME_MARKERS)
 
 
