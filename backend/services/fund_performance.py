@@ -420,6 +420,52 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
 
         fund_ratings.append(rating)
 
+    # Consolidate multiple folios of the same fund into one row.
+    # invested + current_value are summed; period returns are investment-weighted
+    # averages. This ensures the same fund purchased across different folios
+    # (regular SIP + lump sum, different platforms) appears only once.
+    def _consolidate_folios(ratings: list) -> list:
+        groups: dict = {}
+        for r in ratings:
+            groups.setdefault(r["name"], []).append(r)
+        consolidated = []
+        for name, group in groups.items():
+            if len(group) == 1:
+                consolidated.append(group[0])
+                continue
+            total_inv = sum(g["invested"] for g in group)
+            total_cur = sum(g["current_value"] for g in group)
+            blended_simple = round(((total_cur - total_inv) / total_inv * 100), 2) if total_inv > 0 else 0
+
+            def _wavg(field: str) -> "float | None":
+                valid = [(g[field], g["invested"]) for g in group if g.get(field) is not None]
+                if not valid:
+                    return None
+                total_w = sum(w for _, w in valid) or 1
+                return round(sum(v * w for v, w in valid) / total_w, 2)
+
+            # Consolidated rating: use the most common rating; ties go to the worse one
+            rating_order_local = {"underperforming": 0, "no_data": 1, "meeting": 2, "overperforming": 3}
+            worst_rating = min(group, key=lambda g: rating_order_local.get(g["rating"], 1))["rating"]
+
+            merged = {
+                **group[0],
+                "invested":          round(total_inv, 2),
+                "current_value":     round(total_cur, 2),
+                "simple_return_pct": blended_simple,
+                "return_1m":  _wavg("return_1m"),
+                "return_3m":  _wavg("return_3m"),
+                "return_1y":  _wavg("return_1y"),
+                "return_3y":  _wavg("return_3y"),
+                "xirr_pct":   _wavg("xirr_pct"),
+                "alpha":      _wavg("alpha"),
+                "rating":     worst_rating,
+            }
+            consolidated.append(merged)
+        return consolidated
+
+    fund_ratings = _consolidate_folios(fund_ratings)
+
     # Sort: overperforming first, then meeting, then underperforming; no_data last
     # Use -infinity as secondary key for no_data so None-return funds sort to bottom
     rating_order = {"overperforming": 0, "meeting": 1, "underperforming": 2, "no_data": 3}
