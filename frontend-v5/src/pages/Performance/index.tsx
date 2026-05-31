@@ -31,6 +31,7 @@ function useFundPerformance() {
         performance_distribution?: { overperforming: number; meeting: number; underperforming: number };
         top_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
         bottom_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
+        meeting_performers?: Array<{ name: string; return_1y: number | null; rating: string }>;
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -418,23 +419,27 @@ function BenchmarkDonut({
 function BestWorstPerformers({
   topPerformers,
   bottomPerformers,
+  meetingPerformers = [],
   activeSegment,
   onFundClick,
 }: {
   topPerformers: Array<{ name: string; return_1y: number | null }>;
   bottomPerformers: Array<{ name: string; return_1y: number | null }>;
+  meetingPerformers?: Array<{ name: string; return_1y: number | null }>;
   activeSegment?: string | null;
   onFundClick?: (name: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
 
   // When a donut segment is active, show only that group
-  const showTop    = !activeSegment || activeSegment === "overperforming";
+  const showTop     = !activeSegment || activeSegment === "overperforming";
+  const showMeeting = activeSegment === "meeting";
   const showBottom = !activeSegment || activeSegment === "underperforming";
 
-  const top    = showAll ? topPerformers    : topPerformers.slice(0, 4);
-  const bottom = showAll ? bottomPerformers : bottomPerformers.slice(0, 4);
-  const hasMore = topPerformers.length > 4 || bottomPerformers.length > 4;
+  const top     = showAll ? topPerformers     : topPerformers.slice(0, 4);
+  const bottom  = showAll ? bottomPerformers  : bottomPerformers.slice(0, 4);
+  const meeting = showAll ? meetingPerformers : meetingPerformers.slice(0, 6);
+  const hasMore = topPerformers.length > 4 || bottomPerformers.length > 4 || meetingPerformers.length > 6;
 
   function FundRow({ fund, positive }: { fund: { name: string; return_1y: number | null }; positive: boolean }) {
     const ret = fund.return_1y;
@@ -463,13 +468,7 @@ function BestWorstPerformers({
 
   return (
     <div>
-      {activeSegment === "meeting" && (
-        <p className="text-[11px] opacity-50 mb-3 px-1" style={{ fontFamily: "var(--font-mono)" }}>
-          Meeting funds are within ±2% of their category benchmark — no list available here.
-          <button onClick={() => onFundClick?.("")} className="ml-2 underline">View portfolio →</button>
-        </p>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      <div className={showMeeting ? "grid grid-cols-1 gap-3" : "grid grid-cols-1 sm:grid-cols-2 gap-5"}>
         {showTop && top.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-widest mb-2"
@@ -488,12 +487,32 @@ function BestWorstPerformers({
             {bottom.map((f, i) => <FundRow key={i} fund={f} positive={false} />)}
           </div>
         )}
+        {showMeeting && meeting.length > 0 && (
+          <div>
+            <p className="text-[10px] uppercase tracking-widest mb-2"
+              style={{ fontFamily: "var(--font-mono)", color: "rgb(var(--warm))" }}>
+              Meeting benchmark — {meetingPerformers.length} funds (within ±2%)
+            </p>
+            {meeting.map((f, i) => (
+              <FundRow key={i} fund={f} positive={(f.return_1y ?? 0) >= 0} />
+            ))}
+          </div>
+        )}
+        {showMeeting && meetingPerformers.length === 0 && (
+          <p className="text-[11px] opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+            No meeting-benchmark data available.
+          </p>
+        )}
       </div>
-      {!activeSegment && hasMore && (
+      {hasMore && (
         <button onClick={() => setShowAll((v) => !v)}
           className="mt-3 text-[11px] opacity-50 hover:opacity-80"
           style={{ fontFamily: "var(--font-mono)" }}>
-          {showAll ? "Show less" : `View all ${topPerformers.length + bottomPerformers.length} funds →`}
+          {showAll ? "Show less" : (
+            showMeeting
+              ? `View all ${meetingPerformers.length} meeting funds →`
+              : `View all ${topPerformers.length + bottomPerformers.length} funds →`
+          )}
         </button>
       )}
     </div>
@@ -882,6 +901,7 @@ export default function PerformancePage() {
               : <BestWorstPerformers
                   topPerformers={fundPerf.data?.top_performers ?? []}
                   bottomPerformers={fundPerf.data?.bottom_performers ?? []}
+                  meetingPerformers={fundPerf.data?.meeting_performers ?? []}
                   activeSegment={benchmarkFilter}
                   onFundClick={(name) => name ? drillToFund(name) : navigate("/portfolio")}
                 />

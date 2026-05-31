@@ -251,6 +251,12 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
         (r.get("alternative") or {}).get("uplift_per_year_rs", 0) for r in fund_ratings
     ), 0)
 
+    meeting = sorted(
+        [r for r in fund_ratings if r.get("rating") == "meeting" and r.get("return_1y") is not None],
+        key=lambda x: x["return_1y"],
+        reverse=True,
+    )
+
     return {
         "fund_ratings": fund_ratings,
         "performance_distribution": {
@@ -259,8 +265,9 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "underperforming": under_count,
             "no_data": len(mf_holdings) - over_count - meet_count - under_count,
         },
-        "top_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in best[:5]],
-        "bottom_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in worst[:5]],
+        "top_performers":     [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in best[:5]],
+        "bottom_performers":  [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in worst[:5]],
+        "meeting_performers": [{"name": r["name"], "return_1y": r["return_1y"], "rating": r["rating"]} for r in meeting],
         "category_overlap": category_overlap,
         "total_uplift_per_year_rs": total_uplift_per_year_rs,
         "summary": {
