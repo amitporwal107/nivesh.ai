@@ -270,6 +270,36 @@ async def get_prices_latest_batch(symbols: list[str]) -> Dict[str, float]:
     return result
 
 
+async def get_mf_category_sizes(
+    categories: list[str],
+    timeout: float = 8.0,
+) -> Dict[str, int]:
+    """Return {category: total_funds_in_category} for each category.
+
+    Calls GET /mf/performance/category/{cat}?metric=composite_rank&limit=1
+    which returns a `total` field. One concurrent request per unique category.
+    Returns empty dict on failure so callers can show rank without total.
+    """
+    import asyncio as _asyncio
+
+    async def _fetch_one(cat: str) -> tuple[str, int]:
+        try:
+            payload = await _get(
+                f"/mf/performance/category/{cat}",
+                params={"metric": "composite_rank", "limit": 1},
+                timeout=timeout,
+            )
+            total = payload.get("total") if payload else None
+            return cat, int(total) if total else 0
+        except Exception:  # noqa: BLE001
+            return cat, 0
+
+    if not categories:
+        return {}
+    results = await _asyncio.gather(*[_fetch_one(c) for c in categories])
+    return {cat: total for cat, total in results if total > 0}
+
+
 # ── V3 primitives (bulk) ─────────────────────────────────────────────
 
 async def get_v3_mf_primitives_bulk(

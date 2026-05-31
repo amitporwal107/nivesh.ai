@@ -57,6 +57,12 @@ export type FundRating = {
   asset_type?: string;       // "mutual_fund" | "etf" | "equity" | "gold" | "other"
   benchmark_return?: number | null;
   benchmark_name?: string | null;
+  // NIDP rankings
+  category_rank?: number | null;   // rank within MF sub-category peer group
+  category_total?: number | null;  // total funds in that sub-category
+  quality_score?: number | null;   // stock quality score 0-100 (equity only)
+  sector_rank?: number | null;     // rank within sector by quality_score
+  sector_total?: number | null;    // total stocks in that sector (portfolio)
 };
 
 function useFundPerformance() {
@@ -334,7 +340,7 @@ function PeriodBadge({ period }: { period: PeriodId }) {
 }
 
 // Heatmap — sourced from /api/portfolio/analytics which has heatmap_data already built
-type HeatmapTile = { name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string };
+type HeatmapTile = { name: string; ticker?: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string; quality_score?: number | null; sector_rank?: number | null; sector_total?: number | null; };
 
 function useHeatmapData() {
   return useQuery({
@@ -924,6 +930,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
         .filter((t) => (t.asset_type ?? "").toLowerCase() === "equity")
         .map((t) => ({
           name:               t.name,
+          ticker:             t.ticker,
           invested:           t.invested,
           current_value:      t.value,
           simple_return_pct:  t.return_pct,
@@ -931,6 +938,9 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
           rating:             "no_data",
           sector:             t.sector ?? "Other",
           asset_type:         "equity",
+          quality_score:      t.quality_score ?? null,
+          sector_rank:        t.sector_rank ?? null,
+          sector_total:       t.sector_total ?? null,
         }))
     : outerTab === "sgb"
     ? heatmapData
@@ -1179,12 +1189,28 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
                       aria-label={`View ${r.name} detail`}>
                       <div className="flex-1 min-w-0">
                         <p className="text-[12px] font-medium truncate">{r.name}</p>
-                        {(r.scheme_category || r.sector) && (
-                          <p className="text-[9px] opacity-40 truncate"
-                            style={{ fontFamily: "var(--font-mono)" }}>
-                            {r.scheme_category ?? r.sector}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {(r.scheme_category || r.sector) && (
+                            <p className="text-[9px] opacity-40 truncate"
+                              style={{ fontFamily: "var(--font-mono)" }}>
+                              {r.scheme_category ?? r.sector}
+                            </p>
+                          )}
+                          {/* NIDP category rank for MF */}
+                          {r.category_rank != null && (
+                            <span className="text-[9px] shrink-0 px-1.5 py-0.5 rounded"
+                              style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+                              Rank {r.category_rank}{r.category_total ? `/${r.category_total}` : ""} in category
+                            </span>
+                          )}
+                          {/* NIDP sector rank for stocks */}
+                          {r.sector_rank != null && (
+                            <span className="text-[9px] shrink-0 px-1.5 py-0.5 rounded"
+                              style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+                              Rank {r.sector_rank}{r.sector_total ? `/${r.sector_total}` : ""} in {r.sector ?? "sector"}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <span className="w-20 text-right text-[11px] opacity-70 shrink-0"
                         style={{ fontFamily: "var(--font-mono)" }}>
@@ -1672,6 +1698,19 @@ function HoldingDetailDrawer({
               {(fund.scheme_category || fund.sector) ? ` · ${fund.scheme_category ?? fund.sector}` : ""}
             </p>
             <h2 className="text-[15px] font-semibold leading-snug">{fund.name}</h2>
+            {/* NIDP ranking badge */}
+            {fund.category_rank != null && (
+              <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
+                style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+                Rank {fund.category_rank}{fund.category_total ? `/${fund.category_total}` : ""} in {fund.scheme_category ?? "category"}
+              </span>
+            )}
+            {fund.sector_rank != null && (
+              <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
+                style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+                Rank {fund.sector_rank}{fund.sector_total ? `/${fund.sector_total}` : ""} in {fund.sector ?? "sector"}
+              </span>
+            )}
           </div>
           <button onClick={onClose}
             className="shrink-0 p-1.5 rounded-md opacity-50 hover:opacity-90 transition-opacity mt-0.5"

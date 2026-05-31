@@ -245,6 +245,7 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
     isins = list({(h.get("ticker") or "").upper().strip() for h in mf_holdings
                   if (h.get("ticker") or "").strip()})
     daas_by_isin: dict = {}
+    category_sizes: dict = {}  # {category_name: total_funds_in_category}
     if isins:
         try:
             from services.copilot_tools import daas_client as _daas
@@ -252,6 +253,14 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas"):
                 daas_by_isin = await _daas.get_v3_mf_primitives_bulk(isins) or {}
                 logger.info("fund_performance: DaaS returned %d/%d primitives", len(daas_by_isin), len(isins))
+                # Fetch category sizes for all unique categories to show "Rank X/Y"
+                unique_cats = list({
+                    (p.get("sub_category") or p.get("category") or "").strip()
+                    for p in daas_by_isin.values()
+                    if (p.get("sub_category") or p.get("category") or "").strip()
+                })
+                if unique_cats:
+                    category_sizes = await _daas.get_mf_category_sizes(unique_cats) or {}
         except Exception as e:
             logger.warning("fund_performance: DaaS fetch failed, using mfapi.in: %s", e)
 
@@ -361,6 +370,8 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "rating": "no_data",  # overperforming / meeting / underperforming / no_data
             "scheme_category": None,
             "scheme_code": code,
+            "category_rank": None,   # NIDP rank within sub-category peer group
+            "category_total": None,  # total funds in that sub-category
         }
 
         # Resolve period returns: DaaS (ISIN-matched, correct) → mfapi.in fallback
@@ -389,6 +400,11 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                         rating["rating"] = "meeting"; meet_count += 1
                 else:
                     rating["rating"] = "meeting"; meet_count += 1
+            # NIDP category rank (rank within sub-category peer group)
+            cr = prim.get("category_rank")
+            if cr is not None:
+                rating["category_rank"]  = int(cr)
+                rating["category_total"] = category_sizes.get(cat) or None
             # prim present but ret_1y missing → falls through to mfapi.in below
 
         if rating["return_1y"] is None and data and data.get("return_1y") is not None:

@@ -213,6 +213,43 @@ async def get_analytics(request: Request, portfolio_id: str = "", force_refresh:
             })
     heatmap_data.sort(key=lambda x: x["value"], reverse=True)
 
+    # Enrich equity heatmap tiles with NIDP sector rank.
+    # Fetch quality_score for each NSE symbol from NIDP DaaS, then rank within
+    # each sector by quality_score (higher = better rank).
+    equity_tiles = [t for t in heatmap_data if t.get("asset_type") == "equity"]
+    equity_symbols = [t["ticker"] for t in equity_tiles if t.get("ticker")]
+    if equity_symbols:
+        try:
+            from services.copilot_tools import daas_client as _daas
+            if _daas.is_configured():
+                stock_prims = await _daas.get_v3_stock_primitives_bulk(equity_symbols) or {}
+                # Compute sector rank from quality_score within portfolio's stocks
+                # Group by sector → sort desc by quality_score → assign rank
+                from collections import defaultdict
+                sector_groups: dict = defaultdict(list)
+                for sym, prim in stock_prims.items():
+                    qs = prim.get("quality_score")
+                    sec = prim.get("sector") or "Other"
+                    sector_groups[sec].append((sym, qs if qs is not None else -1))
+                # Sort each sector desc, assign 1-based rank
+                sector_ranks: dict = {}  # {symbol: (rank, total)}
+                for sec, entries in sector_groups.items():
+                    entries.sort(key=lambda x: x[1], reverse=True)
+                    total = len(entries)
+                    for i, (sym, _) in enumerate(entries, 1):
+                        sector_ranks[sym] = (i, total)
+                # Annotate heatmap tiles
+                for tile in equity_tiles:
+                    sym = tile.get("ticker", "")
+                    prim = stock_prims.get(sym, {})
+                    qs = prim.get("quality_score")
+                    rank_info = sector_ranks.get(sym)
+                    tile["quality_score"]  = round(qs, 1) if qs is not None else None
+                    tile["sector_rank"]    = rank_info[0] if rank_info else None
+                    tile["sector_total"]   = rank_info[1] if rank_info else None
+        except Exception as _e:
+            logger.warning("analytics: stock sector rank fetch failed: %s", _e)
+
     # Simulated performance trend
     trend = []
     base = total_invested if total_invested > 0 else current_value * 0.9
