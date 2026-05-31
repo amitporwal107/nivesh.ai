@@ -158,110 +158,10 @@ test.describe("AC-4 — Benchmark XIRR matches selected period", () => {
   });
 });
 
-// ── AC-5: Waterfall reconciliation ───────────────────────────────────────
-
-test.describe("AC-5 — Waterfall bar sum reconciliation (±0.1 pp)", () => {
-  test("waterfall renders SVG with correct number of bars", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    // Attribution waterfall card must be visible
-    await expect(page.getByText("Attribution waterfall")).toBeVisible();
-
-    // SVG must be rendered (not the empty-state placeholder)
-    const svg = page.locator("figure[aria-label='Attribution waterfall chart'] svg");
-    await expect(svg).toBeVisible();
-  });
-
-  test("waterfall reconciles: |base + sum(steps) - final| ≤ 0.1", async ({ page }) => {
-    // In-browser reconciliation via fixture data (unit-level check against known fixture)
-    const fixture = loadFixture("dashboards-performance-rich.json");
-    const wf = fixture.breakdown.waterfall as Array<{ label: string; value: number; type: string }>;
-    const start = wf.find((b) => b.type === "start")!;
-    const end = wf.find((b) => b.type === "end")!;
-    const steps = wf.filter((b) => b.type === "step");
-    const sumSteps = steps.reduce((acc, b) => acc + b.value, 0);
-    const discrepancy = Math.abs(start.value + sumSteps - end.value);
-    expect(discrepancy).toBeLessThanOrEqual(0.1);
-  });
-
-  test("waterfall bars have aria-labels with step name and signed value", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    // SVG must exist
-    const svg = page.locator("figure[aria-label='Attribution waterfall chart'] svg");
-    await expect(svg).toBeVisible();
-
-    // [data] SELECT ABS(base_return + SUM(step_value) - final_return)
-    //   FROM portfolio_performance_cache JOIN portfolio_waterfall_steps USING (user_id, period)
-    //   WHERE user_id='<test>' AND period='1Y';
-    // All rows must have discrepancy <= 0.1
-  });
-});
-
-// ── AC-6: Bar fill colors ─────────────────────────────────────────────────
-
-test.describe("AC-6 — Waterfall bar colors (component test)", () => {
-  test("positive step bars use pos color token, negative bars use neg token", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    // SVG presence is sufficient at this tier — full color assertion requires CSS variable resolution
-    const svg = page.locator("figure[aria-label='Attribution waterfall chart'] svg");
-    await expect(svg).toBeVisible();
-
-    // Validate SVG contains rect elements (bars)
-    const rects = svg.locator("rect");
-    const count = await rects.count();
-    expect(count).toBeGreaterThan(0);
-  });
-});
-
-// ── AC-7: Top contributors caption ───────────────────────────────────────
-
-test.describe("AC-7 — Attribution caption names largest positive + largest drag", () => {
-  test("caption identifies the largest positive contributor", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    // The waterfall auto-caption text is inside the <figcaption>
-    const caption = page.locator("figcaption");
-    // Caption may not yet be implemented — check if the top contributor appears in the page text
-    const body = await page.textContent("body");
-    // HDFC Flexicap is the largest positive contributor in the fixture
-    expect(body).toContain("HDFC Flexicap");
-
-    // [data] The caption must name the step with MAX(value) among type='step' bars
-    // Largest drag: Axis Small Cap (-1.5 pp)
-  });
-
-  test("top contributors list is sorted by |alpha_contribution| desc", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    await expect(page.getByText("Top contributors")).toBeVisible();
-    // HDFC Flexicap (2.8) should appear before Axis Small Cap (1.5 abs) in any displayed list
-    const body = await page.textContent("body");
-    const hdfc = body?.indexOf("HDFC Flexicap") ?? -1;
-    const axis = body?.indexOf("Axis Small Cap") ?? -1;
-    if (hdfc > -1 && axis > -1) {
-      expect(hdfc).toBeLessThan(axis);
-    }
-  });
-});
-
-// ── AC-8: Contributor row order ───────────────────────────────────────────
-
-test.describe("AC-8 — Contributor rows sorted by |alpha_contribution| desc", () => {
-  test("negative contributor rows appear in red tone", async ({ page }) => {
-    await mockPerformancePage(page, "dashboards-performance-rich.json");
-    await page.goto("/v5/performance");
-
-    // "Top contributors" section renders
-    await expect(page.getByText("Top contributors")).toBeVisible();
-  });
-});
+// ── AC-5/6/7/8: Attribution waterfall + Top Contributors — REMOVED ────────
+// These sections were removed in commit 9017eaf (2026-05-31). Deferred pending
+// accurate attribution pipeline. Tests removed to keep suite green.
+// Replaced by: Gain/Loss Distribution bubble chart (see below).
 
 // ── AC-9: "N · X%" header math ────────────────────────────────────────────
 
@@ -501,16 +401,20 @@ test.describe("AC-27 — Empty portfolio, no NaN/Infinity/undefined in DOM", () 
     expect(realErrors).toHaveLength(0);
   });
 
-  test("waterfall shows empty-state placeholder when no waterfall data", async ({ page }) => {
+  test("bubble chart shows empty-state placeholder when no holdings data", async ({ page }) => {
     await mockApi(page, "populated");
     const emptyPerf = loadFixture("dashboards-performance-empty.json");
     await page.route("**/api/dashboards/performance*", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(emptyPerf) })
     );
+    await page.route("**/api/portfolio/analytics*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ heatmap_data: [] }) })
+    );
 
     await page.goto("/v5/performance");
 
-    await expect(page.getByText(/no return history/i)).toBeVisible();
+    // "Gain / loss distribution" section shows its empty state (not a crash)
+    await expect(page.getByText(/no holdings data yet/i)).toBeVisible();
   });
 
   test("monthly returns shows empty-state placeholder when no data", async ({ page }) => {
@@ -594,15 +498,20 @@ test.describe("AC-29 — Unauthorized access", () => {
 // ── Period selector persistence ───────────────────────────────────────────
 
 test.describe("Period selector — session persistence", () => {
-  test("period selector renders all 6 period options", async ({ page }) => {
+  test("period selector renders 5 options — Since incep., 1Y, 6M, 3M, 1M (no 3Y)", async ({ page }) => {
     await mockPerformancePage(page, "dashboards-performance-rich.json");
     await page.goto("/v5/performance");
 
-    const periods = ["1M", "3M", "6M", "1Y", "3Y", "Since incep."];
-    for (const p of periods) {
+    // These 5 must be present
+    const present = ["Since incep.", "1Y", "6M", "3M", "1M"];
+    for (const p of present) {
       const btn = page.locator("button").filter({ hasText: new RegExp(`^${p}$`) });
       await expect(btn.first()).toBeVisible();
     }
+
+    // 3Y must NOT appear
+    const btn3y = page.locator("button").filter({ hasText: /^3Y$/ });
+    await expect(btn3y).not.toBeVisible();
   });
 
   test("clicking a period marks it as aria-pressed=true", async ({ page }) => {
@@ -615,15 +524,19 @@ test.describe("Period selector — session persistence", () => {
     await expect(btn3m).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("default period is 1Y (aria-pressed=true on page load)", async ({ page }) => {
+  test("default period is 'Since incep.' (aria-pressed=true on page load)", async ({ page }) => {
     await mockPerformancePage(page, "dashboards-performance-rich.json");
 
-    // Clear session storage to get default
+    // Clear session storage to get true default
     await page.addInitScript(() => sessionStorage.removeItem("perf_period"));
     await page.goto("/v5/performance");
 
+    const btnInception = page.locator("button").filter({ hasText: /^Since incep\.$/ });
+    await expect(btnInception).toHaveAttribute("aria-pressed", "true");
+
+    // 1Y must NOT be the selected default
     const btn1y = page.locator("button").filter({ hasText: /^1Y$/ });
-    await expect(btn1y).toHaveAttribute("aria-pressed", "true");
+    await expect(btn1y).not.toHaveAttribute("aria-pressed", "true");
   });
 });
 
@@ -669,15 +582,16 @@ test.describe("Accessibility — Performance page", () => {
     await expect(resync).toBeVisible();
   });
 
-  test("waterfall SVG has role=img and aria-label", async ({ page }) => {
+  test("portfolio value chart SVG has role=img and aria-label", async ({ page }) => {
     await mockPerformancePage(page, "dashboards-performance-rich.json");
     await page.goto("/v5/performance");
 
+    // The portfolio value chart SVG has role=img
     const svg = page.locator("svg[role='img']").first();
     await expect(svg).toBeVisible();
     const label = await svg.getAttribute("aria-label");
     expect(label).toBeTruthy();
-    expect(label).toContain("waterfall");
+    expect(label).toContain("Portfolio value");
   });
 
   test("monthly beat/miss indicators have aria-labels", async ({ page }) => {
@@ -693,5 +607,130 @@ test.describe("Accessibility — Performance page", () => {
     const missCells = page.getByLabel("Missed benchmark");
     const missCount = await missCells.count();
     expect(missCount).toBeGreaterThan(0);
+  });
+});
+
+// ── Gain / Loss Distribution bubble chart (replaces heatmap) ─────────────
+
+test.describe("Gain/Loss Distribution — bubble chart", () => {
+  test("'Gain / loss distribution' card heading is visible", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    await expect(page.getByText("Gain / loss distribution")).toBeVisible();
+  });
+
+  test("no 'Performance heatmap' heading (removed)", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    await expect(page.getByText("Performance heatmap")).not.toBeVisible();
+  });
+
+  test("no attribution waterfall heading (removed)", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    await expect(page.getByText("Attribution waterfall")).not.toBeVisible();
+    await expect(page.getByText("Top contributors")).not.toBeVisible();
+  });
+
+  test("bubble chart subtitle mentions 'X = invested'", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    const body = await page.textContent("body");
+    expect(body).toMatch(/X\s*=\s*invested/i);
+  });
+});
+
+// ── Asset-class tabs ──────────────────────────────────────────────────────
+
+test.describe("Asset-class tabs — ALL / MF / STOCKS / ETF / SGB/Bonds", () => {
+  test("all 5 asset tabs are visible on load", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    const tabs = ["All", "MF", "Stocks", "ETF", "SGB / Bonds"];
+    for (const t of tabs) {
+      const btn = page.getByRole("tab", { name: new RegExp(t, "i") });
+      await expect(btn.first()).toBeVisible();
+    }
+  });
+
+  test("ALL tab is selected by default (aria-selected=true)", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    const allTab = page.getByRole("tab", { name: /^All$/i });
+    await expect(allTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("switching tabs does NOT cause full page reload", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    // Track navigations — tab switch should produce 0
+    let navCount = 0;
+    page.on("framenavigated", () => { navCount++; });
+    const navCountBefore = navCount;
+
+    const mfTab = page.getByRole("tab", { name: /^MF$/i });
+    await mfTab.click();
+    await page.waitForTimeout(200);
+
+    expect(navCount).toBe(navCountBefore); // no navigation
+    await expect(page.getByRole("tab", { name: /^MF$/i })).toHaveAttribute("aria-selected", "true");
+  });
+
+  test("'Holdings composition' section is always visible (no click required)", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    await expect(page.getByText("Holdings composition")).toBeVisible();
+    // Drill-down is always shown — "Top holdings" label for ALL tab
+    const body = await page.textContent("body");
+    expect(body).toMatch(/Top holdings|holdings/i);
+  });
+
+  test("'vs category benchmark' explanation text changes per tab", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    await page.goto("/v5/performance");
+
+    // ALL tab explanation
+    let body = await page.textContent("body");
+    expect(body).toMatch(/Nifty 500 CAGR/i);
+
+    // Switch to MF
+    await page.getByRole("tab", { name: /^MF$/i }).click();
+    await page.waitForTimeout(150);
+    body = await page.textContent("body");
+    expect(body).toMatch(/sub-category peer average/i);
+
+    // Switch to ETF
+    await page.getByRole("tab", { name: /^ETF$/i }).click();
+    await page.waitForTimeout(150);
+    body = await page.textContent("body");
+    expect(body).toMatch(/underlying index/i);
+  });
+
+  test("SGB/Bonds tab shows helpful message when no SGB holdings", async ({ page }) => {
+    await mockPerformancePage(page, "dashboards-performance-rich.json");
+    // Return empty analytics (no gold/sgb holdings)
+    await page.route("**/api/portfolio/analytics*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ heatmap_data: [] }) })
+    );
+    await page.route("**/api/portfolio/fund-performance*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ fund_ratings: [] }) })
+    );
+
+    await page.goto("/v5/performance");
+    const sgbTab = page.getByRole("tab", { name: /SGB/i });
+    await sgbTab.click();
+    await page.waitForTimeout(200);
+
+    const body = await page.textContent("body");
+    // Should explain NSDL eCAS requirement, not just "No holdings"
+    expect(body).toMatch(/NSDL|CDSL|eCAS/i);
   });
 });
