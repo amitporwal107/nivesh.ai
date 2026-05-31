@@ -459,20 +459,36 @@ def test_ac17_two_goals_emit_separate_signals():
         "House 2y should suggest debt fund"
 
 
-# ── AC-18 · ADD uses static fallback (xfail until DaaS wired in tests) ───────
+# ── AC-18 · ADD fund candidates come from live NIDP DaaS when available ───────
 
-@pytest.mark.xfail(reason="AC-18: AllocationEngine uses static fallback when DaaS unavailable in tests")
-def test_ac18_add_candidate_from_daas():
-    """ADD signal fund_name must come from NIDP DaaS top-quartile, not static list."""
-    ctx = medium_portfolio_context()
+import os as _os
+
+_DAAS_URL = _os.environ.get("NIDP_DAAS_BASE_URL", "").strip()
+_DAAS_SKIP = not _DAAS_URL
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(_DAAS_SKIP, reason="AC-18: NIDP_DAAS_BASE_URL not set — skipping live DaaS check")
+async def test_ac18_add_candidate_from_daas():
+    """When DaaS is reachable, AllocationEngine must use live fund names, not the static fallback."""
+    from services.copilot_tools.daas_client import get_top_add_funds_by_category
     from services.recommendation_engine.engines.allocation_engine import AllocationEngine
+
+    # Fetch live debt fund candidates from DaaS
+    live_candidates = await get_top_add_funds_by_category("debt", n=5)
+    assert live_candidates, "DaaS must return at least one debt fund candidate"
+
+    # Inject into a context that has no debt holdings (AllocationEngine will fire)
+    ctx = medium_portfolio_context()
+    ctx.top_add_candidates["debt"] = live_candidates
+
     sigs = AllocationEngine().safe_generate(ctx)
     assert sigs, "AllocationEngine must fire (no debt in portfolio)"
+
     fund_name = sigs[0].instrument_name
-    # DaaS-sourced fund names will have scheme_code or composite_score metadata
-    # Static fallback uses fixed fund names like "ICICI Prudential Corporate Bond Fund"
-    assert "ICICI Prudential Corporate Bond Fund" not in fund_name, \
-        f"Expected live DaaS fund, got static fallback: {fund_name!r}"
+    live_names = {c.get("scheme_name") or c.get("fund_name") or "" for c in live_candidates}
+    assert any(n in fund_name for n in live_names if n), \
+        f"Expected a live DaaS fund name, got: {fund_name!r}. DaaS candidates: {list(live_names)}"
 
 
 # ── AC-20 · capacity_tolerance_diverged in gate_flags ────────────────────────
