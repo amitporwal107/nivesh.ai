@@ -286,16 +286,17 @@ async def _compute_fresh(user_id: str, period: str) -> dict[str, Any]:
         for r in fund_ratings
     )
     if not daas_primitives or not has_useful_returns:
-        logger.warning("perf_engine: DaaS missing return data, falling back to mfapi.in")
+        logger.warning("perf_engine: DaaS missing return data, falling back to AMFI/mfapi.in")
         try:
             from services.fund_performance import compute_benchmark_ratings
-            nav_cache_doc = await db.fund_holdings_cache.find_one({}) or {}
-            nav_cache = nav_cache_doc.get("cache") or {}
+            from services.amfi_nav import fetch_nav_data
+            nav_cache = await fetch_nav_data()
             ratings_result = await compute_benchmark_ratings(holdings, nav_cache)
             fund_ratings = ratings_result.get("fund_ratings") or []
             ratings_by_name = {r["name"]: r for r in fund_ratings}
+            logger.info("perf_engine: AMFI fallback produced %d fund ratings", len(fund_ratings))
         except Exception as e:
-            logger.warning("perf_engine: mfapi.in fallback also failed: %s", e)
+            logger.warning("perf_engine: AMFI fallback also failed: %s", e)
             fund_ratings = []
             ratings_by_name = {}
 
