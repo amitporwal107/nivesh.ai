@@ -4,9 +4,11 @@
  *   GET /api/dashboards/performance?period=  → KPI strip, waterfall, contributors, monthly
  *   GET /api/portfolio/fund-performance      → benchmark donut, best/worst performers
  *   GET /api/portfolio/deep-analytics        → performance heatmap
+ *   GET /api/portfolio/value-history         → portfolio value chart (CAS monthly data)
  */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { useDashboard } from "@/hooks/use-dashboards";
 import { http } from "@/services/api/http";
 import { Card, CardLabel } from "@/components/ui/card";
@@ -15,7 +17,7 @@ import { LoadingSkeleton } from "@/components/shared/LoadingSkeleton";
 import { ErrorState } from "@/components/shared/ErrorState";
 import { ExportButton } from "@/components/shared/ExportButton";
 import { useResync } from "@/hooks/use-resync";
-import { RefreshCw, Loader2, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { RefreshCw, Loader2, TrendingUp, TrendingDown } from "lucide-react";
 
 // ── Supplemental data hooks ──────────────────────────────────────────────────
 
@@ -40,10 +42,25 @@ function useDeepAnalytics() {
     queryFn: async () => {
       const res = await http({ path: "/api/portfolio/deep-analytics" });
       return res.data as {
-        heatmap_data?: Array<{ name: string; value: number; invested: number; return_pct: number; asset_type: string; sector: string }>;
+        heatmap_data?: Array<{ name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string; sector: string }>;
       };
     },
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+function useValueHistory() {
+  return useQuery({
+    queryKey: ["portfolio-value-history"],
+    queryFn: async () => {
+      const res = await http({ path: "/api/portfolio/value-history" });
+      return res.data as {
+        monthly_values: Array<{ month: string; value_rs: number }>;
+        current_value_rs: number;
+        count: number;
+      };
+    },
+    staleTime: 10 * 60 * 1000,
   });
 }
 
@@ -310,7 +327,7 @@ function BenchmarkDonut({
 
   const segments = [
     { key: "overperforming", label: "Outperforming", count: distribution.overperforming, color: "rgb(var(--pos))" },
-    { key: "meeting",        label: "Meeting",        count: distribution.meeting,        color: "rgba(var(--ink-1),0.35)" },
+    { key: "meeting",        label: "Meeting",        count: distribution.meeting,        color: "rgb(var(--warm))" },
     { key: "underperforming",label: "Underperforming",count: distribution.underperforming,color: "rgb(var(--neg))" },
   ];
 
@@ -468,10 +485,17 @@ function BestWorstPerformers({
 function PerformanceHeatmap({
   heatmapData,
   onTileClick,
+  isError,
 }: {
-  heatmapData: Array<{ name: string; value: number; invested: number; return_pct: number; asset_type: string }>;
+  heatmapData: Array<{ name: string; value: number; invested: number; return_pct: number | null; cost_basis_estimated?: boolean; asset_type: string }>;
   onTileClick?: (name: string) => void;
+  isError?: boolean;
 }) {
+  if (isError) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      Could not load heatmap data — try resyncing.
+    </div>
+  );
   if (!heatmapData.length) return (
     <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
       No holdings data yet.
@@ -480,48 +504,148 @@ function PerformanceHeatmap({
 
   const totalValue = heatmapData.reduce((s, d) => s + d.value, 0);
 
-  function retColor(pct: number) {
+  function retColor(pct: number | null) {
+    if (pct === null) return "rgba(var(--ink-1),0.12)";
     if (pct > 15)  return "rgba(var(--pos),0.85)";
     if (pct > 0)   return "rgba(var(--pos),0.45)";
     if (pct > -15) return "rgba(var(--neg),0.45)";
     return "rgba(var(--neg),0.85)";
-  }
-  function retTextColor(pct: number) {
-    return pct >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))";
   }
 
   return (
     <div className="flex flex-wrap gap-1.5" role="list" aria-label="Performance heatmap">
       {heatmapData.map((d) => {
         const weight = totalValue > 0 ? d.value / totalValue : 0;
-        // Tile area proportional to current value (weight); clamp min/max for readability
-        const size = Math.max(48, Math.min(140, Math.round(weight * 1200)));
+        const size = Math.max(52, Math.min(150, Math.round(weight * 1400)));
+        const retLabel = d.return_pct !== null
+          ? `${d.return_pct > 0 ? "+" : ""}${d.return_pct}%`
+          : "—";
         return (
           <button
             key={d.name}
             role="listitem"
             onClick={() => onTileClick?.(d.name)}
-            className="rounded-md flex flex-col justify-end p-1.5 transition-opacity hover:opacity-90"
-            style={{
-              width: size,
-              height: Math.max(44, size * 0.72),
-              background: retColor(d.return_pct),
-              flexShrink: 0,
-            }}
-            aria-label={`${d.name}: ${d.return_pct > 0 ? "+" : ""}${d.return_pct}% return`}
-            title={`${d.name}\n${d.return_pct > 0 ? "+" : ""}${d.return_pct}%`}>
-            <span className="text-[9px] leading-tight truncate w-full opacity-80"
-              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.7)" }}>
-              {d.name.slice(0, 18)}
+            className="rounded-md flex flex-col justify-end p-1.5 transition-opacity hover:opacity-90 cursor-pointer"
+            style={{ width: size, height: Math.max(48, size * 0.72), background: retColor(d.return_pct), flexShrink: 0 }}
+            aria-label={`${d.name}: ${retLabel} return — click to view holding`}
+            title={`${d.name}\n${retLabel}${d.cost_basis_estimated ? "\n(cost basis estimated)" : ""}`}>
+            <span className="text-[9px] leading-tight truncate w-full"
+              style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.65)" }}>
+              {d.name.slice(0, 20)}
             </span>
             <span className="text-[10px] font-bold leading-none mt-0.5"
               style={{ fontFamily: "var(--font-mono)", color: "rgba(0,0,0,0.85)" }}
               aria-hidden>
-              {d.return_pct > 0 ? "+" : ""}{d.return_pct}%
+              {retLabel}
             </span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ── Portfolio value chart (from CAS monthly data) ─────────────────────────────
+
+function PortfolioValueChart({
+  monthlyValues,
+  currentValue,
+}: {
+  monthlyValues: Array<{ month: string; value_rs: number }>;
+  currentValue: number;
+}) {
+  if (!monthlyValues.length) return (
+    <div className="py-6 text-center text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>
+      Upload a CAS statement to see your portfolio history.
+    </div>
+  );
+
+  // Append current value as "Now" if not already the last point
+  const points = [...monthlyValues];
+  if (currentValue > 0) {
+    points.push({ month: "Now", value_rs: currentValue });
+  }
+
+  const W = 600, H = 160;
+  const pad = { t: 16, r: 16, b: 36, l: 64 };
+  const iW = W - pad.l - pad.r;
+  const iH = H - pad.t - pad.b;
+
+  const values = points.map((p) => p.value_rs);
+  const minV = Math.min(...values) * 0.97;
+  const maxV = Math.max(...values) * 1.03;
+  const range = maxV - minV || 1;
+
+  const xScale = (i: number) => pad.l + (i / (points.length - 1)) * iW;
+  const yScale = (v: number) => pad.t + iH - ((v - minV) / range) * iH;
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xScale(i)} ${yScale(p.value_rs)}`).join(" ");
+  const areaD = `${pathD} L ${xScale(points.length - 1)} ${pad.t + iH} L ${xScale(0)} ${pad.t + iH} Z`;
+
+  const first = points[0].value_rs;
+  const last = points[points.length - 1].value_rs;
+  const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
+  const isPos = changePct >= 0;
+
+  function fmtCrore(v: number) {
+    if (v >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
+    if (v >= 1e5) return `₹${(v / 1e5).toFixed(1)} L`;
+    return `₹${v.toLocaleString("en-IN")}`;
+  }
+
+  // Show every Nth label to avoid crowding
+  const step = Math.max(1, Math.floor(points.length / 6));
+
+  return (
+    <div>
+      <div className="flex items-baseline gap-3 mb-2">
+        <span className="text-[28px] font-semibold" style={{ fontFamily: "var(--font-mono)" }}>
+          {fmtCrore(last)}
+        </span>
+        <span className="text-[12px]"
+          style={{ fontFamily: "var(--font-mono)", color: isPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
+          {isPos ? "↑" : "↓"} {Math.abs(changePct).toFixed(1)}% over the period
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 160 }}
+        role="img" aria-label="Portfolio value over time">
+        {/* area fill */}
+        <defs>
+          <linearGradient id="pvGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill="url(#pvGrad)" />
+        <path d={pathD} fill="none" stroke={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"}
+          strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* month labels */}
+        {points.map((p, i) => i % step === 0 && (
+          <text key={i} x={xScale(i)} y={H - 4}
+            textAnchor="middle" fontSize={8} fontFamily="var(--font-mono)"
+            fill="rgba(var(--ink-1),0.35)">
+            {p.month}
+          </text>
+        ))}
+
+        {/* y-axis: min and max */}
+        <text x={pad.l - 4} y={pad.t + 6} textAnchor="end" fontSize={8}
+          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.35)">
+          {fmtCrore(maxV)}
+        </text>
+        <text x={pad.l - 4} y={pad.t + iH} textAnchor="end" fontSize={8}
+          fontFamily="var(--font-mono)" fill="rgba(var(--ink-1),0.35)">
+          {fmtCrore(minV)}
+        </text>
+
+        {/* dot on last point */}
+        <circle cx={xScale(points.length - 1)} cy={yScale(last)} r={3}
+          fill={isPos ? "rgb(var(--pos))" : "rgb(var(--neg))"}  />
+      </svg>
+      <p className="text-[10px] opacity-30 mt-1" style={{ fontFamily: "var(--font-mono)" }}>
+        Source: CAS statement · {points.length - 1} months of history
+      </p>
     </div>
   );
 }
@@ -531,13 +655,24 @@ function PerformanceHeatmap({
 export default function PerformancePage() {
   const [period, setPeriod] = usePeriod();
   const [benchmarkFilter, setBenchmarkFilter] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const dash = useDashboard("performance", { period });
   const fundPerf = useFundPerformance();
   const deepAnalytics = useDeepAnalytics();
+  const valueHistory = useValueHistory();
   const { resync, isPending: resyncing, lastSyncedAt, error: resyncError } = useResync(
     (dash.data?.breakdown as any)?.computed_at
   );
+
+  // Drill-down helpers
+  const drillToHoldings = (filter?: string) =>
+    navigate(filter ? `/portfolio?search=${encodeURIComponent(filter)}` : "/portfolio");
+  const drillToBenchmarkSegment = (seg: string | null) => {
+    if (!seg) return;
+    // Navigate to holdings filtered by the benchmark rating
+    navigate(`/portfolio?benchmark_rating=${seg}`);
+  };
 
   if (dash.isPending) {
     return (
@@ -665,48 +800,67 @@ export default function PerformancePage() {
         <MonthlyReturnsGrid breakdown={env?.breakdown} />
       </Card>
 
-      {/* Benchmark donut + Best/Worst — sourced from /api/portfolio/fund-performance */}
-      {fundPerf.data && (
-        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mt-5">
-          <Card className="p-5">
-            <CardLabel>vs category benchmark</CardLabel>
-            <div className="mt-3">
-              {fundPerf.isPending
-                ? <LoadingSkeleton variant="list" />
-                : <BenchmarkDonut
-                    distribution={fundPerf.data.performance_distribution ?? { overperforming: 0, meeting: 0, underperforming: 0 }}
-                    onSegmentClick={setBenchmarkFilter}
-                    activeSegment={benchmarkFilter}
-                  />
-              }
-            </div>
-          </Card>
+      {/* Portfolio value chart — sourced from CAS monthly values */}
+      <Card className="mt-5 p-5">
+        <CardLabel>Portfolio value</CardLabel>
+        {valueHistory.isPending
+          ? <LoadingSkeleton variant="card" />
+          : <PortfolioValueChart
+              monthlyValues={valueHistory.data?.monthly_values ?? []}
+              currentValue={valueHistory.data?.current_value_rs ?? 0}
+            />
+        }
+      </Card>
 
-          <Card className="p-5">
-            <CardLabel>Best &amp; worst performers</CardLabel>
-            <div className="mt-2">
-              {fundPerf.isPending
-                ? <LoadingSkeleton variant="list" />
-                : <BestWorstPerformers
-                    topPerformers={fundPerf.data.top_performers ?? []}
-                    bottomPerformers={fundPerf.data.bottom_performers ?? []}
-                  />
-              }
-            </div>
-          </Card>
-        </div>
-      )}
+      {/* Benchmark donut + Best/Worst — sourced from /api/portfolio/fund-performance */}
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-5 mt-5">
+        <Card className="p-5">
+          <CardLabel>vs category benchmark</CardLabel>
+          <div className="mt-3">
+            {fundPerf.isPending
+              ? <LoadingSkeleton variant="list" />
+              : fundPerf.isError
+              ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load benchmark data.</div>
+              : <BenchmarkDonut
+                  distribution={fundPerf.data?.performance_distribution ?? { overperforming: 0, meeting: 0, underperforming: 0 }}
+                  onSegmentClick={(seg) => {
+                    setBenchmarkFilter(seg);
+                    if (seg) navigate(`/portfolio?benchmark_rating=${seg}`);
+                  }}
+                  activeSegment={benchmarkFilter}
+                />
+            }
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <CardLabel>Best &amp; worst performers</CardLabel>
+          <div className="mt-2">
+            {fundPerf.isPending
+              ? <LoadingSkeleton variant="list" />
+              : fundPerf.isError
+              ? <div className="py-4 text-sm opacity-40" style={{ fontFamily: "var(--font-mono)" }}>Could not load data.</div>
+              : <BestWorstPerformers
+                  topPerformers={fundPerf.data?.top_performers ?? []}
+                  bottomPerformers={fundPerf.data?.bottom_performers ?? []}
+                />
+            }
+          </div>
+        </Card>
+      </div>
 
       {/* Performance heatmap — sourced from /api/portfolio/deep-analytics */}
       <Card className="mt-5 p-5">
         <CardLabel>Performance heatmap</CardLabel>
         <p className="text-[10px] opacity-40 mt-0.5 mb-3" style={{ fontFamily: "var(--font-mono)" }}>
-          Tile size = current value · colour = P&amp;L % (green &gt;0%, red &lt;0%) · click to drill down
+          Tile size = current value · colour = P&amp;L % · click any tile to view that holding
         </p>
         {deepAnalytics.isPending
           ? <LoadingSkeleton variant="card" />
           : <PerformanceHeatmap
               heatmapData={deepAnalytics.data?.heatmap_data ?? []}
+              isError={deepAnalytics.isError}
+              onTileClick={(name) => navigate(`/portfolio?search=${encodeURIComponent(name)}`)}
             />
         }
       </Card>

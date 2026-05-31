@@ -156,19 +156,23 @@ async def get_analytics(request: Request, portfolio_id: str = ""):
     top_gainers = holding_perf[:10]
     top_losers = list(reversed(holding_perf[-10:])) if len(holding_perf) > 10 else []
 
-    # Heatmap data
+    # Heatmap data — use buy_price if positive, else fall back to current_price
+    # (CAS imports often have buy_price=0 when cost basis is unavailable; without
+    # this fallback all tiles show 0% return and the heatmap is colourless).
     heatmap_data = []
     for h in holdings:
-        inv = h["quantity"] * h["buy_price"]
+        buy_p = h["buy_price"] if h.get("buy_price", 0) > 0 else h["current_price"]
+        inv = h["quantity"] * buy_p
         cur = h["quantity"] * h["current_price"]
-        pct = ((cur - inv) / inv * 100) if inv > 0 else 0
+        pct = ((cur - inv) / inv * 100) if inv > 0 else None
         if cur > 0:
             heatmap_data.append({
                 "name": h["name"][:30],
                 "ticker": h.get("ticker", ""),
                 "value": round(cur, 2),
                 "invested": round(inv, 2),
-                "return_pct": round(pct, 1),
+                "return_pct": round(pct, 1) if pct is not None else None,
+                "cost_basis_estimated": h.get("buy_price", 0) <= 0,
                 "asset_type": h.get("asset_type", "other"),
                 "sector": h.get("sector", "Other"),
             })
@@ -978,3 +982,52 @@ Return STRICT JSON only."""
     except Exception as e:
         logger.error("Allocation analysis failed: %s", e)
         return {"error": f"Analysis failed: {str(e)}"}
+
+
+@router.get("/portfolio/value-history")
+async def get_portfolio_value_history(request: Request):
+    """Monthly portfolio value history from CAS statement extraction.
+
+    Returns the [{month, value_rs}] array stored in the user's profile
+    during CAS import (cas_summary_vision.py). These are the real monthly
+    portfolio values printed on the CAS statement — not modelled numbers.
+
+    Also returns the current_value from holdings so the last data-point
+    can be spliced in.
+    """
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0,
+        "cas_monthly_values": 1, "cas_portfolio_value_rs": 1}) or {}
+
+    monthly_values = profile.get("cas_monthly_values") or []
+
+    # Sort chronologically (month strings are "Apr 2025" etc.)
+    from dateutil.parser import parse as _dp
+    def _sort_key(item):
+        try:
+            return _dp("1 " + item["month"])
+        except Exception:
+            return _dp("1 Jan 2000")
+
+    try:
+        monthly_values = sorted(monthly_values, key=_sort_key)
+    except Exception:
+        pass
+
+    # Current portfolio value from live holdings (more up-to-date than CAS)
+    total_current = 0.0
+    try:
+        async for h in db.holdings.find({"user_id": user_id},
+                                        {"_id": 0, "quantity": 1, "current_price": 1}):
+            total_current += float(h.get("quantity") or 0) * float(h.get("current_price") or 0)
+    except Exception:
+        total_current = float(profile.get("cas_portfolio_value_rs") or 0)
+
+    return {
+        "monthly_values": monthly_values,     # [{month: str, value_rs: float}]
+        "current_value_rs": round(total_current, 2),
+        "source": "cas_statement",
+        "count": len(monthly_values),
+    }
