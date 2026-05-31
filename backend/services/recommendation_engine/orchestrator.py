@@ -249,6 +249,10 @@ def _signal_to_action(
         base["tax_impact"] = ti
         base["exit_score"] = (candidate or {}).get("exit_score")
         base["score_breakdown"] = (candidate or {}).get("score_breakdown")
+    elif sig.action_type in ("EXIT", "TRIM"):
+        # General allocation-level EXIT/TRIM with no specific holding stashed.
+        # PRD §12 requires tax_impact to be non-null on all EXIT/TRIM actions.
+        base["tax_impact"] = {}
 
     if sig.action_type == "ADD":
         fund_details = sig.__dict__.get("_fund_details")
