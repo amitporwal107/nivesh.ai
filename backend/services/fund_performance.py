@@ -248,19 +248,30 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
     category_sizes: dict = {}  # {category_name: total_funds_in_category}
     if isins:
         try:
+            import asyncio as _asyncio
             from services.copilot_tools import daas_client as _daas
             import feature_flags as _ff
             if _daas.is_configured() and _ff.is_enabled("v3_data_source_daas", None):
-                daas_by_isin = await _daas.get_v3_mf_primitives_bulk(isins) or {}
-                logger.info("fund_performance: DaaS returned %d/%d primitives", len(daas_by_isin), len(isins))
-                # Fetch category sizes for all unique categories to show "Rank X/Y"
-                unique_cats = list({
-                    (p.get("sub_category") or p.get("category") or "").strip()
-                    for p in daas_by_isin.values()
-                    if (p.get("sub_category") or p.get("category") or "").strip()
-                })
-                if unique_cats:
-                    category_sizes = await _daas.get_mf_category_sizes(unique_cats) or {}
+                async def _fetch_daas():
+                    prims = await _daas.get_v3_mf_primitives_bulk(isins) or {}
+                    cats = list({
+                        (p.get("sub_category") or p.get("category") or "").strip()
+                        for p in prims.values()
+                        if (p.get("sub_category") or p.get("category") or "").strip()
+                    })
+                    sizes = await _daas.get_mf_category_sizes(cats) if cats else {}
+                    return prims, sizes or {}
+
+                try:
+                    # Hard 12s cap on the whole DaaS block so mfapi.in fallback
+                    # always completes within the request timeout budget
+                    daas_by_isin, category_sizes = await _asyncio.wait_for(
+                        _fetch_daas(), timeout=12.0
+                    )
+                    logger.info("fund_performance: DaaS %d primitives, %d category sizes",
+                                len(daas_by_isin), len(category_sizes))
+                except _asyncio.TimeoutError:
+                    logger.warning("fund_performance: DaaS block timed out — falling back to mfapi.in")
         except Exception as e:
             logger.warning("fund_performance: DaaS fetch failed, using mfapi.in: %s", e)
 

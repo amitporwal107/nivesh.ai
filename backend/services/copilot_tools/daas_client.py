@@ -272,13 +272,14 @@ async def get_prices_latest_batch(symbols: list[str]) -> Dict[str, float]:
 
 async def get_mf_category_sizes(
     categories: list[str],
-    timeout: float = 8.0,
+    timeout: float = 3.0,
 ) -> Dict[str, int]:
     """Return {category: total_funds_in_category} for each category.
 
     Calls GET /mf/performance/category/{cat}?metric=composite_rank&limit=1
-    which returns a `total` field. One concurrent request per unique category.
-    Returns empty dict on failure so callers can show rank without total.
+    which returns a `total` field. All requests run concurrently with a
+    3s per-request timeout and a 5s hard ceiling for the whole batch,
+    so this never adds more than ~5s to the critical path.
     """
     import asyncio as _asyncio
 
@@ -296,7 +297,13 @@ async def get_mf_category_sizes(
 
     if not categories:
         return {}
-    results = await _asyncio.gather(*[_fetch_one(c) for c in categories])
+    try:
+        results = await _asyncio.wait_for(
+            _asyncio.gather(*[_fetch_one(c) for c in categories]),
+            timeout=5.0,
+        )
+    except _asyncio.TimeoutError:
+        return {}
     return {cat: total for cat, total in results if total > 0}
 
 
