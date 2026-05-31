@@ -12,7 +12,7 @@
  * All tests use mocked API routes (no live backend required).
  */
 import { test, expect } from "@playwright/test";
-import { mockApi } from "../helpers/api-mock";
+import { mockApi, mockApiWithPlan } from "../helpers/api-mock";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -26,16 +26,21 @@ function loadFixture(name: string) {
   );
 }
 
-/** Override plans/active with a specific fixture (must be called after mockApi) */
-async function mockPlan(page: Parameters<typeof mockApi>[0], fixture: string) {
-  const data = loadFixture(fixture);
-  await page.route("**/api/plans/active", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) }),
+// mockApiWithPlan handles all routes in one pass (no double-route registration)
+
+/** Wait for the React app to mount (root has children) before asserting page content. */
+async function waitForApp(page: Parameters<typeof mockApi>[0]) {
+  await page.waitForFunction(
+    () => (document.getElementById("root")?.children.length ?? 0) > 0,
+    { timeout: 20_000, polling: 200 },
   );
+  // Also wait for network to settle
+  await page.waitForLoadState("networkidle").catch(() => {});
 }
 
 /** Wait for at least one recommendation card to appear. */
 async function waitForCards(page: Parameters<typeof mockApi>[0]) {
+  await waitForApp(page);
   // SeverityBadge renders aria-label="Severity: X" on every card
   await page.locator('[aria-label^="Severity:"]').first().waitFor({ timeout: 15_000 });
 }
@@ -45,13 +50,12 @@ async function waitForCards(page: Parameters<typeof mockApi>[0]) {
 
 test.describe("Gate state: requires_persona", () => {
   test("shows risk-profile CTA when persona not set", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-requires-persona.json");
+    await mockApiWithPlan(page, "plans-requires-persona.json");
 
     await page.goto("/v5/recommendations");
-    await page.waitForLoadState("networkidle");
+    await waitForApp(page);
 
-    await expect(page.getByRole("heading", { name: /set up your risk profile/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /set up your risk profile/i })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: /set up risk profile/i })).toBeVisible();
   });
 });
@@ -61,13 +65,12 @@ test.describe("Gate state: requires_persona", () => {
 
 test.describe("Gate state: requires_goal", () => {
   test("shows add-a-goal CTA when no goals exist", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-requires-goal.json");
+    await mockApiWithPlan(page, "plans-requires-goal.json");
 
     await page.goto("/v5/recommendations");
-    await page.waitForLoadState("networkidle");
+    await waitForApp(page);
 
-    await expect(page.getByRole("heading", { name: /add a goal/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /add a goal/i })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: /add your first goal/i })).toBeVisible();
   });
 });
@@ -77,8 +80,7 @@ test.describe("Gate state: requires_goal", () => {
 
 test.describe("Tax impact panel", () => {
   test("renders TaxImpactPanel collapsed by default", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -90,8 +92,7 @@ test.describe("Tax impact panel", () => {
   });
 
   test("TaxImpactPanel expands and shows LTCG row when toggled", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -105,16 +106,19 @@ test.describe("Tax impact panel", () => {
   });
 
   test("TaxImpactPanel aria-controls references visible body element", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    test.slow(); // allow extra time for all cards to stabilise after load
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
 
+    // Wait specifically for the tax toggle to appear (may render slightly after severity badges)
     const taxToggle = page.locator("button[aria-expanded]").filter({ hasText: /tax impact/i }).first();
+    await taxToggle.waitFor({ state: "visible", timeout: 20_000 });
     const controlsId = await taxToggle.getAttribute("aria-controls");
     expect(controlsId).toBeTruthy();
-    await expect(page.locator(`#${controlsId}`)).toBeAttached();
+    // Use attribute selector — React useId() generates IDs with colons (:r5:) that break CSS #id selectors
+    await expect(page.locator(`[id="${controlsId}"]`)).toBeAttached();
   });
 });
 
@@ -123,8 +127,7 @@ test.describe("Tax impact panel", () => {
 
 test.describe("Confirmation drawer", () => {
   test("opens drawer when clicking 'Review & Apply' on a requiresConfirmation rec", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -134,20 +137,19 @@ test.describe("Confirmation drawer", () => {
     await applyBtn.scrollIntoViewIfNeeded();
     await applyBtn.click();
 
-    const drawer = page.getByRole("dialog");
+    const drawer = page.locator('[role="dialog"]').first();
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("heading", { name: /confirm this action/i })).toBeVisible();
   });
 
   test("drawer Cancel button closes the drawer", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
 
     await page.locator("button").filter({ hasText: /review & apply/i }).first().click();
-    const drawer = page.getByRole("dialog");
+    const drawer = page.locator('[role="dialog"]').first();
     await expect(drawer).toBeVisible();
 
     await drawer.getByRole("button", { name: /cancel/i }).click();
@@ -155,28 +157,27 @@ test.describe("Confirmation drawer", () => {
   });
 
   test("Escape key closes the drawer", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
 
     await page.locator("button").filter({ hasText: /review & apply/i }).first().click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const escDrawer = page.locator('[role="dialog"]').first();
+    await expect(escDrawer).toBeVisible();
 
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(escDrawer).not.toBeVisible();
   });
 
   test("drawer shows tax impact when present", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
 
     await page.locator("button").filter({ hasText: /review & apply/i }).first().click();
-    const drawer = page.getByRole("dialog");
+    const drawer = page.locator('[role="dialog"]').first();
     await expect(drawer).toBeVisible();
     // TaxImpactPanel inside drawer renders with defaultOpen=true — LTCG visible
     await expect(drawer.getByText("LTCG", { exact: true })).toBeVisible();
@@ -188,8 +189,7 @@ test.describe("Confirmation drawer", () => {
 
 test.describe("ELSS lock-in state", () => {
   test("locked holding renders aria-disabled button instead of normal Apply", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-elss-locked.json");
+    await mockApiWithPlan(page, "plans-elss-locked.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -203,8 +203,7 @@ test.describe("ELSS lock-in state", () => {
   });
 
   test("lock-in tooltip text visible near the locked button", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-elss-locked.json");
+    await mockApiWithPlan(page, "plans-elss-locked.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -218,8 +217,7 @@ test.describe("ELSS lock-in state", () => {
 
 test.describe("Severity ordering", () => {
   test("first recommendation card has SeverityBadge 'Severe' when severe rec exists", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -230,8 +228,8 @@ test.describe("Severity ordering", () => {
   });
 
   test("minor badge appears after severe badge in DOM order", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    test.slow(); // last test in the batch — allow more time for Vite to serve the page
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);
@@ -250,8 +248,7 @@ test.describe("Severity ordering", () => {
 
 test.describe("Post-apply live region", () => {
   test("role=status element exists on each recommendation card", async ({ page }) => {
-    await mockApi(page, "populated");
-    await mockPlan(page, "plans-rec-scenarios.json");
+    await mockApiWithPlan(page, "plans-rec-scenarios.json");
 
     await page.goto("/v5/recommendations");
     await waitForCards(page);

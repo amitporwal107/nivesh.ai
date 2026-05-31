@@ -77,6 +77,27 @@ export async function mockSingleRoute(page: Page, urlPattern: string, fixture: s
   );
 }
 
+/** Mock API with a specific plans/active fixture — all routes in one page.route() batch. */
+export async function mockApiWithPlan(page: Page, planFixture: string) {
+  const planData = loadFixture(planFixture);
+  const routes: Record<string, string> = {
+    ...POPULATED_ROUTES,
+    // Override plans/active with the provided fixture (do NOT add a second handler)
+  };
+  // Register all non-plan routes
+  for (const [pattern, fixture] of Object.entries(routes)) {
+    if (pattern === "**/api/plans/active") continue; // skip — we handle below
+    const data = loadFixture(fixture);
+    await page.route(pattern, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) }),
+    );
+  }
+  // Register plan route once with the override fixture
+  await page.route("**/api/plans/active", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(planData) }),
+  );
+}
+
 /** Mock a single API endpoint returning 401 */
 export async function mock401(page: Page, urlPattern: string) {
   await page.route(urlPattern, (route) =>

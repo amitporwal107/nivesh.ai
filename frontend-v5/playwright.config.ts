@@ -28,7 +28,7 @@ export default defineConfig({
   // VITE_USE_MOCK_API=false  → real adapters make HTTP calls → Playwright route mocks intercept
   // VITE_BASE=/v5/           → matches staging path prefix so /v5/dashboard etc. resolve correctly
   webServer: {
-    command: "VITE_USE_MOCK_API=false VITE_BASE=/v5/ npx vite --port 5174 --strictPort",
+    command: "VITE_USE_MOCK_API=false VITE_BASE=/v5/ npx vite --port 5174 --strictPort --config vite.test.config.ts",
     url: LOCAL_URL,
     reuseExistingServer: true,
     timeout: 60_000,
