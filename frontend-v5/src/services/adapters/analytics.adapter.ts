@@ -80,37 +80,65 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
 
   /**
    * VaR / beta / volatility from GET /api/dashboards/risk.
-   * Backend computes weighted beta + volatility from NIDP DAAS primitives.
+   * Primary path: PRA precomputed results (pra_available: true in meta).
+   * Fallback: legacy stat_tiles weighted-beta response.
    */
   async risk(): Promise<RiskSnapshot> {
     try {
       const res = await http({ path: "/api/dashboards/risk" });
-      const body = res.data as {
-        stat_tiles?: Array<{ label?: string; value?: string | number }>;
-        breakdown?: { items?: Array<{ name?: string; value?: number; tone?: string }> };
-      };
-      const tiles = body.stat_tiles ?? [];
+      const body = res.data as Record<string, unknown>;
+
+      // Primary path: PRA precomputed response
+      const tiles = (body.stat_tiles as Array<{ label?: string; value?: string | number; sub?: string }>) ?? [];
       const tileNum = (label: string) => {
         const t = tiles.find((t) => (t.label ?? "").toLowerCase().includes(label.toLowerCase()));
         return t ? parseFloat(String(t.value ?? "0").replace(/[^0-9.-]/g, "")) || 0 : 0;
       };
-      const beta = tileNum("beta");
-      const volPct = tileNum("vol");
-      const varPct = tileNum("var");
-      const maxDD = tileNum("max") || tileNum("draw");
-      const drivers = (body.breakdown?.items ?? []).map((d) => ({
+      const tileSub = (label: string) => {
+        const t = tiles.find((t) => (t.label ?? "").toLowerCase().includes(label.toLowerCase()));
+        return t?.sub ?? "";
+      };
+
+      const varPct   = tileNum("var");
+      const volPct   = tileNum("vol");
+      const maxDD    = tileNum("max") || tileNum("draw");
+      const beta     = tileNum("beta");
+
+      // ₹ VaR from tile sub-label ("~₹62.3L") or from PRA meta field
+      const varSubRaw = tileSub("var").replace(/[^0-9.]/g, "");
+      const varPaise  = varSubRaw ? parseFloat(varSubRaw) * 100 : 0;
+
+      // Bench vol from Volatility tile sub ("Bench 13.5%")
+      const benchMatch = tileSub("vol").match(/[\d.]+/);
+      const benchVolPct = benchMatch ? parseFloat(benchMatch[0]) : 0;
+
+      // Risk drivers: new format uses breakdown.items with sharePct field
+      const breakdownItems = (body.breakdown as { items?: Array<{ name?: string; value?: number; cls?: string }> })?.items ?? [];
+      const riskDrivers = breakdownItems.map((d) => ({
         name: String(d.name ?? ""),
         sharePct: Number(d.value ?? 0),
       }));
+
+      // Stress scenarios: new PRA path returns stress_scenarios array
+      const rawStress = (body.stress_scenarios as Array<{
+        name?: string; portfolio_pct?: number; benchmark_pct?: number; recovery?: string;
+      }>) ?? [];
+      const stressScenarios = rawStress.map((s) => ({
+        name:         String(s.name ?? ""),
+        portfolioPct: Number(s.portfolio_pct ?? 0),
+        benchPct:     Number(s.benchmark_pct ?? 0),
+        recovery:     String(s.recovery ?? ""),
+      }));
+
       return {
-        vaR95Pct: varPct,
-        vaR95Paise: 0,
-        annualVolPct: volPct,
-        benchmarkVolPct: 0,
+        vaR95Pct:       varPct,
+        vaR95Paise:     varPaise,
+        annualVolPct:   volPct,
+        benchmarkVolPct: benchVolPct,
         maxDrawdownPct: maxDD,
         beta,
-        riskDrivers: drivers,
-        stressScenarios: [],
+        riskDrivers,
+        stressScenarios,
       };
     } catch {
       return { vaR95Pct: 0, vaR95Paise: 0, annualVolPct: 0, benchmarkVolPct: 0, maxDrawdownPct: 0, beta: 0, riskDrivers: [], stressScenarios: [] };
