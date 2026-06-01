@@ -171,7 +171,7 @@ async def build_portfolio_returns(
         """
         SELECT as_of_date, close_price
         FROM nidp.index_eod
-        WHERE index_name = 'NIFTY 500'
+        WHERE index_name = 'Nifty 500'
           AND as_of_date BETWEEN $1 AND $2
           AND close_price > 0
         ORDER BY as_of_date
