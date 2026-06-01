@@ -10,10 +10,7 @@ import { JobsPanel } from "@/components/nidp/JobsPanel";
 import { GrafanaEmbed } from "@/components/nidp/GrafanaEmbed";
 import { QualityDashboard } from "@/components/nidp/QualityDashboard";
 import { ExpectationsPanel } from "@/components/nidp/ExpectationsPanel";
-import { ReplayPanel } from "@/components/nidp/ReplayPanel";
-import { BackfillPanel } from "@/components/nidp/BackfillPanel";
-import { CertificationPanel } from "@/components/nidp/CertificationPanel";
-import { TrendsPanel } from "@/components/nidp/TrendsPanel";
+import { NotAvailablePanel } from "@/components/nidp/NotAvailablePanel";
 import { DiagnosticsPanel } from "@/components/nidp/DiagnosticsPanel";
 
 const TABS = [
@@ -90,10 +87,10 @@ export default function NidpConsolePage() {
       {tab === "grafana"       && <GrafanaEmbed />}
       {tab === "quality"       && <QualityDashboard />}
       {tab === "dq_ai"         && <ExpectationsPanel />}
-      {tab === "replay"        && <ReplayPanel />}
-      {tab === "backfill"      && <BackfillPanel />}
-      {tab === "certification" && <CertificationPanel />}
-      {tab === "trends"        && <TrendsPanel />}
+      {tab === "replay"        && <NotAvailablePanel name="Replay (90d)" reason="Replay endpoint not implemented in this backend version." />}
+      {tab === "backfill"      && <NotAvailablePanel name="Backfill Readiness" reason="Backfill endpoint not implemented in this backend version." />}
+      {tab === "certification" && <NotAvailablePanel name="Certification" reason="Certification endpoint not implemented in this backend version." />}
+      {tab === "trends"        && <NotAvailablePanel name="Trends" reason="Trends endpoint not implemented in this backend version." />}
       {tab === "diag"          && <DiagnosticsPanel />}
     </div>
   );

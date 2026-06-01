@@ -1,4 +1,4 @@
-import { RefreshCw, Loader2, CheckCircle2, XCircle, AlertTriangle, Server, Database, Activity } from "lucide-react";
+import { RefreshCw, Loader2, CheckCircle2, XCircle, AlertTriangle, Server, Activity } from "lucide-react";
 import { Card, CardContent, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,45 +6,84 @@ import { http } from "@/services/api/http";
 import { NidpError } from "./NidpError";
 import { useQuery } from "@tanstack/react-query";
 
-interface DiagCheck {
-  name: string;
-  status: "ok" | "warn" | "error";
-  detail?: string;
-  latency_ms?: number;
-}
-
 interface DiagData {
-  checks: DiagCheck[];
-  environment?: string;
-  generated_at?: string;
+  env: {
+    NIDP_QUERY_API_URL_set: boolean;
+    NIDP_QUERY_API_TOKEN_set: boolean;
+    NIDP_QUERY_API_URL: string;
+    POSTGRES_URL_set: boolean;
+  };
+  nidp_query_api: {
+    reachable: boolean;
+    health: { ok: boolean; db_ok: boolean; db_latency_ms: number | null; error: string | null } | null;
+    reach_error: string | null;
+    auth_ok: boolean;
+    auth_error: string | null;
+  };
+  app_pool: { ok: boolean; error: string | null };
+  hint?: string;
 }
 
-const STATUS_ICON = {
+type CheckStatus = "ok" | "warn" | "error";
+
+interface Check { name: string; status: CheckStatus; detail?: string; latency?: number }
+
+function buildChecks(d: DiagData): Check[] {
+  const checks: Check[] = [];
+  checks.push({
+    name: "NIDP_QUERY_API_URL configured",
+    status: d.env.NIDP_QUERY_API_URL_set ? "ok" : "error",
+    detail: d.env.NIDP_QUERY_API_URL_set ? d.env.NIDP_QUERY_API_URL : "Not set — add via Admin → Secrets",
+  });
+  checks.push({
+    name: "NIDP_QUERY_API_TOKEN configured",
+    status: d.env.NIDP_QUERY_API_TOKEN_set ? "ok" : "error",
+    detail: d.env.NIDP_QUERY_API_TOKEN_set ? "Token present" : "Not set — add via Admin → Secrets",
+  });
+  checks.push({
+    name: "App Postgres pool",
+    status: d.app_pool.ok ? "ok" : "error",
+    detail: d.app_pool.error ?? "Connected",
+  });
+  checks.push({
+    name: "NIDP Query API reachable",
+    status: d.nidp_query_api.reachable ? "ok" : "error",
+    detail: d.nidp_query_api.reach_error ?? d.env.NIDP_QUERY_API_URL,
+  });
+  if (d.nidp_query_api.reachable) {
+    const h = d.nidp_query_api.health;
+    checks.push({
+      name: "NIDP Query API — DB connection",
+      status: h?.db_ok ? "ok" : "error",
+      detail: h?.error ?? (h?.db_ok ? "NIDP Postgres connected" : "DB error"),
+      latency: h?.db_latency_ms ?? undefined,
+    });
+    checks.push({
+      name: "NIDP Query API — bearer auth",
+      status: d.nidp_query_api.auth_ok ? "ok" : "error",
+      detail: d.nidp_query_api.auth_error ?? "Token accepted",
+    });
+  }
+  return checks;
+}
+
+const STATUS_ICON: Record<CheckStatus, React.ReactNode> = {
   ok: <CheckCircle2 className="w-4 h-4 text-pos" />,
   warn: <AlertTriangle className="w-4 h-4 text-warm" />,
   error: <XCircle className="w-4 h-4 text-neg" />,
 };
-
-const STATUS_TONE: Record<string, "good" | "warm" | "neg"> = { ok: "good", warn: "warm", error: "neg" };
+const STATUS_TONE: Record<CheckStatus, "good" | "warm" | "neg"> = { ok: "good", warn: "warm", error: "neg" };
 
 export function DiagnosticsPanel() {
   const { data, isFetching, refetch, error } = useQuery({
-    queryKey: ["nidp", "diagnostics"],
-    queryFn: () => http<DiagData>({ path: "/api/admin/nidp/diagnostics", timeoutMs: 20_000 }).then((r) => r.data),
+    queryKey: ["nidp", "diag"],
+    queryFn: () => http<DiagData>({ path: "/api/admin/nidp/diag", timeoutMs: 20_000 }).then((r) => r.data),
     staleTime: 30_000,
   });
 
-  const { data: dumpRunning, refetch: triggerDump } = useQuery({
-    queryKey: ["nidp", "dump-status"],
-    queryFn: async () => {
-      await http({ method: "POST", path: "/api/admin/nidp/dump", body: {} });
-      return true;
-    },
-    enabled: false,
-  });
-
-  const allOk = data?.checks.every((c) => c.status === "ok");
-  const hasError = data?.checks.some((c) => c.status === "error");
+  const checks = data ? buildChecks(data) : [];
+  const allOk = checks.every((c) => c.status === "ok");
+  const hasError = checks.some((c) => c.status === "error");
 
   return (
     <div className="space-y-4">
@@ -57,13 +96,13 @@ export function DiagnosticsPanel() {
               </div>
               <div>
                 <h2 className="text-base font-semibold text-ink">NIDP Diagnostics</h2>
-                <p className="text-xs text-ink-3">Connection status, env checks, and one-button debug bundle.</p>
+                <p className="text-xs text-ink-3">Connection status · secrets config · NIDP Query API health</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {data && (
                 <Badge tone={allOk ? "good" : hasError ? "neg" : "warm"}>
-                  {allOk ? "All healthy" : hasError ? "Errors detected" : "Warnings"}
+                  {allOk ? "All healthy" : hasError ? "Errors" : "Warnings"}
                 </Badge>
               )}
               <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
@@ -74,22 +113,23 @@ export function DiagnosticsPanel() {
 
           {error && <div className="mb-4"><NidpError err={error} /></div>}
 
-          {data?.environment && (
+          {data?.env.NIDP_QUERY_API_URL && (
             <div className="text-xs text-ink-3 mb-4 flex items-center gap-2">
-              <Server className="w-3.5 h-3.5" /> Environment: <strong className="text-ink-2">{data.environment}</strong>
+              <Server className="w-3.5 h-3.5" />
+              Query API: <code className="text-ink-2">{data.env.NIDP_QUERY_API_URL}</code>
             </div>
           )}
 
           <div className="space-y-2">
-            {(data?.checks ?? []).map((check) => (
+            {checks.map((check) => (
               <div key={check.name} className="flex items-center gap-3 rounded-lg border border-hairline p-3">
                 {STATUS_ICON[check.status]}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-ink">{check.name}</div>
                   {check.detail && <div className="text-xs text-ink-3 mt-0.5 truncate">{check.detail}</div>}
                 </div>
-                {check.latency_ms != null && (
-                  <span className="text-xs font-mono text-ink-3 shrink-0">{check.latency_ms.toFixed(0)}ms</span>
+                {check.latency != null && (
+                  <span className="text-xs font-mono text-ink-3 shrink-0">{check.latency.toFixed(0)}ms</span>
                 )}
                 <Badge tone={STATUS_TONE[check.status]}>{check.status}</Badge>
               </div>
@@ -98,21 +138,10 @@ export function DiagnosticsPanel() {
               <div className="text-center text-sm text-ink-3 py-6">No diagnostic data returned.</div>
             )}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Debug dump */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-ink">Debug Bundle</h3>
-              <p className="text-xs text-ink-3 mt-0.5">Triggers a full diagnostics dump to the server logs (NIDP VM). Check Grafana or <code>docker logs nidp-api</code> for output.</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => triggerDump()}>
-              <Database className="w-3.5 h-3.5" /> Run dump
-            </Button>
-          </div>
+          {data?.hint && (
+            <div className="mt-4 text-xs text-ink-3 bg-surface-1 rounded-lg px-3 py-2">{data.hint}</div>
+          )}
         </CardContent>
       </Card>
     </div>

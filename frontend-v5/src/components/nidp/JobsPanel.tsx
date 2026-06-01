@@ -131,7 +131,7 @@ export function JobsPanel() {
 
                     {/* 7-day sparkbar */}
                     <div className="hidden sm:flex items-end gap-px h-4 shrink-0">
-                      {j.last_7_days.map((day, i) => (
+                      {(j.last_7_days ?? []).map((day, i) => (
                         <div
                           key={i}
                           title={`${day.date}: ${day.status ?? "no run"}`}

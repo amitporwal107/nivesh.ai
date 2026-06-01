@@ -55,6 +55,48 @@ const DAY_COLOR: Record<string, string> = {
   OK: "bg-pos", SUCCESS: "bg-pos", FAILED: "bg-neg", PARTIAL: "bg-warm",
 };
 
+const FEED_DESCRIPTIONS: Record<string, string> = {
+  bhavcopy:                  "NSE end-of-day prices — OHLCV + turnover for all listed securities. Runs at 13:00 IST weekdays.",
+  delivery:                  "NSE security-wise delivery data — delivered qty + delivery % per stock. Settlement signal. 13:30 IST weekdays.",
+  index_close:               "NSE index closing values (Nifty 50/100/500, Bank Nifty, etc.). 13:05 IST weekdays.",
+  fii_dii:                   "FII & DII net buy/sell in cash + F&O — institutional flow signal. 13:45 IST weekdays.",
+  bulk_deals:                "NSE bulk deals (>0.5% of listed shares). Reveals smart-money entry/exit. 13:15 IST weekdays.",
+  block_deals:               "NSE block deals (>₹10 Cr). Negotiated institutional transfers. 13:20 IST weekdays.",
+  corporate_actions:         "NSE corporate-action calendar — splits, bonuses, dividends, mergers. Daily.",
+  rbi_yields:                "RBI G-Sec yield curve across tenors (1Y→30Y). Rate-regime context. 16:00 IST weekdays.",
+  fred_macro:                "US macro indicators from FRED — DXY, US10Y, VIX, CPI, PCE. 17:00 IST daily.",
+  nse_calendar:              "NSE trading-holiday calendar. Monthly on the 1st.",
+  index_constituents:        "Nifty 50/100/200/500 membership — which symbols are in each index and when. Monthly.",
+  snapshot_builder:          "Daily market + stock snapshots — frozen point-in-time payload for dashboards. 15:00 IST weekdays.",
+  yfinance_backfill:         "Historical price backfill via yfinance. One-off runs only.",
+  nse_financials:            "NSE XBRL quarterly results — revenue, PAT, EPS, debt. On demand after filing.",
+  nse_shareholding:          "NSE shareholding pattern (quarterly) — promoter, FII, DII, MF, pledge %. On demand.",
+  price_adjuster:            "Retroactively adjusts OHLCV for splits/bonuses/dividends to create continuous series.",
+  nse_equity_master:         "NSE equity master file — symbol, ISIN, face value, series, listing date. On demand.",
+  fno_bhavcopy:              "NSE F&O bhavcopy — per-contract OHLC + open interest for futures and options.",
+  corporate_announcements_nse: "NSE corporate filings — classified by impact tier. Scraped every 5 min.",
+  corporate_announcements_bse: "BSE corporate filings — classified by impact tier. Scraped every 5 min.",
+  announcement_classifier:   "Haiku-powered impact classifier for announcements. Runs after each scrape.",
+  document_parser:           "PDF/XLSX attachment parser for corporate filings. Feeds pgvector embeddings.",
+  amfi_nav:                  "AMFI NAV for ~10k schemes daily. 20:00 IST Mon–Fri via NAVAll.txt.",
+  amfi_circulars:            "AMFI notices/circulars — merger/rename/addendum events. Daily 09:00 IST.",
+  amfi_nav_history:          "Historical NAV backfill from MFAPI. One-off bootstrap.",
+  nse_financials_backfill:   "Historical NSE XBRL financial results backfill. One-off runs.",
+  mf_disclosure_snapshot:    "AMC SID pages — TER, risk-o-meter, fund manager, AUM. Weekly scrape.",
+  mf_holdings:               "Top-10 AMC monthly portfolio disclosures — per-security weight, sector. Monthly.",
+  event_calendar:            "Corporate event calendar (AGM, board meetings, results dates). Daily.",
+  event_day_poller:          "Intraday poller for events happening today. High-freq.",
+  d1_prep:                   "D+1 market prep — computes next-day signals before market open.",
+  intelligence:              "Portfolio intelligence sync — pushes derived insights to the app DB.",
+  intelligence_layer:        "LLM-powered intelligence layer — copilot context enrichment.",
+  quality_gate:              "DQ gate — runs consistency rules + quality scoring post-market-close.",
+  mf_analytics_engine:       "V3 MF scoring engine — computes 6 composite scores per scheme.",
+  technical_indicator_engine:"Technical indicators (RSI, MACD, Bollinger, ATR) per stock. Daily.",
+  fundamental_engine:        "Fundamental scoring — P/E, ROE, debt ratios per stock. Daily.",
+  portfolio_holdings_sync:   "Syncs user CAS portfolio holdings to the app database.",
+  portfolio_intelligence_sync:"Syncs NIDP intelligence output to the app MongoDB per user.",
+};
+
 function relTime(iso?: string | null) {
   if (!iso) return "—";
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -132,7 +174,7 @@ export function DataCatalog() {
                       <span className="font-mono text-xs text-ink-2 flex-1 truncate">{f.ingester}</span>
                       {/* 7-day sparkbar */}
                       <div className="hidden sm:flex items-end gap-px h-4 shrink-0">
-                        {f.last_7_days.map((day, i) => (
+                        {(f.last_7_days ?? []).map((day, i) => (
                           <div
                             key={i}
                             title={`${day.date}: ${day.status ?? "no run"} (${day.run_count} runs)`}
@@ -148,18 +190,23 @@ export function DataCatalog() {
                       )}
                     </button>
                     {isExp && (
-                      <div className="border-t border-hairline bg-surface-1 px-4 py-3 text-[11px] text-ink-3 space-y-1">
+                      <div className="border-t border-hairline bg-surface-1 px-4 py-3 text-[11px] text-ink-3 space-y-2">
+                        {FEED_DESCRIPTIONS[f.ingester] && (
+                          <p className="text-ink-2 text-xs">{FEED_DESCRIPTIONS[f.ingester]}</p>
+                        )}
                         <div className="flex flex-wrap gap-x-6 gap-y-1">
-                          <span>Source: <strong className="text-ink-2">{f.source_class}</strong></span>
                           <span>Freq: <strong className="text-ink-2">{f.expected_freq}</strong></span>
-                          {f.schedule_cron && <span>Cron: <code className="text-ink-2">{f.schedule_cron}</code></span>}
+                          {f.schedule_cron
+                            ? <span>Cron: <code className="text-ink-2 bg-surface-2 px-1 rounded">{f.schedule_cron}</code></span>
+                            : <span className="text-ink-3">No cron — triggered by upstream</span>
+                          }
                           <span>Last run: <strong className="text-ink-2">{relTime(f.last_run_at)}</strong></span>
                           {f.last_run_duration_ms != null && <span>Duration: <strong className="text-ink-2">{(f.last_run_duration_ms / 1000).toFixed(1)}s</strong></span>}
                           {f.last_rows_inserted != null && <span>Rows: <strong className="text-ink-2">{f.last_rows_inserted.toLocaleString()}</strong></span>}
-                          <span>✓ {f.success_count} / ✗ {f.failure_count}</span>
+                          <span>✓ {f.success_count} runs / ✗ {f.failure_count} fails</span>
                         </div>
                         {f.last_error_message && (
-                          <div className="text-neg mt-1 font-mono text-[10px] bg-[rgb(var(--neg)/0.06)] rounded p-2 break-all">{f.last_error_message}</div>
+                          <div className="text-neg font-mono text-[10px] bg-[rgb(var(--neg)/0.06)] rounded p-2 break-all">{f.last_error_message}</div>
                         )}
                       </div>
                     )}
