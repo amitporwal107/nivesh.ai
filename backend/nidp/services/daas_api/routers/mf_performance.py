@@ -347,6 +347,8 @@ _V3_MF_PRIMITIVE_COLS = """
     v.beta_1y::float                       AS beta_1y,
     v.volatility_1y::float                 AS volatility_1y,
     v.category_rank,
+    v.category_rank_pct::float                 AS category_rank_pct,
+    v.category_size,
     v.return_1y_rank,
     v.nidp_returns_available,
     v.nidp_snapshot_available,
