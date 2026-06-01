@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Database, RefreshCw, Loader2, ChevronDown, ChevronRight, CheckCircle2, XCircle } from "lucide-react";
+import { Database, RefreshCw, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { http } from "@/services/api/http";
+import { NidpError } from "./NidpError";
 import { useQuery } from "@tanstack/react-query";
 
 interface FeedStatus {
@@ -65,7 +66,7 @@ export function DataCatalog() {
         </Button>
       </div>
 
-      {error && <div className="text-sm text-neg bg-[rgb(var(--neg)/0.08)] rounded-lg p-3">Failed to load catalog: {String(error)}</div>}
+      {error && <NidpError err={error} />}
 
       {/* Feeds */}
       {(data?.feeds ?? []).length > 0 && (

@@ -3,6 +3,7 @@ import { Card, CardContent, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { http } from "@/services/api/http";
+import { NidpError } from "./NidpError";
 import { useQuery } from "@tanstack/react-query";
 
 interface DiagCheck {
@@ -71,7 +72,7 @@ export function DiagnosticsPanel() {
             </div>
           </div>
 
-          {error && <div className="text-sm text-neg bg-[rgb(var(--neg)/0.08)] rounded-lg p-3 mb-4">Failed to run diagnostics: {String(error)}</div>}
+          {error && <div className="mb-4"><NidpError err={error} /></div>}
 
           {data?.environment && (
             <div className="text-xs text-ink-3 mb-4 flex items-center gap-2">

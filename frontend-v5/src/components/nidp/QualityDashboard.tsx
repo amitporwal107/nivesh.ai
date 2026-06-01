@@ -3,6 +3,7 @@ import { Card, CardContent, CardLabel } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { http } from "@/services/api/http";
+import { NidpError } from "./NidpError";
 import { useQuery } from "@tanstack/react-query";
 
 interface QualityMetric {
@@ -70,7 +71,7 @@ export function QualityDashboard() {
         </div>
       </div>
 
-      {error && <div className="text-sm text-neg bg-[rgb(var(--neg)/0.08)] rounded-lg p-3">Failed to load quality data: {String(error)}</div>}
+      {error && <NidpError err={error} />}
 
       {/* Feed metrics table */}
       {(data?.feeds ?? []).length > 0 && (
