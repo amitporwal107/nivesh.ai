@@ -47,10 +47,12 @@ export function Risk({ data }: Props) {
         <CardLabel>What's making it risky · share of σ</CardLabel>
         <ul className="mt-4 flex flex-col gap-3">
           {data.riskDrivers.map((d) => (
-            <li key={d.name} className="grid grid-cols-[1fr_240px_60px] gap-4 items-center">
-              <span className="text-[14px]">{d.name}</span>
+            <li key={d.name} className="py-1">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[14px]">{d.name}</span>
+                <span className="font-mono num text-[13px] shrink-0">{d.sharePct}%</span>
+              </div>
               <CapBar pct={d.sharePct} height={6} />
-              <span className="font-mono num text-[13px] text-right">{d.sharePct}%</span>
             </li>
           ))}
         </ul>
@@ -62,30 +64,32 @@ export function Risk({ data }: Props) {
           <CardLabel>Stress scenarios · simulated impact</CardLabel>
           <span className="ml-auto text-[12px] text-ink-3">5 scenarios</span>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-hairline">
-              {["Scenario", "Portfolio", "Benchmark", "Recovery"].map((h) => (
-                <th key={h} className="text-left font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 font-normal px-3 py-2">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.stressScenarios.map((s) => {
-              const tone = s.portfolioPct < -0.2 ? "text-neg" : s.portfolioPct < -0.05 ? "text-warm" : "text-pos";
-              return (
-                <tr key={s.name} className="border-t border-hairline">
-                  <td className="px-3 py-3 text-[14px] font-medium">{s.name}</td>
-                  <td className={`px-3 py-3 font-mono num text-[13px] ${tone}`}>{formatPct(s.portfolioPct, { signed: true })}</td>
-                  <td className="px-3 py-3 font-mono num text-[12px] text-ink-3">{formatPct(s.benchPct, { signed: true })}</td>
-                  <td className="px-3 py-3 text-[12px] text-ink-3">{s.recovery}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" style={{ minWidth: 340 }}>
+            <thead>
+              <tr className="border-b border-hairline">
+                {["Scenario", "Portfolio", "Benchmark", "Recovery"].map((h) => (
+                  <th key={h} className="text-left font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 font-normal px-3 py-2">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.stressScenarios.map((s) => {
+                const tone = s.portfolioPct < -0.2 ? "text-neg" : s.portfolioPct < -0.05 ? "text-warm" : "text-pos";
+                return (
+                  <tr key={s.name} className="border-t border-hairline">
+                    <td className="px-3 py-3 text-[14px] font-medium">{s.name}</td>
+                    <td className={`px-3 py-3 font-mono num text-[13px] ${tone}`}>{formatPct(s.portfolioPct, { signed: true })}</td>
+                    <td className="px-3 py-3 font-mono num text-[12px] text-ink-3">{formatPct(s.benchPct, { signed: true })}</td>
+                    <td className="px-3 py-3 text-[12px] text-ink-3">{s.recovery}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );
