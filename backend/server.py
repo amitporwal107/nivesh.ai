@@ -75,6 +75,7 @@ from routes.strategy_builder import router as strategy_builder_router  # Strateg
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
+from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
@@ -93,6 +94,7 @@ from routes.admin_nidp_stock_primitives import router as admin_nidp_stock_primit
 from routes.copilot_agents import router as copilot_agents_router  # Copilot agent + model picker (Intelligence Layer Phase A/B)
 from routes.copilot_widgets import router as copilot_widgets_router  # Copilot embedded-widget producers (Fund card, Market brief, ...)
 from routes.admin_swagger import router as admin_swagger_router  # Admin-only Swagger UI (/api/admin/swagger)
+from routes.grafana_alerts import router as grafana_alerts_router  # Grafana webhook receiver + active alerts query
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -189,6 +191,8 @@ app.include_router(cas_token_router)      # POST /api/casparser/token
 app.include_router(cas_webhooks_router)   # POST /webhooks/casparser/inbound-email (PI_WEBHOOK_ENABLED-gated)
 app.include_router(cas_admin_router)      # GET  /api/admin/jobs/stale|summary, /api/admin/verify
 app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-specific; V2 has none)
+app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
+app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
 
 
 # Root endpoint
