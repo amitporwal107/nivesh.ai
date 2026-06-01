@@ -477,7 +477,7 @@ async def get_portfolio_risk(
     """
     try:
         payload = await _get(
-            f"/portfolio-risk/{external_user_id}",
+            f"/v1/portfolio-risk/{external_user_id}",
             timeout=timeout,
         )
     except DaasError as exc:
