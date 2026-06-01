@@ -180,7 +180,7 @@ async def build_portfolio_returns(
     )
     benchmark_series: pd.Series = pd.Series(dtype=float)
     if bench_rows:
-        bench_df = pd.DataFrame(bench_rows, columns=["date", "price"]).set_index("date")["price"]
+        bench_df = pd.DataFrame(bench_rows, columns=["date", "price"]).set_index("date")["price"].astype(float)
         benchmark_series = np.log(bench_df / bench_df.shift(1)).dropna()
 
     # 6. Combine equity + MF price frames and compute log-returns
