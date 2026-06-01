@@ -196,6 +196,9 @@ async def build_portfolio_returns(
     # Forward-fill short gaps (holidays, MF NAV lag) up to 5 days
     prices = prices.ffill(limit=5)
 
+    # Ensure numpy-compatible float64 dtype before log (asyncpg returns Decimal)
+    prices = prices.astype(float)
+
     # Compute log-returns and drop first row (NaN from shift)
     log_returns = np.log(prices / prices.shift(1)).dropna(how="all")
 
