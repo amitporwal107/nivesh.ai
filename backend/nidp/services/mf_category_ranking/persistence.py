@@ -8,6 +8,15 @@ Uses ON CONFLICT DO UPDATE (upsert) — safe to re-run for the same rank_date.
 from __future__ import annotations
 
 import json
+import decimal as _decimal
+
+
+class _DecimalEncoder(json.JSONEncoder):
+    """Handle Decimal values that asyncpg returns from FDW numeric columns."""
+    def default(self, obj):
+        if isinstance(obj, _decimal.Decimal):
+            return float(obj)
+        return super().default(obj)
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -101,7 +110,7 @@ async def upsert_ranked_funds(
             r.category_rank,
             r.category_pct,
             r.category_size,
-            json.dumps(r.metric_contributions),
+            json.dumps(r.metric_contributions, cls=_DecimalEncoder),
             r.status,
             r.last_ranked_at,
             r.data_as_of,
@@ -150,7 +159,7 @@ async def upsert_ranked_funds(
             m.low_confidence_count,
             m.total_input_count,
             m.dedupe_collapse_count,
-            json.dumps(m.null_counts_per_metric),
+            json.dumps(m.null_counts_per_metric, cls=_DecimalEncoder),
         ))
 
     if run_metric_rows:
