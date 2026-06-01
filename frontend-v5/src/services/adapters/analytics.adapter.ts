@@ -99,18 +99,28 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
         return t?.sub ?? "";
       };
 
-      const varPct   = tileNum("var");
-      const volPct   = tileNum("vol");
-      const maxDD    = tileNum("max") || tileNum("draw");
+      // Tile values arrive as formatted percent strings ("−58.7%", "32.8%").
+      // tileNum strips all non-numeric chars → raw percentage number (58.7).
+      // formatPct expects a 0..1 ratio, so divide by 100 here.
+      const varPct   = tileNum("var") / 100;
+      const volPct   = tileNum("vol") / 100;
+      const maxDD    = (tileNum("max") || tileNum("draw")) / 100;
       const beta     = tileNum("beta");
 
-      // ₹ VaR from tile sub-label ("~₹62.3L") or from PRA meta field
-      const varSubRaw = tileSub("var").replace(/[^0-9.]/g, "");
-      const varPaise  = varSubRaw ? parseFloat(varSubRaw) * 100 : 0;
+      // ₹ VaR from tile sub-label: "~₹62" | "~₹9.3L" | "~₹2.1Cr"
+      // Handle suffix before stripping so large values aren't silently truncated.
+      const varSub = tileSub("var");
+      let varPaise = 0;
+      const crM = varSub.match(/([\d.]+)\s*Cr/i);
+      const lM  = varSub.match(/([\d.]+)\s*L/i);
+      const pM  = varSub.match(/[\d.]+/);
+      if (crM)      varPaise = parseFloat(crM[1]) * 1_00_00_000 * 100;
+      else if (lM)  varPaise = parseFloat(lM[1])  * 1_00_000    * 100;
+      else if (pM)  varPaise = parseFloat(pM[0])  * 100;
 
-      // Bench vol from Volatility tile sub ("Bench 13.5%")
+      // Bench vol from Volatility tile sub ("Bench 13.5%") → divide by 100 for ratio
       const benchMatch = tileSub("vol").match(/[\d.]+/);
-      const benchVolPct = benchMatch ? parseFloat(benchMatch[0]) : 0;
+      const benchVolPct = benchMatch ? parseFloat(benchMatch[0]) / 100 : 0;
 
       // Risk drivers: new format uses breakdown.items with sharePct field
       const breakdownItems = (body.breakdown as { items?: Array<{ name?: string; value?: number; cls?: string }> })?.items ?? [];
@@ -123,10 +133,11 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
       const rawStress = (body.stress_scenarios as Array<{
         name?: string; portfolio_pct?: number; benchmark_pct?: number; recovery?: string;
       }>) ?? [];
+      // PRA returns percentage floats (e.g. -22.5); divide by 100 for 0..1 ratio.
       const stressScenarios = rawStress.map((s) => ({
         name:         String(s.name ?? ""),
-        portfolioPct: Number(s.portfolio_pct ?? 0),
-        benchPct:     Number(s.benchmark_pct ?? 0),
+        portfolioPct: Number(s.portfolio_pct ?? 0) / 100,
+        benchPct:     Number(s.benchmark_pct ?? 0) / 100,
         recovery:     String(s.recovery ?? ""),
       }));
 
