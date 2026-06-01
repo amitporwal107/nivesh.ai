@@ -381,8 +381,9 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
             "rating": "no_data",  # overperforming / meeting / underperforming / no_data
             "scheme_category": None,
             "scheme_code": code,
-            "category_rank": None,   # NIDP rank within sub-category peer group
-            "category_total": None,  # total funds in that sub-category
+            "category_rank": None,     # NIDP rank within sub-category peer group
+            "category_total": None,    # total funds in that sub-category
+            "category_rank_pct": None, # percentile 0–100 (100=best) from mf_category_rank_daily
         }
 
         # Resolve period returns: DaaS (ISIN-matched, correct) → mfapi.in fallback
@@ -419,6 +420,9 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                 rating["category_rank"]  = int(cr)
                 cs = prim.get("category_size")
                 rating["category_total"] = int(cs) if cs else (category_sizes.get(cat) or None)
+            crp = prim.get("category_rank_pct")
+            if crp is not None:
+                rating["category_rank_pct"] = round(float(crp), 1)
             # prim present but ret_1y missing → falls through to mfapi.in below
 
         if rating["return_1y"] is None and data and data.get("return_1y") is not None:

@@ -126,6 +126,17 @@ class UnderperformerEngine(BaseEngine):
                 # Legacy scale: higher = worse; exit if above legacy gate
                 weak_q = legacy_q >= legacy_exit_q_gate
 
+            # ── Category rank check (mf_category_rank_daily via v_v3_mf_primitives) ──
+            # category_rank_pct is 0–100 where 100=best in peer group.
+            # exit_rank_threshold (persona): minimum acceptable pct to keep the fund.
+            # e.g. exit_rank_threshold=65 → exit if fund is in bottom 35% of category.
+            cat_pct = v3.get("category_rank_pct")
+            if cat_pct is not None and ctx.persona_profile:
+                keep_threshold = ctx.persona_profile.exit_rank_threshold  # e.g. 65
+                weak_cat_rank = float(cat_pct) < (100.0 - keep_threshold)
+            else:
+                weak_cat_rank = False  # no data → don't trigger on rank alone
+
             fund_data = catalog.get(iid, {})
             ratios = (fund_data.get("ratios") or {}) if isinstance(fund_data, dict) else {}
             ret_1y = ratios.get("ret_1y")
@@ -134,7 +145,8 @@ class UnderperformerEngine(BaseEngine):
             r3 = float(ret_3y) if ret_3y is not None else None
             weak_1y = r1 is not None and r1 < 8.0
             weak_3y = r3 is not None and r3 < 10.0
-            if weak_q and weak_1y and (weak_3y or r3 is None):
+            # Trigger on quality + return weakness, OR strengthen with category rank signal
+            if (weak_q and weak_1y and (weak_3y or r3 is None)) or (weak_cat_rank and weak_q):
                 exit_score = _v3_or_engine_exit_score(iid, cand, ctx.v3_scores)
                 underperformers.append({
                     "mf": mf, "candidate": cand,
@@ -143,6 +155,7 @@ class UnderperformerEngine(BaseEngine):
                     "exit_score": exit_score,
                     "ret_1y": round(r1, 2) if r1 is not None else "N/A",
                     "ret_3y": round(r3, 2) if r3 is not None else "N/A",
+                    "category_rank_pct": cat_pct,
                 })
 
         underperformers.sort(key=lambda x: x["exit_score"], reverse=True)
@@ -179,9 +192,12 @@ class UnderperformerEngine(BaseEngine):
                 else f"quality score {under['quality_score']:.1f}/10"
             )
             _q_bar = nidp_exit_q_threshold if under.get("quality_source") == "nidp" else legacy_exit_q_gate
+            _rank_suffix = ""
+            if under.get("category_rank_pct") is not None:
+                _rank_suffix = f" Category rank: bottom {100 - under['category_rank_pct']:.0f}% of peers."
             exit_reason = (
                 f"Below your {_persona_label} quality bar ({_q_display} vs threshold "
-                f"{_q_bar:.0f}). 1Y return {under['ret_1y']}% — underperforming its peer category."
+                f"{_q_bar:.0f}). 1Y return {under['ret_1y']}% — underperforming its peer category.{_rank_suffix}"
             )
 
             exit_sig = EngineSignal(

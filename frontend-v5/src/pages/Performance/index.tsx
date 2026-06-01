@@ -58,8 +58,9 @@ export type FundRating = {
   benchmark_return?: number | null;
   benchmark_name?: string | null;
   // NIDP rankings
-  category_rank?: number | null;   // rank within MF sub-category peer group
-  category_total?: number | null;  // total funds in that sub-category
+  category_rank?: number | null;      // rank within MF sub-category peer group
+  category_total?: number | null;     // total funds in that sub-category
+  category_rank_pct?: number | null;  // percentile 0–100 (100=best) from mf_category_rank_daily
   quality_score?: number | null;   // stock quality score 0-100 (equity only)
   sector_rank?: number | null;     // rank within sector by quality_score
   sector_total?: number | null;    // total stocks in that sector (portfolio)
@@ -88,7 +89,7 @@ function useFundPerformance() {
 type RecHolding = {
   name: string; asset_type: string; action: string; reason: string;
   quality_score: number | null; health_score?: number | null;
-  category?: string | null; category_rank?: number | null; category_total?: number | null;
+  category?: string | null; category_rank?: number | null; category_total?: number | null; category_rank_pct?: number | null;
   current_value_rs: number;
 };
 const ACTION_STYLES: Record<string, { color: string; bg: string; label: string }> = {
@@ -174,6 +175,8 @@ function RecommendationsPanel({ data, assetTabFilter }: {
                       {r.category_rank != null && r.category_total != null
                         ? ` · Rank ${r.category_rank}/${r.category_total} in category`
                         : r.category_rank != null ? ` · Rank #${r.category_rank}` : ""}
+                      {r.category_rank_pct != null
+                        ? ` (Top ${(100 - r.category_rank_pct).toFixed(0)}%)` : ""}
                     </p>
                   )}
                   <p className="text-[10px] opacity-55 leading-relaxed" style={{ fontFamily: "var(--font-mono)" }}>
@@ -1698,12 +1701,19 @@ function HoldingDetailDrawer({
               {(fund.scheme_category || fund.sector) ? ` · ${fund.scheme_category ?? fund.sector}` : ""}
             </p>
             <h2 className="text-[15px] font-semibold leading-snug">{fund.name}</h2>
-            {/* NIDP ranking badge */}
+            {/* NIDP ranking badge + percentile */}
             {fund.category_rank != null ? (
-              <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
-                style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
-                Rank {fund.category_rank}{fund.category_total ? `/${fund.category_total}` : ""} in {fund.scheme_category ?? "category"}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                <span className="inline-block text-[10px] px-2 py-0.5 rounded"
+                  style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
+                  Rank {fund.category_rank}{fund.category_total ? `/${fund.category_total}` : ""} in {fund.scheme_category ?? "category"}
+                </span>
+                {fund.category_rank_pct != null && (
+                  <span className="text-[10px] opacity-60" style={{ fontFamily: "var(--font-mono)" }}>
+                    Top {(100 - fund.category_rank_pct).toFixed(0)}%
+                  </span>
+                )}
+              </div>
             ) : (
               <p className="mt-1.5 text-[11px] opacity-40"
                 style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
