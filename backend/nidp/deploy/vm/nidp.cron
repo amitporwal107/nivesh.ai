@@ -53,12 +53,17 @@ MAILTO=""
 # ── Derived analytics engines (Action Matrix scoring inputs) ──────
 # Run order is load-bearing: each reads from the prior tier.
 #   mf_analytics_engine         ← depends on amfi_nav (20:00) for NAV history
+#   mf_category_ranking         ← depends on mf_analytics_engine (20:30) for NAV
+#                                  also reads mf_scheme_disclosure_snapshot for TER
+#                                  writes nidp.mf_category_rank_daily; fixes the
+#                                  rank-averaging defect in fund_category_rank.
 #   technical_indicator_engine  ← depends on price_adjuster (22:30) for adj-close
 #                                  also runs populate_stock_price_features()
 #                                  for vol_1y / drawdown_1y / beta_1y / return_252d
 #   fundamental_engine          ← depends on stock_features_daily rows from TI
 #                                  (Piotroski / Altman / sector_median_pe)
 30 20 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_analytics_engine
+0  21 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh mf_category_ranking
 35 22 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh technical_indicator_engine
 5  23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh fundamental_engine
 

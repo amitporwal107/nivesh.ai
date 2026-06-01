@@ -54,6 +54,7 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── Derived analytics engines ─────────────────────────────────────
 # 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_analytics_engine
+# 0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_category_ranking
 # 35 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh technical_indicator_engine
 # 5  23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fundamental_engine
 
