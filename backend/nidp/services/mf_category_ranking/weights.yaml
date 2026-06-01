@@ -1,0 +1,55 @@
+# MF Category Ranking — default weight configuration
+#
+# Per-family weight tables.  Each table must sum to 1.0 (±0.001).
+# The service raises ConfigurationError at startup if any family fails this check.
+#
+# Metric names map to the keys returned by calculator.py:
+#   return_1y, return_3y, return_5y   — from compute_returns()
+#   sharpe_1y, sortino_1y             — from compute_risk_metrics()
+#   max_drawdown_1y                   — from compute_risk_metrics()
+#   beta_1y                           — from compute_risk_metrics()
+#   expense_ratio                     — from mf_scheme_disclosure_snapshot.ter_pct_direct
+#
+# direction: higher | lower
+#   higher = higher raw value is better (return, sharpe, sortino)
+#   lower  = lower raw value is better  (expense_ratio, max_drawdown, beta)
+#
+# MVP scope: Equity family is active.
+# Debt / Hybrid / Other / Solution → insufficient_coverage until further config.
+
+families:
+
+  Equity:
+    weights:
+      return_3y:       0.25
+      return_5y:       0.15
+      sharpe_1y:       0.15
+      sortino_1y:      0.10
+      max_drawdown_1y: 0.10
+      return_1y:       0.10
+      expense_ratio:   0.10
+      beta_1y:         0.05
+    directions:
+      return_3y:       higher
+      return_5y:       higher
+      sharpe_1y:       higher
+      sortino_1y:      higher
+      max_drawdown_1y: higher
+      return_1y:       higher
+      expense_ratio:   lower
+      beta_1y:         lower
+
+  # Debt, Hybrid, Solution, Other: no weights defined → all funds in these
+  # families receive status=insufficient_coverage until configs are added.
+  # Uncomment and fill in to enable ranking for these families.
+  #
+  # Debt:
+  #   weights:
+  #     expense_ratio: 0.40
+  #     ...
+
+# Thresholds (apply to all families unless overridden below)
+thresholds:
+  min_history_bars: 252       # minimum NAV observations to be rankable
+  min_peers:        8         # N < min_peers → low_confidence flag
+  w_min:            0.60      # W_i < w_min → insufficient_coverage
