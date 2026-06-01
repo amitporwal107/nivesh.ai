@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
-from nidp.services.daas_api.responses import envelope
 
 router = APIRouter(
     prefix="/portfolio-risk",
@@ -131,7 +130,7 @@ async def get_portfolio_risk(
     else:
         result["stress_scenarios"] = []
 
-    return envelope(result)
+    return result
 
 
 @router.get("/{external_user_id}/history", summary="Historical risk snapshots (last N days)")
@@ -165,7 +164,7 @@ async def get_portfolio_risk_history(
         }
         for r in rows
     ]
-    return envelope({"external_user_id": external_user_id, "history": history})
+    return {"external_user_id": external_user_id, "history": history}
 
 
 # ── Color threshold helpers ───────────────────────────────────────────────────
