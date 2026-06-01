@@ -500,7 +500,9 @@ async def run_engine_pipeline(
         if iid and ctx.v3_scores.get(iid):
             v3 = ctx.v3_scores[iid]
             a["v3_scores"] = {
-                k: v3[k] for k in ("quality_score", "health_score", "exit_score", "add_score")
+                k: v3[k]
+                for k in ("quality_score", "health_score", "exit_score", "add_score",
+                          "category_rank_pct", "composite_rank", "total_in_category")
                 if k in v3
             }
 

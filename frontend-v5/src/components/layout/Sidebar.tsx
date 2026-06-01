@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
+  ShieldCheck, Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -32,8 +33,17 @@ export function Sidebar({ className }: { className?: string }) {
   const { data: me } = useMe();
   const { data: summary } = usePortfolioSummary();
 
+  const adminNav: NavItem[] = me?.is_admin
+    ? [
+        { to: "/admin", label: "Admin Console", icon: ShieldCheck, group: "Admin" },
+        { to: "/nidp",  label: "NIDP Console",  icon: Server,      group: "Admin" },
+      ]
+    : [];
+
+  const allNav = [...NAV, ...adminNav];
+
   const groups: Array<{ name: string; items: NavItem[] }> = [];
-  NAV.forEach((item) => {
+  allNav.forEach((item) => {
     const g = item.group ?? "Other";
     const existing = groups.find((x) => x.name === g);
     if (existing) existing.items.push(item);

@@ -12,6 +12,7 @@ const mockUser: User = {
   emailDomain: "gmail.com",
   isWhitelisted: true,
   onboardingCompleted: false,
+  is_admin: false,
 };
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

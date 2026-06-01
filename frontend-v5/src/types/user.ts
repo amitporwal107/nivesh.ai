@@ -5,6 +5,7 @@ export interface User {
   emailDomain: string;
   isWhitelisted: boolean;
   onboardingCompleted: boolean;
+  is_admin: boolean;
 }
 
 export const ALLOWED_DOMAINS = [

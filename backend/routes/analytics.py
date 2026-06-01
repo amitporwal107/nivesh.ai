@@ -649,13 +649,14 @@ async def get_portfolio_recommendations_v5(request: Request):
         raw_type = (a.get("type") or a.get("action_type") or "HOLD").upper()
         action = _PLAN_ACTION_NORM.get(raw_type, "HOLD")
         scores = a.get("scores") or {}
-        qs = scores.get("quality") or scores.get("quality_score")
-        hs = scores.get("health") or scores.get("health_score")
+        v3 = a.get("v3_scores") or {}
+        qs = scores.get("quality") or scores.get("quality_score") or v3.get("quality_score")
+        hs = scores.get("health") or scores.get("health_score") or v3.get("health_score")
         reason = a.get("reason_text") or a.get("reason") or "See plan for details"
-        # Surface the source domain (concentration / diversification / goals / risk)
         domain = a.get("source_domain") or ""
         if domain:
             reason = f"[{domain}] {reason}"
+        crp = v3.get("category_rank_pct")
         return {
             "name": (a.get("asset_name") or a.get("instrument_name") or "")[:70],
             "action": action,
@@ -666,6 +667,7 @@ async def get_portfolio_recommendations_v5(request: Request):
             "current_value_rs": float(a.get("amount") or 0),
             "confidence": "high",
             "source": "plan",
+            "category_rank_pct": round(float(crp), 1) if crp is not None else None,
         }
 
     plan_recs = [_action_to_rec(a) for a in plan_actions

@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./components/layout/AppLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
+import { RequireAdmin } from "./components/layout/RequireAdmin";
 import { RouteErrorBoundary } from "./components/shared/RouteErrorBoundary";
 import HomepagePage from "./pages/Homepage";
 import DashboardPage from "./pages/Dashboard";
@@ -20,6 +21,8 @@ import PlanPage from "./pages/Plan";
 import PerformancePage from "./pages/Performance";
 import CompositionPage from "./pages/Composition";
 import DiagnosticsPage from "./pages/Diagnostics";
+import AdminPage from "./pages/Admin";
+import NidpConsolePage from "./pages/NidpConsole";
 
 export function AppRoutes() {
   return (
@@ -54,6 +57,9 @@ export function AppRoutes() {
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
+        {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
+        <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
+        <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
