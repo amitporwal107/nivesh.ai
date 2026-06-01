@@ -17,29 +17,31 @@ CREATE SCHEMA IF NOT EXISTS pra;
 
 -- ── pra.portfolio_risk_results ─────────────────────────────────────────────────
 -- One row per (external_user_id, computed_date). Primary read path for dashboard.
+-- Regular table (not hypertable) — nightly batch with O(users) rows; no need for
+-- TimescaleDB partitioning. BRIN index on computed_date for range scans.
 
 CREATE TABLE IF NOT EXISTS pra.portfolio_risk_results (
-    result_id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    result_id               UUID        NOT NULL DEFAULT gen_random_uuid(),
     external_user_id        TEXT        NOT NULL,
     computed_date           DATE        NOT NULL,
 
     -- Portfolio summary
     portfolio_value_inr     NUMERIC(20,2),
     holding_count           INTEGER,
-    lookthrough_coverage_pct NUMERIC(7,2),   -- % of portfolio value with known underlying securities
+    lookthrough_coverage_pct NUMERIC(7,2),
 
     -- Core risk metrics
-    volatility_annual_pct   NUMERIC(10,6),   -- annualised daily vol × √252
-    benchmark_vol_annual_pct NUMERIC(10,6),  -- Nifty 500 annualised vol same window
-    var_95_1y_pct           NUMERIC(10,6),   -- max(parametric, historical) VaR at 95% / 1Y
-    var_95_1y_inr           NUMERIC(20,2),   -- rupee VaR = var_95_1y_pct × portfolio_value_inr
-    max_drawdown_pct        NUMERIC(10,6),   -- peak-to-trough over lookback window
-    beta_nifty500           NUMERIC(8,4),    -- Cov(r_p, r_m) / Var(r_m)
-    sharpe_1y               NUMERIC(8,4),    -- (r_p − r_f) / σ_p; r_f from rbi_yields 91D
+    volatility_annual_pct   NUMERIC(10,6),
+    benchmark_vol_annual_pct NUMERIC(10,6),
+    var_95_1y_pct           NUMERIC(10,6),
+    var_95_1y_inr           NUMERIC(20,2),
+    max_drawdown_pct        NUMERIC(10,6),
+    beta_nifty500           NUMERIC(8,4),
+    sharpe_1y               NUMERIC(8,4),
 
     -- Supporting metrics (V1)
-    tracking_error_pct      NUMERIC(10,6),   -- σ(r_p − r_benchmark)
-    hhi_lookthrough         INTEGER,         -- Herfindahl-Hirschman on effective weights
+    tracking_error_pct      NUMERIC(10,6),
+    hhi_lookthrough         INTEGER,
 
     -- Data quality flags
     look_through_stale      BOOLEAN     NOT NULL DEFAULT false,
@@ -48,24 +50,21 @@ CREATE TABLE IF NOT EXISTS pra.portfolio_risk_results (
     missing_symbols         TEXT[]      DEFAULT '{}',
 
     -- Audit trail
-    holdings_snapshot_hash  TEXT,            -- SHA-256 of input holdings
+    holdings_snapshot_hash  TEXT,
     formula_version         TEXT        NOT NULL DEFAULT 'pra-v1.0',
     lookback_days           INTEGER     NOT NULL DEFAULT 252,
-    risk_free_rate_pct      NUMERIC(8,4),    -- actual r_f used this run
+    risk_free_rate_pct      NUMERIC(8,4),
     computed_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
+    PRIMARY KEY (result_id, computed_date),
     UNIQUE (external_user_id, computed_date)
-);
-
--- TimescaleDB hypertable on computed_date (1-month chunks)
-SELECT create_hypertable(
-    'pra.portfolio_risk_results', 'computed_date',
-    chunk_time_interval => INTERVAL '1 month',
-    if_not_exists => TRUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_pra_results_user_date
     ON pra.portfolio_risk_results (external_user_id, computed_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_pra_results_date_brin
+    ON pra.portfolio_risk_results USING BRIN (computed_date);
 
 -- ── pra.component_var ──────────────────────────────────────────────────────────
 -- Per-holding component VaR (the "Share of Σ" breakdown). One row per
