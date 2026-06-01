@@ -256,8 +256,84 @@ async def _diversification_composite(user_id: str, lens: str) -> dict[str, Any]:
 
 
 async def _risk_composite(user_id: str) -> dict[str, Any]:
-    """Serves screen 07 Risk Dashboard."""
-    # Pull risk data directly from Mongo + DAAS (mirrors portfolio_risk_analytics logic)
+    """Serves screen 07 Risk Dashboard.
+
+    Reads from pra.portfolio_risk_results (precomputed nightly by pra_engine)
+    via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
+    Falls back to the legacy weighted-beta approach if no PRA result exists yet.
+    """
+    from services.copilot_tools import daas_client as _daas
+
+    # ── Primary path: precomputed PRA results ──────────────────────────
+    pra: Optional[dict] = None
+    try:
+        pra = await _daas.get_portfolio_risk(user_id)
+    except Exception as exc:
+        logger.debug("risk composite: PRA DaaS unavailable (%s), falling back", exc)
+
+    if pra and pra.get("var_95_1y_pct"):
+        var_pct   = float(pra["var_95_1y_pct"])
+        var_inr   = float(pra.get("var_95_1y_inr") or 0)
+        vol_pct   = float(pra.get("volatility_annual_pct") or 0)
+        bench_vol = float(pra.get("benchmark_vol_annual_pct") or 0)
+        mdd       = float(pra.get("max_drawdown_pct") or 0)
+        beta      = float(pra.get("beta_nifty500") or 0)
+        sharpe    = float(pra.get("sharpe_1y") or 0)
+        stale     = bool(pra.get("data_stale"))
+        color     = pra.get("risk_color", "amber")
+        drivers   = pra.get("risk_drivers") or []
+        stress    = pra.get("stress_scenarios") or []
+        computed_at = pra.get("computed_at", "")
+
+        tone = {"green": "moss", "amber": "saffron", "red": "rust"}.get(color, "saffron")
+        badge_label = "High risk" if color == "red" else ("Moderate risk" if color == "amber" else "Low risk")
+
+        return {
+            "badge": {"label": badge_label, "tone": tone},
+            "insight": {
+                "headline": f"One bad year could cost ₹{_fmt_inr(var_inr)}.",
+                "subtext": (
+                    f"That's the 95th-percentile worst case over 12 months — "
+                    f"a 1-in-20 scenario. Likely milder."
+                ),
+                "hero": {"label": "VaR 95% · 1Y", "value": f"−{var_pct:.1f}%", "tone": tone},
+            },
+            "stat_tiles": [
+                {"label": "VaR · 95th · 1Y",  "value": f"−{var_pct:.1f}%",  "sub": f"~₹{_fmt_inr(var_inr)}", "tone": tone},
+                {"label": "Volatility",         "value": f"{vol_pct:.1f}%",  "sub": f"Bench {bench_vol:.1f}%"},
+                {"label": "Max Drawdown",        "value": f"{mdd:.1f}%",     "sub": "historical worst", "tone": "moss" if mdd < 15 else ("saffron" if mdd < 35 else "rust")},
+                {"label": "Beta",                "value": f"{beta:.2f}",     "sub": "vs NIFTY 500"},
+            ],
+            "breakdown": {
+                "lens": "component_var",
+                "lens_options": ["component_var"],
+                "items": [
+                    {
+                        "name":  d.get("security_name") or d.get("security_key", "Unknown"),
+                        "cls":   d.get("asset_class", ""),
+                        "value": round(float(d.get("share_of_sigma_pct") or 0), 1),
+                        "weight": round(float(d.get("effective_weight_pct") or 0), 1),
+                    }
+                    for d in drivers[:10]
+                ],
+            },
+            "stress_scenarios": [
+                {
+                    "name":           s.get("scenario_name"),
+                    "portfolio_pct":  s.get("portfolio_impact_pct"),
+                    "benchmark_pct":  s.get("benchmark_impact_pct"),
+                    "recovery":       s.get("recovery_estimate"),
+                }
+                for s in stress
+            ],
+            "meta": {
+                "computed_at": computed_at,
+                "data_stale":  stale,
+                "sharpe_1y":   sharpe,
+            },
+        }
+
+    # ── Fallback: legacy weighted-beta approach (no PRA results yet) ───
     holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
@@ -270,85 +346,76 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     if not holdings:
         return _empty_domain("risk")
 
-    # Compute simple weighted beta from NIDP DAAS (re-uses existing service)
-    from services.copilot_tools import daas_client as _daas
     mf_isins = [h["ticker"] for h in holdings
                 if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"} and h.get("ticker")]
-    total_value = sum(float(h.get("quantity", 0)) * float(h.get("current_price", 0)) for h in holdings)
 
-    beta: Optional[float] = None
-    vol: Optional[float] = None
-    var_pct: Optional[float] = None
-    risk_drivers: list[dict] = []
+    beta_fb: Optional[float] = None
+    vol_fb:  Optional[float] = None
+    var_fb:  Optional[float] = None
+    risk_drivers_fb: list[dict] = []
 
     if mf_isins:
         try:
             mf_data = await _daas.get_v3_mf_primitives_bulk(mf_isins[:30])
-            weighted_beta = 0.0
-            weighted_vol = 0.0
-            w_sum = 0.0
+            wb2 = wv2 = ws2 = 0.0
             for h in holdings:
                 isin = h.get("ticker")
                 if not isin or isin not in mf_data:
                     continue
                 val = float(h.get("quantity", 0)) * float(h.get("current_price", 0))
                 d = mf_data[isin]
-                b = float(d.get("beta_1y") or d.get("beta") or 1.0)
-                v = float(d.get("volatility_1y") or d.get("volatility") or 0.15)
-                weighted_beta += b * val
-                weighted_vol += v * val
-                w_sum += val
+                b = float(d.get("beta_1y") or 1.0)
+                v = float(d.get("volatility_1y") or 0.15)
+                wb2 += b * val; wv2 += v * val; ws2 += val
                 if b >= 1.2:
-                    risk_drivers.append({
-                        "fund_name": h.get("name") or isin,
-                        "beta_1y": round(b, 2),
-                        "volatility": round(v * 100, 1),
-                    })
-            if w_sum > 0:
-                beta = round(weighted_beta / w_sum, 2)
-                vol_annual = weighted_vol / w_sum
-                vol = round(vol_annual, 4)
-                var_pct = round(vol_annual * 1.645 * 100, 2)
+                    risk_drivers_fb.append({"fund_name": h.get("name") or isin,
+                                            "beta_1y": round(b, 2),
+                                            "volatility": round(v * 100, 1)})
+            if ws2 > 0:
+                beta_fb = round(wb2 / ws2, 2)
+                vol_ann  = wv2 / ws2
+                vol_fb   = round(vol_ann, 4)
+                var_fb   = round(vol_ann * 1.645 * 100, 2)
         except Exception as exc:
-            logger.debug("risk composite DAAS error: %s", exc)
+            logger.debug("risk composite legacy DAAS error: %s", exc)
 
-    data = {
-        "weighted_beta": beta, "weighted_volatility": vol,
-        "var_1d_pct": var_pct, "max_drawdown_pct": None,
-        "risk_drivers": risk_drivers,
-    }
-    beta = data.get("weighted_beta")
-    vol = data.get("weighted_volatility")
-    var_pct = data.get("var_1d_pct")
-    tone = _beta_tone(beta)
+    tone = _beta_tone(beta_fb)
     badge_label = "High risk" if tone == "rust" else ("Moderate" if tone == "saffron" else "Low risk")
-
     return {
         "badge": {"label": badge_label, "tone": tone},
         "insight": {
-            "headline": f"Portfolio beta is {beta:.2f} — {'above' if (beta or 0) >= 1.3 else 'within'} the caution band." if beta else "Risk data loading.",
-            "subtext": f"VaR (95%, 1d): {var_pct:.1f}% of portfolio." if var_pct else "",
-            "hero": {"label": "BETA", "value": f"{beta:.2f}" if beta else "—", "tone": tone},
+            "headline": f"Portfolio beta is {beta_fb:.2f}." if beta_fb else "Risk data loading.",
+            "subtext": f"VaR (95%, 1d): {var_fb:.1f}%" if var_fb else "",
+            "hero": {"label": "BETA", "value": f"{beta_fb:.2f}" if beta_fb else "—", "tone": tone},
         },
         "stat_tiles": [
-            {"label": "Beta", "value": f"{beta:.2f}" if beta is not None else "—", "tone": tone},
-            {"label": "Volatility", "value": f"{round(vol * 100, 1)}%" if vol else "—"},
-            {"label": "VaR 1d", "value": f"{var_pct:.1f}%" if var_pct else "—"},
-            {"label": "Max DD", "value": f"{data.get('max_drawdown_pct', '—')}%" if data.get("max_drawdown_pct") is not None else "—"},
+            {"label": "Beta",      "value": f"{beta_fb:.2f}" if beta_fb is not None else "—", "tone": tone},
+            {"label": "Volatility","value": f"{round(vol_fb * 100, 1)}%" if vol_fb else "—"},
+            {"label": "VaR 1d",   "value": f"{var_fb:.1f}%" if var_fb else "—"},
+            {"label": "Max DD",    "value": "—"},
         ],
         "breakdown": {
             "lens": "beta",
-            "lens_options": ["beta", "volatility", "drawdown"],
+            "lens_options": ["beta"],
             "items": [
-                {
-                    "name": d.get("fund_name") or d.get("name") or "Unknown",
-                    "value": round(float(d.get("beta_1y") or d.get("beta") or 0), 2),
-                    "tone": _beta_tone(float(d.get("beta_1y") or d.get("beta") or 1)),
-                }
-                for d in (data.get("risk_drivers") or [])[:8]
+                {"name": d.get("fund_name", "Unknown"),
+                 "value": d.get("beta_1y", 0),
+                 "tone": _beta_tone(d.get("beta_1y", 1))}
+                for d in risk_drivers_fb[:8]
             ],
         },
+        "stress_scenarios": [],
+        "meta": {"data_stale": False, "pra_available": False},
     }
+
+
+def _fmt_inr(value: float) -> str:
+    """Format INR value as ₹XX.XL / ₹XX.XCr for display."""
+    if value >= 1_00_00_000:
+        return f"{value / 1_00_00_000:.1f}Cr"
+    if value >= 1_00_000:
+        return f"{value / 1_00_000:.1f}L"
+    return f"{int(value):,}"
 
 
 async def _performance_composite(user_id: str, period: str, force: bool = False) -> dict[str, Any]:

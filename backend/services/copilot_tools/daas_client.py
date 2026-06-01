@@ -464,3 +464,27 @@ async def get_v3_stock_primitives_bulk(
         return {}
     data = payload.get("data") or {}
     return data if isinstance(data, dict) else {}
+
+
+async def get_portfolio_risk(
+    external_user_id: str,
+    timeout: float = 10.0,
+) -> Optional[Dict[str, Any]]:
+    """Fetch the latest precomputed PRA risk snapshot for a user.
+
+    Calls GET /v1/portfolio-risk/{external_user_id}.
+    Returns None if no result exists (404) or on connectivity failure.
+    """
+    try:
+        payload = await _get(
+            f"/portfolio-risk/{external_user_id}",
+            timeout=timeout,
+        )
+    except DaasError as exc:
+        if getattr(exc, "status_code", None) == 404:
+            return None
+        logger.warning("get_portfolio_risk[%s]: %s", external_user_id, exc)
+        return None
+    if not payload:
+        return None
+    return payload.get("data") or payload
