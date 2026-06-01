@@ -341,6 +341,29 @@ async def get_v3_mf_primitives_bulk(
     return data if isinstance(data, dict) else {}
 
 
+async def get_category_top(
+    category: str,
+    n: int = 5,
+    timeout: float = 10.0,
+) -> Dict[str, Any]:
+    """Return top-N ranked funds for a SEBI category from mf_category_rank_daily.
+
+    Returns {category, rank_date, total_in_category, funds: [{scheme_code, scheme_name,
+    category_rank, category_pct, composite, ret_3y, ret_1y, sharpe, expense_ratio}]}.
+    Empty dict on failure.
+    """
+    if not category:
+        return {}
+    try:
+        import urllib.parse
+        params = {"category": category, "n": n}
+        payload = await _get("/mf/performance/category-top", params=params, timeout=timeout)
+    except DaasError as exc:
+        logger.warning("get_category_top(%r): %s", category[:40], exc)
+        return {}
+    return payload or {}
+
+
 async def get_user_holdings(
     external_user_id: str,
     on: Optional[str] = None,

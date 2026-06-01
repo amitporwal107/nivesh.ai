@@ -54,6 +54,7 @@ export type FundRating = {
   alpha?: number | null;
   rating: string;            // "overperforming" | "meeting" | "underperforming" | "no_data" | "etf_equity"
   scheme_category?: string | null;
+  scheme_code?: string | null;
   asset_type?: string;       // "mutual_fund" | "etf" | "equity" | "gold" | "other"
   benchmark_return?: number | null;
   benchmark_name?: string | null;
@@ -1659,6 +1660,28 @@ function HoldingDetailDrawer({
     ? recommendationsData.holdings.find((h) => h.name === name) ?? null
     : null;
 
+  // Fetch top-5 category peers when the fund has a category_rank
+  const categoryForTopN = fund?.scheme_category ?? null;
+  const { data: categoryTopData } = useQuery({
+    queryKey: ["category-top", categoryForTopN],
+    enabled: !!categoryForTopN && fund?.category_rank != null,
+    queryFn: async () => {
+      const res = await http({ path: `/api/mf/category-top?category=${encodeURIComponent(categoryForTopN!)}&n=5` });
+      return res.data as {
+        category: string;
+        rank_date: string | null;
+        total_in_category: number;
+        funds: Array<{
+          scheme_code: string; scheme_name: string;
+          category_rank: number; category_pct: number; composite: number;
+          ret_1y: number | null; ret_3y: number | null;
+          sharpe: number | null; expense_ratio: number | null;
+        }>;
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
     if (!name) return;
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -1714,18 +1737,10 @@ function HoldingDetailDrawer({
                   </span>
                 )}
               </div>
-            ) : (() => {
-              // Only show "Rank unavailable" for Direct plan funds where ranking data
-              // is genuinely absent (insufficient history/coverage). Regular/IDCW plan
-              // holdings intentionally have no rank (engine ranks Direct-Growth only)
-              // — hide the section entirely to avoid a confusing message.
-              const name = (fund.name || "").toLowerCase();
-              const isRegularOrIdcw = name.includes("regular") || name.includes("idcw") || name.includes("dividend");
-              return isRegularOrIdcw ? null : (
-                <p className="mt-1.5 text-[11px] opacity-40"
-                  style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
-              );
-            })()}
+            ) : (
+              <p className="mt-1.5 text-[11px] opacity-40"
+                style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
+            )}
             {fund.sector_rank != null && (
               <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
                 style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
@@ -1854,6 +1869,57 @@ function HoldingDetailDrawer({
                     </span>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Category Top-5 comparison */}
+          {categoryTopData && categoryTopData.funds.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-widest opacity-40 mb-2"
+                style={{ fontFamily: "var(--font-mono)" }}>
+                Top 5 in category · {categoryTopData.rank_date ?? ""}
+              </p>
+              <div className="rounded-lg overflow-hidden"
+                style={{ border: "1px solid rgba(var(--ink-1),0.1)" }}>
+                {/* Header */}
+                <div className="grid gap-x-2 px-3 py-1.5 text-[9px] uppercase tracking-widest opacity-35"
+                  style={{ fontFamily: "var(--font-mono)", gridTemplateColumns: "1.6rem 1fr 3rem 3rem 3rem" }}>
+                  <span>#</span><span>Fund</span><span className="text-right">1Y%</span>
+                  <span className="text-right">3Y%</span><span className="text-right">Score</span>
+                </div>
+                {categoryTopData.funds.map((peer) => {
+                  const isThis = fund?.scheme_code ? peer.scheme_code === fund.scheme_code : false;
+                  return (
+                    <div key={peer.scheme_code}
+                      className="grid gap-x-2 px-3 py-2 text-[11px] border-t"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        gridTemplateColumns: "1.6rem 1fr 3rem 3rem 3rem",
+                        borderColor: "rgba(var(--ink-1),0.07)",
+                        background: isThis ? "rgba(var(--accent),0.06)" : undefined,
+                      }}>
+                      <span className="opacity-50 text-[10px] self-center">
+                        #{peer.category_rank}
+                      </span>
+                      <span className="truncate self-center leading-tight"
+                        style={{ color: isThis ? "rgb(var(--accent))" : undefined }}>
+                        {peer.scheme_name.replace(/\s*-\s*(Direct|Growth|Regular|Plan|Option)\s*/gi, " ").trim().slice(0, 38)}
+                        {isThis && <span className="ml-1 text-[8px] opacity-60">← you</span>}
+                      </span>
+                      <span className="text-right self-center opacity-70">
+                        {peer.ret_1y != null ? `${peer.ret_1y > 0 ? "+" : ""}${peer.ret_1y.toFixed(1)}` : "—"}
+                      </span>
+                      <span className="text-right self-center opacity-70">
+                        {peer.ret_3y != null ? `${peer.ret_3y > 0 ? "+" : ""}${peer.ret_3y.toFixed(1)}` : "—"}
+                      </span>
+                      <span className="text-right self-center font-semibold"
+                        style={{ color: peer.composite >= 70 ? "rgb(var(--pos))" : peer.composite >= 45 ? "rgb(var(--warm))" : "rgb(var(--neg))" }}>
+                        {peer.composite.toFixed(0)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

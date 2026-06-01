@@ -811,6 +811,30 @@ async def refresh_nav(request: Request):
     return {"updated": updated_count, "total_mf": len(holdings), "nav_entries": len(nav_map)}
 
 
+@router.get("/mf/category-top")
+async def get_mf_category_top(
+    request: Request,
+    category: str = "",
+    n: int = 5,
+):
+    """Return top-N ranked funds in a SEBI category for the fund detail comparison panel.
+
+    Proxies to NIDP DaaS /v1/mf/performance/category-top.
+    Requires auth; category is the SEBI category string (e.g. 'Equity Scheme - Mid Cap Fund').
+    """
+    await get_current_user(request)   # auth gate — no user data needed
+    if not category:
+        return {"category": "", "funds": [], "total_in_category": 0}
+    try:
+        from services.copilot_tools import daas_client as _daas
+        if _daas.is_configured():
+            result = await _daas.get_category_top(category, n=min(n, 10))
+            return result
+    except Exception as exc:
+        logger.warning("get_mf_category_top: DaaS error: %s", exc)
+    return {"category": category, "funds": [], "total_in_category": 0}
+
+
 @router.get("/portfolio/fund-performance")
 async def get_fund_performance(
     request: Request,
