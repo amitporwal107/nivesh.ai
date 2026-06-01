@@ -135,6 +135,11 @@ MAILTO=""
 20 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh portfolio_intelligence_sync
 
+# ── Portfolio Risk Analytics engine (after portfolio_intelligence_sync) ───
+# Depends on: portfolio_holdings_sync (23:00) + price_adjuster (22:30) + amfi_nav (20:00)
+# Runs after all holdings and price data are available for the day.
+45 23 * * 1-5  nidp  /opt/nidp/repo/backend/nidp/deploy/vm/run_service.sh pra_engine
+
 # ── Parquet WARM-layer export (runs after analytics_refresh) ──────
 # Exports stock_features_daily + nse_financials_quarterly to MinIO
 # as partitioned Parquet for DuckDB historical queries and AI datasets.

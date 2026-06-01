@@ -58,6 +58,7 @@ from nidp.services.daas_api.routers import (
     macro,
     me,
     mf,
+    portfolio_risk,
     mf_performance,
     mf_scores,
     prices,
@@ -323,3 +324,4 @@ app.include_router(stock_scores.router, prefix=v1_prefix)
 app.include_router(stock_v3_scores.router, prefix=v1_prefix)
 app.include_router(analytics.router, prefix=v1_prefix)
 app.include_router(dq_status.router, prefix=v1_prefix)
+app.include_router(portfolio_risk.router, prefix=v1_prefix)
