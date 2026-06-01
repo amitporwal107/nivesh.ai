@@ -12,8 +12,11 @@
 -- pra schema is fully isolated from existing NIDP schemas.
 
 -- ── Schema ─────────────────────────────────────────────────────────────────────
+-- Drop and recreate: safe because this is the first migration for the pra schema.
+-- Handles the case where a prior failed run left the schema in a partial state.
 
-CREATE SCHEMA IF NOT EXISTS pra;
+DROP SCHEMA IF EXISTS pra CASCADE;
+CREATE SCHEMA pra;
 
 -- ── pra.portfolio_risk_results ─────────────────────────────────────────────────
 -- One row per (external_user_id, computed_date). Primary read path for dashboard.
