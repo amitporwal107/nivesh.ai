@@ -134,41 +134,45 @@ export default function CompositionPage() {
 
       {/* Dimension + metric controls */}
       <div className="flex flex-wrap gap-3 mb-6 items-center">
-        {/* Dimension tabs */}
-        <Tabs value={dimension} onValueChange={(v) => { setDimension(v as CompositionDimension); clearFilter(); }}>
-          <TabsList className="flex rounded-lg overflow-hidden"
+        {/* Dimension tabs — scrollable on mobile */}
+        <div className="overflow-x-auto max-w-full">
+          <Tabs value={dimension} onValueChange={(v) => { setDimension(v as CompositionDimension); clearFilter(); }}>
+            <TabsList className="flex rounded-lg overflow-hidden"
+              style={{ border: "1px solid rgba(var(--line),0.12)" }}>
+              {DIMENSIONS.map((d) => (
+                <TabsTrigger key={d.id} value={d.id}
+                  className="px-3 py-1.5 text-[11px] transition-colors whitespace-nowrap"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    background: dimension === d.id ? "rgba(var(--accent),0.12)" : "transparent",
+                    color: dimension === d.id ? "rgb(var(--accent))" : "rgba(var(--ink-1),0.45)",
+                    outline: "none",
+                  }}
+                  aria-pressed={dimension === d.id}>
+                  {d.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {/* Metric toggle — scrollable on mobile */}
+        <div className="overflow-x-auto max-w-full ml-auto">
+          <div className="flex rounded-lg overflow-hidden"
             style={{ border: "1px solid rgba(var(--line),0.12)" }}>
-            {DIMENSIONS.map((d) => (
-              <TabsTrigger key={d.id} value={d.id}
-                className="px-3 py-1.5 text-[11px] transition-colors"
+            {METRICS.map((m) => (
+              <button key={m.id} onClick={() => setMetric(m.id)}
+                className="px-3 py-1.5 text-[10px] transition-colors whitespace-nowrap"
                 style={{
                   fontFamily: "var(--font-mono)",
-                  background: dimension === d.id ? "rgba(var(--accent),0.12)" : "transparent",
-                  color: dimension === d.id ? "rgb(var(--accent))" : "rgba(var(--ink-1),0.45)",
-                  outline: "none",
+                  background: metric === m.id ? "rgba(var(--surface-3),0.8)" : "transparent",
+                  color: metric === m.id ? "rgb(var(--ink-1))" : "rgba(var(--ink-1),0.40)",
                 }}
-                aria-pressed={dimension === d.id}>
-                {d.label}
-              </TabsTrigger>
+                aria-pressed={metric === m.id}>
+                {m.label}
+              </button>
             ))}
-          </TabsList>
-        </Tabs>
-
-        {/* Metric toggle */}
-        <div className="flex rounded-lg overflow-hidden ml-auto"
-          style={{ border: "1px solid rgba(var(--line),0.12)" }}>
-          {METRICS.map((m) => (
-            <button key={m.id} onClick={() => setMetric(m.id)}
-              className="px-3 py-1.5 text-[10px] transition-colors"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: metric === m.id ? "rgba(var(--surface-3),0.8)" : "transparent",
-                color: metric === m.id ? "rgb(var(--ink-1))" : "rgba(var(--ink-1),0.40)",
-              }}
-              aria-pressed={metric === m.id}>
-              {m.label}
-            </button>
-          ))}
+          </div>
         </div>
       </div>
 
@@ -202,7 +206,8 @@ export default function CompositionPage() {
           {/* Ranked table */}
           <div className="rounded-lg overflow-hidden"
             style={{ border: "1px solid rgba(var(--line),0.08)", background: "rgb(var(--surface-2))" }}>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm" style={{ minWidth: 320 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid rgba(var(--line),0.08)" }}>
                   {["Segment", "Weight", "Value", "P&L"].map((h, i) => (
@@ -271,6 +276,7 @@ export default function CompositionPage() {
                 })}
               </tbody>
             </table>
+            </div>
 
             {/* Totals footer */}
             <div className="px-4 py-3 flex justify-between text-[11px] opacity-50"
