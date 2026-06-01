@@ -412,10 +412,13 @@ async def compute_benchmark_ratings(holdings: list, nav_cache: dict) -> dict:
                 else:
                     rating["rating"] = "meeting"; meet_count += 1
             # NIDP category rank (rank within sub-category peer group)
+            # category_rank + category_size come from mf_category_rank_daily (migration 085).
+            # Fall back to DaaS category_sizes for category_total if category_size is absent.
             cr = prim.get("category_rank")
             if cr is not None:
                 rating["category_rank"]  = int(cr)
-                rating["category_total"] = category_sizes.get(cat) or None
+                cs = prim.get("category_size")
+                rating["category_total"] = int(cs) if cs else (category_sizes.get(cat) or None)
             # prim present but ret_1y missing → falls through to mfapi.in below
 
         if rating["return_1y"] is None and data and data.get("return_1y") is not None:

@@ -1699,11 +1699,14 @@ function HoldingDetailDrawer({
             </p>
             <h2 className="text-[15px] font-semibold leading-snug">{fund.name}</h2>
             {/* NIDP ranking badge */}
-            {fund.category_rank != null && (
+            {fund.category_rank != null ? (
               <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
                 style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
                 Rank {fund.category_rank}{fund.category_total ? `/${fund.category_total}` : ""} in {fund.scheme_category ?? "category"}
               </span>
+            ) : (
+              <p className="mt-1.5 text-[11px] opacity-40"
+                style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
             )}
             {fund.sector_rank != null && (
               <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
