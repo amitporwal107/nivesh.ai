@@ -106,6 +106,7 @@ services:
       NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
       NIDP_QUERY_API_URL: ${NIDP_QUERY_API_URL:-https://staging-data.niveshcopilot.com/query}
       NIDP_QUERY_API_TOKEN: ${NIDP_QUERY_API_TOKEN:-}
+      NIDP_GRAFANA_URL: ${NIDP_GRAFANA_URL:-https://staging-data.niveshcopilot.com/grafana}
       GMAIL_REDIRECT_URI: https://staging.niveshcopilot.com/api/oauth/gmail/callback
       # ── CAS ingestion module (lives inside this same backend now) ──
       # Same DB connection; separate `portfolio_ingestion` schema.

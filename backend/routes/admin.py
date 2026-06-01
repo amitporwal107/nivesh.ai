@@ -363,14 +363,14 @@ async def get_active_cas_parser_provider(request: Request):
 async def list_secrets(request: Request, env: str = ""):
     """List secrets (masked) for the given environment. Admin only.
 
-    ?env=preview|production — defaults to the deploy's current env.
+    ?env=staging|production — defaults to the deploy's current env.
     The response also includes `current_env` so the UI can warn when the
     operator is editing the *other* environment's secrets.
     """
     await require_admin(request)
     from helpers import secrets as _secrets
     target_env = env.strip().lower() or _secrets.current_env()
-    target_env = "production" if target_env == "production" else "preview"
+    target_env = "production" if target_env == "production" else "staging"
     items = await _secrets.list_for_env(db, target_env)
     persisted = await db.system_config.find_one(
         {"key": f"secrets:{target_env}"}, {"_id": 0}
@@ -381,7 +381,7 @@ async def list_secrets(request: Request, env: str = ""):
         "updated_by": persisted.get("updated_by"),
         "current_env": _secrets.current_env(),
         "viewing_env": target_env,
-        "available_envs": ["preview", "production"],
+        "available_envs": ["staging", "production"],
     }
 
 
@@ -405,7 +405,7 @@ async def upsert_secret(key: str, request: Request, env: str = ""):
     return {
         "status": "ok", "key": key,
         "masked_value": _secrets.mask(value.strip()),
-        "env": "production" if target_env == "production" else "preview",
+        "env": "production" if target_env == "production" else "staging",
     }
 
 
@@ -422,7 +422,7 @@ async def delete_secret(key: str, request: Request, env: str = ""):
     )
     return {
         "status": "ok", "key": key, "deleted": True,
-        "env": "production" if target_env == "production" else "preview",
+        "env": "production" if target_env == "production" else "staging",
     }
 
 
@@ -437,7 +437,7 @@ async def reveal_secret(key: str, request: Request, env: str = ""):
     user = await require_admin(request)
     from helpers import secrets as _secrets
     target_env = (env.strip().lower() or _secrets.current_env())
-    target_env = "production" if target_env == "production" else "preview"
+    target_env = "production" if target_env == "production" else "staging"
 
     # Read the value from the env-scoped doc; fall back to the legacy
     # shared doc; finally fall back to process env (current deploy only).
@@ -494,15 +494,15 @@ async def reveal_secret(key: str, request: Request, env: str = ""):
 async def promote_secrets(request: Request):
     """Copy secrets from one environment to another. Admin only.
 
-    Body: {source: "preview"|"production", target: "preview"|"production",
+    Body: {source: "staging"|"production", target: "staging"|"production",
            keys: ["KEY1","KEY2",...] or null for "all"}
     """
     user = await require_admin(request)
     body = await request.json()
     src = (body.get("source") or "").strip().lower()
     tgt = (body.get("target") or "").strip().lower()
-    if src not in ("preview", "production") or tgt not in ("preview", "production"):
-        raise ValidationException("source and target must be preview|production", code="VAL-003")
+    if src not in ("staging", "production") or tgt not in ("staging", "production"):
+        raise ValidationException("source and target must be staging|production", code="VAL-003")
     if src == tgt:
         raise ValidationException("source and target must differ", code="VAL-001")
     keys_filter = body.get("keys")  # None → all

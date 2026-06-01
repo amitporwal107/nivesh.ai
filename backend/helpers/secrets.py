@@ -14,7 +14,7 @@ from typing import Dict, Optional, List
 KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
     # NOTE: CAS Parser API keys are intentionally NOT registered here.
     # They live in Google Secret Manager only (secret name:
-    # `casparser-api-keys-{production|preview}`). The admin console must
+    # `casparser-api-keys-{production|staging}`). The admin console must
     # not edit them — see helpers/gsm.py and services/cas_api_client.py.
     "EMERGENT_LLM_KEY": {
         "display_name": "Emergent LLM Key",
@@ -200,27 +200,25 @@ _cache: Dict[str, str] = {}
 # ── Environment scoping ───────────────────────────────────────────────────
 # Each deploy pins itself via the `APP_ENV` env var:
 #   * "production" → production deploy (customer traffic)
-#   * "preview"    → preview / staging / dev (default)
+#   * "staging"    → staging / dev (default)
 #
-# Secrets are stored in three Mongo documents in `db.system_config`:
+# Secrets are stored in Mongo documents in `db.system_config`:
 #   * {key: "secrets"}              — shared/legacy defaults (back-compat)
-#   * {key: "secrets:preview"}      — preview-only overrides
-#   * {key: "secrets:production"}   — production-only overrides
+#   * {key: "secrets:staging"}      — staging overrides    (APP_ENV=staging, default)
+#   * {key: "secrets:production"}   — production overrides (APP_ENV=production)
 #
 # Lookup precedence during hydration (for the *current* APP_ENV):
 #   1. secrets:<APP_ENV>.values[key]
-#   2. secrets.values[key]
+#   2. secrets.values[key]          (shared legacy fallback)
 #   3. os.environ[key]
 #
-# This means a preview deploy can point to a staging Neon / Upstash /
-# Google OAuth client while production uses a completely different set —
-# isolated end-to-end even if they happen to share the same Mongo.
+# Staging is the default environment. Production requires APP_ENV=production.
 
 
 def current_env() -> str:
-    """Return the current deploy's environment tag: 'preview' | 'production'."""
-    raw = os.environ.get("APP_ENV", "preview").strip().lower()
-    return "production" if raw == "production" else "preview"
+    """Return the current deploy's environment tag: 'production' | 'staging'."""
+    raw = os.environ.get("APP_ENV", "staging").strip().lower()
+    return "production" if raw == "production" else "staging"
 
 
 def _secrets_doc_key(env: Optional[str] = None) -> str:
@@ -373,12 +371,13 @@ async def persist_to_db(db, key: str, value: Optional[str], updated_by: str = ""
     deploy's environment). If `env` points to a DIFFERENT environment,
     the in-process _cache is NOT touched — only the Mongo doc for the
     target env is updated, so a production deploy's cache stays pristine
-    when an admin pre-seeds preview values from the production UI (or
+    when an admin pre-seeds staging values from the production UI (or
     vice-versa).
     """
     from datetime import datetime, timezone
     target_env = (env or current_env()).strip().lower()
-    target_env = "production" if target_env == "production" else "preview"
+    if target_env not in ("production", "staging"):
+        target_env = "staging"
     doc_key = _secrets_doc_key(target_env)
 
     # Only mutate in-process cache when writing to the CURRENT env
