@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
-  ShieldCheck, Server,
+  ShieldCheck, Server, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -27,6 +27,7 @@ const NAV: NavItem[] = [
   { to: "/portfolio",       label: "Portfolio builder", icon: Wrench,         group: "Workspace" },
   { to: "/chat",            label: "Chat copilot",     icon: MessageSquare,   group: "Workspace" },
   { to: "/recommendations", label: "Recommendations",  icon: Sparkles,        group: "Workspace" },
+  { to: "/pro-trader",      label: "Pro Trader",       icon: BarChart2,       group: "Workspace" },
 ];
 
 export function Sidebar({ className }: { className?: string }) {

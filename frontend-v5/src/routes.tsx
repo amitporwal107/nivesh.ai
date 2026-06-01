@@ -23,6 +23,7 @@ import CompositionPage from "./pages/Composition";
 import DiagnosticsPage from "./pages/Diagnostics";
 import AdminPage from "./pages/Admin";
 import NidpConsolePage from "./pages/NidpConsole";
+import ProTraderPage from "./pages/ProTrader";
 
 export function AppRoutes() {
   return (
@@ -57,6 +58,7 @@ export function AppRoutes() {
         <Route path="/tax"              element={<RouteErrorBoundary pageName="Tax"><TaxPage /></RouteErrorBoundary>} />
         <Route path="/plan"             element={<RouteErrorBoundary pageName="Plan"><PlanPage /></RouteErrorBoundary>} />
         <Route path="/settings"         element={<RouteErrorBoundary pageName="Settings"><SettingsPage /></RouteErrorBoundary>} />
+        <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />

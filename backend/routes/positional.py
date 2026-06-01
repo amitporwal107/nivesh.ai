@@ -1106,6 +1106,338 @@ async def admin_seed_default_scans(request: Request,
     }
 
 
+
+# ── Pro Trader Module ─────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _PM, Field as _F  # noqa: E402
+
+
+class BasketRequest(_PM):
+    capital_rs: float = _F(gt=0, description="Total capital to deploy in INR (e.g. 1000000 for ₹10L)")
+    max_positions: int = _F(default=8, ge=1, le=20)
+    min_conviction: str = _F(default="HIGH_CONVICTION")
+
+
+class SimulateRequest(_PM):
+    basket: list = _F(description="Basket items from POST /basket — list of position dicts")
+    horizon_days: int = _F(default=10, ge=5, le=20)
+
+
+def _size_position(
+    capital_rs: float,
+    max_positions: int,
+    entry: float,
+    stoploss: float,
+    position_size_factor: float,
+) -> dict:
+    """Compute qty, allocated_rs, risk_rs for one position.
+
+    Base allocation = capital_rs / max_positions, scaled by position_size_factor.
+    Max risk per position = 2% of capital (risk control floor).
+    Returns dict with qty, allocated_rs, risk_rs, risk_pct.
+    """
+    import math
+    base = capital_rs / max_positions
+    adjusted = base * position_size_factor
+    risk_per_share = entry - stoploss
+    if risk_per_share <= 0 or entry <= 0:
+        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_pct": 0.0}
+
+    qty = max(1, math.floor(adjusted / entry))
+
+    # Cap by 2% risk limit
+    max_qty_by_risk = math.floor((capital_rs * 0.02) / risk_per_share)
+    if max_qty_by_risk > 0:
+        qty = min(qty, max_qty_by_risk)
+
+    allocated = round(qty * entry, 2)
+    risk_rs = round(qty * risk_per_share, 2)
+    risk_pct = round(risk_rs / capital_rs * 100, 2) if capital_rs > 0 else 0.0
+    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_pct": risk_pct}
+
+
+@router.post("/basket")
+async def build_basket(request: Request, body: BasketRequest):
+    """Pro Trader: build a capital-allocated basket from today's best picks.
+
+    Filters to HIGH_CONVICTION (or caller-specified tier) + TRIGGERED/NEAR
+    readiness, applies macro position sizing, fetches ATM put hedge cost per
+    stock from NIDP F&O data, and returns a fully sized basket.
+
+    Response:
+      deploy_verdict  AGGRESSIVE | NORMAL | CAUTIOUS | DEFENSIVE
+      basket[]        symbol, entry/SL/target, qty, allocated_rs, risk_rs, hedge
+      summary         total_deployed, total_risk_rs, portfolio_max_loss_pct,
+                      hedge_total_cost_rs
+    """
+    await get_current_user(request)
+    import asyncio as _asyncio
+
+    sig_date = await _latest_signal_date()
+    if sig_date is None:
+        return {"deploy_verdict": None, "basket": [], "summary": {}, "message": "no signals yet"}
+
+    # Fetch all picks and enrich with live prices + conviction
+    raw_picks = await _fetch_picks(sig_date, min_score=0.5, stage=None, limit=50)
+    picks = await _enrich_with_live(raw_picks)
+
+    # Filter by conviction tier + TRIGGERED/NEAR readiness
+    target_conviction = body.min_conviction.upper()
+    actionable_readiness = {"TRIGGERED", "NEAR"}
+    filtered = [
+        p for p in picks
+        if (p.get("conviction") or {}).get("verdict") == target_conviction
+        and (p.get("readiness") or "UNKNOWN") in actionable_readiness
+    ]
+    # Fallback: if no TRIGGERED/NEAR, relax to any WAIT too
+    if not filtered:
+        filtered = [
+            p for p in picks
+            if (p.get("conviction") or {}).get("verdict") == target_conviction
+        ]
+    # Trim to max_positions
+    filtered = filtered[:body.max_positions]
+
+    # Get macro state for deploy verdict + position sizing
+    macro_risk = "MEDIUM"
+    deploy_verdict_data: dict = {"verdict": "NORMAL", "reason": ""}
+    try:
+        from services import macro_engine
+        st = await macro_engine.latest_state()
+        macro_risk = (st or {}).get("risk") or "MEDIUM"
+    except Exception as e:  # noqa: BLE001
+        logger.debug("basket: macro_engine unavailable (%s)", e)
+
+    try:
+        from services.positional_engine import market_dashboard as _md
+        dash = await _md.build()
+        deploy_verdict_data = (dash or {}).get("deploy_verdict") or deploy_verdict_data
+    except Exception as e:  # noqa: BLE001
+        logger.debug("basket: market_dashboard unavailable (%s)", e)
+
+    # Get sector modifiers for all symbols
+    syms = [p["nse_symbol"] for p in filtered]
+    try:
+        from services.positional_engine.macro_overlay import (
+            sector_modifiers_for_universe,
+            position_size_factor as _psf,
+        )
+        sector_mods = await sector_modifiers_for_universe(syms, sig_date)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("basket: sector_modifiers failed (%s)", e)
+        sector_mods = {}
+        from services.positional_engine.macro_overlay import position_size_factor as _psf
+
+    from services.positional_engine import hedge_planner
+
+    basket: list = []
+    total_deployed = 0.0
+    total_risk = 0.0
+    total_hedge_cost = 0.0
+
+    for p in filtered:
+        sym = p["nse_symbol"]
+        entry = float(p.get("entry_price") or 0)
+        sl = float(p.get("stoploss") or 0)
+        target = float(p.get("target_price") or 0)
+        rr = float(p.get("risk_reward") or 0)
+
+        if entry <= 0 or sl <= 0:
+            continue
+
+        sector_mod = sector_mods.get(sym, 0.0)
+        psf = _psf(risk=macro_risk, sector_modifier=sector_mod)
+
+        sizing = _size_position(body.capital_rs, body.max_positions, entry, sl, psf)
+        if sizing["qty"] == 0:
+            continue
+
+        # Hedge cost — best-effort, non-blocking
+        try:
+            hedge = await _asyncio.wait_for(
+                hedge_planner.get_atm_put_cost(sym, entry),
+                timeout=4.0,
+            )
+        except Exception:  # noqa: BLE001
+            hedge = None
+
+        total_deployed += sizing["allocated_rs"]
+        total_risk += sizing["risk_rs"]
+        if hedge:
+            total_hedge_cost += hedge.get("cost_rs") or 0.0
+
+        basket.append({
+            "symbol":            sym,
+            "stage":             p.get("stage"),
+            "conviction_verdict": (p.get("conviction") or {}).get("verdict"),
+            "readiness":         p.get("readiness"),
+            "live_price":        p.get("live_price"),
+            "entry_price":       entry,
+            "stoploss":          sl,
+            "target_price":      target,
+            "risk_reward":       rr,
+            "horizon_days_min":  p.get("timeframe_days_min"),
+            "horizon_days_max":  p.get("timeframe_days_max"),
+            "reasons":           p.get("reasons") or [],
+            "qty":               sizing["qty"],
+            "allocated_rs":      sizing["allocated_rs"],
+            "risk_rs":           sizing["risk_rs"],
+            "risk_pct":          sizing["risk_pct"],
+            "position_size_factor": psf,
+            "hedge":             hedge,
+            "signal_date":       str(sig_date),
+            "accumulation_score": (
+                ((p.get("pre_breakout") or {}).get("accumulation_score")) or None
+            ),
+        })
+
+    portfolio_max_loss_pct = round(total_risk / body.capital_rs * 100, 2) if body.capital_rs > 0 else 0.0
+
+    return {
+        "signal_date": str(sig_date),
+        "deploy_verdict": deploy_verdict_data,
+        "basket": basket,
+        "summary": {
+            "capital_rs": body.capital_rs,
+            "total_deployed": round(total_deployed, 2),
+            "cash_remaining": round(body.capital_rs - total_deployed, 2),
+            "total_risk_rs": round(total_risk, 2),
+            "portfolio_max_loss_pct": portfolio_max_loss_pct,
+            "hedge_total_cost_rs": round(total_hedge_cost, 2),
+            "hedge_cost_pct_of_capital": round(total_hedge_cost / body.capital_rs * 100, 2) if body.capital_rs > 0 else 0.0,
+            "positions": len(basket),
+        },
+    }
+
+
+@router.post("/basket/simulate")
+async def simulate_basket(request: Request, body: SimulateRequest):
+    """Pro Trader: simulate BASE / BULL / BEAR P&L + drawdown for a basket.
+
+    Uses `accumulation_calibration` (empirical hit-rate table) for each
+    position's accumulation_score → probability + avg return + avg drawdown.
+    Falls back to positional_backtest_labels per-symbol averages when the
+    calibration row is missing.
+
+    Scenarios:
+      BASE  avg_fwd_return × probability,  avg_fwd_drawdown
+      BULL  avg_fwd_return × 1.4,          avg_fwd_drawdown × 0.5
+      BEAR  avg_fwd_return × 0.3,          avg_fwd_drawdown × 2.0
+    """
+    await get_current_user(request)
+    if not body.basket:
+        return {"horizon_days": body.horizon_days, "scenarios": {}, "per_position": []}
+
+    pool = await pg_client.get_pool()
+    horizon = body.horizon_days
+
+    per_position: list = []
+    for item in body.basket:
+        sym = (item.get("symbol") or "").upper()
+        allocated = float(item.get("allocated_rs") or 0)
+        accum_score = item.get("accumulation_score")
+
+        prob: float = 0.5
+        avg_ret: float = 0.05
+        avg_dd: float = 0.04
+
+        if pool is not None:
+            try:
+                async with pool.acquire() as conn:
+                    # Try calibration table first
+                    if accum_score is not None:
+                        cal = await conn.fetchrow(
+                            """
+                            SELECT probability, avg_fwd_return, avg_fwd_drawdown
+                            FROM accumulation_calibration
+                            WHERE metric = 'broke_high'
+                              AND horizon_days = $1
+                              AND $2 >= bucket_lo AND $2 < bucket_hi
+                            ORDER BY sample_count DESC LIMIT 1
+                            """,
+                            horizon, float(accum_score),
+                        )
+                        if cal and cal["probability"] is not None:
+                            prob = float(cal["probability"])
+                            avg_ret = float(cal["avg_fwd_return"] or 0.05)
+                            avg_dd = float(cal["avg_fwd_drawdown"] or 0.04)
+
+                    # Also pull label-based per-symbol stats as cross-check
+                    col_ret = f"fwd_max_return_{min(horizon, 20) if horizon >= 20 else (10 if horizon >= 10 else 5)}d"
+                    col_dd = f"fwd_max_drawdown_{min(horizon, 20) if horizon >= 20 else (10 if horizon >= 10 else 5)}d"
+                    label_row = await conn.fetchrow(
+                        f"""
+                        SELECT AVG({col_ret}) as avg_ret,
+                               AVG({col_dd}) as avg_dd,
+                               COUNT(*) as n
+                        FROM positional_backtest_labels
+                        WHERE nse_symbol = $1
+                        """,
+                        sym,
+                    )
+                    label_avg_ret = float(label_row["avg_ret"]) if label_row and label_row["avg_ret"] is not None else None
+                    label_avg_dd = float(label_row["avg_dd"]) if label_row and label_row["avg_dd"] is not None else None
+                    # Use label stats if calibration was missing
+                    if accum_score is None and label_avg_ret is not None:
+                        avg_ret = label_avg_ret / 100.0  # labels are in percent
+                        avg_dd = (label_avg_dd or 0) / 100.0
+            except Exception as e:  # noqa: BLE001
+                logger.debug("simulate: stats lookup failed for %s: %s", sym, e)
+
+        base_return = avg_ret * prob
+        bear_dd = min(avg_dd * 2.0, 0.25)  # cap at 25%
+
+        per_position.append({
+            "symbol":             sym,
+            "allocated_rs":       allocated,
+            "probability_of_move": round(prob, 3),
+            "avg_fwd_return_pct": round(avg_ret * 100, 2),
+            "avg_fwd_drawdown_pct": round(avg_dd * 100, 2),
+            "scenarios": {
+                "BASE": {
+                    "expected_return_pct": round(base_return * 100, 2),
+                    "expected_pnl_rs": round(allocated * base_return, 2),
+                    "max_drawdown_pct": round(avg_dd * 100, 2),
+                    "max_loss_rs": round(allocated * avg_dd, 2),
+                },
+                "BULL": {
+                    "expected_return_pct": round(avg_ret * 1.4 * 100, 2),
+                    "expected_pnl_rs": round(allocated * avg_ret * 1.4, 2),
+                    "max_drawdown_pct": round(avg_dd * 0.5 * 100, 2),
+                    "max_loss_rs": round(allocated * avg_dd * 0.5, 2),
+                },
+                "BEAR": {
+                    "expected_return_pct": round(avg_ret * 0.3 * 100, 2),
+                    "expected_pnl_rs": round(allocated * avg_ret * 0.3, 2),
+                    "max_drawdown_pct": round(bear_dd * 100, 2),
+                    "max_loss_rs": round(allocated * bear_dd, 2),
+                },
+            },
+        })
+
+    # Portfolio-level aggregates (weighted by allocated_rs)
+    total_alloc = sum(p["allocated_rs"] for p in per_position) or 1.0
+    scenarios_agg: dict = {}
+    for sc in ("BASE", "BULL", "BEAR"):
+        total_pnl = sum(p["scenarios"][sc]["expected_pnl_rs"] for p in per_position)
+        total_loss = sum(p["scenarios"][sc]["max_loss_rs"] for p in per_position)
+        win_count = sum(1 for p in per_position if p["scenarios"][sc]["expected_return_pct"] > 0)
+        scenarios_agg[sc] = {
+            "total_expected_pnl_rs": round(total_pnl, 2),
+            "total_max_loss_rs": round(total_loss, 2),
+            "portfolio_return_pct": round(total_pnl / total_alloc * 100, 2),
+            "portfolio_drawdown_pct": round(total_loss / total_alloc * 100, 2),
+            "win_count": win_count,
+            "loss_count": len(per_position) - win_count,
+        }
+
+    return {
+        "horizon_days": horizon,
+        "scenarios": scenarios_agg,
+        "per_position": per_position,
+    }
+
+
 @router.get("/health")
 async def health(request: Request):
     """Lightweight admin health: counts in each engine table for the latest day."""
