@@ -292,15 +292,11 @@ policies:
     routes:
       - receiver: nidp-ops-all
         matchers:
-          - name: severity
-            value: critical
-            isRegexp: false
+          - "severity=critical"
         group_wait: 10s
         repeat_interval: 1h
       - receiver: nidp-ops-all
         matchers:
-          - name: team
-            value: data
-            isRegexp: false
+          - "team=data"
         group_wait: 60s
         repeat_interval: 4h
