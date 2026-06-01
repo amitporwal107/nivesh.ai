@@ -1,0 +1,306 @@
+# Grafana Unified Alerting — Alert Rules
+# Provisioned at /etc/grafana/provisioning/alerting/alert_rules.yaml
+#
+# Rules fire when:
+#   A1  Container is not running (exited/dead/unhealthy) for 2+ minutes
+#   A2  REST service is DOWN (is_up=false) for 3+ consecutive minutes
+#   A3  NIDP feed has FAILED status (last run) — checked hourly
+#   A4  Unexpected drop in running containers (vs 1h ago)
+#   A5  Service response time P99 > 3s for 5+ minutes
+#   A6  DB connections > 120 (approaching limit)
+#   A7  Any NIDP ingester missing its expected daily window
+
+apiVersion: 1
+
+groups:
+
+  # ── A1: Container Down ──────────────────────────────────────────────────────
+  - orgId: 1
+    name: container-health
+    folder: NIDP Alerts
+    interval: 1m
+    rules:
+      - uid: alert-container-down
+        title: Container Down
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: |
+                SELECT
+                  container_name AS metric,
+                  CASE WHEN status!='running' OR health='unhealthy' THEN 1 ELSE 0 END AS value
+                FROM monitoring.v_latest_containers
+                WHERE status!='running' OR health='unhealthy'
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Container {{ $labels.metric }} is DOWN on {{ $labels.vm }}"
+          description: "Container status is not 'running' or health is 'unhealthy'. Check: docker ps -a"
+        labels:
+          severity: critical
+          team: ops
+        isPaused: false
+
+  # ── A2: REST Service Down ────────────────────────────────────────────────────
+  - orgId: 1
+    name: service-health
+    folder: NIDP Alerts
+    interval: 1m
+    rules:
+      - uid: alert-service-down
+        title: REST Service Down
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: |
+                SELECT
+                  service_name AS metric,
+                  vm,
+                  environment,
+                  CASE WHEN is_up=false OR is_up IS NULL THEN 1 ELSE 0 END AS value
+                FROM monitoring.v_latest_services
+                WHERE is_up=false OR is_up IS NULL
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "Service {{ $labels.metric }} is DOWN on {{ $labels.vm }} ({{ $labels.environment }})"
+          description: "HTTP health probe returned non-2xx or timed out. Check the service logs."
+        labels:
+          severity: critical
+          team: ops
+        isPaused: false
+
+      - uid: alert-service-slow
+        title: REST Service High Latency
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: |
+                SELECT
+                  service_name AS metric,
+                  MAX(response_ms) AS value
+                FROM monitoring.service_health
+                WHERE collected_at >= now()-interval'5 minutes'
+                  AND is_up=true
+                GROUP BY service_name
+                HAVING MAX(response_ms) > 3000
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Service {{ $labels.metric }} is slow (>3s response time)"
+          description: "P99 response time exceeded 3000ms for 5+ minutes."
+        labels:
+          severity: warning
+          team: ops
+        isPaused: false
+
+  # ── A3: NIDP Feed Failures ───────────────────────────────────────────────────
+  - orgId: 1
+    name: nidp-feeds
+    folder: NIDP Alerts
+    interval: 5m
+    rules:
+      - uid: alert-feed-failed
+        title: NIDP Feed Failed
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: |
+                SELECT
+                  ingester AS metric,
+                  COUNT(*) AS value
+                FROM nidp.job_log
+                WHERE started_at >= now()-interval'24 hours'
+                  AND status='FAILED'
+                GROUP BY ingester
+                HAVING COUNT(*) >= 1
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "NIDP feed {{ $labels.metric }} has failed runs in the last 24h"
+          description: "Check nidp.job_log or the Grafana Feed Schedule dashboard for error details."
+        labels:
+          severity: warning
+          team: data
+          environment: prod
+        isPaused: false
+
+      - uid: alert-feed-stale
+        title: NIDP Critical Feed Stale (>28h)
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: |
+                SELECT
+                  ingester AS metric,
+                  EXTRACT(EPOCH FROM (now()-last_run_at))/3600 AS hours_since
+                FROM nidp.source_registry
+                WHERE ingester IN (
+                  'bhavcopy','amfi_nav','snapshot_builder','fundamental_engine',
+                  'v3_scores_engine','analytics_refresh'
+                )
+                  AND (last_run_at IS NULL OR now()-last_run_at > interval'28 hours')
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "Critical NIDP feed {{ $labels.metric }} has not run in >28h"
+          description: "This feed is on the critical path for scoring. Investigate immediately."
+        labels:
+          severity: critical
+          team: data
+          environment: prod
+        isPaused: false
+
+  # ── A4: DB Connection Spike ─────────────────────────────────────────────────
+  - orgId: 1
+    name: database
+    folder: NIDP Alerts
+    interval: 2m
+    rules:
+      - uid: alert-db-connections
+        title: TimescaleDB Connection Count High
+        condition: B
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: NIDP-TimescaleDB
+            model:
+              rawSql: "SELECT count(*) AS value FROM pg_stat_activity WHERE datname=current_database()"
+              format: table
+          - refId: B
+            queryType: ""
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              type: classic_conditions
+              conditions:
+                - evaluator: { params: [120], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "TimescaleDB has >120 connections ({{ $value }})"
+          description: "Connection pool may be exhausted. Check pg_stat_activity for idle connections."
+        labels:
+          severity: warning
+          team: ops
+        isPaused: false
+
+# ── Notification routing ─────────────────────────────────────────────────────
+policies:
+  - orgId: 1
+    receiver: nidp-ops-all
+    group_by: [alertname, environment]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: nidp-ops-all
+        matchers:
+          - name: severity
+            value: critical
+            isRegexp: false
+        group_wait: 10s
+        repeat_interval: 1h
+      - receiver: nidp-ops-all
+        matchers:
+          - name: team
+            value: data
+            isRegexp: false
+        group_wait: 60s
+        repeat_interval: 4h

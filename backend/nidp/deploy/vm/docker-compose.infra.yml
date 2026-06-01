@@ -1,0 +1,92 @@
+# docker-compose.infra.yml — Observability stack for nidp-stack-vm.
+# Runs alongside docker-compose.prod.yml.  Adds:
+#   nidp-loki      — log aggregation (Grafana Loki)
+#   nidp-promtail  — log shipper (reads /opt/nidp/logs/** and Docker JSON logs)
+#   nidp-grafana   — metrics + logs UI (port 3000, path /grafana)
+#
+# Start:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.infra.yml up -d
+# Or standalone:
+#   docker compose -f docker-compose.infra.yml up -d
+#
+# Grafana provisioning (datasources + dashboards) is managed by install_grafana.sh
+# which mounts /opt/nidp/grafana/provisioning into the container.
+
+services:
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: nidp-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - /opt/nidp/data/loki:/loki
+    networks: [nidp-default]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: nidp-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yaml
+    ports:
+      - "127.0.0.1:9080:9080"
+    volumes:
+      - ./loki/promtail-config-vm.yaml:/etc/promtail/config.yaml:ro
+      # NIDP service logs (written by run_service.sh)
+      - /opt/nidp/logs:/nidp/logs:ro
+      # Docker container JSON logs for all containers on this host
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [nidp-default]
+    depends_on:
+      loki: { condition: service_healthy }
+
+  grafana:
+    image: grafana/grafana:10.4.3
+    container_name: nidp-grafana
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL:           https://data.niveshcopilot.com/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_USER:       admin
+      GF_SECURITY_ADMIN_PASSWORD:   ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP:       "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_LOG_LEVEL:                 warn
+      # Allow embedding in iframes (for NIDP console)
+      GF_SECURITY_ALLOW_EMBEDDING:  "true"
+      GF_AUTH_ANONYMOUS_ENABLED:    "false"
+      # Unified alerting
+      GF_ALERTING_ENABLED:          "false"
+      GF_UNIFIED_ALERTING_ENABLED:  "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /opt/nidp/grafana/provisioning:/etc/grafana/provisioning
+      - /opt/nidp/data/grafana:/var/lib/grafana
+    networks: [nidp-default, nidp-bridge]
+    depends_on:
+      loki: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  nidp-default:
+    name: nidp-default
+    external: true
+  nidp-bridge:
+    name: nidp-bridge
+    external: true

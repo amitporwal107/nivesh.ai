@@ -1,0 +1,68 @@
+# Grafana Unified Alerting — Contact Points
+# Provisioned at /etc/grafana/provisioning/alerting/contact_points.yaml
+# Delivers alerts to:
+#   1. Nivesh prod backend webhook  (stores in monitoring.alert_events, shown in app UI)
+#   2. Nivesh staging backend webhook
+#   3. Email (configure SMTP in grafana env)
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: nivesh-prod-webhook
+    receivers:
+      - uid: cp-prod-webhook
+        type: webhook
+        settings:
+          url: https://niveshcopilot.com/api/internal/grafana-alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: "${GRAFANA_WEBHOOK_SECRET}"
+          title: "{{ .CommonLabels.alertname }}"
+          message: |
+            {{ range .Alerts }}
+            Alert: {{ .Annotations.summary }}
+            State: {{ .Status }}
+            Severity: {{ .Labels.severity }}
+            Environment: {{ .Labels.environment }}
+            {{ end }}
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: nivesh-staging-webhook
+    receivers:
+      - uid: cp-staging-webhook
+        type: webhook
+        settings:
+          url: https://staging.niveshcopilot.com/api/internal/grafana-alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: "${GRAFANA_WEBHOOK_SECRET}"
+          title: "{{ .CommonLabels.alertname }}"
+          message: |
+            {{ range .Alerts }}
+            Alert: {{ .Annotations.summary }}
+            State: {{ .Status }}
+            Severity: {{ .Labels.severity }}
+            Environment: {{ .Labels.environment }}
+            {{ end }}
+        disableResolveMessage: false
+
+  # Catch-all: fires for every environment to both endpoints
+  - orgId: 1
+    name: nidp-ops-all
+    receivers:
+      - uid: cp-ops-prod
+        type: webhook
+        settings:
+          url: https://niveshcopilot.com/api/internal/grafana-alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: "${GRAFANA_WEBHOOK_SECRET}"
+      - uid: cp-ops-staging
+        type: webhook
+        settings:
+          url: https://staging.niveshcopilot.com/api/internal/grafana-alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: "${GRAFANA_WEBHOOK_SECRET}"
