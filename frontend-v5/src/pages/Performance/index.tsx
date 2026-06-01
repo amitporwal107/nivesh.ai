@@ -1714,10 +1714,18 @@ function HoldingDetailDrawer({
                   </span>
                 )}
               </div>
-            ) : (
-              <p className="mt-1.5 text-[11px] opacity-40"
-                style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
-            )}
+            ) : (() => {
+              // Only show "Rank unavailable" for Direct plan funds where ranking data
+              // is genuinely absent (insufficient history/coverage). Regular/IDCW plan
+              // holdings intentionally have no rank (engine ranks Direct-Growth only)
+              // — hide the section entirely to avoid a confusing message.
+              const name = (fund.name || "").toLowerCase();
+              const isRegularOrIdcw = name.includes("regular") || name.includes("idcw") || name.includes("dividend");
+              return isRegularOrIdcw ? null : (
+                <p className="mt-1.5 text-[11px] opacity-40"
+                  style={{ fontFamily: "var(--font-mono)" }}>Rank unavailable</p>
+              );
+            })()}
             {fund.sector_rank != null && (
               <span className="inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded"
                 style={{ fontFamily: "var(--font-mono)", background: "rgba(var(--accent),0.12)", color: "rgb(var(--accent))" }}>
