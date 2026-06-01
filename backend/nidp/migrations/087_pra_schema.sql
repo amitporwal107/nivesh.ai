@@ -24,7 +24,7 @@ CREATE SCHEMA pra;
 -- TimescaleDB partitioning. BRIN index on computed_date for range scans.
 
 CREATE TABLE IF NOT EXISTS pra.portfolio_risk_results (
-    result_id               UUID        NOT NULL DEFAULT gen_random_uuid(),
+    result_id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     external_user_id        TEXT        NOT NULL,
     computed_date           DATE        NOT NULL,
 
@@ -59,7 +59,6 @@ CREATE TABLE IF NOT EXISTS pra.portfolio_risk_results (
     risk_free_rate_pct      NUMERIC(8,4),
     computed_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    PRIMARY KEY (result_id, computed_date),
     UNIQUE (external_user_id, computed_date)
 );
 
