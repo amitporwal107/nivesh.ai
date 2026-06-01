@@ -1175,10 +1175,10 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
               <div className="flex items-center gap-2 px-2 pb-1 text-[9px] uppercase tracking-widest opacity-40"
                 style={{ fontFamily: "var(--font-mono)" }}>
                 <span className="flex-1">Name</span>
-                <span className="w-20 text-right">Invested</span>
-                <span className="w-20 text-right">Cur. Value</span>
+                <span className="hidden sm:inline w-20 text-right">Invested</span>
+                <span className="w-20 text-right">Value</span>
                 <span className="w-16 text-right">P&amp;L %</span>
-                <span className="w-16 text-right">1Y Ret</span>
+                <span className="hidden sm:inline w-16 text-right">1Y Ret</span>
               </div>
               <div className="divide-y" style={{ borderColor: "rgba(var(--line),0.06)" }}>
                 {visible.map((r, i) => {
@@ -1216,7 +1216,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
                           )}
                         </div>
                       </div>
-                      <span className="w-20 text-right text-[11px] opacity-70 shrink-0"
+                      <span className="hidden sm:inline w-20 text-right text-[11px] opacity-70 shrink-0"
                         style={{ fontFamily: "var(--font-mono)" }}>
                         {r.invested > 0 ? formatINRCompact(r.invested) : "—"}
                       </span>
@@ -1228,7 +1228,7 @@ function HoldingsCompositionPie({ fundRatings, heatmapData, outerTab, onHoldingC
                         style={{ fontFamily: "var(--font-mono)", color: isPos ? "rgb(var(--pos))" : "rgb(var(--neg))" }}>
                         {ret != null ? `${ret > 0 ? "+" : ""}${ret.toFixed(1)}%` : "—"}
                       </span>
-                      <span className="w-16 text-right text-[10px] opacity-60 shrink-0"
+                      <span className="hidden sm:inline w-16 text-right text-[10px] opacity-60 shrink-0"
                         style={{
                           fontFamily: "var(--font-mono)",
                           color: r1y != null ? (r1y >= 0 ? "rgb(var(--pos))" : "rgb(var(--neg))") : undefined,
@@ -2008,10 +2008,10 @@ export default function PerformancePage() {
 
       {/* Verdict headline + controls */}
       <div className="flex flex-wrap items-start gap-4 mb-5">
-        <h1 className="font-display text-[32px] lg:text-[38px] tracking-tight leading-[1.1] flex-1">
+        <h1 className="font-display text-[32px] lg:text-[38px] tracking-tight leading-[1.1] flex-1 min-w-0">
           {headline}
         </h1>
-        <div className="flex items-center gap-2 shrink-0 mt-1">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto mt-1">
           {statusPill && (
             <Badge tone={badgeTone as any} className="text-[10px]">{statusPill}</Badge>
           )}
@@ -2025,23 +2025,25 @@ export default function PerformancePage() {
             Resync
           </button>
           <ExportButton period={period} />
-          {/* 6-option period selector — session-persistent */}
-          <div className="flex rounded-lg border overflow-hidden"
-            style={{ borderColor: "rgba(var(--line),0.15)" }}>
-            {PERIODS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setPeriod(p.id)}
-                className="px-3 py-1.5 text-[10px] transition-colors"
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  background: period === p.id ? "rgba(var(--accent),0.12)" : "transparent",
-                  color: period === p.id ? "rgb(var(--accent))" : "rgba(var(--ink-1),0.45)",
-                }}
-                aria-pressed={period === p.id}>
-                {p.label}
-              </button>
-            ))}
+          {/* Period selector — scrollable on mobile */}
+          <div className="overflow-x-auto max-w-full">
+            <div className="flex rounded-lg border overflow-hidden"
+              style={{ borderColor: "rgba(var(--line),0.15)" }}>
+              {PERIODS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setPeriod(p.id)}
+                  className="px-3 py-1.5 text-[10px] transition-colors whitespace-nowrap"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    background: period === p.id ? "rgba(var(--accent),0.12)" : "transparent",
+                    color: period === p.id ? "rgb(var(--accent))" : "rgba(var(--ink-1),0.45)",
+                  }}
+                  aria-pressed={period === p.id}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

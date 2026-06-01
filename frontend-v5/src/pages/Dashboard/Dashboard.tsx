@@ -78,11 +78,11 @@ function CasStatementBanner({ period, gmailConnected, onSync, onUpload }: {
   onUpload: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-md bg-surface-1 border border-hairline px-4 py-2.5 text-[12.5px] text-ink-2 mb-6">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-surface-1 border border-hairline px-4 py-2.5 text-[12.5px] text-ink-2 mb-6">
       <span className="font-mono text-[10px] uppercase tracking-[.12em] text-ink-3 shrink-0">Last CAS</span>
-      <span className="font-medium text-ink">{period ?? "—"}</span>
-      <span className="text-ink-4 mx-1">·</span>
-      <span className="text-ink-3 flex-1">Update if you have a newer statement</span>
+      <span className="font-medium text-ink shrink-0">{period ?? "—"}</span>
+      <span className="hidden sm:inline text-ink-4">·</span>
+      <span className="hidden sm:inline text-ink-3">Update if you have a newer statement</span>
       <div className="flex items-center gap-2 ml-auto shrink-0">
         {gmailConnected && (
           <button onClick={onSync} className="flex items-center gap-1.5 text-accent font-medium hover:underline text-[12px]">

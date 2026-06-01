@@ -69,15 +69,19 @@ export function Diversification({ correlation, overlap }: Props) {
         </div>
         <ul className="divide-y divide-[rgb(var(--line)/0.10)]">
           {overlap.map((p) => (
-            <li key={p.fundA + p.fundB} className="grid grid-cols-[1.4fr_1.4fr_1fr_80px] gap-3 items-center py-3">
-              <span className="text-[14px] font-medium">{p.fundA}</span>
-              <span className="text-[14px] text-ink-2">↔ {p.fundB}</span>
-              <CapBar pct={p.overlapPct} />
-              <div className="text-right">
-                <div className={`font-mono num text-[13px] text-${TONE_BY_STATUS[p.status] === "neg" ? "neg" : TONE_BY_STATUS[p.status] === "warm" ? "warm" : "pos"}`}>
-                  {p.overlapPct}%
+            <li key={p.fundA + p.fundB} className="py-3">
+              {/* Fund pair + overlap % */}
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] font-medium block truncate">{p.fundA}</span>
+                  <span className="text-[12px] text-ink-2 block truncate">↔ {p.fundB}</span>
                 </div>
+                <span className={`font-mono num text-[13px] shrink-0 text-${TONE_BY_STATUS[p.status] === "neg" ? "neg" : TONE_BY_STATUS[p.status] === "warm" ? "warm" : "pos"}`}>
+                  {p.overlapPct}%
+                </span>
               </div>
+              {/* Bar full-width */}
+              <CapBar pct={p.overlapPct} />
             </li>
           ))}
         </ul>

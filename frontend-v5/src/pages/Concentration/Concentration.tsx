@@ -59,13 +59,19 @@ export function Concentration({ data, onFix }: Props) {
         <CardLabel>Allocation vs cap</CardLabel>
         <ul className="mt-4 divide-y divide-[rgb(var(--line)/0.10)]">
           {data.sectors.map((s) => (
-            <li key={s.name} className="grid grid-cols-[140px_1fr_60px_60px] items-center gap-4 py-3">
-              <span className="text-[14px] font-medium">{s.name}</span>
+            <li key={s.name} className="py-3">
+              {/* Name + numbers row */}
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[14px] font-medium">{s.name}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-mono num text-[13px]">{s.pct}%</span>
+                  <span className={`font-mono text-[11px] w-[72px] text-right ${s.isOverCap ? "text-neg" : "text-ink-3"}`}>
+                    {s.isOverCap ? `+${s.pct - s.capPct}pt over` : "within"}
+                  </span>
+                </div>
+              </div>
+              {/* Bar full-width below */}
               <CapBar pct={s.pct} capPct={s.capPct} />
-              <span className="font-mono num text-[13px] text-right">{s.pct}%</span>
-              <span className={`font-mono text-[11px] text-right ${s.isOverCap ? "text-neg" : "text-ink-3"}`}>
-                {s.isOverCap ? `+${s.pct - s.capPct}pt over` : "within"}
-              </span>
             </li>
           ))}
         </ul>
