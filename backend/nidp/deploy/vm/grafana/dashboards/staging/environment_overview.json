@@ -288,7 +288,7 @@
     {
       "id": 10,
       "type": "row",
-      "title": "VM Map",
+      "title": "Services & Containers",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -299,114 +299,13 @@
     },
     {
       "id": 11,
-      "type": "stat",
-      "title": "nidp-stack-vm \u2014 data.niveshcopilot.com",
-      "description": "TimescaleDB \u00b7 Grafana \u00b7 DaaS API \u00b7 Query API \u00b7 Loki \u00b7 Promtail \u00b7 NIDP pipeline (28 ingesters)",
-      "gridPos": {
-        "h": 5,
-        "w": 12,
-        "x": 0,
-        "y": 5
-      },
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "purple",
-            "mode": "fixed"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT 'Running' AS metric, COUNT(*) AS value FROM monitoring.container_health WHERE collected_at=(SELECT MAX(collected_at) FROM monitoring.container_health) AND vm='nidp-stack-vm' AND status='running' UNION ALL SELECT 'Unhealthy', COUNT(*) FROM monitoring.container_health WHERE collected_at=(SELECT MAX(collected_at) FROM monitoring.container_health) AND vm='nidp-stack-vm' AND (status!='running' OR health='unhealthy')",
-          "format": "table",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "type": "stat",
-      "title": "nivesh-app-vm \u2014 niveshcopilot.com  (34.47.250.214)",
-      "description": "MongoDB \u00b7 PostgreSQL \u00b7 Redis \u00b7 Backend FastAPI \u00b7 Frontend nginx \u00b7 Staging stack mirror",
-      "gridPos": {
-        "h": 5,
-        "w": 12,
-        "x": 12,
-        "y": 5
-      },
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "textMode": "value_and_name",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": true
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "orange",
-            "mode": "fixed"
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT 'Services UP' AS metric, COUNT(*) AS value FROM monitoring.v_latest_services WHERE vm='nivesh-app-vm' AND is_up=true UNION ALL SELECT 'Services DOWN', COUNT(*) FROM monitoring.v_latest_services WHERE vm='nivesh-app-vm' AND (is_up=false OR is_up IS NULL)",
-          "format": "table",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 20,
-      "type": "row",
-      "title": "Docker Containers \u2014 Current Status",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 10
-      },
-      "collapsed": false
-    },
-    {
-      "id": 21,
       "type": "table",
-      "title": "All Containers \u2014 Resource & Health",
-      "description": "Refreshes every 60s. Container CPU, memory, ports, HTTP health endpoint and status, uptime.",
+      "title": "\ud83d\udfe2 Production",
       "gridPos": {
-        "h": 16,
-        "w": 24,
+        "h": 20,
+        "w": 8,
         "x": 0,
-        "y": 11
+        "y": 5
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -420,8 +319,8 @@
         "showHeader": true,
         "sortBy": [
           {
-            "displayName": "status_rank",
-            "desc": false
+            "displayName": "_sort",
+            "desc": true
           }
         ]
       },
@@ -431,7 +330,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "status"
+              "options": "Status"
             },
             "properties": [
               {
@@ -447,45 +346,36 @@
                   {
                     "type": "value",
                     "options": {
-                      "running": {
-                        "text": "RUNNING",
-                        "color": "green"
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
                       }
                     }
                   },
                   {
                     "type": "value",
                     "options": {
-                      "exited": {
-                        "text": "EXITED",
-                        "color": "red"
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
                       }
                     }
                   },
                   {
                     "type": "value",
                     "options": {
-                      "dead": {
-                        "text": "DEAD",
-                        "color": "red"
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
                       }
                     }
                   },
                   {
                     "type": "value",
                     "options": {
-                      "restarting": {
-                        "text": "RESTARTING",
-                        "color": "orange"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "paused": {
-                        "text": "PAUSED",
-                        "color": "yellow"
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
                       }
                     }
                   }
@@ -496,147 +386,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "health"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "healthy": {
-                        "text": "HEALTHY",
-                        "color": "green"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "unhealthy": {
-                        "text": "UNHEALTHY",
-                        "color": "red"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "starting": {
-                        "text": "STARTING",
-                        "color": "yellow"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "none": {
-                        "text": "\u2014",
-                        "color": "text"
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "environment"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "prod": {
-                        "text": "PROD",
-                        "color": "purple"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "staging": {
-                        "text": "STAGING",
-                        "color": "orange"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "infra": {
-                        "text": "INFRA",
-                        "color": "blue"
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "http_status"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "red",
-                      "value": 500
-                    }
-                  ]
-                }
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "thresholds"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "cpu_%"
+              "options": "CPU%"
             },
             "properties": [
               {
@@ -689,7 +439,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "mem_MB"
+              "options": "Mem MB"
             },
             "properties": [
               {
@@ -701,31 +451,19 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "limit_MB"
+              "options": "_sort"
             },
             "properties": [
               {
-                "id": "unit",
-                "value": "decmbytes"
+                "id": "custom.hidden",
+                "value": true
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "uptime_s"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "s"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "resp_ms"
+              "options": "ms"
             },
             "properties": [
               {
@@ -737,12 +475,29 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "status_rank"
+              "options": "URL"
             },
             "properties": [
               {
-                "id": "custom.hidden",
-                "value": true
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
               }
             ]
           }
@@ -750,9 +505,449 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT CASE WHEN status!='running' OR health='unhealthy' THEN 0 ELSE 1 END AS status_rank, COALESCE(vm,'nidp-stack-vm') AS vm, environment, container_name, container_image AS image, status, health, ROUND(COALESCE(cpu_percent,0)::numeric,1) AS \"cpu_%\", ROUND(COALESCE(mem_usage_mb,0)::numeric,0) AS mem_MB, ROUND(COALESCE(mem_limit_mb,0)::numeric,0) AS limit_MB, COALESCE(ports,'\u2014') AS ports, COALESCE(http_url,'\u2014') AS http_url, COALESCE(http_status_code::text,'\u2014') AS http_status, COALESCE(http_response_ms::text,'\u2014') AS resp_ms, COALESCE(uptime_seconds,0) AS uptime_s, collected_at FROM monitoring.v_latest_containers ORDER BY status_rank, vm, environment, container_name\nWHERE environment IN ('staging','infra')",
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN status='running' THEN 'UP' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='prod' AND container_name NOT LIKE 'c96cc%'\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='prod'\n    AND service_name NOT IN ('nginx','grafana','minio','prometheus','timescaledb-prod')\n) t ORDER BY _sort DESC, name",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "\ud83d\udfe1 Staging",
+      "gridPos": {
+        "h": 20,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "_sort",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU%"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mem MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_sort"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "URL"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN status='running' THEN 'UP' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='staging'\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='staging'\n    AND service_name NOT IN ('timescaledb-stg')\n) t ORDER BY _sort DESC, name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "\ud83d\udd35 Shared Infra",
+      "gridPos": {
+        "h": 20,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "NIDP-TimescaleDB"
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "_sort",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "UP": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 0
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTHY": {
+                        "color": "rgba(50,172,45,0.9)",
+                        "index": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "RUNNING": {
+                        "color": "rgba(50,172,45,0.6)",
+                        "index": 2
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "DOWN": {
+                        "color": "rgba(245,54,54,0.9)",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU%"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mem MB"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decmbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_sort"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ms"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "URL"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View logs",
+                    "url": "/grafana/explore?orgId=1&left=%7B%22datasource%22%3A%22NIDP-Loki-Staging%22%2C%22queries%22%3A%5B%7B%22expr%22%3A%22%7Bcontainer%3D%5C%22%24%7B__data.fields.Service%7D%5C%22%7D%22%7D%5D%7D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT name AS \"Service\", status AS \"Status\", cpu_pct AS \"CPU%\", mem_mb AS \"Mem MB\",\n  uptime_h AS \"Uptime h\", resp_ms AS \"ms\", url AS \"URL\", _sort\nFROM (\n  SELECT container_name AS name,\n    CASE WHEN health='healthy' THEN 'HEALTHY'\n         WHEN status='running' THEN 'RUNNING' ELSE 'DOWN' END AS status,\n    COALESCE(ROUND(cpu_percent::numeric,1),0) AS cpu_pct,\n    COALESCE(ROUND(mem_usage_mb::numeric,0),0) AS mem_mb,\n    COALESCE(ROUND(uptime_seconds/3600.0,1),0) AS uptime_h,\n    0 AS resp_ms, COALESCE(http_url,'') AS url,\n    CASE WHEN status='running' THEN 1 ELSE 0 END AS _sort\n  FROM monitoring.v_latest_containers\n  WHERE environment='infra'\n    AND container_name NOT IN ('nidp-loki','nidp-promtail','nidp-schema-registry')\n  UNION ALL\n  SELECT service_name,\n    CASE WHEN is_up THEN 'UP' ELSE 'DOWN' END,\n    0,0,0,COALESCE(response_ms,0),COALESCE(url,''),\n    CASE WHEN is_up THEN 1 ELSE 0 END\n  FROM monitoring.v_latest_services\n  WHERE environment='prod'\n    AND service_name IN ('nginx','grafana','minio','prometheus')\n) t ORDER BY _sort DESC, name",
+          "format": "table",
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
         }
       ]
     },
@@ -764,7 +959,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 26
       },
       "collapsed": false
     },
@@ -776,7 +971,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 26
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -821,7 +1016,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 26
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -866,7 +1061,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 34
       },
       "collapsed": false
     },
@@ -879,7 +1074,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 35
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1085,7 +1280,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 49
+        "y": 47
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1131,7 +1326,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 55
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1178,7 +1373,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 64
+        "y": 62
       },
       "collapsed": false
     },
@@ -1191,7 +1386,7 @@
         "h": 20,
         "w": 24,
         "x": 0,
-        "y": 65
+        "y": 63
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1342,9 +1537,13 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT CASE WHEN COALESCE(sr.last_run_status,'NEVER')='FAILED' THEN 0 WHEN sr.last_run_at IS NULL THEN 1 WHEN COALESCE(sr.last_run_status,'NEVER')='PARTIAL' THEN 2 ELSE 3 END AS sort_key, cr.vm, cr.job_name, cr.schedule_ist AS schedule, COALESCE(sr.last_run_status,'NEVER') AS last_status, sr.last_run_at, ROUND((EXTRACT(EPOCH FROM(NOW()-sr.last_run_at))/3600)::numeric,1) AS hours_since, LEFT(COALESCE(sr.last_error,''),300) AS last_error FROM monitoring.cron_registry cr LEFT JOIN nidp.source_registry sr ON sr.ingester=cr.job_name WHERE cr.enabled=TRUE ORDER BY sort_key, cr.vm, cr.job_name",
+          "rawSql": "SELECT\n  CASE WHEN COALESCE(sr.last_run_status,'NEVER')='FAILED' THEN 0\n       WHEN sr.last_run_at IS NULL THEN 1\n       WHEN COALESCE(sr.last_run_status,'NEVER')='PARTIAL' THEN 2\n       ELSE 3 END AS sort_key,\n  cr.vm, cr.job_name, cr.schedule_ist AS schedule,\n  COALESCE(sr.last_run_status, 'NEVER') AS last_status,\n  sr.last_run_at,\n  ROUND((EXTRACT(EPOCH FROM (NOW() - sr.last_run_at))/3600)::numeric,1) AS hours_since,\n  sr.consecutive_failures AS cons_fail\nFROM monitoring.cron_registry cr\nLEFT JOIN nidp.source_registry sr ON sr.ingester = cr.job_name\nWHERE cr.enabled = TRUE\n  AND cr.job_name NOT IN ('container_health_collector','service_health_collector','gate4_replication_check')\nORDER BY sort_key, cr.vm, cr.job_name",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB"
+          }
         }
       ]
     },
@@ -1356,7 +1555,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 83
       },
       "collapsed": false
     },
@@ -1369,7 +1568,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 86
+        "y": 84
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1438,7 +1637,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 94
       },
       "collapsed": false
     },
@@ -1450,11 +1649,11 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1489,7 +1688,11 @@
         {
           "rawSql": "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1501,11 +1704,11 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1540,7 +1743,11 @@
         {
           "rawSql": "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='active' AND query NOT ILIKE '%pg_stat_activity%'",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1552,11 +1759,11 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1572,7 +1779,11 @@
         {
           "rawSql": "SELECT pg_database_size(current_database())",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1584,11 +1795,11 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1607,7 +1818,11 @@
         {
           "rawSql": "SELECT count(*) FROM timescaledb_information.hypertables",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1619,11 +1834,11 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1659,7 +1874,11 @@
         {
           "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM (now()-pg_last_xact_replay_timestamp()))::INT,0) AS lag_secs",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1671,11 +1890,11 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 97
+        "y": 95
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -1711,7 +1930,11 @@
         {
           "rawSql": "SELECT COALESCE(MAX(EXTRACT(EPOCH FROM (now()-xact_start)))::INT,0) AS oldest_txn_secs FROM pg_stat_activity WHERE datname=current_database() AND xact_start IS NOT NULL AND state!='idle'",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1723,11 +1946,11 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 101
+        "y": 99
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "cellHeight": "sm",
@@ -1787,7 +2010,11 @@
         {
           "rawSql": "SELECT pid, usename AS user, state, ROUND(EXTRACT(EPOCH FROM (now()-query_start))::numeric,1) AS duration_s, LEFT(query,120) AS query FROM pg_stat_activity WHERE datname=current_database() AND state!='idle' AND query NOT ILIKE '%pg_stat_activity%' ORDER BY duration_s DESC LIMIT 20",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -1799,7 +2026,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 109
+        "y": 107
       },
       "collapsed": false
     },
@@ -1812,7 +2039,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 110
+        "y": 108
       },
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -1923,7 +2150,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 116
       },
       "collapsed": false
     },
@@ -1936,7 +2163,7 @@
         "h": 20,
         "w": 24,
         "x": 0,
-        "y": 119
+        "y": 117
       },
       "datasource": {
         "type": "loki",
