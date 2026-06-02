@@ -238,8 +238,8 @@
         "y": 0
       },
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-TimescaleDB"
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "background",
@@ -277,7 +277,11 @@
         {
           "rawSql": "SELECT ROUND((COUNT(*) FILTER (WHERE status IN ('OK','GREEN')))::numeric / NULLIF(COUNT(*),0) * 100, 1) AS pct FROM nidp.job_log WHERE started_at >= NOW() - INTERVAL '24 hours'",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },

@@ -26,7 +26,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "All 36 NIDP feeds with schedule (IST), latest run status, freshness gap, and last error. Sorted by problem: FAILED first, then never-run, then PARTIAL, then overdue, then OK by recency. Cron expressions are UTC.",
       "fieldConfig": {
@@ -181,7 +181,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -195,7 +195,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Most recent failures and partial successes from nidp.job_log \u2014 last 7 days. Full error_message text shown.",
       "fieldConfig": {
@@ -292,7 +292,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,

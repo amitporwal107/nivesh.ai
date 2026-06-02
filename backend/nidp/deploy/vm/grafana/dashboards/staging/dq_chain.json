@@ -43,7 +43,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "background",
@@ -119,7 +119,11 @@
         {
           "rawSql": "SELECT status FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -135,7 +139,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "none",
@@ -152,7 +156,11 @@
         {
           "rawSql": "SELECT target_date::text FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -168,7 +176,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -187,7 +195,11 @@
         {
           "rawSql": "SELECT array_length(feeds_ready,1) FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -203,7 +215,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -231,7 +243,11 @@
         {
           "rawSql": "SELECT COALESCE(array_length(feeds_blocked,1),0) FROM dq.snapshot_status ORDER BY target_date DESC LIMIT 1",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -247,7 +263,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "colorMode": "value",
@@ -279,7 +295,11 @@
         {
           "rawSql": "SELECT COUNT(*) FROM dq.dlq_findings WHERE replay_status = 'PENDING'",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -295,7 +315,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "cellHeight": "sm",
@@ -353,7 +373,11 @@
         {
           "rawSql": "SELECT feed, target_date::text, verdict, severity, created_at FROM dq.gate_verdicts WHERE gate_id = 3 AND target_date >= CURRENT_DATE - 7 ORDER BY target_date DESC, feed",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     },
@@ -368,8 +392,8 @@
         "y": 17
       },
       "datasource": {
-        "type": "prometheus",
-        "uid": "nidp-prometheus"
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "legend": {
@@ -406,8 +430,8 @@
         "y": 17
       },
       "datasource": {
-        "type": "prometheus",
-        "uid": "nidp-prometheus"
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "legend": {
@@ -441,7 +465,7 @@
       },
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "cellHeight": "sm",
@@ -454,7 +478,11 @@
         {
           "rawSql": "SELECT id::text, gate_id, feed, target_date::text, failure_reason, severity, created_at FROM dq.dlq_findings WHERE replay_status = 'PENDING' ORDER BY created_at DESC LIMIT 50",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     }

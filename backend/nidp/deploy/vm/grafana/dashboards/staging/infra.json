@@ -513,8 +513,8 @@
         "y": 24
       },
       "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "NIDP-Staging"
+        "type": "postgres",
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "options": {
         "cellHeight": "sm",
@@ -581,7 +581,11 @@
         {
           "rawSql": "SELECT ingester AS service, status, target_date::text, rows_inserted, rows_skipped, EXTRACT(EPOCH FROM (finished_at - started_at))::INT AS duration_secs, started_at, finished_at FROM nidp.job_log WHERE started_at >= now() - interval '24 hours' ORDER BY started_at DESC LIMIT 100",
           "format": "table",
-          "refId": "A"
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "NIDP-TimescaleDB-Staging"
+          }
         }
       ]
     }

@@ -26,7 +26,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Total runs, OK / FAILED / PARTIAL split for the selected window.",
       "fieldConfig": {
@@ -73,7 +73,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -87,7 +87,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "fieldConfig": {
         "defaults": {
@@ -128,7 +128,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -142,7 +142,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "fieldConfig": {
         "defaults": {
@@ -187,7 +187,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -201,7 +201,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "fieldConfig": {
         "defaults": {
@@ -246,7 +246,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -260,7 +260,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "fieldConfig": {
         "defaults": {
@@ -311,7 +311,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -325,7 +325,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Last run per ingester \u2014 green=OK, red=FAILED, yellow=PARTIAL.",
       "fieldConfig": {
@@ -458,7 +458,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -472,7 +472,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Top 10 ingesters by failure count over the last 7 days.",
       "fieldConfig": {
@@ -535,7 +535,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
@@ -549,7 +549,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Hourly run counts split by status (last 7 days).",
       "fieldConfig": {
@@ -613,7 +613,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "time_series",
           "rawQuery": true,
@@ -627,7 +627,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "NIDP-Staging"
+        "uid": "NIDP-TimescaleDB-Staging"
       },
       "description": "Average runtime per ingester (last 7 days).",
       "fieldConfig": {
@@ -697,7 +697,7 @@
         {
           "datasource": {
             "type": "postgres",
-            "uid": "NIDP-Staging"
+            "uid": "NIDP-TimescaleDB-Staging"
           },
           "format": "table",
           "rawQuery": true,
