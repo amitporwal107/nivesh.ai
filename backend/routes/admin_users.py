@@ -691,6 +691,69 @@ async def reset_onboarding_by_email(request: Request) -> Dict[str, Any]:
     return {"ok": True, "user_id": user_id, "email": email}
 
 
+@router.post("/reset-portfolio-by-email")
+async def reset_portfolio_by_email(request: Request) -> Dict[str, Any]:
+    """Full portfolio reset by email — wipes all holdings, plans, insights,
+    transactions, cache, and redis keys, then resets onboarding flags so
+    the user sees the upload screen on next login.
+
+    Protected by the static X-Admin-Key (same as /reset-onboarding).
+
+    curl -X POST https://niveshcopilot.com/api/admin/reset-portfolio-by-email \\
+         -H 'Content-Type: application/json' \\
+         -H 'X-Admin-Key: niv3sh-reset-2026' \\
+         -d '{"email": "user@example.com"}'
+    """
+    key = request.headers.get("X-Admin-Key", "")
+    if key != "niv3sh-reset-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "name": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User not found: {email}")
+
+    user_id = user["user_id"]
+    all_collections = _RESET_COLLECTIONS + _FULL_RESET_EXTRA_COLLECTIONS
+    deleted, profile_modified, redis_cleared, now_iso = await _wipe_user_mongo_and_redis(
+        user_id, all_collections
+    )
+    total_deleted = sum(deleted.values())
+
+    audit_doc = {
+        "kind": "admin.reset_portfolio_by_email",
+        "actor_email": "admin-key",
+        "target_user_id": user_id,
+        "target_email": email,
+        "deleted_per_collection": deleted,
+        "total_deleted": total_deleted,
+        "profile_modified": int(profile_modified),
+        "redis_keys_cleared": redis_cleared,
+        "timestamp": now_iso,
+    }
+    try:
+        await db.audit_log.insert_one(audit_doc)
+    except Exception:  # noqa: BLE001
+        pass
+
+    logger.info(
+        "admin-key reset_portfolio_by_email for %s (user_id=%s): %d docs wiped",
+        email, user_id, total_deleted,
+    )
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "email": email,
+        "total_deleted": total_deleted,
+        "profile_modified": int(profile_modified),
+        "redis_keys_cleared": redis_cleared,
+    }
+
+
 @router.post("/mark-onboarded")
 async def mark_onboarded_by_email(request: Request) -> Dict[str, Any]:
     """Flip onboarding_completed=True for a user by email — the inverse of
