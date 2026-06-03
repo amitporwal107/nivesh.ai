@@ -11,7 +11,7 @@ import { ApiError } from "@/services/api/errors";
 import { ConcentrationBreakdownC } from "@/services/contracts/portfolio.contract";
 import type { ConcentrationSnapshot, SectorAllocation } from "@/types/concentration";
 import type { CorrelationMatrix, FundOverlapPair } from "@/types/diversification";
-import type { RiskSnapshot } from "@/types/risk";
+import type { RiskSnapshot, RiskMeta } from "@/types/risk";
 
 export interface AnalyticsAdapter {
   concentration(): Promise<ConcentrationSnapshot>;
@@ -141,18 +141,34 @@ export const realAnalyticsAdapter: AnalyticsAdapter = {
         recovery:     String(s.recovery ?? ""),
       }));
 
+      // Meta: PRA availability + staleness status from backend
+      const rawMeta = body.meta as {
+        pra_available?: boolean;
+        pra_run_today?: boolean;
+        pra_computed_date?: string | null;
+        pra_error?: string | null;
+      } | undefined;
+      const meta: RiskMeta | undefined = rawMeta ? {
+        praAvailable:    rawMeta.pra_available ?? false,
+        praRunToday:     rawMeta.pra_run_today ?? false,
+        praComputedDate: rawMeta.pra_computed_date ?? null,
+        praError:        rawMeta.pra_error ?? null,
+      } : undefined;
+
       return {
-        vaR95Pct:       varPct,
-        vaR95Paise:     varPaise,
-        annualVolPct:   volPct,
+        vaR95Pct:        varPct,
+        vaR95Paise:      varPaise,
+        annualVolPct:    volPct,
         benchmarkVolPct: benchVolPct,
-        maxDrawdownPct: maxDD,
+        maxDrawdownPct:  maxDD,
         beta,
         riskDrivers,
         stressScenarios,
+        meta,
       };
-    } catch {
-      return { vaR95Pct: 0, vaR95Paise: 0, annualVolPct: 0, benchmarkVolPct: 0, maxDrawdownPct: 0, beta: 0, riskDrivers: [], stressScenarios: [] };
+    } catch (err) {
+      // Let the query layer surface a real error state instead of silently showing zeros.
+      throw err;
     }
   },
 };

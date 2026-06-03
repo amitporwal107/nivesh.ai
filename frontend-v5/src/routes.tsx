@@ -22,6 +22,8 @@ import PerformancePage from "./pages/Performance";
 import CompositionPage from "./pages/Composition";
 import DiagnosticsPage from "./pages/Diagnostics";
 import AdminPage from "./pages/Admin";
+import WorkPage from "./pages/Work";
+import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
 import ProTraderPage from "./pages/ProTrader";
 
@@ -39,7 +41,9 @@ export function AppRoutes() {
       <Route path="/cas-callback" element={<CasCallbackPage />} />
 
       {/* Diagnostics — standalone, no auth required (reachable even in failure scenarios) */}
-      <Route path="/diagnostics" element={<DiagnosticsPage />} />
+      <Route path="/diagnostics"          element={<DiagnosticsPage />} />
+      {/* Self-diagnostic tool test report — no auth, accessible even when app auth is broken */}
+      <Route path="/testSelfDiagnosticTool" element={<TestDiagnosticToolPage />} />
 
       {/* Authenticated app — sidebar layout */}
       <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
@@ -62,6 +66,7 @@ export function AppRoutes() {
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />
+        <Route path="/work"             element={<RequireAdmin><RouteErrorBoundary pageName="Work"><WorkPage /></RouteErrorBoundary></RequireAdmin>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

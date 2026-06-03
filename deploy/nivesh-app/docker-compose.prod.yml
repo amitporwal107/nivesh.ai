@@ -110,6 +110,24 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
+  # ── Host USE metrics for Prometheus ─────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: nivesh-node-exporter
+    restart: unless-stopped
+    command:
+      - "--web.listen-address=:9200"
+      - "--path.rootfs=/host"
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "9200:9200"
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    networks: [nivesh-prod]
+
   # ── DB migration runner (runs once, exits) ───────────────────────────────────
   migrate:
     image: nivesh/backend:prod

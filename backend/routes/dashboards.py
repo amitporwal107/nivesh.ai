@@ -263,14 +263,17 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
     via the NIDP DaaS /v1/portfolio-risk/{user_id} endpoint.
     Falls back to the legacy weighted-beta approach if no PRA result exists yet.
     """
+    from datetime import date
     from services.copilot_tools import daas_client as _daas
 
     # ── Primary path: precomputed PRA results ──────────────────────────
     pra: Optional[dict] = None
+    pra_error: Optional[str] = None
     try:
         pra = await _daas.get_portfolio_risk(user_id)
     except Exception as exc:
-        logger.debug("risk composite: PRA DaaS unavailable (%s), falling back", exc)
+        pra_error = str(exc)
+        logger.warning("risk composite: PRA DaaS unavailable for user %s: %s — falling back to legacy", user_id, exc)
 
     if pra and pra.get("var_95_1y_pct"):
         var_pct   = float(pra["var_95_1y_pct"])
@@ -284,7 +287,9 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
         color     = pra.get("risk_color", "amber")
         drivers   = pra.get("risk_drivers") or []
         stress    = pra.get("stress_scenarios") or []
-        computed_at = pra.get("computed_at", "")
+        computed_at   = pra.get("computed_at", "")
+        computed_date = pra.get("computed_date", "")
+        pra_run_today = computed_date == str(date.today())
 
         tone = {"green": "moss", "amber": "saffron", "red": "rust"}.get(color, "saffron")
         badge_label = "High risk" if color == "red" else ("Moderate risk" if color == "amber" else "Low risk")
@@ -328,13 +333,26 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
                 for s in stress
             ],
             "meta": {
-                "computed_at": computed_at,
-                "data_stale":  stale,
-                "sharpe_1y":   sharpe,
+                "pra_available":    True,
+                "pra_run_today":    pra_run_today,
+                "pra_computed_date": computed_date,
+                "pra_error":        None,
+                "computed_at":      computed_at,
+                "data_stale":       stale,
+                "sharpe_1y":        sharpe,
             },
         }
 
     # ── Fallback: legacy weighted-beta approach (no PRA results yet) ───
+    # Determine why PRA isn't available so we can surface it in the UI.
+    if pra_error:
+        _pra_meta_error = f"Risk analytics service unavailable: {pra_error}"
+    elif pra is None:
+        _pra_meta_error = "PRA engine has not run for this user yet. Trigger a run from the admin panel."
+    else:
+        _pra_meta_error = "PRA results exist but are incomplete (VaR not yet computed)."
+    _pra_computed_date = pra.get("computed_date") if pra else None
+
     holdings: list[dict] = await db.holdings.find(
         {"user_id": user_id},
         {"_id": 0, "name": 1, "ticker": 1, "asset_type": 1,
@@ -345,7 +363,14 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
         holdings = await pi_holdings_for_user(user_id)
 
     if not holdings:
-        return _empty_domain("risk")
+        result = _empty_domain("risk")
+        result["meta"] = {
+            "pra_available":     False,
+            "pra_run_today":     False,
+            "pra_computed_date": _pra_computed_date,
+            "pra_error":         _pra_meta_error,
+        }
+        return result
 
     mf_isins = [h["ticker"] for h in holdings
                 if (h.get("asset_type") or "").lower() in {"mutual_fund", "etf"} and h.get("ticker")]
@@ -406,7 +431,13 @@ async def _risk_composite(user_id: str) -> dict[str, Any]:
             ],
         },
         "stress_scenarios": [],
-        "meta": {"data_stale": False, "pra_available": False},
+        "meta": {
+            "pra_available":     False,
+            "pra_run_today":     False,
+            "pra_computed_date": _pra_computed_date,
+            "pra_error":         _pra_meta_error,
+            "data_stale":        False,
+        },
     }
 
 

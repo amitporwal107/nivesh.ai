@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { Card, CardLabel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MetricCard } from "@/components/shared/MetricCard";
@@ -7,16 +8,22 @@ import type { RiskSnapshot } from "@/types/risk";
 
 interface Props {
   data: RiskSnapshot;
+  isAdmin?: boolean;
+  onRunPra?: () => void;
+  isPraRunning?: boolean;
 }
 
-export function Risk({ data }: Props) {
+export function Risk({ data, isAdmin, onRunPra, isPraRunning }: Props) {
+  const meta = data.meta;
+  const showWarning = meta && (!meta.praAvailable || !meta.praRunToday);
+
   return (
     <div className="px-6 py-8 lg:px-10 lg:py-10 max-w-[1080px] mx-auto w-full">
       <div className="flex items-start gap-4">
         <div>
           <div className="font-mono text-[11px] uppercase tracking-[.18em] text-ink-3">Risk analysis</div>
           <h1 className="font-display text-3xl sm:text-4xl tracking-tightish leading-[1.05] mt-1.5">
-            One bad quarter could cost <span className="text-warm">{formatINR(data.vaR95Paise, { compact: true })}</span>.
+            One bad year could cost <span className="text-warm">{formatINR(data.vaR95Paise, { compact: true })}</span>.
           </h1>
           <p className="text-[15.5px] text-ink-2 mt-3 max-w-[600px] leading-relaxed">
             That's the 95th-percentile worst case over 12 months — a 1-in-20 scenario. Likely milder, useful to know.
@@ -24,6 +31,34 @@ export function Risk({ data }: Props) {
         </div>
         <Badge tone="warm" className="ml-auto shrink-0">ATTENTION</Badge>
       </div>
+
+      {/* PRA staleness / error warning */}
+      {showWarning && (
+        <div className="mt-5 rounded-xl border border-warm/30 bg-warm/5 px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-warm mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[13.5px] font-medium text-ink-1">
+              {!meta.praAvailable ? "Risk data unavailable" : "Risk data may be outdated"}
+            </div>
+            <div className="text-[12.5px] text-ink-3 mt-0.5">
+              {meta.praError
+                ? meta.praError
+                : meta.praComputedDate
+                  ? `PRA engine last ran on ${meta.praComputedDate}. Showing previous results.`
+                  : "PRA engine has not run for this user yet."}
+            </div>
+          </div>
+          {isAdmin && onRunPra && (
+            <button
+              onClick={onRunPra}
+              disabled={isPraRunning}
+              className="shrink-0 text-[12px] font-medium px-3 py-1.5 rounded-lg border border-warm/40 text-warm hover:bg-warm/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isPraRunning ? "Triggering…" : "Run PRA now"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-7">

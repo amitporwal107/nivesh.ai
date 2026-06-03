@@ -95,6 +95,8 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     # Portfolio sync pipeline (Nivesh PG → NIDP → intelligence)
     {"ingester": "portfolio_holdings_sync",     "cadence": "daily"},
     {"ingester": "portfolio_intelligence_sync", "cadence": "daily"},
+    # Portfolio Risk Analytics — nightly at 23:45 IST weekdays
+    {"ingester": "pra_engine",                  "cadence": "daily"},
 ]
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "niveshdataintelligence")

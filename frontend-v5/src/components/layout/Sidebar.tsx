@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, PieChart, Sparkles, MessageSquare, Shield,
   Settings, Layers, TrendingUp, Target, Receipt, ClipboardList, Wrench,
-  ShieldCheck, Server, BarChart2,
+  ShieldCheck, Server, BarChart2, Bug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -36,8 +36,9 @@ export function Sidebar({ className }: { className?: string }) {
 
   const adminNav: NavItem[] = me?.is_admin
     ? [
-        { to: "/admin", label: "Admin Console", icon: ShieldCheck, group: "Admin" },
-        { to: "/nidp",  label: "NIDP Console",  icon: Server,      group: "Admin" },
+        { to: "/work",  label: "Issues",         icon: Bug,         group: "Admin" },
+        { to: "/admin", label: "Admin Console",  icon: ShieldCheck, group: "Admin" },
+        { to: "/nidp",  label: "NIDP Console",   icon: Server,      group: "Admin" },
       ]
     : [];
 
