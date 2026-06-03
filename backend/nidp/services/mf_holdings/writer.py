@@ -31,9 +31,13 @@ ON CONFLICT (scheme_code, as_of_month, security_name, source) DO UPDATE SET
 """
 
 
+_CHUNK_SIZE = 5_000   # rows per transaction — avoids single-transaction lock on large batches
+
+
 async def upsert_holdings(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
     if not rows:
         return 0
+
     def _as_date(v: Any) -> _date:
         if isinstance(v, _date):
             return v
@@ -46,9 +50,18 @@ async def upsert_holdings(rows: list[dict[str, Any]], run_id: uuid.UUID) -> int:
          r.get("weight_pct"), r["source"], r.get("source_url"), run_id)
         for r in rows
     ]
+
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.executemany(_INSERT_SQL, args)
-    logger.info("mf_holdings upserted %d rows", len(args))
-    return len(args)
+    total = 0
+    for i in range(0, len(args), _CHUNK_SIZE):
+        chunk = args[i : i + _CHUNK_SIZE]
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(_INSERT_SQL, chunk, timeout=120)
+        total += len(chunk)
+        logger.info(
+            "mf_holdings upserted %d/%d rows (chunk %d-%d)",
+            total, len(args), i + 1, min(i + _CHUNK_SIZE, len(args)),
+        )
+
+    return total

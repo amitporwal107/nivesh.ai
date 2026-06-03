@@ -180,9 +180,10 @@ _URL_TEMPLATES: dict[str, list[str]] = {
         "https://www.axismf.com/media/downloads/portfolio-{month}-{yyyy}.xlsx",
     ],
     "tata": [
-        # VERIFIED 2026-06: betacms CDN redirects to tatamutualfund.com; listing page scrape preferred
-        "https://betacms.tatamutualfund.com/system/files/{yyyy}-{mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}-{Month}-{yyyy}%20%281%29.xlsx",
-        "https://betacms.tatamutualfund.com/system/files/{yyyy}-{mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}-{Month}-{yyyy}.xlsx",
+        # VERIFIED 2026-06: betacms CDN; folder = publication month ({pub_yyyy}-{pub_mm})
+        # Filename uses spaces between ordinal and month (not hyphens).
+        "https://betacms.tatamutualfund.com/system/files/{pub_yyyy}-{pub_mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}%20{Month}%20{yyyy}%20%281%29.xlsx",
+        "https://betacms.tatamutualfund.com/system/files/{pub_yyyy}-{pub_mm}/Monthly%20Portfolio%20as%20on%20{dom_ord}%20{Month}%20{yyyy}.xlsx",
         "https://www.tatamutualfund.com/downloads/portfolio-disclosure-{month}-{yyyy}.xlsx",
         "https://www.tatamutualfund.com/downloads/portfolio-{month}-{yyyy}.xlsx",
         "https://www.tatamutualfund.com/siteassets/documents/portfolio-disclosure/{Month}-{yyyy}.xlsx",
@@ -290,13 +291,18 @@ def _ordinal_suffix(n: int) -> str:
 
 def _render_url(template: str, m: date) -> str:
     import calendar
+    from datetime import timedelta
     last_day = calendar.monthrange(m.year, m.month)[1]
+    # Publication month = first day of next month (SEBI M+10 disclosure; files appear month+1)
+    pub = (date(m.year, m.month, 28) + timedelta(days=4)).replace(day=1)
     return (template
             .replace("{month}", m.strftime("%B").lower())
             .replace("{Month}", m.strftime("%B"))
             .replace("{mm}",    m.strftime("%m"))
             .replace("{yyyy}",  m.strftime("%Y"))
-            .replace("{dom_ord}", _ordinal_suffix(last_day)))
+            .replace("{dom_ord}", _ordinal_suffix(last_day))
+            .replace("{pub_mm}",   pub.strftime("%m"))
+            .replace("{pub_yyyy}", pub.strftime("%Y")))
 
 
 def _discover_xlsx_link(html: str, base_url: str, m: date) -> Optional[str]:
@@ -860,20 +866,29 @@ async def absl(http: aiohttp.ClientSession, m: date) -> list[dict]:
             else:
                 payload = await resp.json(content_type=None)
                 accordion = payload.get("AccordionList") or []
-                # Find the entry matching the target month+year
+                # Structure (confirmed 2026-06): each entry has ResourceLink (text),
+                # pdfUrl (the ZIP download URL directly on the entry — no Files sub-array).
+                def _entry_url(e: dict) -> Optional[str]:
+                    # Primary: pdfUrl on the entry itself
+                    u = e.get("pdfUrl") or e.get("PdfUrl")
+                    if u:
+                        return str(u).strip()
+                    # Fallback: legacy Files[] sub-array shape
+                    files = e.get("Files") or e.get("files") or []
+                    if files:
+                        return files[0].get("URL") or files[0].get("url")
+                    return None
+
                 for entry in accordion:
-                    name = (entry.get("Name") or entry.get("name") or "").lower()
+                    rl = entry.get("ResourceLink") or entry.get("Name") or entry.get("name") or ""
+                    name = (rl if isinstance(rl, str) else rl.get("ResourceLink", "")).lower()
                     if month_long in name and year_full in name:
-                        files = entry.get("Files") or entry.get("files") or []
-                        if files:
-                            zip_url = files[0].get("URL") or files[0].get("url")
+                        zip_url = _entry_url(entry)
                         break
                 if not zip_url and accordion:
-                    # Fallback: take the first (most recent) entry
-                    first = accordion[0]
-                    files = first.get("Files") or first.get("files") or []
-                    if files:
-                        zip_url = files[0].get("URL") or files[0].get("url")
+                    # Fallback: first (most recent) entry
+                    zip_url = _entry_url(accordion[0])
+                    if zip_url:
                         logger.info("mf_holdings[absl]: no exact month match; using latest entry")
                 logger.info("mf_holdings[absl]: zip_url=%s", zip_url)
     except Exception as e:  # noqa: BLE001
@@ -1137,8 +1152,14 @@ async def _quant_get_month_id(http: aiohttp.ClientSession, year: str) -> Optiona
             data = await resp.json(content_type=None)
             html = data.get("d", "")
         soup = BeautifulSoup(html, "lxml")
+        # API returns <li id="N" ...>MonthName</li> for each available month.
+        # id is the month_id used in the next API call.
+        # Find all li elements with a numeric id — pick the highest (most recent).
+        li_els = [el for el in soup.find_all("li") if el.get("id", "").isdigit()]
+        if li_els:
+            return max(li_els, key=lambda el: int(el["id"]))["id"]
+        # Legacy fallback: <option value="N">MonthName</option>
         options = soup.find_all("option")
-        # First option = most recent month; value is the month_id
         return options[0]["value"] if options else None
     except Exception as e:  # noqa: BLE001
         logger.warning("mf_holdings[quant]: month lookup failed: %s", e)
