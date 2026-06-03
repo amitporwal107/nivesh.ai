@@ -32,6 +32,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
+from services import pg_client
 from services.action_plan_manager import ActionPlanManager
 
 logger = logging.getLogger(__name__)
@@ -511,31 +512,46 @@ async def _performance_composite(user_id: str, period: str, force: bool = False)
 
 async def _goals_composite(user_id: str) -> dict[str, Any]:
     """Serves screen 09 Goals Dashboard."""
-    goals_doc = await db.goals.find_one({"user_id": user_id}) or {}
-    goals = goals_doc.get("goals") or []
-    at_risk = [g for g in goals if (g.get("funding_pct") or 100) < 80]
-    tone = "rust" if at_risk else "moss"
+    pool = await pg_client.get_pool()
+    goals = []
+    if pool:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT goal_name, goal_type, target_amount_rs, horizon_years, "
+                "on_track_pct, monthly_sip_rs FROM user_goals "
+                "WHERE user_id = $1 AND status != 'abandoned' ORDER BY created_at",
+                user_id,
+            )
+            goals = [dict(r) for r in rows]
+
+    total = len(goals)
+    at_risk_count = sum(1 for g in goals if (g.get("on_track_pct") or 100) < 80)
+    on_track_count = total - at_risk_count
+    tone = "rust" if at_risk_count else "moss"
 
     return {
-        "badge": {"label": f"{len(at_risk)} goal{'s' if len(at_risk) != 1 else ''} at risk" if at_risk else "On track", "tone": tone},
+        "badge": {
+            "label": f"{at_risk_count} goal{'s' if at_risk_count != 1 else ''} at risk" if at_risk_count else "On track",
+            "tone": tone,
+        },
         "insight": {
-            "headline": f"{len(at_risk)} of {len(goals)} goals are at risk." if at_risk else "All goals on track.",
-            "subtext": "Raise SIP or extend horizon to close the gap." if at_risk else "",
-            "hero": {"label": "AT RISK", "value": str(len(at_risk)), "tone": tone},
+            "headline": f"{at_risk_count} of {total} goals are at risk." if at_risk_count else "All goals on track.",
+            "subtext": "Raise SIP or extend horizon to close the gap." if at_risk_count else "",
+            "hero": {"label": "AT RISK", "value": str(at_risk_count), "tone": tone},
         },
         "stat_tiles": [
-            {"label": "Goals", "value": str(len(goals))},
-            {"label": "At risk", "value": str(len(at_risk)), "tone": tone},
-            {"label": "On track", "value": str(len(goals) - len(at_risk)), "tone": "moss"},
+            {"label": "Goals", "value": str(total)},
+            {"label": "At risk", "value": str(at_risk_count), "tone": tone},
+            {"label": "On track", "value": str(on_track_count), "tone": "moss"},
         ],
         "breakdown": {
             "lens": "goals",
             "lens_options": ["goals"],
             "items": [
                 {
-                    "name": g.get("name") or g.get("goal_name") or "Goal",
-                    "value": round(float(g.get("funding_pct") or 0), 1),
-                    "tone": _score_tone(float(g.get("funding_pct") or 0)),
+                    "name": g.get("goal_name") or "Goal",
+                    "value": round(float(g.get("on_track_pct") or 0), 1),
+                    "tone": _score_tone(float(g.get("on_track_pct") or 0)),
                     "target_rs": g.get("target_amount_rs"),
                     "horizon_years": g.get("horizon_years"),
                 }
